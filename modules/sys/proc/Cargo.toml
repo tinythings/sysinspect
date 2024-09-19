@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-modlib = { path = "../../modlib" }
+libsysinspect = { path = "../../../libsysinspect" }
+sysinfo = { version = "0.31.4", features = ["linux-netdevs", "linux-tmpfs"] }
