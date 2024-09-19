@@ -24,3 +24,21 @@ pub fn interpolate(tpl: &str, vars: &HashMap<String, String>) -> String {
         })
         .into_owned()
 }
+
+/// Get a list of all variables, mentioned in a template. For example,
+/// the following template will return a list of them:
+///
+/// ```text
+///   foo bar $(baz) toto $(spam) here
+/// ```
+///
+/// The following list of variables will be returned:
+/// - `baz`
+/// - `spam`
+pub fn extract(tpl: &str) -> Vec<String> {
+    Regex::new(r"\$\(([^)]+)\)")
+        .unwrap()
+        .captures_iter(tpl)
+        .map(|cap| cap[1].to_string())
+        .collect()
+}
