@@ -2,8 +2,50 @@ use serde::{Deserialize, Serialize};
 use std::io::Error;
 use std::{
     collections::HashMap,
-    io::{self, BufRead, Read},
+    io::{self, Read},
 };
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PluginResponse {
+    /// General main response message
+    info: String,
+
+    /// Log messages (whatever a plugin wants to pass-through)
+    messages: Vec<String>,
+
+    /// General return status
+    return_status: bool,
+
+    /// General return code, if any.
+    return_code: i8,
+}
+
+impl PluginResponse {
+    pub fn new(info: String) -> Self {
+        PluginResponse {
+            info,
+            messages: vec![],
+
+            // Return status is success (true)
+            return_status: true,
+
+            // Return code is success (0)
+            return_code: 0,
+        }
+    }
+
+    /// Set general return status
+    pub fn set_status(&mut self, status: bool) -> &mut Self {
+        self.return_status = status;
+        self
+    }
+
+    /// Set general return code
+    pub fn set_code(&mut self, code: i8) -> &mut Self {
+        self.return_code = code;
+        self
+    }
+}
 
 // Struct to call plugin parameters
 #[derive(Serialize, Deserialize, Debug)]
@@ -79,4 +121,10 @@ pub fn get_call_args() -> Result<PluginParams, Error> {
     io::stdin().read_to_string(&mut data)?;
 
     Ok(serde_json::from_str::<PluginParams>(&data)?)
+}
+
+// Print JSON result to STDOUT
+pub fn send_call_response(r: &PluginResponse) -> Result<(), Error> {
+    println!("{}", serde_json::to_string(r)?);
+    Ok(())
 }

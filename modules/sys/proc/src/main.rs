@@ -9,5 +9,9 @@ fn main() -> Result<(), Error> {
     println!("Timeout: {:?}", x.timeout());
     println!("Quiet: {:?}", x.quiet());
 
+    println!("---");
+    let r = modlib::runtime::PluginResponse::new("Something".to_string());
+    modlib::runtime::send_call_response(&r)?;
+
     Ok(())
 }
