@@ -1,7 +1,8 @@
 use libsysinspect::{self, runtime};
-use std::io::Error;
+use std::{collections::HashMap, io::Error};
 
-fn main() -> Result<(), Error> {
+fn main() {
+    /*
     let x = runtime::get_call_args()?;
     println!("Args: {:?}", x.args());
     println!("Options: {:?}", x.options());
@@ -10,8 +11,24 @@ fn main() -> Result<(), Error> {
     println!("Quiet: {:?}", x.quiet());
 
     println!("---");
-    let r = runtime::PluginResponse::new("Something".to_string());
+
+    let mut v = HashMap::<String, String>::new();
+    v.insert("something".to_string(), "world".to_string());
+
+    let r =
+        runtime::PluginResponse::new(libsysinspect::tpl::interpolate("Hello, $(something)?!", &v));
     runtime::send_call_response(&r)?;
 
-    Ok(())
+    println!(
+        "{:?}",
+        libsysinspect::tpl::extract(
+            "here $(is.a.test) of stuff $(that) could matter $(at.some) point"
+        )
+    );
+    */
+
+    let r = match libsysinspect::mdl::mspec::load(".") {
+        Ok(_) => println!("Ok"),
+        Err(err) => println!("Error: {}", err),
+    };
 }
