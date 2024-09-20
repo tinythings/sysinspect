@@ -1,0 +1,76 @@
+name: My Router
+version: 0.1
+description: |
+  This is a description of this model
+  that gives you more idea what it is etc.
+maintainer: John Smith <js@javascriptsucks.com>
+entities:
+- net:
+    id: general-network
+    sockets:
+    - tcp, 0.0.0.0:22, 0.0.0.0:*
+    - tcp, [::]:22, [::]:*
+    routes:
+    - 192.168.2.0/24
+    - 192.168.122.0/24
+    interfaces:
+    - lo
+    - virbr0
+    - virbr1
+    - wlp0s20f3
+    addresses:
+      wlp0s20f3:
+      - inet 192.168.2.151/24
+      - inet6 2003:d5:5f08:bad2:9b59:e793:8723:5cfa/64
+      virbr0:
+      - inet 192.168.122.1/24
+      virbr1:
+      - inet 192.168.100.1/24
+- process:
+    id: journald
+    path: /lib/systemd/systemd-journald
+- process:
+    id: udevd
+    path: /lib/systemd/systemd-udevd
+- process:
+    id: resolved
+    path: /lib/systemd/systemd-resolved
+- process:
+    id: systemd
+    path: /sbin/init
+relations:
+- relation:
+    id: r_resolved
+    from: resolved
+    to: general-network
+- relation:
+    id: r_journald
+    from: systemd
+    to: journald
+- relation:
+    id: r_udevd
+    from: systemd
+    to: udevd
+actions:
+- action:
+    id: a_network
+    description: Check journald process is present
+    module:
+      name: sys.info
+      options:
+      - --process
+      args:
+        path: $(process.journald.path)
+      entities:
+      - process.journald
+constraints:
+- constraint:
+    id: netconfig
+    descr: Network configuration should meet the constraints
+    present:
+      all:
+      - net.general-network.sockets
+      - net.general-network.addresses.wlp0s20f3
+      any:
+      - net.general-network.interfaces.virbr0
+      - net.general-network.interfaces.virbr1
