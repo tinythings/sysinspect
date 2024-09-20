@@ -12,8 +12,12 @@ pub mod tpl;
 
 #[derive(Debug)]
 pub enum SyspectError {
+    // Specific errors
     ModelMultipleIndex(String),
+
+    // Wrappers for the system errors
     IoErr(io::Error),
+    SerdeYaml(serde_yaml::Error),
 }
 
 impl Error for SyspectError {
@@ -32,6 +36,7 @@ impl Display for SyspectError {
                 format!("Another {} file found as '{}'", mspec::MODEL_INDEX, m)
             }
             SyspectError::IoErr(err) => format!("(I/O) {err}"),
+            SyspectError::SerdeYaml(err) => format!("(YAML) {err}"),
         };
 
         write!(f, "{msg}")?;
@@ -39,8 +44,16 @@ impl Display for SyspectError {
     }
 }
 
+/// Handle IO errors
 impl From<io::Error> for SyspectError {
     fn from(err: io::Error) -> Self {
         SyspectError::IoErr(err)
+    }
+}
+
+/// Handle YAML errors
+impl From<serde_yaml::Error> for SyspectError {
+    fn from(err: serde_yaml::Error) -> Self {
+        SyspectError::SerdeYaml(err)
     }
 }
