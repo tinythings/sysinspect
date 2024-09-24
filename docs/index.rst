@@ -1,14 +1,14 @@
-Welcome to Sysinspect documentation!
+Welcome to the Project Syspect!
 ====================================
 
 .. note::
-   This documentation covers Sysinspect [version] — the solution to
-   examine any system, based on its architecture model.
+   This documentation covers Syspect [version] — the solution to
+   examine any system, based on its architecture Model Description.
 
 .. toctree::
    :maxdepth: 1
 
-   overview
+   modeldescr/overview
 
 
 Limitations
@@ -16,10 +16,10 @@ Limitations
 
 Sysinspect is an experimental concept.
 
-   
+
 Contributing
 ------------
-   
+
 Best way to make progress is to open an issue (great 👍) or submit a
 Pull Request (awesome 🤩) on the GitHub.
 
