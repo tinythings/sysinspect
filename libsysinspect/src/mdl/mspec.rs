@@ -1,33 +1,12 @@
 use crate::SyspectError;
-use serde_yaml::{Mapping, Value};
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use serde_yaml::Value;
+use std::{fs, path::PathBuf};
 use walkdir::WalkDir;
 
-/// Model Specification
-/// ===================
-///
-/// This module's job is to read all the model files and put them together
-/// into one tree, resolving all interpolative points to one single
-/// configuration (spec)
-
-pub struct ModelSpec {
-    // These are fields of model.cfg init config
-    //
-    // Model name
-    name: String,
-
-    // Model version
-    version: String,
-
-    // A multi-line description of the model, used for reports
-    // or other places.
-    description: String,
-
-    // Model maintainer
-    maintainer: String,
-}
+use super::mspecdef::ModelSpec;
 
 pub const MODEL_INDEX: &str = "model.cfg";
+pub const MODEL_FILE_EXT: &str = ".cfg";
 
 /// Spec loader object
 struct SpecLoader {
@@ -55,6 +34,10 @@ impl SpecLoader {
 
             // Crash if multiple indexes found (or we are at multuple models)
             if let Some(fname) = etr.path().file_name().and_then(|s| s.to_str()) {
+                if !fname.ends_with(MODEL_FILE_EXT) {
+                    continue;
+                }
+
                 if fname == MODEL_INDEX {
                     if self.init {
                         return Err(SyspectError::ModelMultipleIndex(etr.path().as_os_str().to_str().unwrap().to_string()));
@@ -64,7 +47,10 @@ impl SpecLoader {
                     }
                 } else {
                     // Get YAML chunks
-                    out.push(serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?)?);
+                    match serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?) {
+                        Ok(chunk) => out.push(chunk),
+                        Err(err) => return Err(SyspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
+                    }
                 }
             }
         }
@@ -97,7 +83,14 @@ impl SpecLoader {
                     }
                 }
                 (a, b) => {
-                    println!("UNSUPPORTED>>> {:?}\n\t-> {:?}\n", a, b); // XXX: Probably exception too
+                    // Non-null "b" implies a structure, which is not formed as a key/val,
+                    // therefore cannot be added to the DSL root
+                    if !b.is_null() {
+                        return Err(SyspectError::ModelDSLError(format!(
+                            "Mapping expected, but this structure passed: {:?}\n\t > {:?}",
+                            a, b
+                        )));
+                    }
                 }
             }
         }
@@ -108,15 +101,7 @@ impl SpecLoader {
     /// its content.
     fn load(&mut self) -> Result<ModelSpec, SyspectError> {
         let mut parts = self.collect_parts()?;
-        let base = self.merge_parts(&mut parts)?;
-        println!("........\n{}\n.......", serde_yaml::to_string(&base)?);
-
-        Ok(ModelSpec {
-            name: "test".to_string(),
-            version: "0.1".to_string(),
-            description: "Blah".to_string(),
-            maintainer: "me and you too".to_string(),
-        })
+        Ok(serde_yaml::from_value(self.merge_parts(&mut parts)?)?)
     }
 }
 

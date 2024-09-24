@@ -28,7 +28,9 @@ fn main() {
     */
 
     let r = match libsysinspect::mdl::mspec::load(".") {
-        Ok(_) => println!("Ok"),
+        Ok(m) => {
+            println!("{:?}", m);
+        }
         Err(err) => println!("Error: {}", err),
     };
 }

@@ -14,6 +14,7 @@ pub mod tpl;
 pub enum SyspectError {
     // Specific errors
     ModelMultipleIndex(String),
+    ModelDSLError(String),
 
     // Wrappers for the system errors
     IoErr(io::Error),
@@ -37,6 +38,7 @@ impl Display for SyspectError {
             }
             SyspectError::IoErr(err) => format!("(I/O) {err}"),
             SyspectError::SerdeYaml(err) => format!("(YAML) {err}"),
+            SyspectError::ModelDSLError(err) => format!("(DSL) {err}"),
         };
 
         write!(f, "{msg}")?;
