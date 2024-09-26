@@ -13,3 +13,6 @@ This document explains each part of the Model Description.
    :maxdepth: 1
 
    entities
+   actions
+   constraints
+   functions
