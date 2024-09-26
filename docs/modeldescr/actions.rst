@@ -112,16 +112,6 @@ of an action as follows:
     In this case a module will get a JSON data with ``file`` key and a list of paths,
     that can be then translated by a module in whatever required format.
 
-Functions
----------
-
-.. important::
-
-    A fact function is **not** a logic for data processing. It is merely a helper to **navigate** the data.
-
-Fact functions are main workhorse for actions, as they are dynamically configuring a bind
-between an action and a data. These functions are not meant to provide an actual logic how to
-actually process the given data model. They are only to properly link the navigation of it.
 
 Examples of Actions
 -------------------
