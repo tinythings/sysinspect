@@ -12,6 +12,7 @@ This document explains each part of the Model Description.
 .. toctree::
    :maxdepth: 1
 
+   layout
    entities
    actions
    constraints
