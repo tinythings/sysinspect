@@ -141,31 +141,4 @@ Facts can be addressed by built-in functions directly or indirectly:
    # Claim returns a specific value of a claim within a current fact
    baz: claim(port)
 
-Fact Functions
-^^^^^^^^^^^^^^
-
-Fact functions are just traversal mechanism to fetch the value of an entity by another consumer.
-
-``fact(value | @)``
-
-  Function ``fact`` can accept the following parameters:
-
-    - A type of ``String``, which is an ID of a specific fact. This would be a static call.
-    - An ``@`` symbol, which refers to a current fact. This would be a dynamic call.
-
-  The function will return the entire structure of a fact data as it is represented in the Model.
-  It is sometimes useful if a module already "understands" the structure "as is" without adjusting it
-  within an **action** consumer.
-
-
-``claim(value)``
-
-  Function ``claim`` accepts a type ``String`` with the ID of that claim.
-
-  The function returns a defined value of that claim.
-
-``static()``
-
-  Function ``static`` accepts a type ``String`` with the whole absolute path with the ID of the claim.
-
-  A path has ``.`` dot-notation, e.g. ``foo.bar.baz`` where ``baz`` is the final ID.
+For more details about fact functions, please refer to the corresponding section.
