@@ -17,6 +17,7 @@ This document explains each part of the Model Description.
    actions
    constraints
    functions
+   inheritance
 
 Model Description is written in YAML format, using **declarative method**. Declarative approach
 is considered better than imperative approach for several reasons.
