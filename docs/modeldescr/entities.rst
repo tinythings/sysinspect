@@ -32,17 +32,45 @@ all constraints and checks come to an expected result.
 Each entity is a map. A map just starts as an "id" and then contains
 needed attributes. Current attributes of an "entity" as follows:
 
-1. `facts` _(required)_ contains all data to be consumed by any module
-or check or a constraint, that must be true at the end.
-2. `consists` _(optional)_ is only for collection entities (e.g. network)
-and it contains a list of other single entities that would make together
-such collection.
+1. ``facts`` *(required)* contains all data to be consumed by any module or check or a constraint, that must be true at the end.
+2. ``consists`` *(optional)* is only for collection entities (e.g. network) and it contains a list of other single entities that would make together such collection. This determines an operational state of the entity **itself**.
+3. ``depends`` *(optional)* is for defining what other entities required for this entity to be functional.
 
 The data is consumed by a module, according to the defined behaviour
 of relations, actions and constraints. Its content must be understood
 by a module.
 
-In the following example is the `process` entity with the ID `systemd`:
+Detailed Syntax
+^^^^^^^^^^^^^^^
+
+Here is the full entity description:
+
+.. code-block::  text
+
+   entities:
+     - <entity-id>:
+         facts:
+           <state-id>:
+             - <label>:
+                 key: value
+
+
+``entity-id``
+
+  The *entity-id* is an unique ID to place an entity within the namespace.
+
+``state-id``
+
+  The *state-id* is an ID within a current fact and keeps properties that could match that state. For example, it can hold a data
+  for a router with two states: 2.4GHz with 5GHz Wifi and only 2.4GHz Wifi.
+
+``label``
+
+  *Label* is a cathegory or group of claims within a specific entity state.
+
+.. hint::
+
+   State-id and label are for constructing data under different modes of an entity and calling a corresponding module accordingly.
 
 An example of a single entities:
 
@@ -51,8 +79,9 @@ An example of a single entities:
    entities:
      - journald:
          facts:
-           label:
-             path: /lib/systemd/systemd-journald
+           default:
+             - label:
+               path: /lib/systemd/systemd-journald
 
 An example of a compound entity:
 
@@ -74,12 +103,14 @@ For example:
      - systemconf:
         descr: static system configuration
         facts:
-        storage:
-           type: SSD
-           size: 2TB
-           free: 500Mb
-        mem:
-           free: 10Mb
+          default:
+            - main:
+                storage:
+                type: SSD
+                size: 2TB
+                free: 500Mb
+              mem:
+                free: 10Mb
 
 Aall of these entities are describing something: a process, an ECU with its APIs,
 an application, a service, a collection of those entities and even just a physical wire.
@@ -93,15 +124,17 @@ Facts
 Each entity **must** contain some facts about it.
 
 A section in key/value format contains a series of facts under the name ``facts``. Each *fact*
-consists of *claims*. A fact can have one or more claims.
+consists of *claims*. A fact can have one or more claims. Fact has also states. States are essentially
+facts segregation by which constraints and actions selecting different parameters for the processing module.
 
 Syntax:
 
-.. code-block:: yaml
+.. code-block:: text
 
    facts:
-     <label>:
-       key: value
+     <id>:
+       - <state>:
+           key: value
 
 Each fact has a *label* which then allows to tag it, so any other process can refer to this
 particular fact directly or indirectly. Main usage of labels are in declarative constraints.
@@ -118,11 +151,17 @@ listening to the world:
       # The label isn't addressed and skipped.
       tcp-network:
 
-         # Here are whatever key/value data, understandable by a
-         # corresponding plugin.
-         type: tcp
-         port: 0.0.0.0:22
-         listen: 0.0.0.0:*
+         # State ID by which action may refer it
+         default-state:
+
+            # Fact label
+            - label:
+
+                # Here are whatever key/value data, understandable by a
+                # corresponding plugin.
+                type: tcp
+                port: 0.0.0.0:22
+                listen: 0.0.0.0:*
 
 Facts's claims are just arbitrary key/value that can be then later referred by a corresponding
 consumer, such as a logic flow, an action, a plugin etc.

@@ -33,11 +33,13 @@ of an action as follows:
         bind:
           - <entity ID>
 
-        options:
-          - <option>
+        state:
+          - $|<id>:
+              options:
+                - <option>
 
-        args:
-          <key>: <value>
+              args:
+                <key>: <value>
 
 ``module: namespace``
 
@@ -58,6 +60,20 @@ of an action as follows:
         bind:
           - systemd
           - journald
+
+``state : [list]``
+
+    A configuration group for the particular state. It must be the same ID as state ID in the entities collection.
+    If actions processing the system in a serial fashion without knowing what it is even discovered, then how exactly
+    the state is determined?
+
+    They are not. An entity anyway is checked through all defined states. If facts are matching for one particular state,
+    it is concluded that the device is in this state. Another option is to pass an argument to a module of a state. So
+    if a module is able to request a state, then it can match the return result accordingly.
+
+    For example, if a router has two bands wifi state and one band wifi state, each action can send a flag, making
+    the corresponding module aware of the currently processed state. Therefore, in case of the state is requested other
+    than it is currently detected on the device, the module should return **true**.
 
 ``options: [list]``
 
@@ -135,12 +151,14 @@ The fact ``discspace`` from ``my-special`` fact will be omitted.
       - systemd:
           facts:
             my-fact:
-              path: /sbin/init
+              - default:
+                  path: /sbin/init
       - syslogd:
-        facts:
-          my-special:
-            path: /usr/bin/syslogd
-            diskspace: 500Mb
+          facts:
+            my-special:
+              - default:
+                  path: /usr/bin/syslogd
+                  diskspace: 500Mb
 
     actions:
       - verify-process-running:
@@ -149,10 +167,12 @@ The fact ``discspace`` from ``my-special`` fact will be omitted.
         bind:
           - syslogd
           - systemd
-        options:
-          - is-running
-        args:
-          - process: "claim(path)"
+        state:
+          - $:
+              options:
+                - is-running
+              args:
+                - process: "claim(path)"
 
 In the example above, function ``claim(path)`` is the interpolated value. This is similar
 to the Shell expression as such: ``$MY_VAR``.
@@ -176,12 +196,13 @@ Another example, showing static data references. Consider the following configur
     - systemconf:
         descr: static system configuration
         facts:
-          storage:
-            type: SSD
-            size: 2TB
-            free: 500Mb
-          mem:
-            free: 10Mb
+          default:
+            - storage:
+                type: SSD
+                size: 2TB
+                free: 500Mb
+            - mem:
+                free: 10Mb
 
     actions:
     # Same ID as end-entity
@@ -199,9 +220,11 @@ Another example, showing static data references. Consider the following configur
         module: sys.info
         bind:
             - syslogd
-        args:
-            # Variable $(foo.bar) always refers to a full path from the document root.
-            - free-disk: "static(entities.syslogd.facts.storage.free)"
-            - free-mem: "static(entities.systemconf.facts.mem.free)"
+        state:
+          - $:
+            args:
+              # Variable $(foo.bar) always refers to a full path from the document root.
+              - free-disk: "static(entities.syslogd.facts.storage.free)"
+              - free-mem: "static(entities.systemconf.facts.mem.free)"
 
 In the example above, function ``static(....)`` can statically reach any defined value of a fact.
