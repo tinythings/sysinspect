@@ -17,6 +17,7 @@ This document explains each part of the Model Description.
    actions
    constraints
    relations
+   states
    functions
    inheritance
 
