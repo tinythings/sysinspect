@@ -5,11 +5,11 @@ Fact Functions
 
     This document explains how fact functions work.
 
-Fact functions are just traversal mechanism to fetch the value of an entity by another consumer.
+Fact functions are simply traversal mechanisms used to fetch the value of an entity for another consumer.
 
-Fact functions are main workhorse for actions, as they are dynamically configuring a bind
-between an action and a data. These functions are not meant to provide an actual logic how to
-actually process the given data model. They are only to properly link the navigation of it.
+Fact functions are the main workhorses for actions, as they dynamically configure a bind between an action
+and data. These functions are not meant to provide the actual logic for processing the given data model;
+they only serve to properly link its navigation.
 
 .. important::
 
@@ -24,9 +24,9 @@ List of currently supported functions:
     - A type of ``String``, which is an ID of a specific fact. This would be a static call.
     - An ``@`` symbol, which refers to a current fact. This would be a dynamic call.
 
-  The function will return the entire structure of a fact data as it is represented in the Model.
-  It is sometimes useful if a module already "understands" the structure "as is" without adjusting it
-  within an **action** consumer.
+The function will return the entire structure of fact data as it is represented in the Model. This can be
+useful when a module already "understands" the structure "as is," without needing to adjust it within an
+action consumer.
 
 
 ``claim(value)``

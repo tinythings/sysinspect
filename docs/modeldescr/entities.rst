@@ -4,41 +4,40 @@ Entities
 .. note::
    This document describes entities definition
 
-The element ``entitles`` is the basis of the model. It contains all
-the inventory of a system in a CMDB fashion.
+The element ``entitles`` is the basis of the model. It contains the entire inventory
+of a system in a CMDB fashion.
 
 Each entity can be described in a specific manner, holding all the
-necessary attributes, facts, claims and other data which must be
-understood by corresponding consumers. Consumers are actions that
-are calling specific modules, and constraints that are processing them.
+necessary attributes, facts, claims and other data that must be
+understood by the corresponding consumers. Consumers are actions that
+call specific modules, and constraints that process them.
 
 .. important::
 
-   Entities has rules as follows:
+   Entities the the following rules:
 
-   - An entity is ambiguous to a specific architecture of a system
-   - Entity may contain only self-applied facts, describing only that particular entity
-   - A single entity lives on its own and does not know about other entities
-   - A compound entity lives only when all its parts are alive
+   - An entity is independent of the specific architecture of a system
+   - An entity may contain only self-applied facts, describing only that particular entity.
+   - A single entity exists on its own and is unaware of other entities.
+   - A compound entity exists only when all its parts are active.
 
 Synopsis
 --------
 
-Entitles describing facts and relations within the architecture.
-These expectations should be aligned to constraints. Each entity
-has **true** or **false** state. A "true state" is a state, where
-all constraints and checks come to an expected result.
+Entitles describe facts and relations within the architecture. These expectations should
+be aligned with constraints. Each entity has a **true** or **false** state. A "true" state is when
+all constraints and checks produce the expected result.
 
-Each entity is a map. A map just starts as an "id" and then contains
-needed attributes. Current attributes of an "entity" as follows:
 
-1. ``facts`` *(required)* contains all data to be consumed by any module or check or a constraint, that must be true at the end.
-2. ``consists`` *(optional)* is only for collection entities (e.g. network) and it contains a list of other single entities that would make together such collection. This determines an operational state of the entity **itself**.
-3. ``depends`` *(optional)* is for defining what other entities required for this entity to be functional.
+Each entity is a map. A map starts with an "id" and then contains the necessary attributes.
+The current attributes of an "entity" are as follows:
 
-The data is consumed by a module, according to the defined behaviour
-of relations, actions and constraints. Its content must be understood
-by a module.
+1. ``facts`` *(required)* contains all data to be consumed by any module, check, or constraint, which must be true in the end.
+2. ``consists`` *(optional)* It is only for collection entities (e.g., a network) and contains a list of other single entities that together form such a collection. This determines the operational state of the entity **itself**.
+3. ``depends`` *(optional)* It is for defining which other entities are required for this entity to be functional.
+
+The data is consumed by a module according to the defined behavior of relations, actions, and constraints.
+Its content must be understood by the module.
 
 Detailed Syntax
 ^^^^^^^^^^^^^^^
@@ -112,20 +111,19 @@ For example:
               mem:
                 free: 10Mb
 
-Aall of these entities are describing something: a process, an ECU with its APIs,
-an application, a service, a collection of those entities and even just a physical wire.
-With this in mind, a network is an entity, but it is compound one, where one can "zoom in"
-and get to the smaller parts of it, those can be also compound entities, representing some
-part of a network etc.
+All of these entities describe something: a process, an ECU with its APIs, an application, a service,
+a collection of those entities, or even just a physical wire. With this in mind, a network is an entity,
+but it is a compound one, where one can "zoom in" to see its smaller parts, which can also be compound
+entities representing some part of the network, and so on.
 
 Facts
 ^^^^^
 
 Each entity **must** contain some facts about it.
 
-A section in key/value format contains a series of facts under the name ``facts``. Each *fact*
-consists of *claims*. A fact can have one or more claims. Fact has also states. States are essentially
-facts segregation by which constraints and actions selecting different parameters for the processing module.
+A section in key/value format contains a series of facts under the name ``facts``. Each *fact* consists of *claims*,
+and a fact can have one or more claims. Facts also have states. States are essentially the segregation of
+facts, by which constraints and actions select different parameters for the processing module.
 
 Syntax:
 
@@ -136,10 +134,10 @@ Syntax:
        - <state>:
            key: value
 
-Each fact has a *label* which then allows to tag it, so any other process can refer to this
-particular fact directly or indirectly. Main usage of labels are in declarative constraints.
+Each fact has a label, which allows it to be tagged so that any other process can refer to this
+particular fact directly or indirectly. The main use of labels is in declarative constraints.
 
-Here is an example of a fact, which claims that there is a TCP network with opened SSH port,
+Here is an example of a fact that claims there is a TCP network with an open SSH port,
 listening to the world:
 
 .. code-block:: yaml
@@ -163,8 +161,8 @@ listening to the world:
                 port: 0.0.0.0:22
                 listen: 0.0.0.0:*
 
-Facts's claims are just arbitrary key/value that can be then later referred by a corresponding
-consumer, such as a logic flow, an action, a plugin etc.
+A fact's claims are just arbitrary key/value pairs that can later be referred to by a
+corresponding consumer, such as a logic flow, an action, a plugin, etc.
 
 Facts can be addressed by built-in functions directly or indirectly:
 
