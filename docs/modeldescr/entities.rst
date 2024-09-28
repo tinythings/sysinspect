@@ -48,22 +48,29 @@ Here is the full entity description:
 
    entities:
      - <entity-id>:
+         inherits:
+           - <entity-id>
          facts:
            <state-id>:
              - <label>:
                  key: value
 
 
-``entity-id``
+``<entity-id>``
 
   The *entity-id* is an unique ID to place an entity within the namespace.
+
+``inherits`` (optional)
+
+  List of inherited (copied) facts from other entities. Facts section will be just
+  merged (overwritten) over the inherited ones with "last wins" rule.
 
 ``state-id``
 
   The *state-id* is an ID within a current fact and keeps properties that could match that state. For example, it can hold a data
   for a router with two states: 2.4GHz with 5GHz Wifi and only 2.4GHz Wifi.
 
-``label``
+``<label>``
 
   *Label* is a cathegory or group of claims within a specific entity state.
 

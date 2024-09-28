@@ -16,6 +16,7 @@ This document explains each part of the Model Description.
    entities
    actions
    constraints
+   relations
    functions
    inheritance
 
