@@ -65,6 +65,12 @@ Here is the full entity description:
   List of inherited (copied) facts from other entities. Facts section will be just
   merged (overwritten) over the inherited ones with "last wins" rule.
 
+  .. warning::
+
+    The big limitation of the inheritance is that the facts's keys must be unique.
+    Otherwise they will clash and overwrite each other. However, often this is desired
+    behavior.
+
 ``state-id``
 
   The *state-id* is an ID within a current fact and keeps properties that could match that state. For example, it can hold a data
