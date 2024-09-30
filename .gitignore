@@ -1,2 +1,4 @@
 /target
 docs/_build
+docs/manpages/*8
+package/
