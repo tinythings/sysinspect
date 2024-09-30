@@ -4,11 +4,14 @@ ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//
 ARC_NAME := sysinspect-${ARC_VERSION}
 
 .PHONY:build
-dev: man
+
+devel:
 	cargo build -v
+	cargo build -v -p proc
 
 build:
-	cargo build -v --release
+	cargo build --release
+	cargo build -p proc --release
 
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
