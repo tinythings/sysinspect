@@ -1,4 +1,4 @@
-# Syspect
+# Sysinspect
 
 The name consists of three words:
 

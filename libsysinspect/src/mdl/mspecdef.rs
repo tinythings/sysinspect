@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
-use crate::SyspectError;
+use crate::SysinspectError;
 
 /// Model Specification
 /// ===================
@@ -34,7 +34,7 @@ pub struct ModelSpec {
 }
 
 impl ModelSpec {
-    fn find(&self, v: Value) -> Result<Value, SyspectError> {
+    fn find(&self, v: Value) -> Result<Value, SysinspectError> {
         match v {
             /*
             Value::Sequence(v) => {
@@ -54,7 +54,7 @@ impl ModelSpec {
             _ => {}
         }
 
-        Err(SyspectError::ModelDSLError("Object not found".to_string()))
+        Err(SysinspectError::ModelDSLError("Object not found".to_string()))
     }
 
     /// Traverse the namespace by "foo:bar:person.name" syntax.

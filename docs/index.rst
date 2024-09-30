@@ -1,8 +1,8 @@
-Welcome to the Project Syspect!
-====================================
+Welcome to the Project Sysinspect!
+==================================
 
 .. note::
-   This documentation covers **Syspect** — the solution to
+   This documentation covers **Sysinspect** — the solution to
    examine any system, based on its architecture Model Description.
 
 .. toctree::
@@ -10,7 +10,7 @@ Welcome to the Project Syspect!
 
    modeldescr/overview
 
-Welcome to Syspect: an engine of Anomaly Detection and Root Cause Analysis.
+Welcome to Sysinspect: an engine of Anomaly Detection and Root Cause Analysis.
 The name consists of two words "system" and "inspection", resulting in "suspicion".
 
 This engine is indented to perform anomaly detection and root cause analysis on
@@ -20,12 +20,12 @@ modules with telemetry data in order to perform various testing scenarios.
 Licence
 -------
 
-**Syspect** is distributed under Apache 2.0 Licence.
+**Sysinspect** is distributed under Apache 2.0 Licence.
 
 Limitations
 -----------
 
-Currently **Syspect** is an experimental concept.
+Currently **Sysinspect** is an experimental concept.
 
 Contributing
 ------------

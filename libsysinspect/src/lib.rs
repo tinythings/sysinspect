@@ -11,7 +11,7 @@ pub mod runtime;
 pub mod tpl;
 
 #[derive(Debug)]
-pub enum SyspectError {
+pub enum SysinspectError {
     // Specific errors
     ModelMultipleIndex(String),
     ModelDSLError(String),
@@ -21,24 +21,24 @@ pub enum SyspectError {
     SerdeYaml(serde_yaml::Error),
 }
 
-impl Error for SyspectError {
+impl Error for SysinspectError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            SyspectError::IoErr(err) => Some(err),
+            SysinspectError::IoErr(err) => Some(err),
             _ => None,
         }
     }
 }
 
-impl Display for SyspectError {
+impl Display for SysinspectError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let msg = match self {
-            SyspectError::ModelMultipleIndex(m) => {
+            SysinspectError::ModelMultipleIndex(m) => {
                 format!("Another {} file found as '{}'", mspec::MODEL_INDEX, m)
             }
-            SyspectError::IoErr(err) => format!("(I/O) {err}"),
-            SyspectError::SerdeYaml(err) => format!("(YAML) {err}"),
-            SyspectError::ModelDSLError(err) => format!("(DSL) {err}"),
+            SysinspectError::IoErr(err) => format!("(I/O) {err}"),
+            SysinspectError::SerdeYaml(err) => format!("(YAML) {err}"),
+            SysinspectError::ModelDSLError(err) => format!("(DSL) {err}"),
         };
 
         write!(f, "{msg}")?;
@@ -47,15 +47,15 @@ impl Display for SyspectError {
 }
 
 /// Handle IO errors
-impl From<io::Error> for SyspectError {
+impl From<io::Error> for SysinspectError {
     fn from(err: io::Error) -> Self {
-        SyspectError::IoErr(err)
+        SysinspectError::IoErr(err)
     }
 }
 
 /// Handle YAML errors
-impl From<serde_yaml::Error> for SyspectError {
+impl From<serde_yaml::Error> for SysinspectError {
     fn from(err: serde_yaml::Error) -> Self {
-        SyspectError::SerdeYaml(err)
+        SysinspectError::SerdeYaml(err)
     }
 }

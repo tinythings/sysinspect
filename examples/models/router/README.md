@@ -20,7 +20,7 @@ checkbook:
 
 The flow works the following way:
 
-1. Checkbook provides only "entrance" spots where Syspect needs
+1. Checkbook provides only "entrance" spots where Sysinspect needs
 to start investigations.
 
 2. An entity, if is a collection of other entities (a group) will

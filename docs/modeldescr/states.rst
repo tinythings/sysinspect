@@ -49,7 +49,7 @@ of the specific area.
 Usage
 -----
 
-:bi:`Syspect` can accept several states, excluding all others. If no keyword ``--states``
+:bi:`Sysinspect` can accept several states, excluding all others. If no keyword ``--states``
 is passed, then default state is selected:
 
 .. code-block:: text

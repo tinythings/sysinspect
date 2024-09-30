@@ -1,4 +1,4 @@
-use crate::SyspectError;
+use crate::SysinspectError;
 use serde_yaml::Value;
 use std::{fs, path::PathBuf};
 use walkdir::WalkDir;
@@ -23,7 +23,7 @@ impl SpecLoader {
     }
 
     /// Collect YAML parts of the model from a different files
-    fn collect_parts(&mut self) -> Result<Vec<Value>, SyspectError> {
+    fn collect_parts(&mut self) -> Result<Vec<Value>, SysinspectError> {
         let mut out = Vec::<Value>::new();
 
         for etr in WalkDir::new(&self.pth).follow_links(true).into_iter().filter_map(Result::ok) {
@@ -40,7 +40,7 @@ impl SpecLoader {
 
                 if fname == MODEL_INDEX {
                     if self.init {
-                        return Err(SyspectError::ModelMultipleIndex(etr.path().as_os_str().to_str().unwrap().to_string()));
+                        return Err(SysinspectError::ModelMultipleIndex(etr.path().as_os_str().to_str().unwrap().to_string()));
                     } else {
                         self.init = true;
                         out.insert(0, serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?)?);
@@ -49,7 +49,7 @@ impl SpecLoader {
                     // Get YAML chunks
                     match serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?) {
                         Ok(chunk) => out.push(chunk),
-                        Err(err) => return Err(SyspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
+                        Err(err) => return Err(SysinspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
                     }
                 }
             }
@@ -59,9 +59,9 @@ impl SpecLoader {
     }
 
     /// Merge YAML parts
-    fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SyspectError> {
+    fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
         if chunks.len() == 0 {
-            return Err(SyspectError::ModelMultipleIndex("blah happened".to_string()));
+            return Err(SysinspectError::ModelMultipleIndex("blah happened".to_string()));
             // XXX: Add one more exception
         }
 
@@ -86,7 +86,7 @@ impl SpecLoader {
                     // Non-null "b" implies a structure, which is not formed as a key/val,
                     // therefore cannot be added to the DSL root
                     if !b.is_null() {
-                        return Err(SyspectError::ModelDSLError(format!(
+                        return Err(SysinspectError::ModelDSLError(format!(
                             "Mapping expected, but this structure passed: {:?}\n\t > {:?}",
                             a, b
                         )));
@@ -99,13 +99,13 @@ impl SpecLoader {
 
     /// Load model spec by merging all the data parts and validating
     /// its content.
-    fn load(&mut self) -> Result<ModelSpec, SyspectError> {
+    fn load(&mut self) -> Result<ModelSpec, SysinspectError> {
         let mut parts = self.collect_parts()?;
         Ok(serde_yaml::from_value(self.merge_parts(&mut parts)?)?)
     }
 }
 
 /// Load spec from a given path
-pub fn load(path: &str) -> Result<ModelSpec, SyspectError> {
+pub fn load(path: &str) -> Result<ModelSpec, SysinspectError> {
     Ok(SpecLoader::new(path).load()?)
 }
