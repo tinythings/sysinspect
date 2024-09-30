@@ -52,3 +52,27 @@ Model description index file has the following structure:
         This is a description of this model
         that gives you more idea what it is etc.
     maintainer: John Smith <john.smith@example.com>
+    config: null
+
+The following fields are supported:
+
+``name``
+
+   Name of the model.
+
+``version``
+
+   Model version.
+
+``description``
+
+   Multi-line model description.
+
+``maintainer``
+
+   Model maintainer (name, email)
+
+``config``
+
+   Global configuration section. It is applied to the whole session, globally. However
+   different model can have a different configuration.
