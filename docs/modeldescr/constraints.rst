@@ -26,11 +26,11 @@ Constraints has the following syntax:
       - <label id>:
         descr: description
         expr:
-          - <action id>
-              operator:
-                - condition
-                - condition-1
-          - <else>
+          <action id>:
+            <operator>:
+              - condition
+              - condition-1
+          $:
 
 Collection of constraints is under ``constraints`` section, assigning an ID per a constraint.
 Each constraint has its own set of expressions. Constraint works on all entities within an action.
@@ -88,11 +88,11 @@ Example:
 
     expr:
       # Only entity with the ID "some_entity" is processed.
-      - some_entity:
+      some_entity:
         ...
 
       # appliccable to all other entities
-      - $:
+      $:
         ...
 
 
@@ -107,43 +107,43 @@ current action must pass:
 
     actions:
       # NOTE: Same id as in constraints
-      - net-addr-verification:
-          descr: Check addresses
-          module: sys.net
-          bind:
-            - addresses
-          args:
-            - iface: "claim(if)"
-            - inet: "claim(inet)"
+      net-addr-verification:
+        descr: Check addresses
+        module: sys.net
+        bind:
+          - addresses
+        args:
+          - iface: "claim(if)"
+          - inet: "claim(inet)"
 
     entities:
       # NOTE: An id of an entity, referred by a constraint below
-      - addresses:
-          facts:
-            wifi:
-              if: wlp0s20f3
-              inet: 192.168.2.151/24
+      addresses:
+        facts:
+          wifi:
+            if: wlp0s20f3
+            inet: 192.168.2.151/24
 
-            virtual-main:
-              if: virbr0
-              inet: 192.168.122.1/24
+          virtual-main:
+            if: virbr0
+            inet: 192.168.122.1/24
 
-            virtual-secondary:
-              if: virbr1
-              inet: 192.168.100.1/24
+          virtual-secondary:
+            if: virbr1
+            inet: 192.168.100.1/24
 
     constraints:
       # NOTE: Same id as actions
-      - net-addr-verification:
-          descr: Interfaces have assigned addresses
-          expr:
-            # Only entity with the id "addresses" is processed
-            - addresses:
-                # The whole fact is processed if it has "wifi" claim
-                present:
-                  - wifi
-                any:
-                  - virtual-main
-                  - virtual-secondary
-                all:
-                  - wifi
+      net-addr-verification:
+        descr: Interfaces have assigned addresses
+        expr:
+          # Only entity with the id "addresses" is processed
+          - addresses:
+              # The whole fact is processed if it has "wifi" claim
+              present:
+                - wifi
+              any:
+                - virtual-main
+                - virtual-secondary
+              all:
+                - wifi

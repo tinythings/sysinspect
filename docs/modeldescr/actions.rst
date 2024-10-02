@@ -28,18 +28,18 @@ of an action as follows:
 .. code-block:: text
 
     actions:
-      - <unique ID>
+      <unique ID>
         module: <module namespace>
         bind:
           - <entity ID>
 
         state:
-          - $|<id>:
-              options:
-                - <option>
+          $|<id>:
+            options:
+              - <option>
 
-              args:
-                <key>: <value>
+            args:
+              <key>: <value>
 
 ``module: namespace``
 
@@ -61,7 +61,7 @@ of an action as follows:
           - systemd
           - journald
 
-``state : [list]``
+``state : [map]``
 
     A configuration group for the particular state. It must be the same ID as state ID in the entities collection.
     If actions processing the system in a serial fashion without knowing what it is even discovered, then how exactly
@@ -148,31 +148,31 @@ The fact ``discspace`` from ``my-special`` fact will be omitted.
 .. code-block:: yaml
 
     entities:
-      - systemd:
-          facts:
-            my-fact:
-              - default:
-                  path: /sbin/init
-      - syslogd:
-          facts:
-            my-special:
-              - default:
-                  path: /usr/bin/syslogd
-                  diskspace: 500Mb
+      systemd:
+        facts:
+          my-fact:
+            - default:
+                path: /sbin/init
+      syslogd:
+        facts:
+          my-special:
+            - default:
+                path: /usr/bin/syslogd
+                diskspace: 500Mb
 
     actions:
-      - verify-process-running:
+      verify-process-running:
         description: process is running
         module: sys.proc
         bind:
           - syslogd
           - systemd
         state:
-          - $:
-              options:
-                - is-running
-              args:
-                - process: "claim(path)"
+          $:
+            options:
+              - is-running
+            args:
+              - process: "claim(path)"
 
 In the example above, function ``claim(path)`` is the interpolated value. This is similar
 to the Shell expression as such: ``$MY_VAR``.
@@ -193,7 +193,7 @@ Another example, showing static data references. Consider the following configur
 
     entities:
     # An entity, describing a static configuration
-    - systemconf:
+      systemconf:
         descr: static system configuration
         facts:
           default:
@@ -206,7 +206,7 @@ Another example, showing static data references. Consider the following configur
 
     actions:
     # Same ID as end-entity
-    - syslogd-possible:
+      syslogd-possible:
         # Description of the action that will be logged
         # The shorter, the better
         description: Validate syslogd facts
@@ -221,7 +221,7 @@ Another example, showing static data references. Consider the following configur
         bind:
             - syslogd
         state:
-          - $:
+          $:
             args:
               # Variable $(foo.bar) always refers to a full path from the document root.
               - free-disk: "static(entities.syslogd.facts.storage.free)"

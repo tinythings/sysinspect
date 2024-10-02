@@ -47,13 +47,13 @@ Here is the full entity description:
 .. code-block::  text
 
    entities:
-     - <entity-id>:
-         inherits:
-           - <entity-id>
-         facts:
-           <state-id>:
-             - <label>:
-                 key: value
+     <entity-id>:
+        inherits:
+          - <entity-id>
+        facts:
+          <state-id>:
+            <label>:
+              key: value
 
 
 ``<entity-id>``
@@ -88,41 +88,41 @@ An example of a single entities:
 
 .. code-block:: yaml
 
-   entities:
-     - journald:
-         facts:
-           default:
-             - label:
-               path: /lib/systemd/systemd-journald
+  entities:
+    journald:
+      facts:
+        default:
+          - label:
+            path: /lib/systemd/systemd-journald
 
 An example of a compound entity:
 
 .. code-block:: yaml
 
-   - logging:
-       descr: Subsystem that allows system logging
-       depends:
-         - journald
-         - syslogd
-         - systemd
+  logging:
+    descr: Subsystem that allows system logging
+    depends:
+      - journald
+      - syslogd
+      - systemd
 
 An entity can be also just a static configuration of something, keeping facts.
 For example:
 
 .. code-block:: yaml
 
-   entities:
-     - systemconf:
-        descr: static system configuration
-        facts:
-          default:
-            - main:
-                storage:
-                type: SSD
-                size: 2TB
-                free: 500Mb
-              mem:
-                free: 10Mb
+  entities:
+    systemconf:
+      descr: static system configuration
+      facts:
+        default:
+          - main:
+              storage:
+              type: SSD
+              size: 2TB
+              free: 500Mb
+            mem:
+              free: 10Mb
 
 All of these entities describe something: a process, an ECU with its APIs, an application, a service,
 a collection of those entities, or even just a physical wire. With this in mind, a network is an entity,
@@ -144,8 +144,8 @@ Syntax:
 
    facts:
      <id>:
-       - <state>:
-           key: value
+      <state>:
+        key: value
 
 Each fact has a label, which allows it to be tagged so that any other process can refer to this
 particular fact directly or indirectly. The main use of labels is in declarative constraints.
@@ -166,13 +166,13 @@ listening to the world:
          default-state:
 
             # Fact label
-            - label:
+            label:
 
-                # Here are whatever key/value data, understandable by a
-                # corresponding plugin.
-                type: tcp
-                port: 0.0.0.0:22
-                listen: 0.0.0.0:*
+              # Here are whatever key/value data, understandable by a
+              # corresponding plugin.
+              type: tcp
+              port: 0.0.0.0:22
+              listen: 0.0.0.0:*
 
 A fact's claims are just arbitrary key/value pairs that can later be referred to by a
 corresponding consumer, such as a logic flow, an action, a plugin, etc.
