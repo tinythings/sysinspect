@@ -60,7 +60,7 @@ impl SpecLoader {
 
     /// Merge YAML parts
     fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
-        if chunks.len() == 0 {
+        if chunks.is_empty() {
             return Err(SysinspectError::ModelMultipleIndex("blah happened".to_string()));
             // XXX: Add one more exception
         }
@@ -107,5 +107,5 @@ impl SpecLoader {
 
 /// Load spec from a given path
 pub fn load(path: &str) -> Result<ModelSpec, SysinspectError> {
-    Ok(SpecLoader::new(path).load()?)
+    SpecLoader::new(path).load()
 }

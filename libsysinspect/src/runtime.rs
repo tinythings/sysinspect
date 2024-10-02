@@ -75,29 +75,17 @@ pub struct PluginParams {
 impl PluginParams {
     /// Get timeout
     pub fn timeout(&self) -> u8 {
-        if let Some(timeout) = self.timeout {
-            return timeout;
-        }
-
-        0
+        self.timeout.unwrap_or(0).to_owned()
     }
 
     /// Get quiet/verbose status
     pub fn quiet(&self) -> bool {
-        if let Some(q) = self.quiet {
-            q
-        } else {
-            false
-        }
+        self.quiet.unwrap_or(false).to_owned()
     }
 
     /// Get param options
     pub fn options(&self) -> Vec<String> {
-        if let Some(o) = &self.options {
-            return o.clone();
-        }
-
-        vec![]
+        self.options.to_owned().unwrap_or_default()
     }
 
     /// Get param args

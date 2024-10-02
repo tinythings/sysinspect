@@ -34,6 +34,18 @@ pub struct ModelSpec {
 }
 
 impl ModelSpec {
+    /// Get a top-level DSL section
+    pub fn top(&self, id: &str) -> Option<&Value> {
+        if self.system.contains_key(id) {
+            if let Some(v) = self.system.get(id) {
+                return Some(v);
+            }
+        }
+
+        None
+    }
+
+    #[allow(clippy::only_used_in_recursion)]
     fn find(&self, v: Value) -> Result<Value, SysinspectError> {
         match v {
             /*
@@ -44,8 +56,8 @@ impl ModelSpec {
             }
             */
             Value::Mapping(v) => {
-                for (k, e) in v {
-                    return Ok(self.find(e)?);
+                if let Some((k, e)) = v.into_iter().next() {
+                    return self.find(e);
                 }
             }
             Value::Bool(_) | Value::Number(_) | Value::String(_) => {
