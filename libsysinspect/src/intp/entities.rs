@@ -31,18 +31,18 @@ impl Entity {
 
             if let Some(datamap) = data.clone().as_mapping() {
                 for (k, v) in datamap {
-                    if let Some(f) = k.as_str() {
+                    if let Some(dtv) = k.as_str() {
                         let v = v.clone();
-                        if f == "facts" {
+                        if dtv == "facts" {
                             instance.facts = Some(serde_yaml::from_value(v).unwrap());
-                        } else if f == "descr" || f == "description" {
+                        } else if dtv == "descr" || dtv == "description" {
                             instance.descr = serde_yaml::from_value(v).unwrap();
-                        } else if f == "inherits" {
+                        } else if dtv == "inherits" {
                             instance.inherits = serde_yaml::from_value(v).unwrap();
-                        } else if f == "depends" {
+                        } else if dtv == "depends" {
                             instance.depends = serde_yaml::from_value(v).unwrap();
                         } else {
-                            log::error!("Unknown directive: '{}'", f);
+                            log::error!("Unsupported entity directive: '{}'", dtv);
                         }
                     }
                 }
@@ -71,5 +71,10 @@ impl Entity {
             return inh;
         }
         vec![]
+    }
+
+    // Return the description
+    pub fn descr(&self) -> String {
+        self.descr.to_owned()
     }
 }
