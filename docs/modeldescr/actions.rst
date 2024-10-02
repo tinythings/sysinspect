@@ -148,17 +148,17 @@ The fact ``discspace`` from ``my-special`` fact will be omitted.
 .. code-block:: yaml
 
     entities:
-      - systemd:
-          facts:
-            my-fact:
-              - default:
-                  path: /sbin/init
-      - syslogd:
-          facts:
-            my-special:
-              - default:
-                  path: /usr/bin/syslogd
-                  diskspace: 500Mb
+      systemd:
+        facts:
+          my-fact:
+            - default:
+                path: /sbin/init
+      syslogd:
+        facts:
+          my-special:
+            - default:
+                path: /usr/bin/syslogd
+                diskspace: 500Mb
 
     actions:
       verify-process-running:
@@ -193,7 +193,7 @@ Another example, showing static data references. Consider the following configur
 
     entities:
     # An entity, describing a static configuration
-    - systemconf:
+      systemconf:
         descr: static system configuration
         facts:
           default:

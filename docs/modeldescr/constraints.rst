@@ -118,19 +118,19 @@ current action must pass:
 
     entities:
       # NOTE: An id of an entity, referred by a constraint below
-      - addresses:
-          facts:
-            wifi:
-              if: wlp0s20f3
-              inet: 192.168.2.151/24
+      addresses:
+        facts:
+          wifi:
+            if: wlp0s20f3
+            inet: 192.168.2.151/24
 
-            virtual-main:
-              if: virbr0
-              inet: 192.168.122.1/24
+          virtual-main:
+            if: virbr0
+            inet: 192.168.122.1/24
 
-            virtual-secondary:
-              if: virbr1
-              inet: 192.168.100.1/24
+          virtual-secondary:
+            if: virbr1
+            inet: 192.168.100.1/24
 
     constraints:
       # NOTE: Same id as actions
