@@ -1,6 +1,6 @@
 use super::{actions::Action, constraints::Constraint, entities::Entity, relations::Relation};
 use crate::{
-    mdl::{mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS},
+    mdl::{mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS},
     SysinspectError,
 };
 use std::collections::HashMap;
@@ -91,7 +91,27 @@ impl SysInspector {
     }
 
     fn load_constraints(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
-        log::debug!("Loading constraints are not implemented");
+        let c = spec.top(DSL_DIR_CONSTRAINTS);
+        if c.is_none() {
+            // Constraints are optional
+            return Ok(self);
+        }
+
+        let mut amt = 0;
+        if let Some(c) = c.unwrap().as_mapping() {
+            for (v_id, v_cst) in c {
+                let cst = Constraint::new(v_id, v_cst)?;
+                self.constraints.insert(cst.id(), cst);
+
+                amt += 1;
+            }
+        } else {
+            return Err(SysinspectError::ModelDSLError(
+                "Syntax error in constraints: key/value structure is expected".to_string(),
+            ));
+        }
+
+        log::debug!("Loaded {amt} constraints");
         Ok(self)
     }
 }
