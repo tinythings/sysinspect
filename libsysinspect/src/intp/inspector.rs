@@ -20,100 +20,51 @@ impl SysInspector {
             actions: HashMap::new(),
             constraints: HashMap::new(),
         };
-        sr.load_entities(spec)?.load_relations(spec)?.load_actions(spec)?.load_constraints(spec)?;
+        sr.load(spec)?;
 
         Ok(sr)
     }
 
-    /// Load all entities
-    fn load_entities(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
-        let e = spec.top(DSL_DIR_ENTITIES);
-        if e.is_none() {
-            return Err(SysinspectError::ModelDSLError("No defined entities has been found".to_string()));
-        }
-
-        let mut amt = 0;
-        if let Some(e) = e.unwrap().as_mapping() {
-            for (e_id, e_data) in e {
-                let ett = Entity::new(e_id, e_data)?;
-                self.entities.insert(ett.id(), ett);
-                amt += 1;
+    /// Load all objects.
+    fn load(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
+        for directive in [DSL_DIR_ENTITIES, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_RELATIONS] {
+            let obj = spec.top(directive);
+            if !directive.eq(DSL_DIR_CONSTRAINTS) && obj.is_none() {
+                return Err(SysinspectError::ModelDSLError(format!("Directive '{directive}' is not defined")));
             }
-        }
 
-        log::debug!("Loaded {amt} entities");
-
-        Ok(self)
-    }
-
-    /// Load all relations
-    fn load_relations(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
-        let r = spec.top(DSL_DIR_RELATIONS);
-        if r.is_none() {
-            return Err(SysinspectError::ModelDSLError("No relations between entities defined".to_string()));
-        }
-
-        let mut amt = 0;
-        if let Some(r) = r.unwrap().as_mapping() {
-            for (v_id, v_states) in r {
-                let rel = Relation::new(v_id, v_states)?;
-                self.relations.insert(rel.id(), rel);
-                amt += 1;
+            let mut amt = 0;
+            if let Some(obj) = obj.unwrap().as_mapping() {
+                for (obj_id, obj_data) in obj {
+                    match directive {
+                        d if d == DSL_DIR_ENTITIES => {
+                            let obj = Entity::new(obj_id, obj_data)?;
+                            self.entities.insert(obj.id(), obj);
+                            amt += 1;
+                        }
+                        d if d == DSL_DIR_ACTIONS => {
+                            let obj = Action::new(obj_id, obj_data)?;
+                            self.actions.insert(obj.id(), obj);
+                            amt += 1;
+                        }
+                        d if d == DSL_DIR_CONSTRAINTS => {
+                            let obj = Constraint::new(obj_id, obj_data)?;
+                            self.constraints.insert(obj.id(), obj);
+                            amt += 1;
+                        }
+                        d if d == DSL_DIR_RELATIONS => {
+                            let obj = Relation::new(obj_id, obj_data)?;
+                            self.relations.insert(obj.id(), obj);
+                            amt += 1;
+                        }
+                        _ => {}
+                    }
+                }
             }
-        } else {
-            return Err(SysinspectError::ModelDSLError("Syntax error in relations: key/value structure is expected".to_string()));
+
+            log::debug!("Loaded {amt} instances of {directive}");
         }
 
-        log::debug!("Loaded {amt} relations");
-        Ok(self)
-    }
-
-    /// Load all actions
-    fn load_actions(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
-        let a = spec.top(DSL_DIR_ACTIONS);
-        if a.is_none() {
-            return Err(SysinspectError::ModelDSLError("No actions defined, therefore no processing is possible".to_string()));
-        }
-
-        let mut amt = 0;
-        if let Some(a) = a.unwrap().as_mapping() {
-            for (v_id, v_states) in a {
-                let act = Action::new(v_id, v_states)?;
-                self.actions.insert(act.id(), act);
-                amt += 1;
-            }
-        } else {
-            return Err(SysinspectError::ModelDSLError(
-                "Syntax error in actions. Please check it, referring to the documentation.".to_string(),
-            ));
-        }
-
-        log::debug!("Loaded {amt} actions");
-        Ok(self)
-    }
-
-    fn load_constraints(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
-        let c = spec.top(DSL_DIR_CONSTRAINTS);
-        if c.is_none() {
-            // Constraints are optional
-            return Ok(self);
-        }
-
-        let mut amt = 0;
-        if let Some(c) = c.unwrap().as_mapping() {
-            for (v_id, v_cst) in c {
-                let cst = Constraint::new(v_id, v_cst)?;
-                self.constraints.insert(cst.id(), cst);
-
-                amt += 1;
-            }
-        } else {
-            return Err(SysinspectError::ModelDSLError(
-                "Syntax error in constraints: key/value structure is expected".to_string(),
-            ));
-        }
-
-        log::debug!("Loaded {amt} constraints");
         Ok(self)
     }
 }
