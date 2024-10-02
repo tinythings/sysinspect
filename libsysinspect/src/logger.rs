@@ -2,7 +2,7 @@ use chrono::Local;
 use colored::{self, Colorize};
 use log::{Level, Metadata, Record};
 
-pub(crate) struct STDOUTLogger;
+pub struct STDOUTLogger;
 
 impl log::Log for STDOUTLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {

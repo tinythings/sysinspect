@@ -6,6 +6,8 @@ use std::{
 
 use mdl::mspec;
 
+pub mod intp;
+pub mod logger;
 pub mod mdl;
 pub mod runtime;
 pub mod tpl;
