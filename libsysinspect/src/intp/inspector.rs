@@ -33,10 +33,12 @@ impl SysInspector {
         }
 
         let mut amt = 0;
-        for v_ent in e.unwrap().as_sequence().unwrap_or(&vec![]) {
-            let e = Entity::new(v_ent)?;
-            self.entities.insert(e.id(), e);
-            amt += 1;
+        if let Some(e) = e.unwrap().as_mapping() {
+            for (e_id, e_data) in e {
+                let ett = Entity::new(e_id, e_data)?;
+                self.entities.insert(ett.id(), ett);
+                amt += 1;
+            }
         }
 
         log::debug!("Loaded {amt} entities");

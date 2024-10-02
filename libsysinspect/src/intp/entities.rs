@@ -1,19 +1,19 @@
-use serde::{Deserialize, Serialize};
+use serde::{de::value, Deserialize, Serialize};
 use serde_yaml::Value;
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, time::Instant, vec};
 
 use crate::SysinspectError;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Claims {
+pub struct Claim {
     #[serde(flatten)]
-    states: HashMap<String, Value>,
+    data: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Entity {
-    descr: String,
-    facts: Option<Claims>,
+    descr: Option<String>,
+    facts: Option<HashMap<String, Vec<Claim>>>,
     inherits: Option<Vec<String>>,
     depends: Option<Vec<String>>,
 
@@ -23,58 +23,38 @@ pub struct Entity {
 }
 
 impl Entity {
-    pub fn new(data: &Value) -> Result<Self, SysinspectError> {
-        let mut instance = Entity { facts: None, inherits: None, depends: None, id: None, descr: String::from("") };
-
-        if let Some((id, data)) = data.as_mapping().unwrap().into_iter().next() {
-            instance.id = Some(id.as_str().to_owned().unwrap().to_string());
-
-            if let Some(datamap) = data.clone().as_mapping() {
-                for (k, v) in datamap {
-                    if let Some(dtv) = k.as_str() {
-                        let v = v.clone();
-                        if dtv == "facts" {
-                            instance.facts = Some(serde_yaml::from_value(v).unwrap());
-                        } else if dtv == "descr" || dtv == "description" {
-                            instance.descr = serde_yaml::from_value(v).unwrap();
-                        } else if dtv == "inherits" {
-                            instance.inherits = serde_yaml::from_value(v).unwrap();
-                        } else if dtv == "depends" {
-                            instance.depends = serde_yaml::from_value(v).unwrap();
-                        } else {
-                            return Err(SysinspectError::ModelDSLError(format!("Unsupported entity directive: '{}'", dtv)));
-                        }
-                    }
-                }
-            }
+    pub fn new(id: &Value, data: &Value) -> Result<Self, SysinspectError> {
+        let mut instance = Entity::default();
+        let eid: String;
+        if let Some(id) = id.as_str() {
+            eid = id.to_string();
+        } else {
+            return Err(SysinspectError::ModelDSLError("Entity has no ID".to_string()));
         }
+
+        instance = serde_yaml::from_value::<Entity>(data.to_owned()).unwrap_or(instance);
+        instance.id = Some(eid);
 
         Ok(instance)
     }
 
     /// Get the entity ID
     pub fn id(&self) -> String {
-        self.id.clone().unwrap()
+        self.id.clone().unwrap_or("".to_string())
     }
 
     /// Get entity dependencies
     pub fn depends(&self) -> Vec<String> {
-        if let Some(deps) = self.depends.clone() {
-            return deps;
-        }
-        vec![]
+        self.depends.to_owned().unwrap_or(Vec::default())
     }
 
     /// Get inherited entities that form this one
     pub fn inherits(&self) -> Vec<String> {
-        if let Some(inh) = self.inherits.clone() {
-            return inh;
-        }
-        vec![]
+        self.inherits.to_owned().unwrap_or(Vec::default())
     }
 
     // Return the description
     pub fn descr(&self) -> String {
-        self.descr.to_owned()
+        self.descr.to_owned().unwrap_or("".to_string())
     }
 }
