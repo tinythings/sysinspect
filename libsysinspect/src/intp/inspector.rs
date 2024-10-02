@@ -1,5 +1,5 @@
 use super::{actions::Action, constraints::Constraint, entities::Entity, relations::Relation};
-use crate::mdl::mspecdef::ModelSpec;
+use crate::{mdl::mspecdef::ModelSpec, SysinspectError};
 use std::collections::HashMap;
 
 pub struct SysInspector {
@@ -10,49 +10,55 @@ pub struct SysInspector {
 }
 
 impl SysInspector {
-    pub fn new(spec: &ModelSpec) -> Self {
+    pub fn new(spec: &ModelSpec) -> Result<Self, SysinspectError> {
         let mut sr = SysInspector {
             entities: HashMap::new(),
             relations: HashMap::new(),
             actions: HashMap::new(),
             constraints: HashMap::new(),
         };
-        sr.load_entities(spec).load_relations(spec).load_actions(spec).load_constraints(spec);
+        sr.load_entities(spec)?.load_relations(spec)?.load_actions(spec)?.load_constraints(spec)?;
 
-        sr
+        Ok(sr)
     }
 
     /// Load all entities
-    fn load_entities(&mut self, spec: &ModelSpec) -> &mut Self {
-        log::debug!("Loading entities");
+    fn load_entities(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
         let e = spec.top("entities");
         if e.is_none() {
-            return self;
-        }
-        for v_ent in e.unwrap().as_sequence().unwrap_or(&vec![]) {
-            let e = Entity::new(v_ent);
-            println!("{:?}", e);
-            println!("\n{:?}", v_ent);
-            println!("---------------------------");
+            return Err(SysinspectError::ModelDSLError("No defined entities has been found".to_string()));
         }
 
-        self
+        let mut amt = 0;
+        for v_ent in e.unwrap().as_sequence().unwrap_or(&vec![]) {
+            match Entity::new(v_ent) {
+                Ok(e) => {
+                    self.entities.insert(e.id(), e);
+                }
+                Err(err) => return Err(err),
+            }
+            amt += 1;
+        }
+
+        log::debug!("Loaded {amt} entities");
+
+        Ok(self)
     }
 
     /// Load all relations
-    fn load_relations(&mut self, spec: &ModelSpec) -> &mut Self {
+    fn load_relations(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
         log::debug!("Loading relations");
-        self
+        Ok(self)
     }
 
     /// Load all actions
-    fn load_actions(&mut self, spec: &ModelSpec) -> &mut Self {
+    fn load_actions(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
         log::debug!("Loading actions");
-        self
+        Ok(self)
     }
 
-    fn load_constraints(&mut self, spec: &ModelSpec) -> &mut Self {
+    fn load_constraints(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
         log::debug!("Loading constraints");
-        self
+        Ok(self)
     }
 }

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::{collections::HashMap, vec};
 
+use crate::SysinspectError;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Claims {
     #[serde(flatten)]
@@ -21,13 +23,11 @@ pub struct Entity {
 }
 
 impl Entity {
-    pub fn new(data: &Value) -> Self {
+    pub fn new(data: &Value) -> Result<Self, SysinspectError> {
         let mut instance = Entity { facts: None, inherits: None, depends: None, id: None, descr: String::from("") };
 
         if let Some((id, data)) = data.as_mapping().unwrap().into_iter().next() {
             instance.id = Some(id.as_str().to_owned().unwrap().to_string());
-
-            println!("{}", serde_yaml::to_string(data).unwrap());
 
             if let Some(datamap) = data.clone().as_mapping() {
                 for (k, v) in datamap {
@@ -42,14 +42,14 @@ impl Entity {
                         } else if dtv == "depends" {
                             instance.depends = serde_yaml::from_value(v).unwrap();
                         } else {
-                            log::error!("Unsupported entity directive: '{}'", dtv);
+                            return Err(SysinspectError::ModelDSLError(format!("Unsupported entity directive: '{}'", dtv)));
                         }
                     }
                 }
             }
         }
 
-        instance
+        Ok(instance)
     }
 
     /// Get the entity ID
