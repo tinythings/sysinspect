@@ -1,6 +1,6 @@
 use super::{actions::Action, constraints::Constraint, entities::Entity, relations::Relation};
 use crate::{
-    mdl::{mspecdef::ModelSpec, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS},
+    mdl::{mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS},
     SysinspectError,
 };
 use std::collections::HashMap;
@@ -68,7 +68,25 @@ impl SysInspector {
 
     /// Load all actions
     fn load_actions(&mut self, spec: &ModelSpec) -> Result<&mut Self, SysinspectError> {
-        log::debug!("Loading actions are not implemented");
+        let a = spec.top(DSL_DIR_ACTIONS);
+        if a.is_none() {
+            return Err(SysinspectError::ModelDSLError("No actions defined, therefore no processing is possible".to_string()));
+        }
+
+        let mut amt = 0;
+        if let Some(a) = a.unwrap().as_mapping() {
+            for (v_id, v_states) in a {
+                let act = Action::new(v_id, v_states)?;
+                self.actions.insert(act.id(), act);
+                amt += 1;
+            }
+        } else {
+            return Err(SysinspectError::ModelDSLError(
+                "Syntax error in actions. Please check it, referring to the documentation.".to_string(),
+            ));
+        }
+
+        log::debug!("Loaded {amt} actions");
         Ok(self)
     }
 
