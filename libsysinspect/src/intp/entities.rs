@@ -1,6 +1,6 @@
-use serde::{de::value, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::{collections::HashMap, time::Instant, vec};
+use std::collections::HashMap;
 
 use crate::SysinspectError;
 
@@ -45,12 +45,12 @@ impl Entity {
 
     /// Get entity dependencies
     pub fn depends(&self) -> Vec<String> {
-        self.depends.to_owned().unwrap_or(Vec::default())
+        self.depends.to_owned().unwrap_or_default()
     }
 
     /// Get inherited entities that form this one
     pub fn inherits(&self) -> Vec<String> {
-        self.inherits.to_owned().unwrap_or(Vec::default())
+        self.inherits.to_owned().unwrap_or_default()
     }
 
     // Return the description
