@@ -28,7 +28,7 @@ of an action as follows:
 .. code-block:: text
 
     actions:
-      - <unique ID>
+      <unique ID>
         module: <module namespace>
         bind:
           - <entity ID>
@@ -161,7 +161,7 @@ The fact ``discspace`` from ``my-special`` fact will be omitted.
                   diskspace: 500Mb
 
     actions:
-      - verify-process-running:
+      verify-process-running:
         description: process is running
         module: sys.proc
         bind:
@@ -206,7 +206,7 @@ Another example, showing static data references. Consider the following configur
 
     actions:
     # Same ID as end-entity
-    - syslogd-possible:
+      syslogd-possible:
         # Description of the action that will be logged
         # The shorter, the better
         description: Validate syslogd facts
