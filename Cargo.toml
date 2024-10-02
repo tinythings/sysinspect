@@ -11,7 +11,6 @@ clap = { version = "4.5.18", features = ["unstable-styles"] }
 colored = "2.1.0"
 libsysinspect = { path = "./libsysinspect" }
 log = "0.4.22"
-logger = "0.4.0"
 sysinfo = { version = "0.31.4", features = ["linux-tmpfs"] }
 
 [workspace]
