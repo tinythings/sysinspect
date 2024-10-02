@@ -24,6 +24,12 @@ pub fn cli(version: &'static str) -> Command {
                 .long("model")
                 .help("System description model")
         )
+        .arg(
+            Arg::new("relations")
+                .short('r')
+                .long("relations")
+                .help("Select only specific relations from the checkbook (comma-separated)")
+        )
 
         // Other
         .next_help_heading("Other")
