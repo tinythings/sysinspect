@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-
 use crate::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
+use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Relation {
     id: Option<String>,
     #[serde(flatten)]
