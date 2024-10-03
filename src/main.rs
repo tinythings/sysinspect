@@ -45,7 +45,7 @@ fn main() {
         match libsysinspect::mdl::mspec::load(mpath) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
-                match libsysinspect::intp::inspector::SysInspector::new(&spec) {
+                match libsysinspect::intp::inspector::SysInspector::new(spec) {
                     Ok(isp) => {}
                     Err(err) => log::error!("{err}"),
                 }
