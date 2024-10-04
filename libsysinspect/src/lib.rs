@@ -17,6 +17,7 @@ pub enum SysinspectError {
     // Specific errors
     ModelMultipleIndex(String),
     ModelDSLError(String),
+    ModuleError(String),
 
     // Wrappers for the system errors
     IoErr(io::Error),
@@ -41,6 +42,7 @@ impl Display for SysinspectError {
             SysinspectError::IoErr(err) => format!("(I/O) {err}"),
             SysinspectError::SerdeYaml(err) => format!("(YAML) {err}"),
             SysinspectError::ModelDSLError(err) => format!("(DSL) {err}"),
+            SysinspectError::ModuleError(err) => format!("(Module) {err}"),
         };
 
         write!(f, "{msg}")?;
