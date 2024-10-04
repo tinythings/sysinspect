@@ -89,7 +89,6 @@ pub fn split_by(am: &ArgMatches, id: &str, sep: Option<char>) -> Vec<String> {
 
     am.get_one::<String>(id)
         .unwrap_or(&"".to_string())
-        .to_owned()
         .split(fsep)
         .map(|s| s.to_string())
         .filter(|s| !s.is_empty())
