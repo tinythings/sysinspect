@@ -52,6 +52,7 @@ Model description index file has the following structure:
         This is a description of this model
         that gives you more idea what it is etc.
     maintainer: John Smith <john.smith@example.com>
+    checkbook: null
     config: null
 
 The following fields are supported:
@@ -76,3 +77,23 @@ The following fields are supported:
 
    Global configuration section. It is applied to the whole session, globally. However
    different model can have a different configuration.
+
+``checkbook``
+
+   Checkbook is a list of sections that groups relations those needs to be checked.
+   An example:
+
+   .. code-block:: yaml
+
+      checkbook:
+        my_label:
+          - relation-one
+          - relation-two
+
+        my_other_label:
+          - relation-one
+          - relation-three
+
+   In this case user can call ``my_label`` and SysInspect will only go through relations,
+   grouped inside that section, leaving all other untouched. If checkbook is omitted,
+   then all relations will be examined, one after another.

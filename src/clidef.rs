@@ -1,4 +1,4 @@
-use clap::builder::styling;
+use clap::{builder::styling, ArgMatches};
 use clap::{Arg, ArgAction, Command};
 use colored::Colorize;
 
@@ -7,15 +7,15 @@ static APPNAME: &str = "sysinspect";
 /// Define CLI arguments and styling
 pub fn cli(version: &'static str) -> Command {
     let styles = styling::Styles::styled()
-        .header(styling::AnsiColor::White.on_default() | styling::Effects::BOLD)
-        .usage(styling::AnsiColor::White.on_default() | styling::Effects::BOLD)
-        .literal(styling::AnsiColor::BrightCyan.on_default())
-        .placeholder(styling::AnsiColor::Cyan.on_default());
+        .header(styling::AnsiColor::Yellow.on_default())
+        .usage(styling::AnsiColor::Yellow.on_default())
+        .literal(styling::AnsiColor::BrightGreen.on_default())
+        .placeholder(styling::AnsiColor::BrightMagenta.on_default());
 
     Command::new(APPNAME)
         .version(version)
-        .about(format!("{} - {}", APPNAME, "is a tool for anomaly detection and root cause analysis in a known system"))
-        .override_usage(format!("{} {} {}", APPNAME.bright_cyan(), "[OPTIONS]".cyan(), "[FILTERS]".cyan()))
+        .about(format!("{} - {}", APPNAME.bright_magenta().bold(), "is a tool for anomaly detection and root cause analysis in a known system"))
+        .override_usage(format!("{} [OPTIONS] [FILTERS]", APPNAME))
 
         // Config
         .arg(
@@ -25,11 +25,26 @@ pub fn cli(version: &'static str) -> Command {
                 .help("System description model")
         )
         .arg(
-            Arg::new("relations")
-                .short('r')
-                .long("relations")
-                .help("Select only specific relations from the checkbook (comma-separated)")
+            Arg::new("labels")
+                .short('l')
+                .long("labels")
+                .help("Select only specific labels from the checkbook (comma-separated)")
+                .conflicts_with_all(["entities"])
         )
+        .arg(
+            Arg::new("entities")
+                .short('e')
+                .long("entities")
+                .help("Select only specific entities from the inventory (comma-separated)")
+                .conflicts_with_all(["labels"])
+        )
+        .arg(
+            Arg::new("state")
+                .short('s')
+                .long("state")
+                .help("Specify a state to be processed. If none specified, default is taken ($)")
+        )
+
 
         // Other
         .next_help_heading("Other")
@@ -61,4 +76,21 @@ pub fn cli(version: &'static str) -> Command {
         .after_help("NOTE: This tool is in very early development.
       If it doesn't work for you, please fill a bug report here:
       https://github.com/tinythings/sysinspect/issues\n".bright_yellow().to_string())
+}
+
+/// Parse comma-separated values
+pub fn split_by(am: &ArgMatches, id: &str, sep: Option<char>) -> Vec<String> {
+    let fsep: char;
+    if let Some(sep) = sep {
+        fsep = sep;
+    } else {
+        fsep = ',';
+    }
+
+    am.get_one::<String>(id)
+        .unwrap_or(&"".to_string())
+        .split(fsep)
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<String>>()
 }
