@@ -1,4 +1,6 @@
-use super::{actions::Action, checkbook::CheckbookSection, constraints::Constraint, entities::Entity, relations::Relation};
+use super::{
+    actions::Action, checkbook::CheckbookSection, conf::Config, constraints::Constraint, entities::Entity, relations::Relation,
+};
 use crate::{
     mdl::{
         mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
@@ -14,6 +16,7 @@ pub struct SysInspector {
     actions: HashMap<String, Action>,
     constraints: HashMap<String, Constraint>,
     checkbook: Vec<CheckbookSection>,
+    config: Config,
     spec: ModelSpec,
 }
 
@@ -25,6 +28,7 @@ impl SysInspector {
             actions: HashMap::new(),
             constraints: HashMap::new(),
             checkbook: Vec::default(),
+            config: Config::default(),
             spec,
         };
         sr.load()?;
@@ -37,13 +41,13 @@ impl SysInspector {
         for directive in
             [DSL_DIR_ENTITIES, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_RELATIONS, DSL_IDX_CHECKBOOK, DSL_IDX_CFG]
         {
-            let obj = &self.spec.top(directive);
-            if !directive.eq(DSL_DIR_CONSTRAINTS) && obj.is_none() {
+            let v_obj = &self.spec.top(directive);
+            if !directive.eq(DSL_DIR_CONSTRAINTS) && v_obj.is_none() {
                 return Err(SysinspectError::ModelDSLError(format!("Directive '{directive}' is not defined")));
             }
 
             let mut amt = 0;
-            if let Some(obj) = obj.unwrap().as_mapping() {
+            if let Some(obj) = v_obj.unwrap().as_mapping() {
                 for (obj_id, obj_data) in obj {
                     match directive {
                         d if d == DSL_DIR_ENTITIES => {
@@ -75,6 +79,11 @@ impl SysInspector {
                         _ => {}
                     }
                 }
+
+                // Load config
+                if directive == DSL_IDX_CFG {
+                    self.config = Config::new(v_obj.unwrap())?;
+                }
             }
 
             log::debug!("Loaded {amt} instances of {directive}");
@@ -83,12 +92,29 @@ impl SysInspector {
         Ok(self)
     }
 
-    /// Check relations for orphan entities that are connected to nowhere.
-    /// Orphan relations are not wrong. They are just on their own alone.
-    pub fn get_orphan_entities(&self) -> Vec<Entity> {
-        vec![]
+    /// Get actions by relations
+    pub fn actions_by_relations(&self, rids: Vec<String>) -> Result<Vec<Action>, SysinspectError> {
+        Ok(vec![])
     }
 
-    /// Get related entities by the checkbook
-    pub fn get_related_entities(&self, rel_id: Vec<&str>) {}
+    /// Get actions by entities
+    pub fn actions_by_entities(&self, eids: Vec<String>) -> Result<Vec<Action>, SysinspectError> {
+        let mut out: Vec<Action> = Vec::default();
+
+        for eid in eids {
+            for action in self.actions.values() {
+                if action.binds_to(&eid) {
+                    log::debug!("Action entity: {}", action.id());
+                    out.push(action.to_owned().setup(self)?);
+                }
+            }
+        }
+
+        Ok(out)
+    }
+
+    /// Return config reference
+    pub(crate) fn cfg(&self) -> &Config {
+        &self.config
+    }
 }
