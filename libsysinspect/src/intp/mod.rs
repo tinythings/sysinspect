@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod actproc;
 pub mod checkbook;
 pub mod conf;
 pub mod constraints;

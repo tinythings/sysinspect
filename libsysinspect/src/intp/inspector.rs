@@ -98,14 +98,15 @@ impl SysInspector {
     }
 
     /// Get actions by entities
-    pub fn actions_by_entities(&self, eids: Vec<String>) -> Result<Vec<Action>, SysinspectError> {
+    pub fn actions_by_entities(&self, eids: Vec<String>, state: Option<String>) -> Result<Vec<Action>, SysinspectError> {
         let mut out: Vec<Action> = Vec::default();
+        let state = parse_state(state);
 
         for eid in eids {
             for action in self.actions.values() {
                 if action.binds_to(&eid) {
                     log::debug!("Action entity: {}", action.id());
-                    out.push(action.to_owned().setup(self)?);
+                    out.push(action.to_owned().setup(self, state.to_owned())?);
                 }
             }
         }
@@ -117,4 +118,9 @@ impl SysInspector {
     pub(crate) fn cfg(&self) -> &Config {
         &self.config
     }
+}
+
+/// Parse state or return a default one
+pub fn parse_state(state: Option<String>) -> String {
+    state.unwrap_or("$".to_string()).trim().to_string()
 }
