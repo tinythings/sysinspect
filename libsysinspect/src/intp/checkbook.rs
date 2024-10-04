@@ -1,5 +1,4 @@
 use super::relations::Relation;
-use crate::SysinspectError;
 use serde_yaml::Value;
 use std::collections::HashMap;
 
@@ -34,6 +33,6 @@ impl CheckbookSection {
 
     /// Add a relation to the checkbook mapping
     fn add_relation(&mut self, id: String, rel: Relation) {
-        self.relations.entry(id.to_owned()).or_insert_with(Vec::default).push(rel);
+        self.relations.entry(id.to_owned()).or_default().push(rel);
     }
 }
