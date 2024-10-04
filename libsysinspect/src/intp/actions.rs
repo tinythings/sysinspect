@@ -41,4 +41,9 @@ impl Action {
     pub fn id(&self) -> String {
         self.id.to_owned().unwrap_or("".to_string())
     }
+
+    /// Returns true if an action has a bind to an entity via its `eid` _(entity Id)_.
+    pub fn binds_to(&self, eid: &str) -> bool {
+        self.bind.contains(&eid.to_string())
+    }
 }
