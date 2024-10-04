@@ -29,7 +29,16 @@ pub fn cli(version: &'static str) -> Command {
                 .short('l')
                 .long("labels")
                 .help("Select only specific labels from the checkbook (comma-separated)")
+                .conflicts_with_all(["entities"])
         )
+        .arg(
+            Arg::new("entities")
+                .short('e')
+                .long("entities")
+                .help("Select only specific entities from the inventory (comma-separated)")
+                .conflicts_with_all(["labels"])
+        )
+
 
         // Other
         .next_help_heading("Other")
