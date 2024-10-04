@@ -46,7 +46,20 @@ fn main() {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
                 match libsysinspect::intp::inspector::SysInspector::new(spec) {
-                    Ok(isp) => {}
+                    Ok(isp) => {
+                        // XXX: Move all this elsewhere
+                        //let ar = isp.actions_by_relations(clidef::split_by(&params, "labels", None)).unwrap();
+                        match isp.actions_by_entities(clidef::split_by(&params, "entities", None)) {
+                            Ok(actions) => {
+                                for ac in actions {
+                                    ac.run();
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("{}", err);
+                            }
+                        }
+                    }
                     Err(err) => log::error!("{err}"),
                 }
                 log::debug!("Done");
