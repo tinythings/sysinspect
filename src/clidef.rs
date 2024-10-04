@@ -25,10 +25,10 @@ pub fn cli(version: &'static str) -> Command {
                 .help("System description model")
         )
         .arg(
-            Arg::new("relations")
-                .short('r')
-                .long("relations")
-                .help("Select only specific relations from the checkbook (comma-separated)")
+            Arg::new("labels")
+                .short('l')
+                .long("labels")
+                .help("Select only specific labels from the checkbook (comma-separated)")
         )
 
         // Other
