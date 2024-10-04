@@ -1,4 +1,4 @@
-use clap::builder::styling;
+use clap::{builder::styling, ArgMatches};
 use clap::{Arg, ArgAction, Command};
 use colored::Colorize;
 
@@ -61,4 +61,22 @@ pub fn cli(version: &'static str) -> Command {
         .after_help("NOTE: This tool is in very early development.
       If it doesn't work for you, please fill a bug report here:
       https://github.com/tinythings/sysinspect/issues\n".bright_yellow().to_string())
+}
+
+/// Parse comma-separated values
+pub fn split_by(am: &ArgMatches, id: &str, sep: Option<char>) -> Vec<String> {
+    let fsep: char;
+    if let Some(sep) = sep {
+        fsep = sep;
+    } else {
+        fsep = ',';
+    }
+
+    am.get_one::<String>(id)
+        .unwrap_or(&"".to_string())
+        .to_owned()
+        .split(fsep)
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<String>>()
 }
