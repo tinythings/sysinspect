@@ -42,7 +42,7 @@ fn main() {
     }
 
     if let Some(mpath) = params.get_one::<String>("model") {
-        match libsysinspect::mdl::mspec::load(mpath) {
+        match libsysinspect::mdescr::mspec::load(mpath) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
                 match libsysinspect::intp::inspector::SysInspector::new(spec) {

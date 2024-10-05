@@ -2,7 +2,7 @@ use super::{
     actions::Action, checkbook::CheckbookSection, conf::Config, constraints::Constraint, entities::Entity, relations::Relation,
 };
 use crate::{
-    mdl::{
+    mdescr::{
         mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
         DSL_IDX_CHECKBOOK,
     },

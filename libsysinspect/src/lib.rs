@@ -4,11 +4,11 @@ use std::{
     io,
 };
 
-use mdl::mspec;
+use mdescr::mspec;
 
 pub mod intp;
 pub mod logger;
-pub mod mdl;
+pub mod mdescr;
 pub mod runtime;
 pub mod tpl;
 
