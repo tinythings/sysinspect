@@ -9,8 +9,7 @@ use mdescr::mspec;
 pub mod intp;
 pub mod logger;
 pub mod mdescr;
-pub mod runtime;
-pub mod tpl;
+pub mod modlib;
 
 #[derive(Debug)]
 pub enum SysinspectError {
