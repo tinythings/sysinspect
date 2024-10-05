@@ -73,7 +73,7 @@ impl ModArgument {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModDoc {
+pub struct ModInterface {
     name: String,
     version: String,
     author: String,
@@ -83,7 +83,7 @@ pub struct ModDoc {
     examples: Vec<ModExample>,
 }
 
-impl ModDoc {
+impl ModInterface {
     /// Probably print help. Arguments must contain `--help` or `-h` in the commandline.
     pub fn print_help(&self) {
         let args = args().collect::<Vec<String>>();
@@ -94,7 +94,7 @@ impl ModDoc {
 
     /// Format help string, ready to print.
     pub fn help(&self) -> String {
-        fn args(cls: &ModDoc) -> String {
+        fn args(cls: &ModInterface) -> String {
             let mut out: Vec<String> = Vec::default();
             if !cls.options.is_empty() {
                 out.push(format!(

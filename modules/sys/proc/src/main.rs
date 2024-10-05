@@ -1,7 +1,7 @@
-use libsysinspect::modlib::modinit::ModDoc;
+use libsysinspect::modlib::modinit::ModInterface;
 
 fn main() {
-    let mod_doc = libsysinspect::init_mod_doc!(ModDoc);
+    let mod_doc = libsysinspect::init_mod_doc!(ModInterface);
     mod_doc.print_help();
 
     /*
