@@ -1,0 +1,42 @@
+name: "sys.proc"
+version: "0.0.1"
+author: "Bo Maryniuk"
+description: |
+  Plugin to perform various operations on processes, such as starting them,
+  stopping, checking their presence and gathering any data, related to these
+  processes.
+
+# Options, flags, switches
+options:
+  - name: "limits"
+    description: "Add limits information"
+
+  - name: "pid"
+    description: "Return process ID at this moment"
+
+# Keyword arguments
+arguments:
+  - name: "search"
+    type: "string"
+    # default: "/sbin/init"
+    required: true
+    description: "Searching mask. The more precise, the better."
+
+  - name: "started"
+    type: "bool"
+    required: false
+    description: "If specified, process will be either started or stopped"
+
+examples:
+  - description: "Module usage example"
+    code: |
+      {
+        "search": "/sbin/init splash",
+        "started": true
+      }
+
+  - description: "Add limits and PID to the common result"
+    code: |
+      {
+        ["limits", "pid"]
+      }
