@@ -30,16 +30,14 @@ arguments:
 examples:
   - description: "Module usage example"
     code: |
-      {
+      "arguments": {
         "search": "/sbin/init splash",
         "started": true
       }
 
   - description: "Add limits and PID to the common result"
     code: |
-      {
-        ["limits", "pid"]
-      }
+      "options": ["limits", "pid"]
 
 # Description of additional data format
 returns:
