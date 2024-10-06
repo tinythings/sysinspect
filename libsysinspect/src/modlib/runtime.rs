@@ -5,6 +5,9 @@ use std::{
     io::{self, Read},
 };
 
+use super::response::ModResponse;
+
+/*
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PluginResponse {
     /// General main response message
@@ -46,10 +49,11 @@ impl PluginResponse {
         self
     }
 }
+    */
 
-// Struct to call plugin parameters
+/// Struct to call plugin parameters
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PluginParams {
+pub struct ModRequest {
     /// Timeout of the module running.
     /// If timeout is exceeded, module quits.
     /// 0 is no timeout.
@@ -72,7 +76,7 @@ pub struct PluginParams {
     ext: HashMap<String, serde_json::Value>,
 }
 
-impl PluginParams {
+impl ModRequest {
     /// Get timeout
     pub fn timeout(&self) -> u8 {
         self.timeout.unwrap_or(0).to_owned()
@@ -103,16 +107,21 @@ impl PluginParams {
     }
 }
 
-// Read JSON from STDIN
-pub fn get_call_args() -> Result<PluginParams, Error> {
+/// Read JSON from STDIN
+pub fn get_call_args() -> Result<ModRequest, Error> {
     let mut data = String::new();
     io::stdin().read_to_string(&mut data)?;
 
-    Ok(serde_json::from_str::<PluginParams>(&data)?)
+    Ok(serde_json::from_str::<ModRequest>(&data)?)
 }
 
-// Print JSON result to STDOUT
-pub fn send_call_response(r: &PluginResponse) -> Result<(), Error> {
+/// Alias to create a `ModResponse` object
+pub fn new_call_response() -> ModResponse {
+    ModResponse::default()
+}
+
+/// Print JSON result to STDOUT
+pub fn send_call_response(r: &ModResponse) -> Result<(), Error> {
     println!("{}", serde_json::to_string(r)?);
     Ok(())
 }
