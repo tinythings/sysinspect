@@ -60,12 +60,12 @@ pub struct PluginParams {
 
     /// Call options
     #[serde(default)]
-    options: Option<Vec<String>>,
+    options: Option<Vec<serde_json::Value>>,
 
     /// Call arguments. Argumentst can have
     /// different types: list, integers, strings etc.
     #[serde(default)]
-    args: Option<HashMap<String, serde_json::Value>>,
+    arguments: Option<HashMap<String, serde_json::Value>>,
 
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
@@ -84,13 +84,13 @@ impl PluginParams {
     }
 
     /// Get param options
-    pub fn options(&self) -> Vec<String> {
+    pub fn options(&self) -> Vec<serde_json::Value> {
         self.options.to_owned().unwrap_or_default()
     }
 
     /// Get param args
     pub fn args(&self) -> HashMap<String, serde_json::Value> {
-        if let Some(a) = &self.args {
+        if let Some(a) = &self.arguments {
             return a.clone();
         }
 
