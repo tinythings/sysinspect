@@ -1,3 +1,5 @@
+.. _modstruct:
+
 Module Structure
 ================
 
