@@ -131,6 +131,17 @@ Below are currently supported and required sections and attributes:
         Default value for the argument, if the field ``required`` is set to ``false``. Type is corresponding
         to the value and can be one of ``String``, ``Bool``, ``Int``, ``List``, ``Mapping`` etc, optional.
 
+    Example of a defined argument:
+
+    .. code-block:: yaml
+
+        argument:
+          - name: "directory"
+            type: "string"
+            default: "/tmp"
+            required: false
+            description: "Directory where to store something"
+
 ``examples``
 ^^^^^^^^^^^^
 
