@@ -7,6 +7,25 @@ use serde_yaml::Value;
 use textwrap::{fill, Options};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModReturn {
+    description: String,
+    example: String,
+}
+
+impl ModReturn {
+    // Format return explanation
+    fn format(&self) -> String {
+        let opts = Options::new(80).initial_indent("    ").subsequent_indent("    ");
+        format!(
+            "{}\n\n    {}\n\n{}\n",
+            fill(self.description.trim(), &opts),
+            "Example:".yellow(),
+            fill(self.example.trim(), opts)
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModExample {
     description: String,
     code: String,
@@ -81,6 +100,7 @@ pub struct ModInterface {
     options: Vec<ModOption>,
     arguments: Vec<ModArgument>,
     examples: Vec<ModExample>,
+    returns: Option<ModReturn>,
 }
 
 impl ModInterface {
@@ -115,6 +135,15 @@ impl ModInterface {
             out.join("\n")
         }
 
+        fn returns(cls: &ModInterface) -> String {
+            if let Some(ret) = &cls.returns {
+                let ret_title = "Additional returned data:".bright_yellow();
+                return format!("\n\n{ret_title}\n\n{}", ret.format());
+            }
+
+            "".to_string()
+        }
+
         let dsc_title = "Description:".bright_yellow();
         let ex_title = "Usage examples:".bright_yellow();
         let ex_code = self.examples.iter().map(|e| e.format()).collect::<Vec<String>>().join("\n");
@@ -130,13 +159,14 @@ impl ModInterface {
 
 {ex_title}
 
-{}",
+{}{}",
             self.name.bold(),
             self.version.green().bold(),
             self.author,
             fill(&self.description, Options::new(80).subsequent_indent("  ")).yellow(),
             args(self),
-            ex_code
+            ex_code,
+            returns(self),
         )
     }
 }
