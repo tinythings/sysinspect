@@ -105,11 +105,14 @@ pub struct ModInterface {
 
 impl ModInterface {
     /// Probably print help. Arguments must contain `--help` or `-h` in the commandline.
-    pub fn print_help(&self) {
+    pub fn print_help(&self) -> bool {
         let args = args().collect::<Vec<String>>();
         if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
             println!("{}", self.help());
+            return true;
         }
+
+        false
     }
 
     /// Format help string, ready to print.
