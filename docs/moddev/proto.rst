@@ -76,6 +76,8 @@ is just a static container of anything. Example:
         },
     }
 
+.. _formatting-response:
+
 Formatting Response
 -------------------
 

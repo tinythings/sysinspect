@@ -160,3 +160,16 @@ Below are currently supported and required sections and attributes:
     ``code``
 
         An actual multiline example of a protocol in a JSON format. Type ``String``, **required**.
+
+``returns``
+^^^^^^^^^^^
+
+    Description in a free form what additional data might be returned in ``data`` section of the :ref:`formatting-response`. It has two sections to describe the return data type in details.
+
+    ``description``
+
+        A multiline description what the data type is all about. Type ``String``, **required**.
+
+    ``example``
+
+        An actual multiline example of a returned data type in a JSON format. Type ``String``, **required**.
