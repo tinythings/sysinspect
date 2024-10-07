@@ -19,7 +19,7 @@ pub struct ModResponse {
 fn is_json_null(v: &serde_json::Value) -> bool {
     match v {
         serde_json::Value::Null => true,
-        serde_json::Value::Object(e) if e.is_empty() => todo!(),
+        serde_json::Value::Object(e) if e.is_empty() => true,
         serde_json::Value::String(e) if e.is_empty() => true,
         serde_json::Value::Array(e) if e.is_empty() => true,
         _ => false,
@@ -32,29 +32,26 @@ impl ModResponse {
     }
 
     /// Set any payload
-    pub fn set_data<T>(mut self, data: T) -> Result<Self, serde_json::Error>
+    pub fn set_data<T>(&mut self, data: T) -> Result<(), serde_json::Error>
     where
         T: Serialize,
     {
         self.data = to_value(data)?;
-        Ok(self)
+        Ok(())
     }
 
     /// Set return message for general scope
-    pub fn set_message(mut self, text: String) -> Self {
-        self.message = text;
-        self
+    pub fn set_message(&mut self, text: &str) {
+        self.message = text.to_string();
     }
 
     /// Set return code
-    pub fn set_retcode(mut self, retcode: i32) -> Self {
+    pub fn set_retcode(&mut self, retcode: i32) {
         self.retcode = retcode;
-        self
     }
 
     /// Add warning
-    pub fn add_warning(mut self, text: String) -> Self {
-        self.warning.push(text);
-        self
+    pub fn add_warning(&mut self, text: &str) {
+        self.warning.push(text.to_string());
     }
 }

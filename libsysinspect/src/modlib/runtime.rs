@@ -1,55 +1,57 @@
+use super::response::ModResponse;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::io::Error;
 use std::{
     collections::HashMap,
     io::{self, Read},
 };
 
-use super::response::ModResponse;
+/// ArgValue is a type converter from input JSON to the internal types
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct ArgValue(serde_json::Value);
 
-/*
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PluginResponse {
-    /// General main response message
-    info: String,
+impl ArgValue {
+    /// Get a parameter from a comma-separated string as Vec<String>. Input example
+    /// (note the space):
+    ///
+    /// ```
+    /// "foo,bar, baz"
+    /// ```
+    pub fn as_strvec(&self) -> Option<Vec<String>> {
+        if let Some(v) = self.as_string() {
+            if !v.contains(',') {
+                return None;
+            }
+            return Some(v.split(',').map(|s| s.trim().to_string()).collect());
+        }
+        None
+    }
 
-    /// Log messages (whatever a plugin wants to pass-through)
-    messages: Vec<String>,
-
-    /// General return status
-    return_status: bool,
-
-    /// General return code, if any.
-    return_code: i8,
-}
-
-impl PluginResponse {
-    pub fn new(info: String) -> Self {
-        PluginResponse {
-            info,
-            messages: vec![],
-
-            // Return status is success (true)
-            return_status: true,
-
-            // Return code is success (0)
-            return_code: 0,
+    /// Get a parameter as an integer
+    pub fn as_int(&self) -> Option<i64> {
+        match &self.0 {
+            Value::Number(v) => Some(v.as_i64().unwrap_or_default()), // XXX: mmhhh...
+            _ => None,
         }
     }
 
-    /// Set general return status
-    pub fn set_status(&mut self, status: bool) -> &mut Self {
-        self.return_status = status;
-        self
+    /// Get a parameter as a bool
+    pub fn as_bool(&self) -> Option<bool> {
+        match &self.0 {
+            Value::Bool(v) => Some(v.to_owned()),
+            _ => None,
+        }
     }
 
-    /// Set general return code
-    pub fn set_code(&mut self, code: i8) -> &mut Self {
-        self.return_code = code;
-        self
+    /// Get a parameter as a string. Extra space is stripped.
+    pub fn as_string(&self) -> Option<String> {
+        match &self.0 {
+            Value::String(v) => Some(v.trim().to_owned()),
+            _ => None,
+        }
     }
 }
-    */
 
 /// Struct to call plugin parameters
 #[derive(Serialize, Deserialize, Debug)]
@@ -64,12 +66,12 @@ pub struct ModRequest {
 
     /// Call options
     #[serde(default)]
-    options: Option<Vec<serde_json::Value>>,
+    options: Option<Vec<ArgValue>>,
 
     /// Call arguments. Argumentst can have
     /// different types: list, integers, strings etc.
     #[serde(default)]
-    arguments: Option<HashMap<String, serde_json::Value>>,
+    arguments: Option<HashMap<String, ArgValue>>,
 
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
@@ -88,17 +90,17 @@ impl ModRequest {
     }
 
     /// Get param options
-    pub fn options(&self) -> Vec<serde_json::Value> {
+    pub fn options(&self) -> Vec<ArgValue> {
         self.options.to_owned().unwrap_or_default()
     }
 
     /// Get param args
-    pub fn args(&self) -> HashMap<String, serde_json::Value> {
+    pub fn args(&self) -> HashMap<String, ArgValue> {
         if let Some(a) = &self.arguments {
-            return a.clone();
+            return a.to_owned();
         }
 
-        HashMap::new()
+        HashMap::default()
     }
 
     /// Get optional extra data payload
