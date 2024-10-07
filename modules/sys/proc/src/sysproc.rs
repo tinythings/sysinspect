@@ -1,11 +1,10 @@
-use std::{collections::HashMap, vec};
-
 use libsysinspect::modlib::{
     response::ModResponse,
     runtime::{self, ModRequest},
 };
 use procfs::process::{all_processes, LimitValue, Process};
 use serde_json::json;
+use std::{collections::HashMap, vec};
 
 /// Return process, if found
 fn find_process(cmd: String) -> Option<procfs::process::Process> {
