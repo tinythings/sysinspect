@@ -388,6 +388,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "colored",
+ "indexmap",
  "log",
  "regex",
  "serde",

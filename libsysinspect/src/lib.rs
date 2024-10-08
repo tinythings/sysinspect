@@ -10,6 +10,7 @@ pub mod intp;
 pub mod logger;
 pub mod mdescr;
 pub mod modlib;
+pub mod reactor;
 
 #[derive(Debug)]
 pub enum SysinspectError {
