@@ -76,11 +76,13 @@ impl Action {
         self.bind.contains(&eid.to_string())
     }
 
-    pub fn run(&self) {
+    pub fn run(&self) -> Result<(), SysinspectError> {
         if let Some(call) = &self.call {
             log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
-            call.run();
+            return call.run();
         }
+
+        Ok(())
     }
 
     /// Setup and activate an action and is done by the Inspector.

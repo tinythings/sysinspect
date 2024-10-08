@@ -55,7 +55,9 @@ fn main() {
                         ) {
                             Ok(actions) => {
                                 for ac in actions {
-                                    ac.run();
+                                    if let Err(err) = ac.run() {
+                                        log::error!("{err}");
+                                    }
                                 }
                             }
                             Err(err) => {

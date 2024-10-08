@@ -75,14 +75,8 @@ impl ModCall {
             Ok(mut p) => {
                 // Send options
                 if let Some(mut stdin) = p.stdin.take() {
-                    match stdin.write_all(self.params_json().as_bytes()) {
-                        Err(err) => {
-                            return Err(SysinspectError::ModuleError(format!(
-                                "Error while communicating with the module: {}",
-                                err
-                            )))
-                        }
-                        _ => {}
+                    if let Err(err) = stdin.write_all(self.params_json().as_bytes()) {
+                        return Err(SysinspectError::ModuleError(format!("Error while communicating with the module: {}", err)));
                     }
                 }
 
