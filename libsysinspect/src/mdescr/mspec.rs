@@ -61,7 +61,7 @@ impl SpecLoader {
     /// Merge YAML parts
     fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
         if chunks.is_empty() {
-            return Err(SysinspectError::ModelMultipleIndex("blah happened".to_string()));
+            return Err(SysinspectError::ModelMultipleIndex("Multiple index error".to_string()));
             // XXX: Add one more exception
         }
 
