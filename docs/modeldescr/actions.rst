@@ -39,7 +39,8 @@ of an action as follows:
               - <option>
 
             args:
-              <key>: <value>
+              <key>:
+                - <value>
 
 ``module: namespace``
 
@@ -91,14 +92,17 @@ of an action as follows:
 
     ``some-program --info``
 
-``args: key/value``
+``args: key/[list]``
 
-    The ``args`` element specifies keywords to the module. Example:
+    The ``args`` element specifies keywords to the module. One **distinct difference** from
+    a classic keywords is that this is a ``key/[list]`` *(of values)* rather then a ``key/value``.
+    Example:
 
     .. code-block:: yaml
 
         args:
-          file: /var/log/messages
+          file:
+            - /var/log/messages
 
     The example above is equivalent to a command line expression like this:
 
