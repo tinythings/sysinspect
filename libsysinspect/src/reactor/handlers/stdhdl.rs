@@ -14,6 +14,7 @@ impl StdoutEventHandler {
 impl EventHandler for StdoutEventHandler {
     fn handle(&self, evt: &ActionResponse) {
         if evt.event_name() != "" {
+            log::debug!("No event for \"{}\" registered", evt.event_name());
             return;
         }
 
@@ -27,5 +28,10 @@ impl EventHandler for StdoutEventHandler {
         for wmsg in evt.response.warnings() {
             log::warn!("{}/{} - {}", evt.eid(), evt.aid(), wmsg);
         }
+    }
+
+    /// Handler Id
+    fn id(&self) -> String {
+        "console-logger".to_string()
     }
 }

@@ -78,6 +78,11 @@ impl Action {
         self.bind.contains(&eid.to_string())
     }
 
+    /// Returns true if an action has requested state and is eligible to be processed.
+    pub fn has_state(&self, sid: &str) -> bool {
+        self.state.contains_key(sid)
+    }
+
     /// Run action
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         if let Some(call) = &self.call {
