@@ -35,7 +35,7 @@ impl ActionModResponse {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 /// This is identical to modlib::response::ModResponse but
 /// can accept partially serialised data. Module does *not*
 /// sends empty properties over the protocol to save the bandwidth.
@@ -71,5 +71,10 @@ impl ActionResponse {
     /// Return state Id of the action
     pub fn sid(&self) -> &str {
         &self.sid
+    }
+
+    /// Get event name of this action response
+    pub fn event_name(&self) -> String {
+        format!("{}/{}/{}", self.aid, self.eid, if self.sid.eq("") { "$".to_string() } else { self.sid.to_string() })
     }
 }
