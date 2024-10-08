@@ -1,13 +1,10 @@
-use libsysinspect::{
-    intp::actproc::response::{self, ActionResponse},
-    logger,
-};
+use libsysinspect::{intp::actproc::response::ActionResponse, logger};
 use std::env;
 
 mod clidef;
 mod mcf;
 
-static VERSION: &str = "0.1";
+static VERSION: &str = "0.0.1";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn main() {
