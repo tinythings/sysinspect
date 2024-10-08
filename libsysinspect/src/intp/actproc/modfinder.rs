@@ -1,3 +1,4 @@
+use super::response::{ActionModResponse, ActionResponse};
 use crate::SysinspectError;
 use core::str;
 use serde::{Deserialize, Serialize};
@@ -9,8 +10,6 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
 };
-
-use super::response::{ActionModResponse, ActionResponse};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModCall {

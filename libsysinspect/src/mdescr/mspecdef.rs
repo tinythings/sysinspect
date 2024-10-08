@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
+use crate::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-
-use crate::SysinspectError;
+use std::collections::HashMap;
 
 /// Model Specification
 /// ===================

@@ -1,9 +1,8 @@
+use super::mspecdef::ModelSpec;
 use crate::SysinspectError;
 use serde_yaml::Value;
 use std::{fs, path::PathBuf};
 use walkdir::WalkDir;
-
-use super::mspecdef::ModelSpec;
 
 pub const MODEL_INDEX: &str = "model.cfg";
 pub const MODEL_FILE_EXT: &str = ".cfg";
