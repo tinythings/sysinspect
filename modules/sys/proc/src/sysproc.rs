@@ -96,6 +96,7 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     } else {
         res.set_retcode(1);
         res.set_message("Process not found");
+        return res;
     }
 
     // Set payload
@@ -105,5 +106,6 @@ pub fn run(rt: &ModRequest) -> ModResponse {
         return res;
     }
 
+    res.set_message("Process is running");
     res
 }
