@@ -17,8 +17,8 @@ pub struct ActionModResponse {
 
 impl ActionModResponse {
     /// Get a return code
-    pub fn retcode(&self) -> &i32 {
-        &self.retcode
+    pub fn retcode(&self) -> i32 {
+        self.retcode
     }
 
     /// Return collected warnings
