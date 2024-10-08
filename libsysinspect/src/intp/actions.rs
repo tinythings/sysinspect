@@ -2,7 +2,7 @@ use super::{
     actproc::{modfinder::ModCall, response::ActionResponse},
     inspector::SysInspector,
 };
-use crate::{modlib::response::ModResponse, SysinspectError};
+use crate::SysinspectError;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -11,12 +11,12 @@ use std::{collections::HashMap, fmt::Display};
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ModArgs {
     opts: Option<Vec<String>>,
-    args: Option<HashMap<String, String>>,
+    args: Option<HashMap<String, Vec<String>>>,
 }
 
 impl ModArgs {
     /// Return args
-    pub fn args(&self) -> HashMap<String, String> {
+    pub fn args(&self) -> HashMap<String, Vec<String>> {
         if let Some(args) = &self.args {
             return args.to_owned();
         }
@@ -59,6 +59,8 @@ impl Action {
         if let Ok(mut i) = serde_yaml::from_value::<Action>(states.to_owned()) {
             i.id = Some(i_id);
             instance = i;
+        } else {
+            return Err(SysinspectError::ModelDSLError(format!("Action {i_id} is misconfigured")));
         }
 
         Ok(instance)
@@ -98,7 +100,9 @@ impl Action {
 
             // XXX: probably just pass args entirely at once instead, dropping add_kwargs() in a whole
             for (kw, arg) in &mod_args.args() {
-                modcall.add_kwargs(kw.to_owned(), arg.to_owned());
+                for a in arg {
+                    modcall.add_kwargs(kw.to_owned(), a.to_owned());
+                }
             }
 
             for opt in &mod_args.opts() {

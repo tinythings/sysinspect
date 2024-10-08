@@ -1,4 +1,4 @@
-use crate::{modlib::response::ModResponse, SysinspectError};
+use crate::SysinspectError;
 use core::str;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -16,7 +16,7 @@ use super::response::ActionResponse;
 pub struct ModCall {
     state: String,
     module: PathBuf,
-    args: HashMap<String, String>,
+    args: HashMap<String, Vec<String>>,
     opts: Vec<String>,
 }
 
@@ -35,7 +35,7 @@ impl ModCall {
 
     /// Add a pair of kwargs
     pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
-        self.args.insert(kw, arg);
+        self.args.entry(kw).or_insert(vec![]).push(arg);
         self
     }
 
