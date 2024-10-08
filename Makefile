@@ -9,9 +9,17 @@ devel:
 	cargo build -v
 	cargo build -v -p proc
 
+	# Move plugin binaries
+	mkdir -p target/debug/sys
+	mv target/debug/proc target/debug/sys/
+
 build:
 	cargo build --release
 	cargo build -p proc --release
+
+	# Move plugin binaries
+	mkdir -p target/release/sys
+	mv target/debug/proc target/release/sys/
 
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8

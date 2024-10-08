@@ -1,11 +1,22 @@
+use crate::SysinspectError;
+use core::str;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, path::PathBuf};
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    io::Write,
+    path::PathBuf,
+    process::{Command, Stdio},
+};
+
+use super::response::ActionResponse;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModCall {
     state: String,
     module: PathBuf,
-    args: Vec<HashMap<String, String>>,
+    args: HashMap<String, Vec<String>>,
     opts: Vec<String>,
 }
 
@@ -24,7 +35,7 @@ impl ModCall {
 
     /// Add a pair of kwargs
     pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
-        self.args.push([(kw, arg)].into_iter().collect());
+        self.args.entry(kw).or_default().push(arg);
         self
     }
 
@@ -34,8 +45,52 @@ impl ModCall {
         self
     }
 
-    pub fn run(&self) {
-        log::debug!("run() of {}", self);
+    /// Serialise args and opts to a JSON string for the call.
+    fn params_json(&self) -> String {
+        let mut out: HashMap<String, serde_json::Value> = HashMap::default();
+        if !self.args.is_empty() {
+            out.insert("arguments".to_string(), json!(self.args));
+        }
+
+        if !self.opts.is_empty() {
+            out.insert("options".to_string(), json!(self.opts));
+        }
+
+        let x = json!(out).to_string();
+        log::trace!("Params: {}", x);
+        x
+    }
+
+    pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
+        //   Event reactor:
+        //   - Configurable
+        //   - Chain plugins/functions
+        //   - Event reactions
+        //   - Should probably store all the result in a common structure
+        match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+            Ok(mut p) => {
+                // Send options
+                if let Some(mut stdin) = p.stdin.take() {
+                    if let Err(err) = stdin.write_all(self.params_json().as_bytes()) {
+                        return Err(SysinspectError::ModuleError(format!("Error while communicating with the module: {}", err)));
+                    }
+                }
+
+                // Get the output
+                if let Ok(out) = p.wait_with_output() {
+                    match str::from_utf8(&out.stdout) {
+                        Ok(out) => match serde_json::from_str::<ActionResponse>(out) {
+                            Ok(r) => Ok(Some(r)),
+                            Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
+                        },
+                        Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
+                    }
+                } else {
+                    Err(SysinspectError::ModuleError("Module returned no output".to_string()))
+                }
+            }
+            Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {}", err))),
+        }
     }
 
     pub fn state(&self) -> String {

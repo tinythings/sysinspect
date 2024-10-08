@@ -1,10 +1,10 @@
-use libsysinspect::logger;
+use libsysinspect::{intp::actproc::response::ActionResponse, logger};
 use std::env;
 
 mod clidef;
 mod mcf;
 
-static VERSION: &str = "0.1";
+static VERSION: &str = "0.0.1";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn main() {
@@ -42,7 +42,7 @@ fn main() {
     }
 
     if let Some(mpath) = params.get_one::<String>("model") {
-        match libsysinspect::mdl::mspec::load(mpath) {
+        match libsysinspect::mdescr::mspec::load(mpath) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
                 match libsysinspect::intp::inspector::SysInspector::new(spec) {
@@ -55,7 +55,15 @@ fn main() {
                         ) {
                             Ok(actions) => {
                                 for ac in actions {
-                                    ac.run();
+                                    match ac.run() {
+                                        Ok(response) => {
+                                            let response = response.unwrap_or(ActionResponse::default());
+                                            log::trace!("Action response: {:#?}", response);
+                                        }
+                                        Err(err) => {
+                                            log::error!("{err}")
+                                        }
+                                    }
                                 }
                             }
                             Err(err) => {

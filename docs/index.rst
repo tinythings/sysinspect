@@ -9,6 +9,7 @@ Welcome to the Project Sysinspect!
    :maxdepth: 1
 
    modeldescr/overview
+   moddev/overview
 
 Welcome to Sysinspect: an engine of Anomaly Detection and Root Cause Analysis.
 The name consists of two words "system" and "inspection", resulting in "suspicion".

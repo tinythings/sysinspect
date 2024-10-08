@@ -1,4 +1,7 @@
-use super::{actproc::modfinder::ModCall, inspector::SysInspector};
+use super::{
+    actproc::{modfinder::ModCall, response::ActionResponse},
+    inspector::SysInspector,
+};
 use crate::SysinspectError;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -8,21 +11,16 @@ use std::{collections::HashMap, fmt::Display};
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ModArgs {
     opts: Option<Vec<String>>,
-    args: Option<Vec<HashMap<String, String>>>,
+    args: Option<HashMap<String, Vec<String>>>,
 }
 
 impl ModArgs {
-    /// Get pairs of keyword args
-    pub fn args(&self) -> Vec<(String, String)> {
-        let mut out = Vec::<(String, String)>::default();
-        if let Some(argset) = &self.args {
-            for kwargs in argset {
-                for (k, v) in kwargs {
-                    out.push((k.to_owned(), v.to_owned()));
-                }
-            }
+    /// Return args
+    pub fn args(&self) -> HashMap<String, Vec<String>> {
+        if let Some(args) = &self.args {
+            return args.to_owned();
         }
-        out
+        HashMap::default()
     }
 
     /// Get options
@@ -49,7 +47,6 @@ pub struct Action {
 
 impl Action {
     pub fn new(id: &Value, states: &Value) -> Result<Self, SysinspectError> {
-        let mut instance = Action::default();
         let i_id: String;
 
         if let Some(id) = id.as_str() {
@@ -60,10 +57,10 @@ impl Action {
 
         if let Ok(mut i) = serde_yaml::from_value::<Action>(states.to_owned()) {
             i.id = Some(i_id);
-            instance = i;
+            Ok(i)
+        } else {
+            Err(SysinspectError::ModelDSLError(format!("Action {i_id} is misconfigured")))
         }
-
-        Ok(instance)
     }
 
     /// Get action's `id` field
@@ -81,11 +78,14 @@ impl Action {
         self.bind.contains(&eid.to_string())
     }
 
-    pub fn run(&self) {
+    /// Run action
+    pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         if let Some(call) = &self.call {
             log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
-            call.run();
+            return call.run();
         }
+
+        Ok(None)
     }
 
     /// Setup and activate an action and is done by the Inspector.
@@ -94,8 +94,12 @@ impl Action {
         let mpath = inspector.cfg().get_module(&self.module)?;
         if let Some(mod_args) = self.state.get(&state) {
             let mut modcall = ModCall::default().set_state(state).set_module(mpath);
+
+            // XXX: probably just pass args entirely at once instead, dropping add_kwargs() in a whole
             for (kw, arg) in &mod_args.args() {
-                modcall.add_kwargs(kw.to_owned(), arg.to_owned());
+                for a in arg {
+                    modcall.add_kwargs(kw.to_owned(), a.to_owned());
+                }
             }
 
             for opt in &mod_args.opts() {

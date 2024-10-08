@@ -1,29 +1,25 @@
-use libsysinspect::{self, runtime};
-use std::{collections::HashMap, io::Error};
+use libsysinspect::modlib::{
+    modinit::ModInterface,
+    runtime::{self},
+};
+use sysproc::run;
+mod sysproc;
 
 fn main() {
-    /*
-    let x = runtime::get_call_args()?;
-    println!("Args: {:?}", x.args());
-    println!("Options: {:?}", x.options());
-    println!("Payload: {:?}", x.ext());
-    println!("Timeout: {:?}", x.timeout());
-    println!("Quiet: {:?}", x.quiet());
+    let mod_doc = libsysinspect::init_mod_doc!(ModInterface);
+    if mod_doc.print_help() {
+        return;
+    }
 
-    println!("---");
-
-    let mut v = HashMap::<String, String>::new();
-    v.insert("something".to_string(), "world".to_string());
-
-    let r =
-        runtime::PluginResponse::new(libsysinspect::tpl::interpolate("Hello, $(something)?!", &v));
-    runtime::send_call_response(&r)?;
-
-    println!(
-        "{:?}",
-        libsysinspect::tpl::extract(
-            "here $(is.a.test) of stuff $(that) could matter $(at.some) point"
-        )
-    );
-    */
+    match runtime::get_call_args() {
+        Ok(rt) => match runtime::send_call_response(&run(&rt)) {
+            Ok(_) => {}
+            Err(err) => {
+                println!("Error: {}", err)
+            }
+        },
+        Err(err) => {
+            println!("{}", err);
+        }
+    }
 }
