@@ -1,5 +1,8 @@
-use super::{actproc::modfinder::ModCall, inspector::SysInspector};
-use crate::SysinspectError;
+use super::{
+    actproc::{modfinder::ModCall, response::ActionResponse},
+    inspector::SysInspector,
+};
+use crate::{modlib::response::ModResponse, SysinspectError};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -76,13 +79,14 @@ impl Action {
         self.bind.contains(&eid.to_string())
     }
 
-    pub fn run(&self) -> Result<(), SysinspectError> {
+    /// Run action
+    pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         if let Some(call) = &self.call {
             log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
             return call.run();
         }
 
-        Ok(())
+        Ok(None)
     }
 
     /// Setup and activate an action and is done by the Inspector.

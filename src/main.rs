@@ -1,4 +1,7 @@
-use libsysinspect::logger;
+use libsysinspect::{
+    intp::actproc::response::{self, ActionResponse},
+    logger,
+};
 use std::env;
 
 mod clidef;
@@ -55,8 +58,14 @@ fn main() {
                         ) {
                             Ok(actions) => {
                                 for ac in actions {
-                                    if let Err(err) = ac.run() {
-                                        log::error!("{err}");
+                                    match ac.run() {
+                                        Ok(response) => {
+                                            let response = response.unwrap_or(ActionResponse::default());
+                                            log::trace!("Action response: {:#?}", response);
+                                        }
+                                        Err(err) => {
+                                            log::error!("{err}")
+                                        }
                                     }
                                 }
                             }

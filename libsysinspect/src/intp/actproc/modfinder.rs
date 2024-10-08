@@ -1,3 +1,4 @@
+use crate::{modlib::response::ModResponse, SysinspectError};
 use core::str;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -9,7 +10,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::SysinspectError;
+use super::response::ActionResponse;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModCall {
@@ -60,7 +61,7 @@ impl ModCall {
         x
     }
 
-    pub fn run(&self) -> Result<(), SysinspectError> {
+    pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         // TODO:
         //   1. Pass JSON to the pipe
         //   2. Grab the output
@@ -83,16 +84,15 @@ impl ModCall {
                 // Get the output
                 if let Ok(out) = p.wait_with_output() {
                     match str::from_utf8(&out.stdout) {
-                        Ok(out) => {
-                            log::trace!("Module output:\n{}", out)
-                        }
-                        Err(err) => {
-                            log::error!("Error obtaining the output: {}", err)
-                        }
+                        Ok(out) => match serde_json::from_str::<ActionResponse>(out) {
+                            Ok(r) => Ok(Some(r)),
+                            Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
+                        },
+                        Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
                     }
+                } else {
+                    Err(SysinspectError::ModuleError("Module returned no output".to_string()))
                 }
-
-                Ok(())
             }
             Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {}", err))),
         }
