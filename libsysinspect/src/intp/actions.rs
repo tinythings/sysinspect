@@ -47,7 +47,6 @@ pub struct Action {
 
 impl Action {
     pub fn new(id: &Value, states: &Value) -> Result<Self, SysinspectError> {
-        let mut instance = Action::default();
         let i_id: String;
 
         if let Some(id) = id.as_str() {
@@ -58,12 +57,10 @@ impl Action {
 
         if let Ok(mut i) = serde_yaml::from_value::<Action>(states.to_owned()) {
             i.id = Some(i_id);
-            instance = i;
+            Ok(i)
         } else {
-            return Err(SysinspectError::ModelDSLError(format!("Action {i_id} is misconfigured")));
+            Err(SysinspectError::ModelDSLError(format!("Action {i_id} is misconfigured")))
         }
-
-        Ok(instance)
     }
 
     /// Get action's `id` field

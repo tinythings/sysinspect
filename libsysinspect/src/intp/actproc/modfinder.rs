@@ -35,7 +35,7 @@ impl ModCall {
 
     /// Add a pair of kwargs
     pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
-        self.args.entry(kw).or_insert(vec![]).push(arg);
+        self.args.entry(kw).or_default().push(arg);
         self
     }
 
