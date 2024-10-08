@@ -62,11 +62,6 @@ impl ModCall {
     }
 
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
-        // TODO:
-        //   1. Pass JSON to the pipe
-        //   2. Grab the output
-        //   3. Redirect the output to the common receiver
-        //
         //   Event reactor:
         //   - Configurable
         //   - Chain plugins/functions

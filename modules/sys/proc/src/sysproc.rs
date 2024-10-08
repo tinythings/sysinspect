@@ -1,6 +1,6 @@
 use libsysinspect::modlib::{
     response::ModResponse,
-    runtime::{self, ArgValue, ModRequest},
+    runtime::{self, ModRequest},
 };
 use procfs::process::{all_processes, LimitValue, Process};
 use serde_json::json;
