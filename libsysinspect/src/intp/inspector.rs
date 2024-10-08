@@ -119,7 +119,7 @@ impl SysInspector {
     }
 
     /// Return config reference
-    pub(crate) fn cfg(&self) -> &Config {
+    pub fn cfg(&self) -> &Config {
         &self.config
     }
 }
