@@ -105,8 +105,12 @@ impl SysInspector {
         for eid in eids {
             for action in self.actions.values() {
                 if action.binds_to(&eid) {
-                    log::debug!("Action entity: {}", action.id());
-                    out.push(action.to_owned().setup(self, state.to_owned())?);
+                    log::debug!("Action entity: {} (entity: {})", action.id(), &eid);
+                    // Actions are registered with a specific Entitiy Id (eid)
+                    // Because as the same Action gets registered with the another eid,
+                    // it also corresponds to other facts and conditions, and that then
+                    // needs to be passed to the reactor.
+                    out.push(action.to_owned().setup(self, &eid, state.to_owned())?);
                 }
             }
         }
