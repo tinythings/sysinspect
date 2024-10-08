@@ -1,11 +1,21 @@
+use core::str;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, path::PathBuf};
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    io::Write,
+    path::PathBuf,
+    process::{Command, Stdio},
+};
+
+use crate::SysinspectError;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModCall {
     state: String,
     module: PathBuf,
-    args: Vec<HashMap<String, String>>,
+    args: HashMap<String, String>,
     opts: Vec<String>,
 }
 
@@ -24,7 +34,7 @@ impl ModCall {
 
     /// Add a pair of kwargs
     pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
-        self.args.push([(kw, arg)].into_iter().collect());
+        self.args.insert(kw, arg);
         self
     }
 
@@ -34,8 +44,64 @@ impl ModCall {
         self
     }
 
-    pub fn run(&self) {
-        log::debug!("run() of {}", self);
+    /// Serialise args and opts to a JSON string for the call.
+    fn params_json(&self) -> String {
+        let mut out: HashMap<String, serde_json::Value> = HashMap::default();
+        if !self.args.is_empty() {
+            out.insert("arguments".to_string(), json!(self.args));
+        }
+
+        if !self.opts.is_empty() {
+            out.insert("options".to_string(), json!(self.opts));
+        }
+
+        let x = json!(out).to_string();
+        log::trace!("Params: {}", x);
+        x
+    }
+
+    pub fn run(&self) -> Result<(), SysinspectError> {
+        // TODO:
+        //   1. Pass JSON to the pipe
+        //   2. Grab the output
+        //   3. Redirect the output to the common receiver
+        //
+        //   Event reactor:
+        //   - Configurable
+        //   - Chain plugins/functions
+        //   - Event reactions
+        //   - Should probably store all the result in a common structure
+        match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+            Ok(mut p) => {
+                // Send options
+                if let Some(mut stdin) = p.stdin.take() {
+                    match stdin.write_all(self.params_json().as_bytes()) {
+                        Err(err) => {
+                            return Err(SysinspectError::ModuleError(format!(
+                                "Error while communicating with the module: {}",
+                                err
+                            )))
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Get the output
+                if let Ok(out) = p.wait_with_output() {
+                    match str::from_utf8(&out.stdout) {
+                        Ok(out) => {
+                            log::trace!("Module output:\n{}", out)
+                        }
+                        Err(err) => {
+                            log::error!("Error obtaining the output: {}", err)
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+            Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {}", err))),
+        }
     }
 
     pub fn state(&self) -> String {

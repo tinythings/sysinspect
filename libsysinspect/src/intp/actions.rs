@@ -8,21 +8,16 @@ use std::{collections::HashMap, fmt::Display};
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ModArgs {
     opts: Option<Vec<String>>,
-    args: Option<Vec<HashMap<String, String>>>,
+    args: Option<HashMap<String, String>>,
 }
 
 impl ModArgs {
-    /// Get pairs of keyword args
-    pub fn args(&self) -> Vec<(String, String)> {
-        let mut out = Vec::<(String, String)>::default();
-        if let Some(argset) = &self.args {
-            for kwargs in argset {
-                for (k, v) in kwargs {
-                    out.push((k.to_owned(), v.to_owned()));
-                }
-            }
+    /// Return args
+    pub fn args(&self) -> HashMap<String, String> {
+        if let Some(args) = &self.args {
+            return args.to_owned();
         }
-        out
+        HashMap::default()
     }
 
     /// Get options
@@ -94,6 +89,8 @@ impl Action {
         let mpath = inspector.cfg().get_module(&self.module)?;
         if let Some(mod_args) = self.state.get(&state) {
             let mut modcall = ModCall::default().set_state(state).set_module(mpath);
+
+            // XXX: probably just pass args entirely at once instead, dropping add_kwargs() in a whole
             for (kw, arg) in &mod_args.args() {
                 modcall.add_kwargs(kw.to_owned(), arg.to_owned());
             }
