@@ -5,6 +5,9 @@ ARC_NAME := sysinspect-${ARC_VERSION}
 
 .PHONY:build
 
+check:
+	cargo clippy -- -Dwarnings -Aunused-variables -Adead-code
+
 devel:
 	cargo build -v
 	cargo build -v -p proc
