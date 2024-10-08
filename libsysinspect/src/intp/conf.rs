@@ -32,7 +32,7 @@ impl Config {
         );
 
         if !modpath.exists() {
-            return Err(SysinspectError::ModuleError(format!("Module \"{}\" was not found", namespace)));
+            return Err(SysinspectError::ModuleError(format!("Module \"{}\" was not found at {:?}", namespace, modpath)));
         }
 
         Ok(modpath)
