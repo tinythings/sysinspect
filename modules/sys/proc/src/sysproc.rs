@@ -1,6 +1,6 @@
 use libsysinspect::modlib::{
     response::ModResponse,
-    runtime::{self, ModRequest},
+    runtime::{self, ArgValue, ModRequest},
 };
 use procfs::process::{all_processes, LimitValue, Process};
 use serde_json::json;
@@ -23,7 +23,7 @@ fn find_process(cmd: String) -> Option<procfs::process::Process> {
 
 /// Get a string argument
 fn get_arg(rt: &ModRequest, arg: &str) -> String {
-    if let Some(s_arg) = rt.args().get(arg) {
+    if let Some(s_arg) = rt.first_arg(arg) {
         if let Some(s_arg) = s_arg.as_string() {
             return s_arg;
         } else if let Some(s_arg) = s_arg.as_bool() {
