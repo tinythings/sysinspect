@@ -2,6 +2,7 @@ pub mod evthandler;
 pub mod stdhdl;
 use lazy_static::lazy_static;
 
+#[allow(clippy::type_complexity)]
 /// Handlers registry
 ///
 /// To add a handler:
