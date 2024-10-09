@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ActionModResponse {
@@ -32,6 +33,10 @@ impl ActionModResponse {
     /// Get a general return message
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    pub fn data(&self) -> Option<Value> {
+        self.data.to_owned()
     }
 }
 
