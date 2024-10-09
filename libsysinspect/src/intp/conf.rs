@@ -5,7 +5,8 @@ use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct EventsConfig {
-    handler: String,
+    handler: Vec<String>,
+    #[serde(flatten)]
     cfg: Option<HashMap<String, serde_yaml::Value>>,
 }
 
