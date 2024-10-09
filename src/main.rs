@@ -1,9 +1,5 @@
-use libsysinspect::{
-    intp::actproc::response::ActionResponse,
-    logger,
-    reactor::{evtproc::EventProcessor, handlers::stdhdl::StdoutEventHandler, receiver::Receiver},
-};
-use std::{collections::HashMap, env};
+use libsysinspect::{intp::actproc::response::ActionResponse, logger, reactor::evtproc::EventProcessor};
+use std::env;
 
 mod clidef;
 mod mcf;
