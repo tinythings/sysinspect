@@ -147,7 +147,7 @@ impl Config {
     /// Get all events Ids
     pub fn get_event_ids(&self) -> Vec<String> {
         if let Some(events) = &self.events {
-            return events.keys().into_iter().map(|s| s.to_owned()).collect::<Vec<String>>();
+            return events.keys().map(|s| s.to_owned()).collect::<Vec<String>>();
         }
 
         vec![]
