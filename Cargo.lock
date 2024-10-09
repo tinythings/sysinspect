@@ -389,6 +389,7 @@ dependencies = [
  "chrono",
  "colored",
  "indexmap",
+ "lazy_static",
  "log",
  "regex",
  "serde",
