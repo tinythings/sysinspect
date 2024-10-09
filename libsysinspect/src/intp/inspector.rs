@@ -6,6 +6,7 @@ use crate::{
         mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
         DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
     },
+    reactor::handlers,
     SysinspectError,
 };
 use std::collections::HashMap;
@@ -31,7 +32,11 @@ impl SysInspector {
             config: Config::default(),
             spec,
         };
+
         sr.load()?;
+
+        // Load all handlers into factory
+        handlers::registry::init_handlers();
 
         Ok(sr)
     }

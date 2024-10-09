@@ -3,7 +3,7 @@ use libsysinspect::{
     logger,
     reactor::{evtproc::EventProcessor, handlers::stdhdl::StdoutEventHandler, receiver::Receiver},
 };
-use std::env;
+use std::{collections::HashMap, env};
 
 mod clidef;
 mod mcf;
@@ -51,7 +51,9 @@ fn main() {
                 log::debug!("Initalising inspector");
                 match libsysinspect::intp::inspector::SysInspector::new(spec) {
                     Ok(isp) => {
-                        let mut evt_rec = Receiver::default();
+                        // Setup event processor
+                        let mut evtproc = EventProcessor::new().set_config(isp.cfg());
+
                         // XXX: Move all this elsewhere
                         //let ar = isp.actions_by_relations(clidef::split_by(&params, "labels", None)).unwrap();
                         match isp.actions_by_entities(
@@ -63,23 +65,19 @@ fn main() {
                                     match ac.run() {
                                         Ok(response) => {
                                             let response = response.unwrap_or(ActionResponse::default());
-                                            evt_rec.register(response.eid().to_owned(), response);
+                                            evtproc.receiver().register(response.eid().to_owned(), response);
                                         }
                                         Err(err) => {
                                             log::error!("{err}")
                                         }
                                     }
                                 }
+                                evtproc.process();
                             }
                             Err(err) => {
                                 log::error!("{}", err);
                             }
                         }
-                        // Example of adding configurable handlers
-                        let std_evt_handler = StdoutEventHandler::new();
-                        let mut eventproc = EventProcessor::new(evt_rec).set_config(isp.cfg());
-                        eventproc.add_handler(&std_evt_handler);
-                        eventproc.process();
                     }
                     Err(err) => log::error!("{err}"),
                 }

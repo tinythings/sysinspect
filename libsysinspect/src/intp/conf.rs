@@ -54,14 +54,17 @@ impl EventConfigOption {
     }
 }
 
+/// A configuration of an event. It contains an array of
+/// binding handlers and their configurations, respectfully.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct EventsConfig {
+pub struct EventConfig {
     handler: Vec<String>,
     #[serde(flatten)]
     cfg: Option<HashMap<String, EventConfigOption>>,
 }
 
-impl EventsConfig {
+impl EventConfig {
+    /// Get an event configuration for a handler, if any
     pub fn for_handler(&self, handler: &str) -> Option<EventConfigOption> {
         if let Some(cfg) = &self.cfg {
             if let Some(cfg) = cfg.get(handler) {
@@ -70,14 +73,20 @@ impl EventsConfig {
         }
         None
     }
+
+    /// Get all handlers that are bound to
+    pub(crate) fn get_bound_handlers(&self) -> &Vec<String> {
+        &self.handler
+    }
 }
 
+/// The entire config
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     modules: PathBuf,
 
     // EventId to config, added later
-    events: Option<HashMap<String, EventsConfig>>,
+    events: Option<HashMap<String, EventConfig>>,
 }
 
 impl Config {
@@ -112,7 +121,7 @@ impl Config {
 
     /// Set events config
     pub(crate) fn set_events(&mut self, obj: &Value) -> Result<(), SysinspectError> {
-        if let Ok(cfg) = serde_yaml::from_value::<HashMap<String, EventsConfig>>(obj.to_owned()) {
+        if let Ok(cfg) = serde_yaml::from_value::<HashMap<String, EventConfig>>(obj.to_owned()) {
             self.events = Some(cfg);
         } else {
             return Err(SysinspectError::ModelDSLError("Events configuration error".to_string()));
@@ -127,11 +136,20 @@ impl Config {
     /// `<action-id>/<bound entity/<state>`
     ///
     /// State can be default, i.e. `$`.
-    pub fn get_event(&self, event_id: &str) -> Option<EventsConfig> {
+    pub fn get_event(&self, event_id: &str) -> Option<EventConfig> {
         if let Some(e) = &self.events {
             return e.get(event_id).cloned();
         }
 
         None
+    }
+
+    /// Get all events Ids
+    pub fn get_event_ids(&self) -> Vec<String> {
+        if let Some(events) = &self.events {
+            return events.keys().into_iter().map(|s| s.to_owned()).collect::<Vec<String>>();
+        }
+
+        vec![]
     }
 }
