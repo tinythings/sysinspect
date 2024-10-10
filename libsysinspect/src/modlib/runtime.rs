@@ -1,3 +1,5 @@
+use crate::util;
+
 use super::response::ModResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,38 +20,23 @@ impl ArgValue {
     /// ```
     /// "foo,bar, baz"
     /// ```
-    pub fn as_strvec(&self) -> Option<Vec<String>> {
-        if let Some(v) = self.as_string() {
-            if !v.contains(',') {
-                return None;
-            }
-            return Some(v.split(',').map(|s| s.trim().to_string()).collect());
-        }
-        None
+    pub fn as_str_vec(&self) -> Option<Vec<String>> {
+        util::dataconv::as_str_list_opt(Some(&self.0).cloned())
     }
 
     /// Get a parameter as an integer
     pub fn as_int(&self) -> Option<i64> {
-        match &self.0 {
-            Value::Number(v) => Some(v.as_i64().unwrap_or_default()), // XXX: mmhhh...
-            _ => None,
-        }
+        util::dataconv::as_int_opt(Some(&self.0).cloned())
     }
 
     /// Get a parameter as a bool
     pub fn as_bool(&self) -> Option<bool> {
-        match &self.0 {
-            Value::Bool(v) => Some(v.to_owned()),
-            _ => None,
-        }
+        util::dataconv::as_bool_opt(Some(&self.0).cloned())
     }
 
     /// Get a parameter as a string. Extra space is stripped.
     pub fn as_string(&self) -> Option<String> {
-        match &self.0 {
-            Value::String(v) => Some(v.trim().to_owned()),
-            _ => None,
-        }
+        util::dataconv::as_str_opt(Some(&self.0).cloned())
     }
 }
 

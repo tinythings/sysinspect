@@ -1,4 +1,4 @@
-use crate::SysinspectError;
+use crate::{util, SysinspectError};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::{collections::HashMap, path::PathBuf};
@@ -12,45 +12,22 @@ pub struct EventConfigOption {
 impl EventConfigOption {
     /// Get an option as a string type
     pub fn as_string(&self, cfg: &str) -> Option<String> {
-        if let Some(Value::String(v)) = self.data.get(cfg) {
-            return Some(v.to_owned());
-        }
-
-        None
+        util::dataconv::as_str_opt(self.data.get(cfg).cloned())
     }
 
     /// Get an option as an integer
     pub fn as_int(&self, cfg: &str) -> Option<i64> {
-        if let Some(v) = self.data.get(cfg).and_then(|v| match v {
-            Value::Number(n) => n.as_i64(),
-            _ => None,
-        }) {
-            return Some(v);
-        }
-
-        None
+        util::dataconv::as_int_opt(self.data.get(cfg).cloned())
     }
 
     /// Get an option as an integer
     pub fn as_bool(&self, cfg: &str) -> Option<bool> {
-        if let Some(Value::Bool(v)) = self.data.get(cfg) {
-            return Some(v.to_owned());
-        }
-        None
+        util::dataconv::as_bool_opt(self.data.get(cfg).cloned())
     }
 
     /// Get an option as a vector of strings
     pub fn as_str_list(&self, cfg: &str) -> Option<Vec<String>> {
-        if let Some(Value::Sequence(v)) = self.data.get(cfg) {
-            let mut out: Vec<String> = Vec::default();
-            for i in v {
-                if let Some(i) = i.as_str() {
-                    out.push(i.to_string());
-                }
-            }
-            return if v.len() == out.len() { Some(out) } else { None };
-        }
-        None
+        util::dataconv::as_str_list_opt(self.data.get(cfg).cloned())
     }
 }
 
