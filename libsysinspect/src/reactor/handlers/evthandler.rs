@@ -1,5 +1,8 @@
-use crate::intp::{actproc::response::ActionResponse, conf::EventConfig};
-use std::fmt::Debug;
+use crate::intp::{
+    actproc::response::ActionResponse,
+    conf::{EventConfig, EventConfigOption},
+};
+use std::{collections::HashMap, fmt::Debug};
 
 pub trait EventHandler: Debug {
     /// Constructor
@@ -14,4 +17,5 @@ pub trait EventHandler: Debug {
 
     /// Calls the handler on the specific action
     fn handle(&self, evt: &ActionResponse);
+    fn config(&self) -> &Option<HashMap<String, EventConfigOption>>;
 }

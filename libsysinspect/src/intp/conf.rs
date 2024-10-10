@@ -55,6 +55,11 @@ impl EventConfig {
     pub(crate) fn get_bound_handlers(&self) -> &Vec<String> {
         &self.handler
     }
+
+    /// Get specific event configuration
+    pub fn cfg(&self) -> &Option<HashMap<String, EventConfigOption>> {
+        &self.cfg
+    }
 }
 
 /// The entire config
