@@ -1,8 +1,6 @@
-use crate::util;
-
 use super::response::ModResponse;
+use crate::util;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::io::Error;
 use std::{
     collections::HashMap,
