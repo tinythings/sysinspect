@@ -75,11 +75,29 @@ impl ActionResponse {
 
     /// Return state Id of the action
     pub fn sid(&self) -> &str {
-        &self.sid
+        if self.sid.eq("") {
+            "$"
+        } else {
+            &self.sid
+        }
     }
 
-    /// Get event name of this action response
-    pub fn event_name(&self) -> String {
-        format!("{}/{}/{}", self.aid, self.eid, if self.sid.eq("") { "$".to_string() } else { self.sid.to_string() })
+    /// Match Eid.
+    ///
+    /// Error codes:
+    ///   - $       - any
+    ///   - 0..255  - specific code
+    ///   - E       - error only (non-0)
+    pub fn match_eid(&self, eid: &str) -> bool {
+        let p_eid = eid.split('/').map(|s| s.trim()).collect::<Vec<&str>>();
+
+        // Have fun reading this :-P
+        p_eid.len() == 4
+            && (self.aid().eq(p_eid[0]))
+            && self.eid().eq(p_eid[1])
+            && self.sid().eq(p_eid[2])
+            && ((p_eid[3] == "$")
+                || (p_eid[3].eq("E") && self.response.retcode() > 0)
+                || p_eid[3].eq(&self.response.retcode().to_string()))
     }
 }

@@ -25,7 +25,7 @@ impl EventHandler for StdoutEventHandler {
     }
 
     fn handle(&self, evt: &ActionResponse) {
-        if !self.eid.eq(&evt.event_name()) {
+        if !&evt.match_eid(&self.eid) {
             return;
         }
 
