@@ -1,9 +1,8 @@
+use super::mspecdef::ModelSpec;
 use crate::SysinspectError;
 use serde_yaml::Value;
 use std::{fs, path::PathBuf};
 use walkdir::WalkDir;
-
-use super::mspecdef::ModelSpec;
 
 pub const MODEL_INDEX: &str = "model.cfg";
 pub const MODEL_FILE_EXT: &str = ".cfg";
@@ -61,7 +60,7 @@ impl SpecLoader {
     /// Merge YAML parts
     fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
         if chunks.is_empty() {
-            return Err(SysinspectError::ModelMultipleIndex("blah happened".to_string()));
+            return Err(SysinspectError::ModelMultipleIndex("Multiple index error".to_string()));
             // XXX: Add one more exception
         }
 

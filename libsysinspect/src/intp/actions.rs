@@ -37,7 +37,7 @@ impl ModArgs {
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Action {
-    id: Option<String>,
+    id: Option<String>, // NOTE: It is not optional, just added later!
     description: Option<String>,
     module: String,
     bind: Vec<String>,
@@ -78,6 +78,11 @@ impl Action {
         self.bind.contains(&eid.to_string())
     }
 
+    /// Returns true if an action has requested state and is eligible to be processed.
+    pub fn has_state(&self, sid: &str) -> bool {
+        self.state.contains_key(sid)
+    }
+
     /// Run action
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         if let Some(call) = &self.call {
@@ -90,10 +95,10 @@ impl Action {
 
     /// Setup and activate an action and is done by the Inspector.
     /// This method finds module, sets up its parameters, binds constraint etc.
-    pub(crate) fn setup(&mut self, inspector: &SysInspector, state: String) -> Result<Action, SysinspectError> {
+    pub(crate) fn setup(&mut self, inspector: &SysInspector, eid: &str, state: String) -> Result<Action, SysinspectError> {
         let mpath = inspector.cfg().get_module(&self.module)?;
         if let Some(mod_args) = self.state.get(&state) {
-            let mut modcall = ModCall::default().set_state(state).set_module(mpath);
+            let mut modcall = ModCall::default().set_state(state).set_module(mpath).set_aid(self.id()).set_eid(eid.to_string());
 
             // XXX: probably just pass args entirely at once instead, dropping add_kwargs() in a whole
             for (kw, arg) in &mod_args.args() {

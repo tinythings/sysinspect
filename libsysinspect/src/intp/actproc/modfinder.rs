@@ -1,3 +1,4 @@
+use super::response::{ActionModResponse, ActionResponse};
 use crate::SysinspectError;
 use core::str;
 use serde::{Deserialize, Serialize};
@@ -10,12 +11,21 @@ use std::{
     process::{Command, Stdio},
 };
 
-use super::response::ActionResponse;
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModCall {
+    // Action Id
+    aid: String,
+
+    // Bind Id for an entity
+    eid: String,
+
+    // Action state
     state: String,
+
+    // Path to the executable module
     module: PathBuf,
+
+    // Module params
     args: HashMap<String, Vec<String>>,
     opts: Vec<String>,
 }
@@ -79,8 +89,10 @@ impl ModCall {
                 // Get the output
                 if let Ok(out) = p.wait_with_output() {
                     match str::from_utf8(&out.stdout) {
-                        Ok(out) => match serde_json::from_str::<ActionResponse>(out) {
-                            Ok(r) => Ok(Some(r)),
+                        Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
+                            Ok(r) => {
+                                Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), r)))
+                            }
                             Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
                         },
                         Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
@@ -101,11 +113,29 @@ impl ModCall {
     pub fn with_state(&self, state: String) -> bool {
         self.state == state
     }
+
+    /// Set action Id
+    pub(crate) fn set_aid(mut self, aid: String) -> Self {
+        self.aid = aid;
+        self
+    }
+
+    pub(crate) fn set_eid(mut self, eid: String) -> Self {
+        self.eid = eid;
+        self
+    }
 }
 
 impl Default for ModCall {
     fn default() -> Self {
-        Self { state: "$".to_string(), module: PathBuf::default(), args: Default::default(), opts: Default::default() }
+        Self {
+            state: "$".to_string(),
+            aid: "".to_string(),
+            eid: "".to_string(),
+            module: PathBuf::default(),
+            args: HashMap::default(),
+            opts: Vec::default(),
+        }
     }
 }
 

@@ -1,8 +1,7 @@
+use crate::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
-
-use crate::SysinspectError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Claim {

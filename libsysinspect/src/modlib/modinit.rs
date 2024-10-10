@@ -1,9 +1,8 @@
-use std::env::args;
-
 use colored::Colorize;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
+use std::env::args;
 use textwrap::{fill, Options};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

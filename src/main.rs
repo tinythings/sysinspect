@@ -1,4 +1,4 @@
-use libsysinspect::{intp::actproc::response::ActionResponse, logger};
+use libsysinspect::{intp::actproc::response::ActionResponse, logger, reactor::evtproc::EventProcessor};
 use std::env;
 
 mod clidef;
@@ -47,6 +47,9 @@ fn main() {
                 log::debug!("Initalising inspector");
                 match libsysinspect::intp::inspector::SysInspector::new(spec) {
                     Ok(isp) => {
+                        // Setup event processor
+                        let mut evtproc = EventProcessor::new().set_config(isp.cfg());
+
                         // XXX: Move all this elsewhere
                         //let ar = isp.actions_by_relations(clidef::split_by(&params, "labels", None)).unwrap();
                         match isp.actions_by_entities(
@@ -58,13 +61,14 @@ fn main() {
                                     match ac.run() {
                                         Ok(response) => {
                                             let response = response.unwrap_or(ActionResponse::default());
-                                            log::trace!("Action response: {:#?}", response);
+                                            evtproc.receiver().register(response.eid().to_owned(), response);
                                         }
                                         Err(err) => {
                                             log::error!("{err}")
                                         }
                                     }
                                 }
+                                evtproc.process();
                             }
                             Err(err) => {
                                 log::error!("{}", err);

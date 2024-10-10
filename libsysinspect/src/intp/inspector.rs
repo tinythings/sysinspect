@@ -4,8 +4,9 @@ use super::{
 use crate::{
     mdescr::{
         mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
-        DSL_IDX_CHECKBOOK,
+        DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
     },
+    reactor::handlers,
     SysinspectError,
 };
 use std::collections::HashMap;
@@ -31,16 +32,26 @@ impl SysInspector {
             config: Config::default(),
             spec,
         };
+
         sr.load()?;
+
+        // Load all handlers into factory
+        handlers::registry::init_handlers();
 
         Ok(sr)
     }
 
     /// Load all objects.
     fn load(&mut self) -> Result<&mut Self, SysinspectError> {
-        for directive in
-            [DSL_DIR_ENTITIES, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_RELATIONS, DSL_IDX_CHECKBOOK, DSL_IDX_CFG]
-        {
+        for directive in [
+            DSL_DIR_ENTITIES,
+            DSL_DIR_ACTIONS,
+            DSL_DIR_CONSTRAINTS,
+            DSL_DIR_RELATIONS,
+            DSL_IDX_CHECKBOOK,
+            DSL_IDX_CFG,
+            DSL_IDX_EVENTS_CFG,
+        ] {
             let v_obj = &self.spec.top(directive);
             if !directive.eq(DSL_DIR_CONSTRAINTS) && v_obj.is_none() {
                 return Err(SysinspectError::ModelDSLError(format!("Directive '{directive}' is not defined")));
@@ -84,6 +95,10 @@ impl SysInspector {
                 if directive == DSL_IDX_CFG {
                     self.config = Config::new(v_obj.unwrap())?;
                 }
+
+                if directive == DSL_IDX_EVENTS_CFG {
+                    self.config.set_events(v_obj.unwrap())?;
+                }
             }
 
             log::debug!("Loaded {amt} instances of {directive}");
@@ -104,9 +119,13 @@ impl SysInspector {
 
         for eid in eids {
             for action in self.actions.values() {
-                if action.binds_to(&eid) {
-                    log::debug!("Action entity: {}", action.id());
-                    out.push(action.to_owned().setup(self, state.to_owned())?);
+                if action.binds_to(&eid) && action.has_state(&state) {
+                    log::debug!("Action entity: {} (entity: {}, state: {state})", action.id(), &eid);
+                    // Actions are registered with a specific Entitiy Id (eid)
+                    // Because as the same Action gets registered with the another eid,
+                    // it also corresponds to other facts and conditions, and that then
+                    // needs to be passed to the reactor.
+                    out.push(action.to_owned().setup(self, &eid, state.to_owned())?);
                 }
             }
         }
@@ -115,7 +134,7 @@ impl SysInspector {
     }
 
     /// Return config reference
-    pub(crate) fn cfg(&self) -> &Config {
+    pub fn cfg(&self) -> &Config {
         &self.config
     }
 }
