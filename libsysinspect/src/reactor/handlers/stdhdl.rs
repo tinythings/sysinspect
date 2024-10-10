@@ -1,5 +1,8 @@
 use super::evthandler::EventHandler;
-use crate::intp::{actproc::response::ActionResponse, conf::EventConfig};
+use crate::{
+    intp::{actproc::response::ActionResponse, conf::EventConfig},
+    reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
+};
 
 #[derive(Default, Debug)]
 pub struct StdoutEventHandler {
@@ -30,18 +33,13 @@ impl EventHandler for StdoutEventHandler {
             return;
         }
 
-        let mut data = String::from("");
-        if let Some(r_data) = evt.response.data() {
-            data = format!("{:#?}", r_data);
-        }
-
         if evt.response.retcode() == 0 {
             log::info!("{}/{} - {}", evt.eid(), evt.aid(), evt.response.message());
-            if !data.is_empty() {
-                log::info!("{}/{} - {}", evt.eid(), evt.aid(), data);
+            if let Some(data) = evt.response.data() {
+                log::info!("{}/{} - Other data:\n{}", evt.eid(), evt.aid(), KeyValueFormatter::new(data).format());
             }
         } else {
-            log::error!("{}/{} ({}) - {}", evt.eid(), evt.aid(), evt.response.retcode(), evt.response.message());
+            log::error!("{}/{} (Error: {}) - {}", evt.eid(), evt.aid(), evt.response.retcode(), evt.response.message());
         }
 
         // Dump also warning messages

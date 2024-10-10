@@ -1,2 +1,2 @@
 pub mod formatter;
-pub mod logfmt;
+pub mod kvfmt;
