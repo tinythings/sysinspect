@@ -32,7 +32,7 @@ The following syntax is used to configure events definition:
     :caption: Confguration Syntax
 
     events:
-        <action id>/<bound entity>/<state>:
+        <action id>/<bound entity>/<state>/<return code>:
             # List of attached handlers and their order
             handlers:
                 - <list>
@@ -59,9 +59,14 @@ The following syntax is used to configure events definition:
     .. code-block:: text
         :caption: Even Id Format
 
-        <action id>/<bound entity id>/<state>
+        <action id>/<bound entity id>/<state>/<return code>
 
-    The *event Id* is holding the rest of the behaviour for this event.
+    The *event Id* is holding the rest of the behaviour for this event. Return code has the
+    following syntax:
+
+        - ``$`` — matches **any** return code, success (``0``) or any error code (non-zero).
+        - ``0..255`` — event is processed only at the **specific** error code.
+        - ``E`` — event is processed only at non-zero error code (error).
 
 ``handlers``
 ^^^^^^^^^^^^
