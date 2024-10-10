@@ -1,35 +1,31 @@
 use super::evthandler::EventHandler;
 use crate::{
-    intp::{actproc::response::ActionResponse, conf::EventConfig},
+    intp::{
+        actproc::response::ActionResponse,
+        conf::{EventConfig, EventConfigOption},
+    },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
 };
+use std::collections::HashMap;
 
 #[derive(Default, Debug)]
 pub struct StdoutEventHandler {
-    event_ids: Vec<String>,
+    eid: String,
     config: EventConfig,
 }
 
 /// STDOUT event handler. It just outputs the action response to a log.
-impl StdoutEventHandler {
-    /// Bind an event Id to this handler
-    pub fn bind_event_id(&mut self, evt_id: &str) {
-        self.event_ids.push(evt_id.to_string());
-    }
-}
-
 impl EventHandler for StdoutEventHandler {
     /// Create an event handler
     fn new(eid: String, cfg: EventConfig) -> Self
     where
         Self: Sized,
     {
-        StdoutEventHandler { event_ids: vec![], config: cfg }
+        StdoutEventHandler { eid, config: cfg }
     }
 
     fn handle(&self, evt: &ActionResponse) {
-        if self.event_ids.contains(&evt.event_name()) {
-            log::debug!("No event for \"{}\" registered", evt.event_name());
+        if !self.eid.eq(&evt.event_name()) {
             return;
         }
 
@@ -54,5 +50,9 @@ impl EventHandler for StdoutEventHandler {
         Self: Sized,
     {
         "console-logger".to_string()
+    }
+
+    fn config(&self) -> &Option<HashMap<String, EventConfigOption>> {
+        self.config.cfg()
     }
 }
