@@ -72,6 +72,7 @@ fn main() {
 
                         // XXX: Move all this elsewhere
                         //let ar = isp.actions_by_relations(clidef::split_by(&params, "labels", None)).unwrap();
+
                         match isp.actions_by_entities(
                             clidef::split_by(&params, "entities", None),
                             params.get_one::<String>("state").cloned(),
