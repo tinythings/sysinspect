@@ -1,3 +1,5 @@
+use colored::Colorize;
+
 use super::evthandler::EventHandler;
 use crate::{
     intp::{
@@ -29,13 +31,33 @@ impl EventHandler for StdoutEventHandler {
             return;
         }
 
+        let mut prefix = "".to_string();
+        if let Some(config) = self.config() {
+            if let Some(p) = config.as_string("prefix") {
+                prefix = format!("{} - ", p.cyan());
+            }
+        }
+
         if evt.response.retcode() == 0 {
-            log::info!("{}/{} - {}", evt.eid(), evt.aid(), evt.response.message());
+            log::info!("{}{}/{} - {}", prefix, evt.eid().bright_cyan(), evt.aid().bright_cyan(), evt.response.message());
             if let Some(data) = evt.response.data() {
-                log::info!("{}/{} - Other data:\n{}", evt.eid(), evt.aid(), KeyValueFormatter::new(data).format());
+                log::info!(
+                    "{}{}/{} - Other data:\n{}",
+                    prefix,
+                    evt.eid().bright_cyan(),
+                    evt.aid().bright_cyan(),
+                    KeyValueFormatter::new(data).format()
+                );
             }
         } else {
-            log::error!("{}/{} (Error: {}) - {}", evt.eid(), evt.aid(), evt.response.retcode(), evt.response.message());
+            log::error!(
+                "{}{}/{} (Error: {}) - {}",
+                prefix,
+                evt.eid().bright_cyan(),
+                evt.aid().bright_cyan(),
+                evt.response.retcode(),
+                evt.response.message()
+            );
         }
 
         // Dump also warning messages
@@ -52,7 +74,8 @@ impl EventHandler for StdoutEventHandler {
         "console-logger".to_string()
     }
 
-    fn config(&self) -> &Option<HashMap<String, EventConfigOption>> {
-        self.config.cfg()
+    /// Get confniguration of an event handler
+    fn config(&self) -> Option<EventConfigOption> {
+        self.config.cfg(&StdoutEventHandler::id())
     }
 }
