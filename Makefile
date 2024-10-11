@@ -22,7 +22,7 @@ build:
 
 	# Move plugin binaries
 	mkdir -p target/release/sys
-	mv target/debug/proc target/release/sys/
+	mv target/release/proc target/release/sys/
 
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
