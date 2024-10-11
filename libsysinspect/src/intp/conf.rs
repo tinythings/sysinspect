@@ -56,9 +56,13 @@ impl EventConfig {
         &self.handler
     }
 
-    /// Get specific event configuration
-    pub fn cfg(&self) -> &Option<HashMap<String, EventConfigOption>> {
-        &self.cfg
+    /// Get specific event configuration by a handler Id (`hid`).
+    pub fn cfg(&self, hid: &str) -> Option<EventConfigOption> {
+        if let Some(cfg) = &self.cfg {
+            return cfg.get(hid).cloned();
+        }
+
+        None
     }
 }
 

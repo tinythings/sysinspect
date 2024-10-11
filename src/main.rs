@@ -1,4 +1,9 @@
-use libsysinspect::{intp::actproc::response::ActionResponse, logger, reactor::evtproc::EventProcessor};
+use colored::Colorize;
+use libsysinspect::{
+    intp::actproc::response::ActionResponse,
+    logger,
+    reactor::{evtproc::EventProcessor, handlers},
+};
 use std::env;
 
 mod clidef;
@@ -6,6 +11,16 @@ mod mcf;
 
 static VERSION: &str = "0.0.1";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+
+/// Display event handlers
+fn print_event_handlers() {
+    handlers::registry::init_handlers();
+    println!("{}", format!("Supported event handlers in {}:", clidef::APPNAME.bold()).yellow());
+    for (i, h) in handlers::registry::get_handler_names().iter().enumerate() {
+        println!("  {}. {}", i + 1, h);
+    }
+    println!();
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -32,6 +47,11 @@ fn main() {
         return {
             println!("Version {}", VERSION);
         };
+    }
+
+    if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
+        print_event_handlers();
+        return;
     }
 
     // Setup logger
