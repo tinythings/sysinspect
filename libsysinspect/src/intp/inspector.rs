@@ -1,5 +1,8 @@
+use colored::Colorize;
+
 use super::{
-    actions::Action, checkbook::CheckbookSection, conf::Config, constraints::Constraint, entities::Entity, relations::Relation,
+    actions::Action, checkbook::CheckbookSection, conf::Config, constraints::Constraint, entities::Entity,
+    functions::ModArgFunction, relations::Relation,
 };
 use crate::{
     mdescr::{
@@ -7,6 +10,7 @@ use crate::{
         DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
     },
     reactor::handlers,
+    util::dataconv,
     SysinspectError,
 };
 use std::collections::HashMap;
@@ -137,6 +141,62 @@ impl SysInspector {
     pub fn cfg(&self) -> &Config {
         &self.config
     }
+
+    /// Get an entity definition
+    pub fn get_entity(&self, eid: &str) -> Option<&Entity> {
+        self.entities.get(eid)
+    }
+
+    /// Claim function
+    pub fn call_function(&self, eid: &str, state: &str, func: &ModArgFunction) -> Result<Option<String>, SysinspectError> {
+        // TODO: Add support for static functions
+        if func.fid() != "claim" {
+            return Err(SysinspectError::ModelDSLError(format!(
+                "Unknown claim function: {}",
+                format!("{}(...)", func.fid()).bright_red()
+            )));
+        }
+
+        let entity = Entity::default();
+        let entity = self.get_entity(eid).unwrap_or(&entity);
+
+        if let Some(facts) = entity.facts() {
+            if let Some(claims) = facts.get(state) {
+                for claim in claims {
+                    if let Some(v) = claim.get(func.ns_parts().unwrap()[0]) {
+                        if let serde_yaml::Value::Mapping(v) = v {
+                            if let Some(v) = v.get(func.ns_parts().unwrap()[1]) {
+                                return Ok(Some(match v {
+                                    serde_yaml::Value::Null => "".to_string(),
+                                    serde_yaml::Value::Bool(_) => {
+                                        (if dataconv::as_bool(Some(v).cloned()) { "true" } else { "false" }).to_string()
+                                    }
+                                    serde_yaml::Value::Number(_) => dataconv::as_str(Some(v).cloned()),
+                                    serde_yaml::Value::String(v) => v.to_string(),
+                                    serde_yaml::Value::Sequence(_) => dataconv::as_str_list(Some(v).cloned()).join(","),
+                                    _ => format!("{:#?}", v),
+                                }));
+                            }
+                        } else {
+                            return Err(SysinspectError::ModelDSLError(format!(
+                                "Claim {}.facts.{}.{} must be a key/value mapping",
+                                eid,
+                                state,
+                                func.namespace()
+                            )));
+                        }
+                    }
+                }
+            } else {
+                return Err(SysinspectError::ModelDSLError(format!("No claims at {}.facts defined", eid)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Static function
+    pub fn function_static(&self) {}
 }
 
 /// Parse state or return a default one

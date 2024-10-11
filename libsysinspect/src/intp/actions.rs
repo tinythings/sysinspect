@@ -1,5 +1,6 @@
 use super::{
     actproc::{modfinder::ModCall, response::ActionResponse},
+    functions::ModArgFunction,
     inspector::SysInspector,
 };
 use crate::SysinspectError;
@@ -93,6 +94,20 @@ impl Action {
         Ok(None)
     }
 
+    /// Detect if an argument is a function
+    fn is_function(arg: &str) -> Result<Option<ModArgFunction>, SysinspectError> {
+        if !arg.contains("(") || !arg.ends_with(")") {
+            return Ok(None);
+        }
+
+        let f = ModArgFunction::new(
+            arg.split('(').nth(1).and_then(|s| s.split(')').next()).unwrap_or_default().to_string(),
+            arg.split("(").next().unwrap_or_default().to_string(),
+        )?;
+
+        Ok(Some(f))
+    }
+
     /// Setup and activate an action and is done by the Inspector.
     /// This method finds module, sets up its parameters, binds constraint etc.
     pub(crate) fn setup(&mut self, inspector: &SysInspector, eid: &str, state: String) -> Result<Action, SysinspectError> {
@@ -103,7 +118,24 @@ impl Action {
             // XXX: probably just pass args entirely at once instead, dropping add_kwargs() in a whole
             for (kw, arg) in &mod_args.args() {
                 for a in arg {
-                    modcall.add_kwargs(kw.to_owned(), a.to_owned());
+                    let mut a = a.to_owned();
+                    if let Ok(Some(func)) = Self::is_function(&a) {
+                        match inspector.call_function(eid, &modcall.state(), &func) {
+                            Ok(None) => {
+                                return Err(SysinspectError::ModelDSLError(format!(
+                                    "Entity {}.facts.$.{} does not exist",
+                                    eid,
+                                    func.namespace()
+                                )))
+                            }
+                            Ok(Some(v)) => {
+                                a = v;
+                            }
+                            Err(err) => return Err(err),
+                        }
+                    }
+
+                    modcall.add_kwargs(kw.to_owned(), a);
                 }
             }
 
