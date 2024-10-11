@@ -13,8 +13,21 @@ Synopsis
     console-logger: null
 
 Console logger is the simplest event handler, used to notify anything that is happening
-during the system examination. It does not take any setup configuration and works
-just "out of the box" as is.
+during the system examination. By default it is setup without any options and works "as is".
+
+Options
+-------
+
+``prefix``
+^^^^^^^^^^
+
+    Prefix to the logging message text. Example:
+
+    .. code-block:: yaml
+        :caption: Prefix example
+
+        prefix: "Hello"
+
 
 Example
 -------
@@ -28,3 +41,6 @@ Example
 
         handlers:
           console-logger
+
+        console-logger:
+          prefix: "Default event"
