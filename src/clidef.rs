@@ -2,7 +2,7 @@ use clap::{builder::styling, ArgMatches};
 use clap::{Arg, ArgAction, Command};
 use colored::Colorize;
 
-static APPNAME: &str = "sysinspect";
+pub static APPNAME: &str = "sysinspect";
 
 /// Define CLI arguments and styling
 pub fn cli(version: &'static str) -> Command {
@@ -43,6 +43,14 @@ pub fn cli(version: &'static str) -> Command {
                 .short('s')
                 .long("state")
                 .help("Specify a state to be processed. If none specified, default is taken ($)")
+        )
+
+        .next_help_heading("Info")
+        .arg(
+            Arg::new("list-handlers")
+                .long("list-handlers")
+                .action(ArgAction::SetTrue)
+                .help("List available event handler Ids")
         )
 
 

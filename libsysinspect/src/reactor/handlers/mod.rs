@@ -45,4 +45,11 @@ pub mod registry {
         log::debug!("Intialising handlers");
         registry.insert(StdoutEventHandler::id(), |eid, cfg| Box::new(StdoutEventHandler::new(eid, cfg)));
     }
+
+    /// Get all registered handlers.
+    /// NOTE: [`init_handlers`] must be called.
+    ///
+    pub fn get_handler_names() -> Vec<String> {
+        REGISTRY_MAP.lock().unwrap().keys().map(|s| s.to_string()).collect::<Vec<String>>()
+    }
 }
