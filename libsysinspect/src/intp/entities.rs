@@ -3,10 +3,20 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Claim {
     #[serde(flatten)]
     data: HashMap<String, Value>,
+}
+
+impl Claim {
+    pub fn get(&self, name: &str) -> Option<&Value> {
+        if let Some(v) = self.data.get(name) {
+            return Some(v);
+        }
+
+        None
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -52,8 +62,13 @@ impl Entity {
         self.inherits.to_owned().unwrap_or_default()
     }
 
-    // Return the description
+    /// Return the description
     pub fn descr(&self) -> String {
         self.descr.to_owned().unwrap_or("".to_string())
+    }
+
+    /// Return facts
+    pub fn facts(&self) -> Option<&HashMap<String, Vec<Claim>>> {
+        self.facts.as_ref()
     }
 }

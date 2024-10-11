@@ -4,5 +4,6 @@ pub mod checkbook;
 pub mod conf;
 pub mod constraints;
 pub mod entities;
+pub mod functions;
 pub mod inspector;
 pub mod relations;
