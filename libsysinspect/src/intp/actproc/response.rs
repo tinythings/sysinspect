@@ -83,19 +83,21 @@ impl ActionResponse {
     }
 
     /// Match Eid.
+    /// Event Id parts can be also substituted to `$` (any).
     ///
     /// Error codes:
-    ///   - $       - any
-    ///   - 0..255  - specific code
-    ///   - E       - error only (non-0)
+    ///   - `$`       - any
+    ///   - `0..255`  - specific code
+    ///   - `E`       - error only (non-0)
+    ///
     pub fn match_eid(&self, eid: &str) -> bool {
         let p_eid = eid.split('/').map(|s| s.trim()).collect::<Vec<&str>>();
 
         // Have fun reading this :-P
         p_eid.len() == 4
-            && (self.aid().eq(p_eid[0]))
-            && self.eid().eq(p_eid[1])
-            && self.sid().eq(p_eid[2])
+            && (self.aid().eq(p_eid[0]) || p_eid[0] == "$")
+            && (self.eid().eq(p_eid[1]) || p_eid[1] == "$")
+            && (self.sid().eq(p_eid[2]) || p_eid[2] == "$")
             && ((p_eid[3] == "$")
                 || (p_eid[3].eq("E") && self.response.retcode() > 0)
                 || p_eid[3].eq(&self.response.retcode().to_string()))
