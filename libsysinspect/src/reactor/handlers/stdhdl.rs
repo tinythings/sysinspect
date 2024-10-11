@@ -8,7 +8,6 @@ use crate::{
     },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
 };
-use std::collections::HashMap;
 
 #[derive(Default, Debug)]
 pub struct StdoutEventHandler {
