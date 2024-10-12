@@ -60,8 +60,8 @@ pub fn cli(version: &'static str) -> Command {
             Arg::new("debug")
                 .short('d')
                 .long("debug")
-                .action(ArgAction::SetTrue)
-                .help("Set debug mode for more verbose output."),
+                .action(ArgAction::Count)
+                .help("Set debug mode for more verbose output. Increase this flag for more verbosity."),
         )
         .arg(
             Arg::new("help")
