@@ -13,6 +13,7 @@ devel:
 	cargo build -v -p proc
 
 	# Move plugin binaries
+	rm -rf target/debug/sys
 	mkdir -p target/debug/sys
 	mv target/debug/proc target/debug/sys/
 
@@ -21,6 +22,7 @@ build:
 	cargo build -p proc --release
 
 	# Move plugin binaries
+	rm -rf target/release/sys
 	mkdir -p target/release/sys
 	mv target/release/proc target/release/sys/
 
