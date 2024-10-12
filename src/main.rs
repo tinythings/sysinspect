@@ -1,9 +1,11 @@
+use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
     intp::actproc::response::ActionResponse,
     logger,
     reactor::{evtproc::EventProcessor, handlers},
 };
+use log::LevelFilter;
 use std::env;
 
 mod clidef;
@@ -55,9 +57,13 @@ fn main() {
     }
 
     // Setup logger
-    if let Err(err) = log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(if params.get_flag("debug") { log::LevelFilter::Trace } else { log::LevelFilter::Info }))
-    {
+    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+        log::set_max_level(match params.get_count("debug") {
+            0 => LevelFilter::Info,
+            1 => LevelFilter::Debug,
+            2.. => LevelFilter::max(),
+        })
+    }) {
         return println!("{}", err);
     }
 
