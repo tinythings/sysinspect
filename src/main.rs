@@ -1,4 +1,3 @@
-use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
     intp::actproc::response::ActionResponse,
