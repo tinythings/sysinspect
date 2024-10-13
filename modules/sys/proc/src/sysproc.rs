@@ -21,28 +21,6 @@ fn find_process(cmd: String) -> Option<procfs::process::Process> {
     None
 }
 
-/// Get a string argument
-fn get_arg(rt: &ModRequest, arg: &str) -> String {
-    if let Some(s_arg) = rt.first_arg(arg) {
-        if let Some(s_arg) = s_arg.as_string() {
-            return s_arg;
-        } else if let Some(s_arg) = s_arg.as_bool() {
-            return format!("{}", s_arg);
-        }
-    }
-    "".to_string()
-}
-
-/// Get a presence of a flag/option
-fn get_opt(rt: &ModRequest, opt: &str) -> bool {
-    for av in rt.options() {
-        if av.as_string().unwrap_or_default().eq(opt) {
-            return true;
-        }
-    }
-    false
-}
-
 /// Get process limits
 fn get_limits(p: Process) -> HashMap<String, Vec<serde_json::Value>> {
     fn s(l: LimitValue) -> serde_json::Value {
@@ -76,7 +54,7 @@ fn get_limits(p: Process) -> HashMap<String, Vec<serde_json::Value>> {
 /// Run sys.proc
 pub fn run(rt: &ModRequest) -> ModResponse {
     let mut res = runtime::new_call_response();
-    let cmd = get_arg(rt, "search");
+    let cmd = runtime::get_arg(rt, "search");
     let mut data: HashMap<String, serde_json::Value> = HashMap::default();
 
     if cmd.is_empty() {
@@ -86,11 +64,11 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     }
 
     if let Some(p) = find_process(cmd) {
-        if get_opt(rt, "pid") {
+        if runtime::get_opt(rt, "pid") {
             data.insert("pid".to_string(), json!(p.pid()));
         }
 
-        if get_opt(rt, "limits") {
+        if runtime::get_opt(rt, "limits") {
             data.insert("limits".to_string(), json!(get_limits(p)));
         }
     } else {
