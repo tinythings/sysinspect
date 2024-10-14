@@ -11,6 +11,16 @@ Synopsis
 Usage
 -----
 
+The following options are available:
+
+  option
+    Text
+
+The following keyword arguments are available:
+
+  keyword
+    text
+
 Examples
 --------
 
