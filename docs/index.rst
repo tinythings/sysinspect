@@ -10,6 +10,7 @@ Welcome to the Project Sysinspect!
 
    modeldescr/overview
    moddev/overview
+   moddescr/overview
    evthandlers/overview
 
 Welcome to Sysinspect: an engine of Anomaly Detection and Root Cause Analysis.

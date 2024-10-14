@@ -16,6 +16,8 @@
 .. role:: bi
    :class: bolditalic
 
+.. _commproto:
+
 Communication Protocol
 ======================
 
