@@ -21,7 +21,7 @@ examples:
   - description: "Query status of two network interfaces"
     code: |
       "arguments": {
-        if-stat": "eth0,virbr01",
+        "if-stat": "eth0,virbr01",
       }
 
 returns:
