@@ -1,0 +1,28 @@
+``namespace.name``
+============
+
+.. note::
+
+    This document describes ``namespace.name`` module usage.
+
+Synopsis
+--------
+
+Usage
+-----
+
+The following options are available:
+
+  option
+    Text
+
+The following keyword arguments are available:
+
+  keyword
+    text
+
+Examples
+--------
+
+Returning Data
+--------------

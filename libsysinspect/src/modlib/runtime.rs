@@ -123,3 +123,25 @@ pub fn send_call_response(r: &ModResponse) -> Result<(), Error> {
     println!("{}", serde_json::to_string(r)?);
     Ok(())
 }
+
+/// Get a string argument
+pub fn get_arg(rt: &ModRequest, arg: &str) -> String {
+    if let Some(s_arg) = rt.first_arg(arg) {
+        if let Some(s_arg) = s_arg.as_string() {
+            return s_arg;
+        } else if let Some(s_arg) = s_arg.as_bool() {
+            return format!("{}", s_arg);
+        }
+    }
+    "".to_string()
+}
+
+/// Get a presence of a flag/option
+pub fn get_opt(rt: &ModRequest, opt: &str) -> bool {
+    for av in rt.options() {
+        if av.as_string().unwrap_or_default().eq(opt) {
+            return true;
+        }
+    }
+    false
+}

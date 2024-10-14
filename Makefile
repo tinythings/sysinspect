@@ -6,16 +6,17 @@ ARC_NAME := sysinspect-${ARC_VERSION}
 .PHONY:build
 
 check:
-	cargo clippy -- -Dwarnings -Aunused-variables -Adead-code
+	cargo clippy --all -- -Dwarnings -Aunused-variables -Adead-code
 
 devel:
 	cargo build -v
-	cargo build -v -p proc
+	cargo build -v -p proc -p net
 
 	# Move plugin binaries
 	rm -rf target/debug/sys
 	mkdir -p target/debug/sys
 	mv target/debug/proc target/debug/sys/
+	mv target/debug/net target/debug/sys/
 
 build:
 	cargo build --release
