@@ -14,13 +14,8 @@ pub struct ModReturn {
 impl ModReturn {
     // Format return explanation
     fn format(&self) -> String {
-        let opts = Options::new(80).initial_indent("    ").subsequent_indent("    ");
-        format!(
-            "{}\n\n    {}\n\n{}\n",
-            fill(self.description.trim(), &opts),
-            "Example:".yellow(),
-            fill(self.example.trim(), opts)
-        )
+        let opts = Options::new(80).initial_indent("  ").subsequent_indent("  ");
+        format!("{}\n\n{}\n", fill(&format!("{}. Example:", self.description.trim()), &opts), fill(self.example.trim(), opts))
     }
 }
 
@@ -34,7 +29,7 @@ impl ModExample {
     /// Format example
     fn format(&self) -> String {
         format!(
-            "  - {}:\n{}\n",
+            "  {}:\n{}\n",
             self.description.yellow(),
             self.code.trim().split("\n").map(|x| format!("      {x}")).collect::<Vec<String>>().join("\n").white()
         )
