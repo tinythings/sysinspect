@@ -1,0 +1,47 @@
+name: "sys.net"
+version: "0.0.1"
+author: "Bo Maryniuk"
+description: |
+  Plugin to review the network details
+
+options:
+  - name: "if-up"
+    description: "List of network available interfaces"
+
+  - name: "route-table"
+    description: "Flag to return current routing table"
+
+arguments:
+  - name: "if-stat"
+    type: "string"
+    required: false
+    description: "Comma-separated list of interfaces to get their status"
+
+examples:
+  - description: "Query status of two network interfaces"
+    code: |
+      "arguments": {
+        if-stat": "eth0,virbr01",
+      }
+
+returns:
+  description: "Route information example"
+  example: |
+    "route-table":
+      [
+        { "gateway": "192.168.1.1", "mask": "0" },
+        {
+          "dst": "169.254.0.0",
+          "mask": "16",
+          "proto": "boot",
+          "scope": "link",
+        },
+        {
+          "dst": "192.168.2.0",
+          "if": "eth0",
+          "mask": "24",
+          "proto": "kernel",
+          "scope": "link",
+          "src": "192.168.1.123",
+        },
+      ]
