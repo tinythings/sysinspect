@@ -2,7 +2,7 @@ use crate::routing;
 use libsysinspect::{
     modlib::{
         response::ModResponse,
-        runtime::{self, get_arg, ModRequest},
+        runtime::{self, ModRequest},
     },
     SysinspectError,
 };
@@ -70,13 +70,11 @@ impl NetInfo {
             }
 
             let ifn = iface.interface_name.to_string();
-            if self.itf_accepted(&ifn) {
-                if !item.is_empty() {
-                    if let Entry::Vacant(e) = out.entry(ifn.to_owned()) {
-                        e.insert(vec![item]);
-                    } else {
-                        out.get_mut(&ifn).unwrap().push(item);
-                    }
+            if self.itf_accepted(&ifn) && !item.is_empty() {
+                if let Entry::Vacant(e) = out.entry(ifn.to_owned()) {
+                    e.insert(vec![item]);
+                } else {
+                    out.get_mut(&ifn).unwrap().push(item);
                 }
             }
         }
@@ -97,7 +95,6 @@ fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> HashMap<String, serde_jso
     netinfo.set_if_filter(
         runtime::get_arg(rt, "if-list")
             .split(",")
-            .into_iter()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect::<Vec<String>>(),
