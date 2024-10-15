@@ -8,6 +8,22 @@ Built-in Modules
 Overview
 --------
 
+Purpose
+^^^^^^^
+
+A module in Sysinspect is a unit, that mighd do any (or all) of the following functions:
+
+- Returns a general arbitrary information, which can be then later accessed and processed
+  by a constraint or an event reactor.
+
+- Performs a specific checks and verifications, returning **True** (``errcode 0``) or
+  **False** (``errorode >0``).
+
+Any of these functions above are up to the specific use case.
+
+Module Types
+^^^^^^^^^^^^
+
 Modules in Sysinspect are simply standalone executables. They can be scripts,
 programs etc. However there are few rules that needs to be complied:
 
