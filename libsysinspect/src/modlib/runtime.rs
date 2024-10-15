@@ -56,7 +56,7 @@ pub struct ModRequest {
     /// Call arguments. Argumentst can have
     /// different types: list, integers, strings etc.
     #[serde(default)]
-    arguments: Option<HashMap<String, Vec<ArgValue>>>,
+    arguments: Option<Vec<HashMap<String, ArgValue>>>,
 
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
@@ -80,19 +80,21 @@ impl ModRequest {
     }
 
     /// Get all param args
-    pub fn args(&self) -> HashMap<String, Vec<ArgValue>> {
+    pub fn args(&self) -> Vec<HashMap<String, ArgValue>> {
         if let Some(a) = &self.arguments {
             return a.to_owned();
         }
 
-        HashMap::default()
+        Vec::default()
     }
 
     /// Short-cut to get a first argument (usually it is)
     pub fn first_arg(&self, kw: &str) -> Option<ArgValue> {
         if let Some(a) = &self.arguments {
-            if let Some(a) = a.get(kw) {
-                return a.iter().next().cloned();
+            for a in a {
+                if let Some(a) = a.get(kw) {
+                    return Some(a.to_owned());
+                }
             }
         };
 
