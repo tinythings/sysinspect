@@ -11,14 +11,17 @@ use std::{collections::HashMap, fmt::Display};
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ModArgs {
-    opts: Option<Vec<String>>,
-    args: Option<HashMap<String, Vec<String>>>,
+    #[serde(alias = "opts")]
+    options: Option<Vec<String>>,
+
+    #[serde(alias = "args")]
+    arguments: Option<HashMap<String, Vec<String>>>,
 }
 
 impl ModArgs {
     /// Return args
     pub fn args(&self) -> HashMap<String, Vec<String>> {
-        if let Some(args) = &self.args {
+        if let Some(args) = &self.arguments {
             return args.to_owned();
         }
         HashMap::default()
@@ -27,7 +30,7 @@ impl ModArgs {
     /// Get options
     pub fn opts(&self) -> Vec<String> {
         let mut out = Vec::<String>::default();
-        if let Some(optset) = &self.opts {
+        if let Some(optset) = &self.options {
             for opt in optset {
                 out.push(opt.to_owned());
             }

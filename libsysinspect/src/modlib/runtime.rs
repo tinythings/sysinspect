@@ -51,11 +51,13 @@ pub struct ModRequest {
 
     /// Call options
     #[serde(default)]
+    #[serde(alias = "opts")]
     options: Option<Vec<ArgValue>>,
 
     /// Call arguments. Argumentst can have
     /// different types: list, integers, strings etc.
     #[serde(default)]
+    #[serde(alias = "args")]
     arguments: Option<Vec<HashMap<String, ArgValue>>>,
 
     /// Extra data, that might be needed to be passed through.
