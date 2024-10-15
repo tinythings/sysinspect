@@ -71,11 +71,11 @@ impl SpecLoader {
                 (Value::Mapping(ref mut amp), Value::Mapping(bmp)) => {
                     for (k, v) in bmp {
                         if let Some(av) = amp.get_mut(k) {
-                            if let (Some(asq), Some(bsq)) = (av.as_sequence_mut(), v.as_sequence()) {
-                                asq.extend(bsq.iter().cloned());
-                            } else {
-                                *av = v.clone();
+                            let mv = v.as_mapping_mut().unwrap();
+                            for (avk, avv) in av.as_mapping().unwrap() {
+                                mv.insert(avk.clone(), avv.clone());
                             }
+                            *av = v.clone();
                         } else {
                             amp.insert(k.clone(), v.clone());
                         }
