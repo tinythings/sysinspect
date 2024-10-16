@@ -15,12 +15,12 @@ pub struct ModArgs {
     options: Option<Vec<String>>,
 
     #[serde(alias = "args")]
-    arguments: Option<HashMap<String, Vec<String>>>,
+    arguments: Option<HashMap<String, String>>,
 }
 
 impl ModArgs {
     /// Return args
-    pub fn args(&self) -> HashMap<String, Vec<String>> {
+    pub fn args(&self) -> HashMap<String, String> {
         if let Some(args) = &self.arguments {
             return args.to_owned();
         }
@@ -118,28 +118,25 @@ impl Action {
         if let Some(mod_args) = self.state.get(&state) {
             let mut modcall = ModCall::default().set_state(state).set_module(mpath).set_aid(self.id()).set_eid(eid.to_string());
 
-            // XXX: probably just pass args entirely at once instead, dropping add_kwargs() in a whole
             for (kw, arg) in &mod_args.args() {
-                for a in arg {
-                    let mut a = a.to_owned();
-                    if let Ok(Some(func)) = Self::is_function(&a) {
-                        match inspector.call_function(eid, &modcall.state(), &func) {
-                            Ok(None) => {
-                                return Err(SysinspectError::ModelDSLError(format!(
-                                    "Entity {}.facts.$.{} does not exist",
-                                    eid,
-                                    func.namespace()
-                                )))
-                            }
-                            Ok(Some(v)) => {
-                                a = v;
-                            }
-                            Err(err) => return Err(err),
+                let mut arg = arg.to_owned();
+                if let Ok(Some(func)) = Self::is_function(&arg) {
+                    match inspector.call_function(eid, &modcall.state(), &func) {
+                        Ok(None) => {
+                            return Err(SysinspectError::ModelDSLError(format!(
+                                "Entity {}.facts.{}.{} does not exist",
+                                eid,
+                                &modcall.state(),
+                                func.namespace()
+                            )))
                         }
+                        Ok(Some(v)) => {
+                            arg = v;
+                        }
+                        Err(err) => return Err(err),
                     }
-
-                    modcall.add_kwargs(kw.to_owned(), a);
                 }
+                modcall.add_kwargs(kw.to_owned(), arg);
             }
 
             for opt in &mod_args.opts() {
