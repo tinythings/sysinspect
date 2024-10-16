@@ -26,7 +26,7 @@ pub struct ModCall {
     module: PathBuf,
 
     // Module params
-    args: HashMap<String, Vec<String>>,
+    args: Vec<HashMap<String, String>>,
     opts: Vec<String>,
 }
 
@@ -45,7 +45,7 @@ impl ModCall {
 
     /// Add a pair of kwargs
     pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
-        self.args.entry(kw).or_default().push(arg);
+        self.args.push(HashMap::from([(kw, arg)]));
         self
     }
 
@@ -133,7 +133,7 @@ impl Default for ModCall {
             aid: "".to_string(),
             eid: "".to_string(),
             module: PathBuf::default(),
-            args: HashMap::default(),
+            args: Vec::default(),
             opts: Vec::default(),
         }
     }
