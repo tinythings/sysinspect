@@ -71,9 +71,8 @@ impl SpecLoader {
                 (Value::Mapping(ref mut amp), Value::Mapping(bmp)) => {
                     for (k, v) in bmp {
                         if let Some(av) = amp.get_mut(k) {
-                            let mv = v.as_mapping_mut().unwrap();
-                            for (avk, avv) in av.as_mapping().unwrap() {
-                                mv.insert(avk.clone(), avv.clone());
+                            if let (Some(av_map), Some(v_map)) = (av.as_mapping_mut(), v.as_mapping_mut()) {
+                                v_map.extend(av_map.iter().map(|(k, v)| (k.clone(), v.clone())));
                             }
                             *av = v.clone();
                         } else {
