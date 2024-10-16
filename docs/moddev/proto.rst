@@ -28,10 +28,11 @@ Communication Protocol
 Part of the communication protocol is already tied up to the :ref:`modstruct`. It is still
 left on receiving the data.
 
-Formatting Request
-------------------
+Request Format
+--------------
 
-As previously mentioned, the request must be strictly aligned with the structure of the :ref:`modindex`, but resembling only the ``arguments`` and ``options`` structures.
+As previously mentioned, the request must be strictly aligned with the structure of the :ref:`modindex`,
+but resembling only the ``arguments`` and ``options`` structures.
 
 The following example shows how a module defines the arguments and options, as well as
 it would expect as an input:
@@ -53,9 +54,9 @@ it would expect as an input:
     :caption: Expected JSON input
 
     {
-        "arguments": [
-            {"mask": "*.txt"},
-        ],
+        "arguments": {
+            "mask": "*.txt"
+        },
         "options": ["verbose",],
     }
 
@@ -69,7 +70,7 @@ is just a static container of anything. Example:
 
     {
         // Just for the reference
-        "arguments": [],
+        "arguments": {},
         "options": []
 
         // Payload data
@@ -77,6 +78,21 @@ is just a static container of anything. Example:
             "some-key": ["what", "ever", "data",],
         },
     }
+
+.. hint::
+
+    As keyword arguments are quite primitive and support only ``int``, ``string`` and ``bool``,
+    one may still pass a list of strings as one comma-separated string. Example:
+
+    .. code-block:: json
+
+        "arguments": {
+          "my-list": "one,two,three,four",
+        }
+
+    However, the burden of parsing this lays solely on module itself, therefore ``libsysinspect``
+    already has specific instrumentation for this.
+
 
 .. _formatting-response:
 
