@@ -1,9 +1,10 @@
 use super::{
     actproc::{modfinder::ModCall, response::ActionResponse},
+    constraints::Expression,
     functions::ModArgFunction,
     inspector::SysInspector,
 };
-use crate::SysinspectError;
+use crate::{util::dataconv, SysinspectError};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -111,12 +112,76 @@ impl Action {
         Ok(Some(f))
     }
 
+    fn resolve_claims(
+        &self, v_expr: Vec<Expression>, inspector: &SysInspector, eid: &str, state: String,
+    ) -> Result<Vec<Expression>, SysinspectError> {
+        let mut out: Vec<Expression> = Vec::default();
+        for mut expr in v_expr {
+            if let Some(modfunc) = Self::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten() {
+                match inspector.call_function(eid, &state, &modfunc) {
+                    Ok(Some(v)) => expr.set_active_op(v)?,
+                    Ok(_) => {}
+                    Err(err) => log::error!("Error calling claim(): {}", err),
+                }
+            }
+            out.push(expr);
+        }
+
+        Ok(out)
+    }
+
     /// Setup and activate an action and is done by the Inspector.
     /// This method finds module, sets up its parameters, binds constraint etc.
     pub(crate) fn setup(&mut self, inspector: &SysInspector, eid: &str, state: String) -> Result<Action, SysinspectError> {
         let mpath = inspector.cfg().get_module(&self.module)?;
+
+        /*
+        XXX: Bogus constraints are still present in the whole pool.
+
+            When inspector.constraints() is called, it returns a vector of *active* constraints.
+            Once the claims are resolved in an expression, then that expression is pushed back
+            into constraint by calling constraint.set_expr_for(..).
+
+            However, the general pool of all constraints that is coming from the configuration
+            still contains constraints that never will be evaluated anyway in this round.
+            This is done by "resolve_claims()" function, which resolves only to the current
+            state, withing THIS "setup()" function (see var "state").
+
+            Either it makes sense to fully remove them within the session or evaluate all of them?
+         */
         if let Some(mod_args) = self.state.get(&state) {
-            let mut modcall = ModCall::default().set_state(state).set_module(mpath).set_aid(self.id()).set_eid(eid.to_string());
+            // Call functions for constraints
+            let mut cst = inspector.constraints(Some(self.id()));
+            for c in &mut cst {
+                // all
+                c.set_expr_for(
+                    state.to_owned(),
+                    self.resolve_claims(c.all(state.to_owned()), inspector, eid, state.to_owned())?,
+                    crate::intp::constraints::ConstraintKind::All,
+                );
+
+                // any
+                c.set_expr_for(
+                    state.to_owned(),
+                    self.resolve_claims(c.any(state.to_owned()), inspector, eid, state.to_owned())?,
+                    crate::intp::constraints::ConstraintKind::Any,
+                );
+
+                // none
+                c.set_expr_for(
+                    state.to_owned(),
+                    self.resolve_claims(c.none(state.to_owned()), inspector, eid, state.to_owned())?,
+                    crate::intp::constraints::ConstraintKind::None,
+                );
+            }
+
+            // Setup modcall
+            let mut modcall = ModCall::default()
+                .set_state(state)
+                .set_module(mpath)
+                .set_aid(self.id())
+                .set_eid(eid.to_string())
+                .set_constraints(cst);
 
             for (kw, arg) in &mod_args.args() {
                 let mut arg = arg.to_owned();
@@ -131,7 +196,8 @@ impl Action {
                             )))
                         }
                         Ok(Some(v)) => {
-                            arg = v;
+                            // XXX: Passing args to the modcall are for now always strings
+                            arg = dataconv::to_string(Some(v)).unwrap_or_default();
                         }
                         Err(err) => return Err(err),
                     }
@@ -143,6 +209,12 @@ impl Action {
                 modcall.add_opt(opt.to_owned());
             }
             self.call = Some(modcall);
+        } else {
+            return Err(SysinspectError::ModelDSLError(format!(
+                "Action \"{}\" passes no entity claims to the module \"{}\"",
+                self.id(),
+                self.module
+            )));
         }
         Ok(self.to_owned())
     }

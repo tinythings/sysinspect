@@ -1,5 +1,11 @@
 use super::response::{ActionModResponse, ActionResponse};
-use crate::SysinspectError;
+use crate::{
+    intp::{
+        actproc::get_by_ns,
+        constraints::{Constraint, Expression},
+    },
+    SysinspectError,
+};
 use core::str;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -24,6 +30,9 @@ pub struct ModCall {
 
     // Path to the executable module
     module: PathBuf,
+
+    // Action constraints
+    constraints: Vec<Constraint>,
 
     // Module params
     args: HashMap<String, String>,
@@ -55,6 +64,13 @@ impl ModCall {
         self
     }
 
+    /// Set constraints
+    pub fn set_constraints(mut self, cstr: Vec<Constraint>) -> Self {
+        self.constraints = cstr;
+
+        self
+    }
+
     /// Serialise args and opts to a JSON string for the call.
     fn params_json(&self) -> String {
         let mut out: HashMap<String, serde_json::Value> = HashMap::default();
@@ -69,6 +85,72 @@ impl ModCall {
         let x = json!(out).to_string();
         log::trace!("Params: {}", x);
         x
+    }
+
+    /// All expressions must be true
+    fn eval_cst_all(&self, cstr: &Constraint, resp: &ActionModResponse) -> Option<bool> {
+        let exp = cstr.all(self.state());
+        if exp.is_empty() {
+            return None;
+        }
+
+        for exp in exp {
+            if !exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace())) {
+                return Some(false);
+            }
+        }
+
+        Some(true)
+    }
+
+    /// At least one of the expressions must be true
+    fn eval_cst_any(&self, cstr: &Constraint, resp: &ActionModResponse) -> Option<bool> {
+        let exp = cstr.any(self.state());
+        if exp.is_empty() {
+            return None;
+        }
+
+        for exp in exp {
+            if exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace())) {
+                return Some(true);
+            }
+        }
+
+        Some(false)
+    }
+
+    /// None of expressions should be true. It is basically !all.
+    fn eval_cst_none(&self, cstr: &Constraint, resp: &ActionModResponse) -> Option<bool> {
+        let exp = cstr.none(self.state());
+        if exp.is_empty() {
+            return None;
+        }
+
+        for e in exp {
+            if e.eval(Expression::get_by_namespace(resp.data(), &e.get_fact_namespace())) {
+                return Some(false);
+            }
+        }
+
+        Some(true)
+    }
+
+    /// Evaluate constraints
+    fn eval_constraints(&self, ar: &ActionModResponse) {
+        for c in &self.constraints {
+            println!("Evaluating: {}", c.descr());
+            if let Some(r) = self.eval_cst_all(c, ar) {
+                println!("  All: {}", if r { "OK" } else { "FAILED" });
+            }
+
+            if let Some(r) = self.eval_cst_any(c, ar) {
+                println!("  Any: {}", if r { "OK" } else { "FAILED" });
+            }
+
+            if let Some(r) = self.eval_cst_none(c, ar) {
+                println!("  None: {}", if r { "OK" } else { "FAILED" });
+            }
+        }
     }
 
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
@@ -91,6 +173,7 @@ impl ModCall {
                     match str::from_utf8(&out.stdout) {
                         Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
                             Ok(r) => {
+                                self.eval_constraints(&r);
                                 Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), r)))
                             }
                             Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
@@ -135,6 +218,7 @@ impl Default for ModCall {
             module: PathBuf::default(),
             args: HashMap::default(),
             opts: Vec::default(),
+            constraints: Vec::default(),
         }
     }
 }

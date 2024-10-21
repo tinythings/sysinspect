@@ -1,5 +1,3 @@
-use colored::Colorize;
-
 use super::{
     actions::Action, checkbook::CheckbookSection, conf::Config, constraints::Constraint, entities::Entity,
     functions::ModArgFunction, relations::Relation,
@@ -10,9 +8,10 @@ use crate::{
         DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
     },
     reactor::handlers,
-    util::dataconv,
     SysinspectError,
 };
+use colored::Colorize;
+use serde_yaml::Value;
 use std::collections::HashMap;
 
 pub struct SysInspector {
@@ -75,11 +74,16 @@ impl SysInspector {
                             self.actions.insert(obj.id(), obj);
                             amt += 1;
                         }
-                        d if d == DSL_DIR_CONSTRAINTS => {
-                            let obj = Constraint::new(obj_id, obj_data)?;
-                            self.constraints.insert(obj.id(), obj);
-                            amt += 1;
-                        }
+                        d if d == DSL_DIR_CONSTRAINTS => match Constraint::new(obj_id, obj_data) {
+                            Ok(obj) => {
+                                log::trace!("{:#?}", obj);
+                                self.constraints.insert(obj.id(), obj);
+                                amt += 1;
+                            }
+                            Err(err) => {
+                                log::warn!("Skipping validation rule: {}", err);
+                            }
+                        },
                         d if d == DSL_DIR_RELATIONS => {
                             let obj = Relation::new(obj_id, obj_data)?;
                             self.relations.insert(obj.id(), obj);
@@ -142,20 +146,45 @@ impl SysInspector {
         &self.config
     }
 
+    /// Return constraints for an action by Id, or all if `aid` equals `None`.
+
+    pub fn constraints(&self, aid: Option<String>) -> Vec<Constraint> {
+        let mut out: Vec<Constraint> = Vec::default();
+        if let Some(aid) = aid {
+            for ctr in self.constraints.values() {
+                if ctr.binds_to(&aid) {
+                    out.push(ctr.to_owned());
+                }
+            }
+        } else {
+            out.extend(self.constraints.values().map(|c| c.to_owned()).collect::<Vec<Constraint>>());
+        }
+
+        out
+    }
+
     /// Get an entity definition
     pub fn get_entity(&self, eid: &str) -> Option<&Entity> {
         self.entities.get(eid)
     }
 
     /// Claim function
-    pub fn call_function(&self, eid: &str, state: &str, func: &ModArgFunction) -> Result<Option<String>, SysinspectError> {
+
+    pub fn call_function(&self, eid: &str, state: &str, func: &ModArgFunction) -> Result<Option<Value>, SysinspectError> {
         // TODO: Add support for static functions
-        if func.fid() != "claim" {
-            return Err(SysinspectError::ModelDSLError(format!(
-                "Unknown claim function: {}",
-                format!("{}(...)", func.fid()).bright_red()
-            )));
-        }
+        //
+        // XXX: Functions are returning only strings.
+        //      This need to change: call_function should return Value instead
+
+        match func.fid() {
+            "claim" => {}
+            _ => {
+                return Err(SysinspectError::ModelDSLError(format!(
+                    "Unknown claim function: {}",
+                    format!("{}(...)", func.fid()).bright_red()
+                )))
+            }
+        };
 
         let entity = Entity::default();
         let entity = self.get_entity(eid).unwrap_or(&entity);
@@ -166,16 +195,7 @@ impl SysInspector {
                     if let Some(v) = claim.get(func.ns_parts().unwrap()[0]) {
                         if let serde_yaml::Value::Mapping(v) = v {
                             if let Some(v) = v.get(func.ns_parts().unwrap()[1]) {
-                                return Ok(Some(match v {
-                                    serde_yaml::Value::Null => "".to_string(),
-                                    serde_yaml::Value::Bool(_) => {
-                                        (if dataconv::as_bool(Some(v).cloned()) { "true" } else { "false" }).to_string()
-                                    }
-                                    serde_yaml::Value::Number(_) => dataconv::as_str(Some(v).cloned()),
-                                    serde_yaml::Value::String(v) => v.to_string(),
-                                    serde_yaml::Value::Sequence(_) => dataconv::as_str_list(Some(v).cloned()).join(","),
-                                    _ => format!("{:#?}", v),
-                                }));
+                                return Ok(Some(v).cloned());
                             }
                         } else {
                             return Err(SysinspectError::ModelDSLError(format!(
