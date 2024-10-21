@@ -11,6 +11,7 @@ pub trait ExtValue {
     fn as_str_list_opt(&self) -> Option<Vec<String>>;
     fn as_i64_opt(&self) -> Option<i64>;
     fn as_bool_opt(&self) -> Option<bool>;
+    fn to_string(&self) -> Option<String>;
 }
 
 impl ExtValue for YamlValue {
@@ -51,6 +52,17 @@ impl ExtValue for YamlValue {
 
         None
     }
+
+    fn to_string(&self) -> Option<String> {
+        match self {
+            YamlValue::Null => Some("".to_string()),
+            YamlValue::Bool(_) => Some((if as_bool(Some(self).cloned()) { "true" } else { "false" }).to_string()),
+            YamlValue::Number(v) => Some(v.to_string()),
+            YamlValue::String(v) => Some(v.to_string()),
+            YamlValue::Sequence(_) => Some(as_str_list(Some(self).cloned()).join(",")),
+            _ => None,
+        }
+    }
 }
 
 impl ExtValue for JsonValue {
@@ -90,6 +102,17 @@ impl ExtValue for JsonValue {
         }
 
         None
+    }
+
+    fn to_string(&self) -> Option<String> {
+        match self {
+            JsonValue::Null => Some("".to_string()),
+            JsonValue::Bool(_) => Some((if as_bool(Some(self).cloned()) { "true" } else { "false" }).to_string()),
+            JsonValue::Number(v) => Some(v.to_string()),
+            JsonValue::String(v) => Some(v.to_string()),
+            JsonValue::Array(_) => Some(as_str_list(Some(self).cloned()).join(",")),
+            _ => None,
+        }
     }
 }
 
@@ -160,4 +183,9 @@ pub fn as_bool<V: ExtValue>(v: Option<V>) -> bool {
     }
 
     false
+}
+
+/// Convert a value to a string
+pub fn to_string<V: ExtValue>(v: Option<V>) -> Option<String> {
+    v.and_then(|v| v.to_string())
 }
