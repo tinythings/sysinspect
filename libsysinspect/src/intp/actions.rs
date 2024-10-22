@@ -151,7 +151,8 @@ impl Action {
          */
         if let Some(mod_args) = self.state.get(&state) {
             // Call functions for constraints
-            let mut cst = inspector.constraints(Some(self.id()));
+
+            let mut cst = inspector.constraints(Some(self.id()), &self.bind);
             for c in &mut cst {
                 // all
                 c.set_expr_for(

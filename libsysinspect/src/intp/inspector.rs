@@ -147,12 +147,13 @@ impl SysInspector {
     }
 
     /// Return constraints for an action by Id, or all if `aid` equals `None`.
-
-    pub fn constraints(&self, aid: Option<String>) -> Vec<Constraint> {
+    /// - `aid` is Action Id
+    /// - `a_eids` is a list of Action's Entities Ids, those are listed in the action as bind
+    pub fn constraints(&self, aid: Option<String>, a_eids: &Vec<String>) -> Vec<Constraint> {
         let mut out: Vec<Constraint> = Vec::default();
         if let Some(aid) = aid {
             for ctr in self.constraints.values() {
-                if ctr.binds_to(&aid) {
+                if ctr.id().eq(&aid) && ctr.binds_to_any(a_eids) {
                     out.push(ctr.to_owned());
                 }
             }

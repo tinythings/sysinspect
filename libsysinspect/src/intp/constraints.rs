@@ -189,6 +189,7 @@ impl Expression {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ConstraintKind {
     All,
     Any,
@@ -251,8 +252,24 @@ impl Constraint {
         self.descr.to_owned().unwrap_or("".to_string())
     }
 
+    /// Check if an action has any entity that would bind to this constraint
+    ///
+    /// Rules:
+    ///   - `$` and and Entity Id = "all, except that entity"
+    ///   - `$` alone means "all"
+    ///   - Any entity means "only these entities"
+    pub fn binds_to_any(&self, a_eids: &Vec<String>) -> bool {
+        for eid in a_eids {
+            if self.binds_to(eid) {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Return True if a constraint binds to a given entity
-    pub fn binds_to(&self, entity: &str) -> bool {
+    fn binds_to(&self, entity: &str) -> bool {
         let entities = self.entities.clone().unwrap();
         let has_glob = entities.contains(&"$".to_string());
         let has_entity = entities.contains(&entity.to_string());
@@ -263,9 +280,8 @@ impl Constraint {
     fn get_expr(&self, state: String, expr: &Option<HashMap<String, Vec<Expression>>>) -> Vec<Expression> {
         let mut out: Vec<Expression> = Vec::default();
         if let Some(expr) = expr {
-            let x = expr.keys().into_iter().map(|x| x.to_string()).collect::<Vec<String>>();
             if let Some(exprset) = expr.get(&state) {
-                out.extend(exprset.into_iter().map(|e| e.clone()));
+                out.extend(exprset.iter().cloned());
             }
         }
 
