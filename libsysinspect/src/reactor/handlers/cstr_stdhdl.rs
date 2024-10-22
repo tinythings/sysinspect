@@ -15,6 +15,20 @@ pub struct ConstraintHandler {
     config: EventConfig,
 }
 
+impl ConstraintHandler {
+    /// Get prefix from the configuration
+    fn get_prefix(&self) -> String {
+        let mut prefix = "".to_string();
+        if let Some(config) = self.config() {
+            if let Some(p) = config.as_string("prefix") {
+                prefix = format!("{} - ", p.cyan());
+            }
+        }
+
+        prefix
+    }
+}
+
 /// STDOUT event handler. It just outputs the action response to a log.
 impl EventHandler for ConstraintHandler {
     fn new(eid: String, cfg: EventConfig) -> Self
@@ -36,14 +50,16 @@ impl EventHandler for ConstraintHandler {
             return;
         }
 
+        let prefix = self.get_prefix();
+
         if !evt.errors.has_errors() {
-            log::info!("All constraints {}", "passed".bright_green().bold());
+            log::info!("{}All constraints {}", prefix, "passed".bright_green().bold());
             return;
         }
 
         log::info!("{}", evt.errors.descr());
         for f in evt.errors.failures() {
-            log::error!("{}: {}", f.title.yellow(), f.msg);
+            log::error!("{}{}: {}", prefix, f.title.yellow(), f.msg);
         }
     }
 
