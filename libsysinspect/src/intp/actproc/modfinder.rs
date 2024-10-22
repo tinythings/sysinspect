@@ -182,9 +182,9 @@ impl ModCall {
         let mut cret =
             ConstraintResponse::new(format!("{} with {}", self.aid, self.get_mod_ns().unwrap_or("(unknown)".to_string())));
         for c in &self.constraints {
-            eval(&self, &mut cret, c, ConstraintKind::All, Self::eval_cst_all, ar);
-            eval(&self, &mut cret, c, ConstraintKind::Any, Self::eval_cst_any, ar);
-            eval(&self, &mut cret, c, ConstraintKind::None, Self::eval_cst_none, ar);
+            eval(self, &mut cret, c, ConstraintKind::All, Self::eval_cst_all, ar);
+            eval(self, &mut cret, c, ConstraintKind::Any, Self::eval_cst_any, ar);
+            eval(self, &mut cret, c, ConstraintKind::None, Self::eval_cst_none, ar);
         }
 
         cret
