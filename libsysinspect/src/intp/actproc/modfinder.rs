@@ -1,9 +1,10 @@
-use super::response::{ActionModResponse, ActionResponse};
+use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
     intp::{
-        actproc::get_by_ns,
-        constraints::{Constraint, Expression},
+        actproc::response::ConstraintFailure,
+        constraints::{Constraint, ConstraintKind, Expression},
     },
+    util::dataconv,
     SysinspectError,
 };
 use core::str;
@@ -87,70 +88,106 @@ impl ModCall {
         x
     }
 
-    /// All expressions must be true
-    fn eval_cst_all(&self, cstr: &Constraint, resp: &ActionModResponse) -> Option<bool> {
-        let exp = cstr.all(self.state());
-        if exp.is_empty() {
-            return None;
-        }
+    /// Get module namespace.
+    fn get_mod_ns(&self) -> Option<String> {
+        let mut tkn = self.module.components().rev();
+        let mut ns = Vec::new();
 
-        for exp in exp {
-            if !exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace())) {
-                return Some(false);
+        for _ in 0..2 {
+            if let Some(component) = tkn.next() {
+                if let Some(part) = component.as_os_str().to_str() {
+                    ns.push(part);
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
             }
         }
 
-        Some(true)
+        Some(ns.into_iter().rev().collect::<Vec<&str>>().join("."))
+    }
+
+    /// All expressions must be true
+    fn eval_cst_all(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<String>) {
+        let exp = cstr.all(self.state());
+        if exp.is_empty() {
+            return (None, None);
+        }
+
+        for exp in exp {
+            let fact = Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace());
+            if !exp.eval(fact.to_owned()) {
+                return (
+                    Some(false),
+                    Some(format!("{} fails with {}", &exp.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())),
+                );
+            }
+        }
+
+        (Some(true), None)
     }
 
     /// At least one of the expressions must be true
-    fn eval_cst_any(&self, cstr: &Constraint, resp: &ActionModResponse) -> Option<bool> {
+    fn eval_cst_any(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<String>) {
         let exp = cstr.any(self.state());
         if exp.is_empty() {
-            return None;
+            return (None, None);
         }
 
         for exp in exp {
             if exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace())) {
-                return Some(true);
+                return (Some(true), None);
             }
         }
 
-        Some(false)
+        (Some(false), Some("No constraints matches found".to_string()))
     }
 
     /// None of expressions should be true. It is basically !all.
-    fn eval_cst_none(&self, cstr: &Constraint, resp: &ActionModResponse) -> Option<bool> {
+    fn eval_cst_none(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<String>) {
         let exp = cstr.none(self.state());
         if exp.is_empty() {
-            return None;
+            return (None, None);
         }
 
         for e in exp {
-            if e.eval(Expression::get_by_namespace(resp.data(), &e.get_fact_namespace())) {
-                return Some(false);
+            let fact = Expression::get_by_namespace(resp.data(), &e.get_fact_namespace());
+            if e.eval(fact.to_owned()) {
+                return (
+                    Some(false),
+                    Some(format!("{} fails with {}", &e.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())),
+                );
             }
         }
 
-        Some(true)
+        (Some(true), None)
     }
 
     /// Evaluate constraints
-    fn eval_constraints(&self, ar: &ActionModResponse) {
-        for c in &self.constraints {
-            println!("Evaluating: {}", c.descr());
-            if let Some(r) = self.eval_cst_all(c, ar) {
-                println!("  All: {}", if r { "OK" } else { "FAILED" });
-            }
-
-            if let Some(r) = self.eval_cst_any(c, ar) {
-                println!("  Any: {}", if r { "OK" } else { "FAILED" });
-            }
-
-            if let Some(r) = self.eval_cst_none(c, ar) {
-                println!("  None: {}", if r { "OK" } else { "FAILED" });
+    fn eval_constraints(&self, ar: &ActionModResponse) -> ConstraintResponse {
+        fn eval<F>(
+            mc: &ModCall, cret: &mut ConstraintResponse, c: &Constraint, kind: ConstraintKind, eval_fn: F, ar: &ActionModResponse,
+        ) where
+            F: Fn(&ModCall, &Constraint, &ActionModResponse) -> (Option<bool>, Option<String>),
+        {
+            let (res, msg) = eval_fn(mc, c, ar);
+            if let Some(res) = res {
+                if !res {
+                    cret.add_failure(ConstraintFailure::new(c.descr(), msg.unwrap_or_default(), kind));
+                }
             }
         }
+
+        let mut cret =
+            ConstraintResponse::new(format!("{} with {}", self.aid, self.get_mod_ns().unwrap_or("(unknown)".to_string())));
+        for c in &self.constraints {
+            eval(&self, &mut cret, c, ConstraintKind::All, Self::eval_cst_all, ar);
+            eval(&self, &mut cret, c, ConstraintKind::Any, Self::eval_cst_any, ar);
+            eval(&self, &mut cret, c, ConstraintKind::None, Self::eval_cst_none, ar);
+        }
+
+        cret
     }
 
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
@@ -172,10 +209,13 @@ impl ModCall {
                 if let Ok(out) = p.wait_with_output() {
                     match str::from_utf8(&out.stdout) {
                         Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
-                            Ok(r) => {
-                                self.eval_constraints(&r);
-                                Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), r)))
-                            }
+                            Ok(r) => Ok(Some(ActionResponse::new(
+                                self.eid.to_owned(),
+                                self.aid.to_owned(),
+                                self.state.to_owned(),
+                                r.clone(),
+                                self.eval_constraints(&r),
+                            ))),
                             Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
                         },
                         Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
