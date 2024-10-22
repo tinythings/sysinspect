@@ -19,8 +19,8 @@ impl ConstraintFailure {
 
 #[derive(Debug, Clone, Default)]
 pub struct ConstraintResponse {
-    pub descr: String,
-    pub failures: Vec<ConstraintFailure>,
+    descr: String,
+    failures: Vec<ConstraintFailure>,
 }
 
 impl ConstraintResponse {
@@ -30,6 +30,21 @@ impl ConstraintResponse {
 
     pub fn add_failure(&mut self, fl: ConstraintFailure) {
         self.failures.push(fl);
+    }
+
+    /// Returns `true` if the response has failures
+    pub fn has_errors(&self) -> bool {
+        !self.failures.is_empty()
+    }
+
+    /// Get a description of the constraint
+    pub fn descr(&self) -> &str {
+        &self.descr
+    }
+
+    /// Get list of failures
+    pub fn failures(&self) -> &[ConstraintFailure] {
+        &self.failures
     }
 }
 

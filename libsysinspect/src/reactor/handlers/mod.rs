@@ -1,3 +1,4 @@
+pub mod cstr_stdhdl;
 pub mod evthandler;
 pub mod stdhdl;
 use lazy_static::lazy_static;
@@ -13,6 +14,7 @@ pub mod registry {
     use crate::intp::conf::EventConfig;
 
     use super::*;
+    use cstr_stdhdl::ConstraintHandler;
     use evthandler::EventHandler;
     use std::{
         collections::HashMap,
@@ -44,6 +46,7 @@ pub mod registry {
         // Handler registration
         log::debug!("Intialising handlers");
         registry.insert(StdoutEventHandler::id(), |eid, cfg| Box::new(StdoutEventHandler::new(eid, cfg)));
+        registry.insert(ConstraintHandler::id(), |eid, cfg| Box::new(ConstraintHandler::new(eid, cfg)));
     }
 
     /// Get all registered handlers.
