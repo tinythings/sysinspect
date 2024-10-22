@@ -21,13 +21,22 @@ Options
 ``prefix``
 ^^^^^^^^^^
 
-    Prefix to the logging message text. Example:
+    **Optional.** Prefix to the logging message text. Example:
 
     .. code-block:: yaml
         :caption: Prefix example
 
         prefix: "Hello"
 
+``concise``
+^^^^^^^^^^^
+
+    **Optional.** Set logger not to include output data from a certain module.
+
+    .. code-block:: yaml
+        :caption: Mute additional data display
+
+        concise: true
 
 Example
 -------
@@ -44,3 +53,4 @@ Example
 
         console-logger:
           prefix: "Default event"
+          concise: false # Also default

@@ -28,7 +28,6 @@ Options
 
         prefix: "Hello"
 
-
 Example
 -------
 
