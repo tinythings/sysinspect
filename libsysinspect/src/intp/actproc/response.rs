@@ -1,5 +1,37 @@
+use crate::intp::constraints::ConstraintKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+/// This struct is a future carrier of tracability.
+/// Currently only a single string log message.
+#[derive(Debug, Clone)]
+pub struct ConstraintFailure {
+    pub kind: ConstraintKind,
+    pub msg: String,
+    pub title: String,
+}
+
+impl ConstraintFailure {
+    pub fn new(title: String, msg: String, kind: ConstraintKind) -> Self {
+        ConstraintFailure { title, msg, kind }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConstraintResponse {
+    pub descr: String,
+    pub failures: Vec<ConstraintFailure>,
+}
+
+impl ConstraintResponse {
+    pub fn new(descr: String) -> Self {
+        ConstraintResponse { descr, failures: vec![] }
+    }
+
+    pub fn add_failure(&mut self, fl: ConstraintFailure) {
+        self.failures.push(fl);
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ActionModResponse {
@@ -56,11 +88,12 @@ pub struct ActionResponse {
 
     // Module response
     pub response: ActionModResponse,
+    pub errors: ConstraintResponse,
 }
 
 impl ActionResponse {
-    pub(crate) fn new(eid: String, aid: String, sid: String, response: ActionModResponse) -> Self {
-        Self { eid, aid, sid, response }
+    pub(crate) fn new(eid: String, aid: String, sid: String, response: ActionModResponse, errors: ConstraintResponse) -> Self {
+        Self { eid, aid, sid, response, errors }
     }
 
     /// Return an Entity Id to which this action was bound to

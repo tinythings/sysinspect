@@ -12,10 +12,10 @@ options:
     description: "Flag to return current routing table"
 
 arguments:
-  - name: "if-stat"
+  - name: "if-list"
     type: "string"
     required: false
-    description: "Comma-separated list of interfaces to get their status"
+    description: "Comma-separated list of interfaces to get their status (see flags)"
 
 examples:
   - description: "Query status of two network interfaces"

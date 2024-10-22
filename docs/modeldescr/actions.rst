@@ -35,12 +35,22 @@ of an action as follows:
 
         state:
           $|<id>:
-            options:
+            opts|options:
               - <option>
 
-            args:
+            args|arguments:
               <key>:
                 - <value>
+
+.. important::
+
+  Some sections have aliases.
+
+  For better consistency, please use same group of aliases. For example, always use
+  ``options/arguments`` across the entire model, or choose to use ``opts/args``.
+  You can mix them, but it is **not the best practice**.
+
+Below is the description of configuration sections:
 
 ``module: namespace``
 
@@ -76,25 +86,25 @@ of an action as follows:
     the corresponding module aware of the currently processed state. Therefore, in case of the state is requested other
     than it is currently detected on the device, the module should return **true**.
 
-``options: [list]``
+``opts|options: [list]``
 
-    Options element specifies flags to the module, in case it is needed. For example, a module
+    Options element ``opts`` (or ``options``) specifies flags to the module, in case it is needed. For example, a module
     called ``sys.proc`` might have different modes, such as checking if a process at all runs
     and do nothing else, or return its PID or owner, even stop it, restart it etc — it depends on
     a module. In any case, options would be statically passed in this action. Example:
 
     .. code-block:: yaml
 
-        options:
+        opts:
           - info
 
     The example above is equivalent to a command line expression like this:
 
     ``some-program --info``
 
-``args: key/[list]``
+``args|arguments: key/[list]``
 
-    The ``args`` element specifies keywords to the module. One **distinct difference** from
+    The ``args`` (or ``arguments``) element specifies keywords to the module. One **distinct difference** from
     a classic keywords is that this is a ``key/[list]`` *(of values)* rather then a ``key/value``.
     Example:
 
@@ -173,7 +183,7 @@ The fact ``discspace`` from ``my-special`` fact will be omitted.
           - systemd
         state:
           $:
-            options:
+            opts:
               - is-running
             args:
               - process: "claim(path)"

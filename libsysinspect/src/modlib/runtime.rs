@@ -51,12 +51,14 @@ pub struct ModRequest {
 
     /// Call options
     #[serde(default)]
+    #[serde(alias = "opts")]
     options: Option<Vec<ArgValue>>,
 
     /// Call arguments. Argumentst can have
     /// different types: list, integers, strings etc.
     #[serde(default)]
-    arguments: Option<HashMap<String, Vec<ArgValue>>>,
+    #[serde(alias = "args")]
+    arguments: Option<HashMap<String, ArgValue>>,
 
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
@@ -80,7 +82,7 @@ impl ModRequest {
     }
 
     /// Get all param args
-    pub fn args(&self) -> HashMap<String, Vec<ArgValue>> {
+    pub fn args(&self) -> HashMap<String, ArgValue> {
         if let Some(a) = &self.arguments {
             return a.to_owned();
         }
@@ -88,11 +90,11 @@ impl ModRequest {
         HashMap::default()
     }
 
-    /// Short-cut to get a first argument (usually it is)
-    pub fn first_arg(&self, kw: &str) -> Option<ArgValue> {
+    /// Get arg
+    pub fn get_arg(&self, kw: &str) -> Option<ArgValue> {
         if let Some(a) = &self.arguments {
             if let Some(a) = a.get(kw) {
-                return a.iter().next().cloned();
+                return Some(a.clone());
             }
         };
 
@@ -126,7 +128,7 @@ pub fn send_call_response(r: &ModResponse) -> Result<(), Error> {
 
 /// Get a string argument
 pub fn get_arg(rt: &ModRequest, arg: &str) -> String {
-    if let Some(s_arg) = rt.first_arg(arg) {
+    if let Some(s_arg) = rt.get_arg(arg) {
         if let Some(s_arg) = s_arg.as_string() {
             return s_arg;
         } else if let Some(s_arg) = s_arg.as_bool() {

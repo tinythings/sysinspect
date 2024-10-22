@@ -17,7 +17,7 @@ fn main() {
             }
         },
         Err(err) => {
-            println!("Error: {}", err)
+            println!("Arguments error: {}", err)
         }
     }
 }

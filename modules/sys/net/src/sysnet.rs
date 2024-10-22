@@ -16,6 +16,7 @@ use std::collections::{hash_map::Entry, HashMap};
 
 struct NetInfo {
     ifaces: Vec<InterfaceAddress>,
+    if_filter: Vec<String>,
 }
 
 impl NetInfo {
@@ -26,7 +27,7 @@ impl NetInfo {
             for iface in itr {
                 ifaces.push(iface);
             }
-            Ok(NetInfo { ifaces })
+            Ok(NetInfo { ifaces, if_filter: Vec::default() })
         } else {
             Err(SysinspectError::ModuleError("Unable to retrieve interfaces data".to_string()))
         }
@@ -34,6 +35,11 @@ impl NetInfo {
 
     fn format_mac(mac: &[u8]) -> String {
         mac.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(":")
+    }
+
+    /// Checks if interface is accepted
+    fn itf_accepted(&self, name: &String) -> bool {
+        self.if_filter.is_empty() || self.if_filter.contains(name)
     }
 
     /// Get interfaces
@@ -63,8 +69,8 @@ impl NetInfo {
                 }
             }
 
-            if !item.is_empty() {
-                let ifn = iface.interface_name.to_string();
+            let ifn = iface.interface_name.to_string();
+            if self.itf_accepted(&ifn) && !item.is_empty() {
                 if let Entry::Vacant(e) = out.entry(ifn.to_owned()) {
                     e.insert(vec![item]);
                 } else {
@@ -75,11 +81,24 @@ impl NetInfo {
 
         out
     }
+
+    /// Set interfaces those needs to be examined, ignoring all others.
+    fn set_if_filter(&mut self, if_filter: Vec<String>) {
+        self.if_filter.extend(if_filter);
+    }
 }
 
 /// Get data
-fn get_data(rt: &ModRequest, netinfo: &NetInfo) -> HashMap<String, serde_json::Value> {
+fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> HashMap<String, serde_json::Value> {
     let mut data: HashMap<String, serde_json::Value> = HashMap::default();
+
+    netinfo.set_if_filter(
+        runtime::get_arg(rt, "if-list")
+            .split(",")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<String>>(),
+    );
 
     // Include running interfaces
     if runtime::get_opt(rt, "if-up") {
@@ -90,6 +109,10 @@ fn get_data(rt: &ModRequest, netinfo: &NetInfo) -> HashMap<String, serde_json::V
         if let Ok(rt_data) = routing::ip_route() {
             let mut rtable: Vec<HashMap<String, String>> = Vec::default();
             for entry in &rt_data {
+                // Skip an interface, which wasn't requested
+                if !entry.iface.is_empty() && !netinfo.itf_accepted(&entry.iface) {
+                    continue;
+                }
                 let mut rec: HashMap<String, String> = HashMap::default();
                 if let Some(gw) = entry.gw {
                     rec.insert("gateway".to_string(), gw.to_string());
@@ -150,8 +173,8 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     let mut res = runtime::new_call_response();
 
     match NetInfo::new() {
-        Ok(netinfo) => {
-            if let Err(err) = res.set_data(json!(get_data(rt, &netinfo))) {
+        Ok(mut netinfo) => {
+            if let Err(err) = res.set_data(json!(get_data(rt, &mut netinfo))) {
                 res.set_retcode(1);
                 res.add_warning(&format!("{}", err));
             } else {
