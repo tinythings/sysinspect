@@ -30,22 +30,29 @@ impl EventHandler for StdoutEventHandler {
         }
 
         let mut prefix = "".to_string();
+        let mut verbose = true;
         if let Some(config) = self.config() {
             if let Some(p) = config.as_string("prefix") {
                 prefix = format!("{} - ", p.cyan());
+            }
+
+            if let Some(p) = config.as_bool("concise") {
+                verbose = !p;
             }
         }
 
         if evt.response.retcode() == 0 {
             log::info!("{}{}/{} - {}", prefix, evt.eid().bright_cyan(), evt.aid().bright_cyan(), evt.response.message());
-            if let Some(data) = evt.response.data() {
-                log::info!(
-                    "{}{}/{} - Other data:\n{}",
-                    prefix,
-                    evt.eid().bright_cyan(),
-                    evt.aid().bright_cyan(),
-                    KeyValueFormatter::new(data).format()
-                );
+            if verbose {
+                if let Some(data) = evt.response.data() {
+                    log::info!(
+                        "{}{}/{} - Other data:\n{}",
+                        prefix,
+                        evt.eid().bright_cyan(),
+                        evt.aid().bright_cyan(),
+                        KeyValueFormatter::new(data).format()
+                    );
+                }
             }
         } else {
             log::error!(
