@@ -1,5 +1,3 @@
-use colored::Colorize;
-
 use super::evthandler::EventHandler;
 use crate::{
     intp::{
@@ -8,6 +6,7 @@ use crate::{
     },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
 };
+use colored::Colorize;
 
 #[derive(Default, Debug)]
 pub struct StdoutEventHandler {
