@@ -9,6 +9,7 @@ Event Handlers
    :maxdepth: 1
 
    console_logger
+   outcome_logger
 
 Overview
 --------
