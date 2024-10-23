@@ -10,22 +10,25 @@ check:
 
 devel:
 	cargo build -v
-	cargo build -v -p proc -p net
+	cargo build -v -p proc -p net -p run
 
 	# Move plugin binaries
 	rm -rf target/debug/sys
 	mkdir -p target/debug/sys
 	mv target/debug/proc target/debug/sys/
 	mv target/debug/net target/debug/sys/
+	mv target/debug/run target/debug/sys/
 
 build:
 	cargo build --release
-	cargo build -p proc --release
+	cargo build -p proc -p net -p run --release
 
 	# Move plugin binaries
 	rm -rf target/release/sys
 	mkdir -p target/release/sys
 	mv target/release/proc target/release/sys/
+	mv target/release/net target/release/sys/
+	mv target/release/run target/release/sys/
 
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
