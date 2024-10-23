@@ -1,0 +1,52 @@
+name: "sys.run"
+version: "0.0.1"
+author: "Bo Maryniuk"
+description: |
+  Plugin to run just a raw commands and return generically
+  structured output from them.
+
+# Options, flags, switches
+options:
+  - name: disown
+    description: "Leave command running in the background"
+
+# Keyword arguments
+arguments:
+  - name: cmd
+    type: string
+    required: true
+    description: "Full command to run"
+
+  - name: send
+    type: string
+    required: false
+    description: "Send uninterpolated data to the program input (STDIN)"
+
+  - name: env
+    type: string
+    required: false
+    description: "Modify the environment for the target running command"
+
+  - name: locale
+    type: string
+    required: false
+    description: "Set the locale for this command (default: LC_CTYPE=C)"
+
+examples:
+  - description: "Module usage example"
+    code: |
+      "arguments": {
+        "cmd": "spotify --headless",
+        "env": "PATH=$PATH:/opt/spotify/bin"
+      }
+
+# Description of additional data format
+returns:
+  description: |
+    Returns just a regular text of the command STDOUT.
+    NOTE: if "disown" flag is specified, no data is returned.
+
+  example: |
+    {
+      "stdout": "..."
+    },
