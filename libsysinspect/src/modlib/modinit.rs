@@ -1,23 +1,13 @@
+use crate::util::dataconv;
 use colored::Colorize;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use serde_yaml::Value;
-use std::env::args;
+use std::{collections::HashMap, env::args};
 use textwrap::{fill, Options};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModReturn {
-    description: String,
-    example: String,
-}
-
-impl ModReturn {
-    // Format return explanation
-    fn format(&self) -> String {
-        let opts = Options::new(80).initial_indent("  ").subsequent_indent("  ");
-        format!("{}\n\n{}\n", fill(&format!("{}. Example:", self.description.trim()), &opts), fill(self.example.trim(), opts))
-    }
-}
+static H_WIDTH: usize = 80;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModExample {
@@ -48,7 +38,7 @@ impl ModOption {
         format!(
             "  {}\n{}\n",
             self.name.bright_magenta().bold(),
-            fill(&self.description, Options::new(80).initial_indent("    ").subsequent_indent("    "))
+            fill(&self.description, Options::new(H_WIDTH).initial_indent("    ").subsequent_indent("    "))
         )
     }
 }
@@ -80,7 +70,7 @@ impl ModArgument {
             "  {} {}\n{}\n",
             self.name.bright_magenta().bold(),
             format!("(type: {}{}{})", self.argtype, req, def).bright_magenta(),
-            fill(&self.description, Options::new(80).initial_indent("    ").subsequent_indent("    "))
+            fill(&self.description, Options::new(H_WIDTH).initial_indent("    ").subsequent_indent("    "))
         )
     }
 }
@@ -94,7 +84,9 @@ pub struct ModInterface {
     options: Vec<ModOption>,
     arguments: Vec<ModArgument>,
     examples: Vec<ModExample>,
-    returns: Option<ModReturn>,
+
+    // Map of flags/args to output data structure
+    returns: HashMap<String, Value>,
 }
 
 impl ModInterface {
@@ -107,6 +99,40 @@ impl ModInterface {
         }
 
         false
+    }
+
+    fn fmt_returns(&self) -> String {
+        let mut out: Vec<String> = Vec::new();
+        for (arg, data) in &self.returns {
+            let mut stct: HashMap<String, serde_json::Value> = HashMap::new();
+            let mut descr = String::new();
+
+            if let Value::Mapping(out_data) = data {
+                for (k, v) in out_data {
+                    let k = dataconv::as_str(Some(k).cloned());
+                    if k.eq(":description") {
+                        descr.push_str(dataconv::as_str(Some(v).cloned()).trim());
+                    } else {
+                        stct.insert(k, json!(v));
+                    }
+                }
+            }
+
+            let f_opts = Options::new(H_WIDTH).initial_indent("  ").subsequent_indent("  ");
+            if arg.eq("$") {
+                out.push(fill(&format!("{} {}", descr, "If no options or arguments specified:"), &f_opts).yellow().to_string());
+            } else {
+                out.push(fill(&format!("{} If {} speified:", descr, arg.bright_magenta().bold()), &f_opts).yellow().to_string());
+            }
+
+            out.push(fill(
+                &serde_json::to_string_pretty(&json!(stct)).unwrap_or_default(),
+                f_opts.initial_indent("      ").subsequent_indent("      "),
+            ));
+            out.push("".to_string());
+        }
+
+        out.join("\n")
     }
 
     /// Format help string, ready to print.
@@ -133,12 +159,8 @@ impl ModInterface {
         }
 
         fn returns(cls: &ModInterface) -> String {
-            if let Some(ret) = &cls.returns {
-                let ret_title = "Additional returned data:".bright_yellow();
-                return format!("\n\n{ret_title}\n\n{}", ret.format());
-            }
-
-            "".to_string()
+            let ret_title = "Returned data structure:".bright_yellow();
+            format!("\n\n{ret_title}\n\n{}", cls.fmt_returns())
         }
 
         let dsc_title = "Description:".bright_yellow();
@@ -160,7 +182,7 @@ impl ModInterface {
             self.name.bold(),
             self.version.green().bold(),
             self.author,
-            fill(&self.description, Options::new(80).subsequent_indent("  ")).yellow(),
+            fill(&self.description, Options::new(H_WIDTH).subsequent_indent("  ")).yellow(),
             args(self),
             ex_code,
             returns(self),
