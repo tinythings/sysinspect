@@ -41,16 +41,19 @@ examples:
 
 # Description of additional data format
 returns:
-  description: |
-    Returns tabular data of "limits" and "cmd" containing an actual command line.
+  limits:
+    :description: |
+      Returns tabular data of "limits" and "cmd" containing an actual command line.
 
-  example: |
-    {
-      "limits": [
-          ["attribute", "soft", "hard", "units"],
-          ["cpu time", -1, -1, "seconds"],
-          ["processes", 126599, 126599, "processes"],
-          ["open files", 1024, 524288, "files"],
-        ],
-      "cmd": "/lib/systemd/systemd-logind",
-    },
+    limits:
+      - [attribute, soft, hard, units]
+      - [cpu time, -1, -1, seconds]
+      - [processes, 126599, 126599, processes]
+      - [open files, 1024, 524288, files]
+    cmd: /lib/systemd/systemd-logind
+
+  pid:
+    :description: |
+      Includes a PID of the process.
+
+    pid: 12345
