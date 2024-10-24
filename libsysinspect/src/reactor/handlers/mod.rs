@@ -1,6 +1,8 @@
 pub mod cstr_stdhdl;
 pub mod evthandler;
+pub mod pipescript;
 pub mod stdhdl;
+
 use lazy_static::lazy_static;
 
 #[allow(clippy::type_complexity)]
@@ -16,6 +18,7 @@ pub mod registry {
     use super::*;
     use cstr_stdhdl::ConstraintHandler;
     use evthandler::EventHandler;
+    use pipescript::PipeScriptHandler;
     use std::{
         collections::HashMap,
         sync::{Mutex, MutexGuard},
@@ -47,6 +50,7 @@ pub mod registry {
         log::debug!("Intialising handlers");
         registry.insert(StdoutEventHandler::id(), |eid, cfg| Box::new(StdoutEventHandler::new(eid, cfg)));
         registry.insert(ConstraintHandler::id(), |eid, cfg| Box::new(ConstraintHandler::new(eid, cfg)));
+        registry.insert(PipeScriptHandler::id(), |eid, cfg| Box::new(PipeScriptHandler::new(eid, cfg)));
     }
 
     /// Get all registered handlers.

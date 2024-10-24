@@ -10,6 +10,7 @@ Event Handlers
 
    console_logger
    outcome_logger
+   pipescript
 
 Overview
 --------
