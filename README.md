@@ -1,5 +1,8 @@
 # Sysinspect
 
+![insanity_workflow](https://github.com/tinythings/sysinspect/actions/workflows/insanity_check.yml/badge.svg) ![build_workflow](https://github.com/tinythings/sysinspect/actions/workflows/generic_workflow.yml/badge.svg)
+
+
 Sysinspect is an engine of Anomaly Detection and Root Cause Analysis.
 This engine is indented to perform anomaly detection and root cause analysis on any system.
 It is using Model Description as a source of knowledge and a collection of modules with telemetry data in order to perform various testing scenarios.
