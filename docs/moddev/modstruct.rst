@@ -164,12 +164,29 @@ Below are currently supported and required sections and attributes:
 ``returns``
 ^^^^^^^^^^^
 
-    Description in a free form what additional data might be returned in ``data`` section of the :ref:`formatting-response`. It has two sections to describe the return data type in details.
+    This section is mainly used to define return data structure and it is also used as a help sample.
+    The following syntax is used:
 
-    ``description``
+    .. code-block:: text
+        :caption: Synopsis of return data structure definition
 
-        A multiline description what the data type is all about. Type ``String``, **required**.
+        returns:
+            <option|argument|$>:
+                :description: |
+                    Multiline text
+                <structure>
 
-    ``example``
+    From the described synopsis above:
 
-        An actual multiline example of a returned data type in a JSON format. Type ``String``, **required**.
+    - ``option`` or ``argument`` or ``$`` is the sections what is returned in case these options are specified.
+      The ``$`` symbol means "no options specified" or *the default* state.
+
+    - ``:description`` is an internal field, used for a prefixed help section in the manual output.
+    - ``<structure>`` is any YAML-compliant structure that will be then converted to JSON and displayed as a sample.
+      Refer to the existing modules source code to see that in action.
+
+    .. important::
+
+        From the synopsis, the fied ``:description`` is prefixed with ``:`` (colon) symbol. The colon symbol marks
+        a field as "internal". These fields *do not belong* to the defined ``<structure>`` and will be excluded
+        from the final output.
