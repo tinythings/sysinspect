@@ -3,15 +3,14 @@ Pipescript is a handler that pipes the action output through a script
 on certain event outcomes.
  */
 
-use colored::Colorize;
-use serde_json::Value;
-
 use super::evthandler::EventHandler;
 use crate::intp::{
     actproc::response::ActionResponse,
     conf::{EventConfig, EventConfigOption},
 };
+use colored::Colorize;
 use core::str;
+use serde_json::Value;
 use std::{
     io::Write,
     process::{Command, Stdio},
