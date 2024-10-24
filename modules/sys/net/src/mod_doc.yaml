@@ -25,23 +25,28 @@ examples:
       }
 
 returns:
-  description: "Route information example"
-  example: |
-    "route-table":
-      [
-        { "gateway": "192.168.1.1", "mask": "0" },
-        {
-          "dst": "169.254.0.0",
-          "mask": "16",
-          "proto": "boot",
-          "scope": "link",
-        },
-        {
-          "dst": "192.168.2.0",
-          "if": "eth0",
-          "mask": "24",
-          "proto": "kernel",
-          "scope": "link",
-          "src": "192.168.1.123",
-        },
-      ]
+  route-table:
+    :description: "Returns network routing table (sample)."
+    retcode: 0
+    message: "Network data obtained"
+    data:
+      route-table:
+        - gateway: "192.168.1.1"
+          mask: "0"
+        - dst: "192.168.2.0"
+          if: "eth0"
+          mask: "24"
+          proto: "kernel"
+          scope: "link"
+          src: "192.168.1.123"
+
+  if-up:
+    :description: "Returns the list of all available network devices (sample)."
+    retcode: 0
+    message: "Network data obtained"
+    data:
+      if-up:
+        lo:
+          - mac: "00:00:00:00:00:00"
+          - IPv4: "127.0.0.1"
+            port: 0

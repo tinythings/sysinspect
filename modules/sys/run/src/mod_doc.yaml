@@ -42,11 +42,19 @@ examples:
 
 # Description of additional data format
 returns:
-  description: |
-    Returns just a regular text of the command STDOUT.
-    NOTE: if "disown" flag is specified, no data is returned.
+  # Output data structure as a sample
+  # Happens by default
+  $:
+    :description: |
+      Returns just a regular text of the command STDOUT.
+    retcode: 0
+    message: "'uname -p' finished"
+    data:
+      stdout: "x86_64"
 
-  example: |
-    {
-      "stdout": "..."
-    },
+  # Happens when "disown" flag is specified
+  disown:
+    :description: |
+      No data block is returned for background processes
+    retcode: 0
+    message: "'uname -p' left running on a background"
