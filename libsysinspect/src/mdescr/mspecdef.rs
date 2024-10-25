@@ -1,7 +1,7 @@
 use crate::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 /// Model Specification
 /// ===================
@@ -25,6 +25,8 @@ pub struct ModelSpec {
 
     // Model maintainer
     maintainer: String,
+
+    inherits: Option<String>,
 
     // The rest of the system structure
     #[serde(flatten)]
@@ -79,5 +81,14 @@ impl ModelSpec {
     /// ```
     pub fn traverse(&self, path: String) {
         if path.contains(".") && path.contains(":") {}
+    }
+
+    /// Returns Path to the inherited model
+    pub fn inherits(&self) -> Option<PathBuf> {
+        if let Some(p) = &self.inherits {
+            return Some(PathBuf::from(p));
+        }
+
+        None
     }
 }
