@@ -1,4 +1,4 @@
-pub mod inhpatcher;
+pub mod datapatch;
 pub mod mspec;
 pub mod mspecdef;
 
