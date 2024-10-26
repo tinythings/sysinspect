@@ -105,7 +105,7 @@ fn main() {
                 }
                 log::debug!("Done");
             }
-            Err(err) => println!("Error: {}", err),
+            Err(err) => log::error!("Error: {}", err),
         };
     }
 }

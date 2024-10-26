@@ -1,7 +1,10 @@
-use super::mspecdef::ModelSpec;
+use super::{datapatch, mspecdef::ModelSpec};
 use crate::SysinspectError;
 use serde_yaml::Value;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use walkdir::WalkDir;
 
 pub const MODEL_INDEX: &str = "model.cfg";
@@ -22,10 +25,10 @@ impl SpecLoader {
     }
 
     /// Collect YAML parts of the model from a different files
-    fn collect_parts(&mut self) -> Result<Vec<Value>, SysinspectError> {
+    fn collect_by_path(&mut self, p: &Path, inherit: bool) -> Result<Vec<Value>, SysinspectError> {
         let mut out = Vec::<Value>::new();
 
-        for etr in WalkDir::new(&self.pth).follow_links(true).into_iter().filter_map(Result::ok) {
+        for etr in WalkDir::new(p).follow_links(true).into_iter().filter_map(Result::ok) {
             // Skip dirs
             if !etr.path().is_file() {
                 continue;
@@ -37,19 +40,21 @@ impl SpecLoader {
                     continue;
                 }
 
-                if fname == MODEL_INDEX {
+                if fname == MODEL_INDEX && !inherit {
                     if self.init {
                         return Err(SysinspectError::ModelMultipleIndex(etr.path().as_os_str().to_str().unwrap().to_string()));
                     } else {
                         self.init = true;
                         out.insert(0, serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?)?);
                     }
-                } else {
+                } else if fname != MODEL_INDEX {
                     // Get YAML chunks
                     match serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?) {
                         Ok(chunk) => out.push(chunk),
                         Err(err) => return Err(SysinspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
                     }
+                } else {
+                    log::debug!("Skipping inherited index");
                 }
             }
         }
@@ -60,7 +65,7 @@ impl SpecLoader {
     /// Merge YAML parts
     fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
         if chunks.is_empty() {
-            return Err(SysinspectError::ModelMultipleIndex("Multiple index error".to_string()));
+            return Err(SysinspectError::ModelMultipleIndex("No data found".to_string()));
             // XXX: Add one more exception
         }
 
@@ -98,8 +103,29 @@ impl SpecLoader {
     /// Load model spec by merging all the data parts and validating
     /// its content.
     fn load(&mut self) -> Result<ModelSpec, SysinspectError> {
-        let mut parts = self.collect_parts()?;
-        Ok(serde_yaml::from_value(self.merge_parts(&mut parts)?)?)
+        let mpt = self.collect_by_path(&self.pth.to_owned(), false)?;
+        let mut base: Vec<Value> = Vec::default();
+        let mut iht: Vec<Value> = Vec::default();
+
+        // Try inheriting
+        if !mpt.is_empty() {
+            if let Some(ipth) = serde_yaml::from_value::<ModelSpec>(mpt[0].to_owned())?.inherits() {
+                base.insert(0, mpt[0].to_owned());
+                base.extend(self.collect_by_path(&ipth, true)?);
+                iht.extend(mpt[1..].iter().map(|e| e.to_owned()).collect::<Vec<Value>>());
+            } else {
+                base.extend(mpt);
+            }
+        } else {
+            return Err(SysinspectError::ModelDSLError(format!("No model found at {}", self.pth.to_str().unwrap_or_default())));
+        }
+
+        let mut base = self.merge_parts(&mut base)?;
+        if !iht.is_empty() {
+            datapatch::inherit(&mut base, &self.merge_parts(&mut iht)?);
+        }
+
+        Ok(serde_yaml::from_value(base)?)
     }
 }
 

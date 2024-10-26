@@ -1,3 +1,4 @@
+pub mod datapatch;
 pub mod mspec;
 pub mod mspecdef;
 
