@@ -1,49 +1,69 @@
 /*
 Inheritance patcher.
-
-The weird/odd inheritance works the following way:
-
-1. All replacement keys are extracted frin an inherited merged value
-2. Keys are then applied to the base value accordingly
- */
+The goal is to take an inherited Model and modify it accordingly.
+*/
 
 use crate::util::dataconv;
-use serde_yaml::Value;
-use std::collections::HashMap;
+use indexmap::IndexMap;
+use serde_yaml::{Mapping, Value};
 
-static MOD_ADD: &str = "(+)";
 static MOD_REMOVE: &str = "(-)";
 
-fn _modpth(v: &Value, mut cp: Vec<String>, mut p: HashMap<Vec<String>, Value>) -> (&Value, HashMap<Vec<String>, Value>) {
-    let mut cv: Option<Value> = None;
-
-    if let Value::Mapping(map) = v {
-        for (k, v) in map {
-            let k = dataconv::as_str(Some(k).cloned());
-            cp.push(k.to_owned());
-            cv = Some(v.clone());
-            if k.starts_with(MOD_REMOVE) || k.starts_with(MOD_ADD) {
-                continue;
-            }
-
-            if let Value::Mapping(_) = v {
-                (_, p) = _modpth(v, cp.clone(), p.clone());
+/// Get modification paths
+fn modpth(v: &Value, path: &mut Vec<String>, result: &mut IndexMap<Vec<String>, Value>) {
+    match v {
+        Value::Mapping(map) => {
+            for (k, v) in map {
+                path.push(dataconv::as_str(Some(k).cloned()));
+                modpth(v, path, result);
+                path.pop();
             }
         }
-    }
-
-    // Add only modifier paths
-    for e in &cp {
-        if e.starts_with(MOD_ADD) || e.starts_with(MOD_REMOVE) {
-            p.insert(cp, cv.unwrap());
-            break;
+        _ => {
+            result.insert(path.clone(), v.clone());
         }
     }
-
-    (v, p)
 }
 
-/// Get modification paths, those have prefixes to add `(+)` or remove `(-)`.
-pub fn get_modifiers(v: &Value) -> HashMap<Vec<String>, Value> {
-    _modpth(v, vec![], HashMap::default()).1
+/// Apply modification paths to the target structure
+fn modbase(base: &mut Value, mods: IndexMap<Vec<String>, Value>) {
+    for (pth, v) in mods {
+        let mut cv = &mut *base;
+
+        for (i, k) in pth.iter().enumerate() {
+            let (clr_k, rm) = if k.starts_with(MOD_REMOVE) {
+                (k.trim_start_matches(MOD_REMOVE).trim().to_string(), true)
+            } else {
+                (k.clone(), false)
+            };
+
+            let next = {
+                if let Value::Mapping(ref mut m) = cv {
+                    if rm {
+                        m.remove(&Value::String(clr_k.clone()));
+                        None
+                    } else if i == pth.len() - 1 {
+                        m.insert(Value::String(clr_k), v.clone());
+                        None
+                    } else {
+                        Some(m.entry(Value::String(clr_k)).or_insert_with(|| Value::Mapping(Mapping::new())))
+                    }
+                } else {
+                    None
+                }
+            };
+            if let Some(next) = next {
+                cv = next;
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+/// Inherit from a model description
+pub fn inherit(base: &mut Value, ovl: &Value) {
+    let mut mpth: IndexMap<Vec<String>, Value> = IndexMap::new();
+    modpth(&ovl, &mut vec![], &mut mpth);
+    modbase(base, mpth);
 }
