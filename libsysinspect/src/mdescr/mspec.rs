@@ -1,4 +1,4 @@
-use super::mspecdef::ModelSpec;
+use super::{datapatch, mspecdef::ModelSpec};
 use crate::SysinspectError;
 use serde_yaml::Value;
 use std::{
@@ -65,7 +65,7 @@ impl SpecLoader {
     /// Merge YAML parts
     fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
         if chunks.is_empty() {
-            return Err(SysinspectError::ModelMultipleIndex("Multiple index error".to_string()));
+            return Err(SysinspectError::ModelMultipleIndex("No data found".to_string()));
             // XXX: Add one more exception
         }
 
@@ -103,16 +103,29 @@ impl SpecLoader {
     /// Load model spec by merging all the data parts and validating
     /// its content.
     fn load(&mut self) -> Result<ModelSpec, SysinspectError> {
-        let mut parts = self.collect_by_path(&self.pth.to_owned(), false)?;
+        let mpt = self.collect_by_path(&self.pth.to_owned(), false)?;
+        let mut base: Vec<Value> = Vec::default();
+        let mut iht: Vec<Value> = Vec::default();
 
-        // Inheritance?
-        if !parts.is_empty() {
-            if let Some(ipth) = serde_yaml::from_value::<ModelSpec>(parts[0].to_owned())?.inherits() {
-                parts.extend(self.collect_by_path(&ipth, true)?);
+        // Try inheriting
+        if !mpt.is_empty() {
+            if let Some(ipth) = serde_yaml::from_value::<ModelSpec>(mpt[0].to_owned())?.inherits() {
+                base.insert(0, mpt[0].to_owned());
+                base.extend(self.collect_by_path(&ipth, true)?);
+                iht.extend(mpt[1..].iter().map(|e| e.to_owned()).collect::<Vec<Value>>());
+            } else {
+                base.extend(mpt);
             }
+        } else {
+            return Err(SysinspectError::ModelDSLError(format!("No model found at {}", self.pth.to_str().unwrap_or_default())));
         }
 
-        Ok(serde_yaml::from_value(self.merge_parts(&mut parts)?)?)
+        let mut base = self.merge_parts(&mut base)?;
+        if !iht.is_empty() {
+            datapatch::inherit(&mut base, &self.merge_parts(&mut iht)?);
+        }
+
+        Ok(serde_yaml::from_value(base)?)
     }
 }
 
