@@ -1,3 +1,21 @@
+.. raw:: html
+
+   <style type="text/css">
+     span.underlined {
+       text-decoration: underline;
+     }
+     span.bolditalic {
+       font-weight: bold;
+       font-style: italic;
+     }
+   </style>
+
+.. role:: u
+   :class: underlined
+
+.. role:: bi
+   :class: bolditalic
+
 Inheritance
 ===========
 
@@ -48,68 +66,34 @@ Data within the Model Description can be inherited in three ways:
 Adding
 ^^^^^^
 
-Adding an element is as simple as that: add another element with its unique ID.
-If such ID already exists, see the "Overriding" section.
+Adding works as :bi:`merging a new element` to an existing structure.
+Is as simple as that: just define a new element as it would be within
+the same structure, without rewriting everything else.
 
 For example, there are two files: ``base.cfg`` and ``add.cfg``:
 
 .. code-block:: yaml
+  :caption: Base structure
 
     # base.cfg
     data:
       key: value
 
 .. code-block:: yaml
+  :caption: Inherited structure
 
     # add.cfg
-    other:
-      key: value
-
-They both will result into one data block:
-
-.. code-block:: yaml
-
     data:
-      key: value
-    other:
-      key: value
-
-Extending
-^^^^^^^^^
-
-Extending an element requires explaining the engine which part of an element is extended.
-To do so, an element should have ``(+)`` prefix. For example, in two files ``base.cfg`` and ``add.cfg``
-an element ``data`` can be extended this way:
-
-.. code-block:: yaml
-
-    # base.cfg
-    data:
-      key: value
-
-.. code-block:: yaml
-
-    # add.cfg
-    (+)data:
       other-key: value
 
-.. important::
+The result will be as follows:
 
-    Only datablocks can be extended. A last clashing value can be either overwritten or removed.
-    The example above is read as such:
+.. code-block:: yaml
+  :caption: Both are merged
 
-        *"Extend an existing element 'data' with the new content, keeping the original"*
-
-That said, ``data: key:value`` will replace ``data:: key:othervalue``.
-
-
-In a nutshell, the prefix ``(+)`` opens an element for "editing" and will not bluntly overwrite it.
-
-Replacing
-^^^^^^^^^
-
-Replacing is straightforward and does not require any special syntax.
-If a key with a structure already exists, it will be just replaced with a new one.
+    data:
+      key: value
+      other-key: value
 
 Removing
 ^^^^^^^^
@@ -127,7 +111,7 @@ removed:
 .. code-block:: yaml
 
     # add.cfg
-    (+)data:
+    data:
       (-)key: value
       other-data: value
 
@@ -143,3 +127,21 @@ In the example above this will result to the following YAML:
     This method of "fine grain replacements" is only useful if an original data block is big enough
     and one does not want to rewrite all of it. But in most cases it is easier to simply redefine
     the entire ``data`` one more time, as the final result, to achieve exactly the same outcome.
+
+
+Updating/Replacing
+^^^^^^^^^^^^^^^^^^
+
+If there is a need to :bi:`replace` an existing element without merging with it,
+it first needs to be removed, using ``(-)`` prefix. Simply remove the element
+and then define a new one. Example:
+
+.. code-block:: yaml
+  :caption: Replacing a value
+
+  # Completely remove the whole block
+  (-)some_block:
+
+  # Define a new one
+  some_block:
+    my_new: data
