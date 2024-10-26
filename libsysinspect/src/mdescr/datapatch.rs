@@ -40,7 +40,7 @@ fn modbase(base: &mut Value, mods: IndexMap<Vec<String>, Value>) {
             let next = {
                 if let Value::Mapping(ref mut m) = cv {
                     if rm {
-                        m.remove(&Value::String(clr_k.clone()));
+                        m.remove(Value::String(clr_k.clone()));
                         None
                     } else if i == pth.len() - 1 {
                         m.insert(Value::String(clr_k), v.clone());
@@ -64,6 +64,6 @@ fn modbase(base: &mut Value, mods: IndexMap<Vec<String>, Value>) {
 /// Inherit from a model description
 pub fn inherit(base: &mut Value, ovl: &Value) {
     let mut mpth: IndexMap<Vec<String>, Value> = IndexMap::new();
-    modpth(&ovl, &mut vec![], &mut mpth);
+    modpth(ovl, &mut vec![], &mut mpth);
     modbase(base, mpth);
 }
