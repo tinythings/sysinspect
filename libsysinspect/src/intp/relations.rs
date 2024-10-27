@@ -45,9 +45,7 @@ impl Relation {
         let state = state.unwrap_or_default();
         for (st, ent) in self.states() {
             if st.eq(&state) || st.eq("$") {
-                for (_cnd, eids) in ent {
-                    out.extend(eids.to_owned());
-                }
+                out.extend(ent.values().flat_map(|eids| eids.to_owned()).collect::<Vec<String>>());
             }
         }
         out
