@@ -56,6 +56,11 @@ impl CheckbookSection {
     pub fn id(&self) -> String {
         self.id.to_owned()
     }
+
+    /// Get available relations
+    pub fn relations(&self) -> &[Relation] {
+        &self.relations
+    }
 }
 
 impl Display for CheckbookSection {

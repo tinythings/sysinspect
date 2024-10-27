@@ -116,8 +116,17 @@ impl SysInspector {
     }
 
     /// Get actions by relations
-    pub fn actions_by_relations(&self, rids: Vec<String>) -> Result<Vec<Action>, SysinspectError> {
-        Ok(vec![])
+    pub fn actions_by_relations(&self, rids: Vec<String>, state: Option<String>) -> Result<Vec<Action>, SysinspectError> {
+        let mut out: Vec<Action> = Vec::default();
+        for s in &self.checkbook {
+            if rids.contains(&s.id()) {
+                for rel in s.relations() {
+                    out.extend(self.actions_by_entities(rel.get_entities(state.to_owned()), state.to_owned())?);
+                }
+            }
+        }
+
+        Ok(out)
     }
 
     /// Get actions by entities

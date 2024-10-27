@@ -53,7 +53,7 @@ impl EventHandler for ConstraintHandler {
         let prefix = self.get_prefix();
 
         if !evt.errors.has_errors() {
-            log::info!("{}All constraints {}", prefix, "passed".bright_green().bold());
+            log::info!("{}{} {}", prefix, evt.aid(), "passed".bright_green().bold());
             return;
         }
 

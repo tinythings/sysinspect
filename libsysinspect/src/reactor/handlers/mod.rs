@@ -57,6 +57,9 @@ pub mod registry {
     /// NOTE: [`init_handlers`] must be called.
     ///
     pub fn get_handler_names() -> Vec<String> {
-        REGISTRY_MAP.lock().unwrap().keys().map(|s| s.to_string()).collect::<Vec<String>>()
+        let mut out = REGISTRY_MAP.lock().unwrap().keys().cloned().map(|s| s.to_string()).collect::<Vec<String>>();
+        out.sort();
+
+        out
     }
 }
