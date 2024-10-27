@@ -75,13 +75,16 @@ fn main() {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg());
 
-                        // XXX: Move all this elsewhere
-                        //let ar = isp.actions_by_relations(clidef::split_by(&params, "labels", None)).unwrap();
+                        let arg_state = params.get_one::<String>("state").cloned();
+                        let arg_labels = clidef::split_by(&params, "labels", None);
 
-                        match isp.actions_by_entities(
-                            clidef::split_by(&params, "entities", None),
-                            params.get_one::<String>("state").cloned(),
-                        ) {
+                        let actions = if !arg_labels.is_empty() {
+                            isp.actions_by_relations(arg_labels, arg_state.to_owned())
+                        } else {
+                            isp.actions_by_entities(clidef::split_by(&params, "entities", None), arg_state)
+                        };
+
+                        match actions {
                             Ok(actions) => {
                                 for ac in actions {
                                     match ac.run() {

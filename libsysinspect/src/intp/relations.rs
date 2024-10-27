@@ -33,4 +33,23 @@ impl Relation {
     pub fn id(&self) -> String {
         self.id.to_owned().unwrap_or("".to_string())
     }
+
+    /// Get states to relations
+    pub fn states(&self) -> &HashMap<String, HashMap<String, Vec<String>>> {
+        &self.states
+    }
+
+    /// Get related entities
+    pub fn get_entities(&self, state: Option<String>) -> Vec<String> {
+        let mut out: Vec<String> = Vec::default();
+        let state = state.unwrap_or_default();
+        for (st, ent) in self.states() {
+            if st.eq(&state) || st.eq("$") {
+                for (_cnd, eids) in ent {
+                    out.extend(eids.to_owned());
+                }
+            }
+        }
+        out
+    }
 }
