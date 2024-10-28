@@ -14,7 +14,11 @@ log = "0.4.22"
 sysinfo = { version = "0.31.4", features = ["linux-tmpfs"] }
 
 [workspace]
-members = ["modules/sys/*"]
+resolver = "2"
+members = [
+  "modules/sys/*",
+  "libsysinspect",
+]
 
 [profile.release]
 strip = true

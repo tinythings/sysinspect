@@ -33,6 +33,9 @@ build:
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
 
+test:
+	cargo nextest run --workspace
+
 tar:
 	# Cleanup
 	rm -rf package/${ARC_NAME}
