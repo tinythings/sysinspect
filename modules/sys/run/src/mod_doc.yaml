@@ -1,5 +1,5 @@
 name: "sys.run"
-version: "0.0.1"
+version: "0.1.0"
 author: "Bo Maryniuk"
 description: |
   Plugin to run just a raw commands and return generically
