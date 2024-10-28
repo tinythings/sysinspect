@@ -1,0 +1,25 @@
+name: Unit/Integration Testing
+
+on:
+  push:
+    branches:
+      - "master"
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # RUSTFLAGS: -D warnings
+
+jobs:
+  unit_tests:
+    name: Unit and Static Type tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install latest nextest release
+        uses: taiki-e/install-action@nextest
+
+      - uses: actions/checkout@v2
+      - name: Run test target
+        run: |
+          make test
