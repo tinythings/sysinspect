@@ -49,7 +49,11 @@ tar:
 	cp Cargo.lock package/${ARC_NAME}
 	cp Cargo.toml package/${ARC_NAME}
 	cp Makefile package/${ARC_NAME}
+	cp rustfmt.toml package/${ARC_NAME}
 	cp -a docs package/${ARC_NAME}
+	cp -a man package/${ARC_NAME}
+	cp -a libsysinspect package/${ARC_NAME}
+	cp -a modules package/${ARC_NAME}
 	cp -a src package/${ARC_NAME}
 	cp -a vendor package/${ARC_NAME}
 
