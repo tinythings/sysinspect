@@ -1,4 +1,3 @@
-use crate::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::{collections::HashMap, path::PathBuf};
@@ -43,44 +42,6 @@ impl ModelSpec {
         }
 
         None
-    }
-
-    #[allow(clippy::only_used_in_recursion)]
-    fn find(&self, v: Value) -> Result<Value, SysinspectError> {
-        match v {
-            /*
-            Value::Sequence(v) => {
-                for e in v.iter() {
-                    self.find(e);
-                }
-            }
-            */
-            Value::Mapping(v) => {
-                if let Some((k, e)) = v.into_iter().next() {
-                    return self.find(e);
-                }
-            }
-            Value::Bool(_) | Value::Number(_) | Value::String(_) => {
-                return Ok(v);
-            }
-            _ => {}
-        }
-
-        Err(SysinspectError::ModelDSLError("Object not found".to_string()))
-    }
-
-    /// Traverse the namespace by "foo:bar:person.name" syntax.
-    /// "foo:bar" is a namespace, "person" is an ID of the object and "name" is a property.
-    /// This yields to the following YAML:
-    ///
-    /// ```yaml
-    /// foo:
-    ///   bar:
-    ///     id: person
-    ///     name: Jeff
-    /// ```
-    pub fn traverse(&self, path: String) {
-        if path.contains(".") && path.contains(":") {}
     }
 
     /// Returns Path to the inherited model
