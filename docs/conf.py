@@ -1,7 +1,7 @@
 project = "Sysinspect"
 copyright = "2024, Bo Maryniuk"
 author = "Bo Maryniuk"
-version = "0.0.1"
+version = "0.1.0"
 release = "Alpha"
 
 extensions = [
