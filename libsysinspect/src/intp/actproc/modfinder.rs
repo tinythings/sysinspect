@@ -117,7 +117,13 @@ impl ModCall {
 
         for exp in exp {
             let fact = Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace());
-            if !exp.eval(fact.to_owned()) {
+            let res = exp.eval(fact.to_owned());
+            if !res.is_positive() {
+                // XXX: Poor's man outcome tracer. This must be moved to the results
+                // XXX: Should not say "on all", but should say "constraint foo bar" instead.
+                for t in res.traces() {
+                    log::error!("On all: {}", t);
+                }
                 return (
                     Some(false),
                     Some(format!("{} fails with {}", &exp.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())),
@@ -135,10 +141,20 @@ impl ModCall {
             return (None, None);
         }
 
+        let mut traces: Vec<String> = vec![];
+
         for exp in exp {
-            if exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace())) {
+            let res = exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace()));
+            if res.is_positive() {
                 return (Some(true), None);
             }
+            traces.extend(res.traces().to_owned());
+        }
+
+        // XXX: Poor's man outcome tracer. This must be moved to the results
+        // XXX: Should not say "on any" but say actual path to the constraint and its Id
+        for t in traces {
+            log::debug!("On any: {}", t);
         }
 
         (Some(false), Some("No constraints matches found".to_string()))
@@ -153,7 +169,13 @@ impl ModCall {
 
         for e in exp {
             let fact = Expression::get_by_namespace(resp.data(), &e.get_fact_namespace());
-            if e.eval(fact.to_owned()) {
+            let res = e.eval(fact.to_owned());
+            if res.is_positive() {
+                // XXX: Poor's man outcome tracer. This must be moved to the results
+                // XXX: Should not say "on none" but say actual path to the constrain and its Id
+                for t in res.traces() {
+                    log::debug!("On none: {}", t);
+                }
                 return (
                     Some(false),
                     Some(format!("{} fails with {}", &e.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())),
@@ -174,7 +196,7 @@ impl ModCall {
             let (res, msg) = eval_fn(mc, c, ar);
             if let Some(res) = res {
                 if !res {
-                    cret.add_failure(ConstraintFailure::new(c.descr(), msg.unwrap_or_default(), kind));
+                    cret.add_failure(ConstraintFailure::new(c.descr(), msg.unwrap_or_default(), kind.clone()));
                 }
             }
         }

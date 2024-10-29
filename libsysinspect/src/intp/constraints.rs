@@ -1,11 +1,41 @@
 use crate::{
-    util::dataconv::{as_bool, as_int, as_int_opt, as_str},
+    util::dataconv::{as_bool_opt, as_int_opt, as_str_opt},
     SysinspectError,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
+
+pub struct ExprRes {
+    result: bool,
+    traces: Vec<String>,
+}
+
+impl ExprRes {
+    /// Create a new instance of ExpressionResult
+    pub fn new(result: Option<bool>, trace: Option<String>) -> Self {
+        ExprRes {
+            result: result.unwrap_or(false),
+            traces: if trace.is_some() { vec![trace.unwrap_or_default()] } else { vec![] },
+        }
+    }
+
+    /// Add trace to the stack
+    pub fn add_trace(&mut self, msg: String) {
+        _ = &self.traces.push(msg);
+    }
+
+    /// Get existing traces
+    pub fn traces(&self) -> &[String] {
+        &self.traces
+    }
+
+    /// Get the outcome
+    pub fn is_positive(&self) -> bool {
+        self.result
+    }
+}
 
 #[derive(Eq, PartialEq, Hash)]
 enum OpType {
@@ -104,50 +134,88 @@ impl Expression {
 
     /// Evaluate operator with the given fact data
     /// `fact` is incoming data from the plugin output.
-    pub fn eval(&self, fact: Option<serde_json::Value>) -> bool {
+    pub fn eval(&self, fact: Option<serde_json::Value>) -> ExprRes {
+        // XXX: Eval() should also get namespaces and constraint name,
+        //      so then tracing can be built nicely.
         if fact.is_none() {
-            return false;
+            return ExprRes::new(Some(false), Some("No facts to evaluate".to_string()));
         }
         let fact = fact.unwrap();
 
         // Module data is a "fact", compared to the "claim" from the model.
         let (op, claim) = self.op().unwrap_or_else(|| (OpType::Undef, Value::default()));
         if op == OpType::Undef {
-            return false;
+            return ExprRes::new(Some(false), Some("Undefined expression".to_string()));
         }
 
         let v_claim = Some(&claim).cloned();
 
         match fact {
-            serde_json::Value::Null => fact.is_null(),
-            serde_json::Value::Bool(fact) => match op {
-                OpType::Equals => fact == as_bool(v_claim),
-                OpType::Less | OpType::More => fact != as_bool(v_claim),
-                _ => false,
-            },
-            serde_json::Value::Number(_) => match op {
-                OpType::Equals => as_int_opt(Some(fact.to_owned())).is_some() && as_int(Some(fact)) == as_int(v_claim),
-                OpType::Less => as_int_opt(Some(fact.to_owned())).is_some() && as_int(Some(fact)) < as_int(v_claim),
-                OpType::More => as_int_opt(Some(fact.to_owned())).is_some() && as_int(Some(fact)) > as_int(v_claim),
-
-                _ => false,
-            },
-            serde_json::Value::String(fact) => match op {
-                OpType::Equals => as_str(v_claim).eq(&fact),
-                OpType::Less | OpType::More => as_str(v_claim).ne(&fact),
-                OpType::Matches => {
-                    if let Ok(r) = Regex::new(&as_str(v_claim)) {
-                        return r.is_match(&fact);
-                    }
-
-                    false
+            serde_json::Value::Null => ExprRes::new(Some(fact.is_null()), Some("No facts to evaluate".to_string())),
+            serde_json::Value::Bool(fact) => {
+                let claim = as_bool_opt(v_claim);
+                if claim.is_none() {
+                    return ExprRes::new(Some(false), Some("Could not obtain claim value as boolean".to_string()));
                 }
-                OpType::Contains => as_str(v_claim).contains(&fact),
-                OpType::Starts => as_str(v_claim).starts_with(&fact),
-                OpType::Ends => as_str(v_claim).ends_with(&fact),
-                _ => false,
-            },
-            _ => false,
+                let claim = claim.unwrap();
+
+                match op {
+                    OpType::Equals => ExprRes::new(Some(fact == claim), None),
+                    OpType::Less | OpType::More => ExprRes::new(Some(fact != claim), None),
+                    _ => ExprRes::new(Some(false), Some("Unknown expression operator".to_string())),
+                }
+            }
+            serde_json::Value::Number(_) => {
+                let fact = as_int_opt(Some(fact.to_owned()));
+                if fact.is_none() {
+                    return ExprRes::new(Some(false), Some("Could not obtain fact value as a number".to_string()));
+                }
+                let fact = fact.unwrap();
+                let claim = as_int_opt(v_claim.clone());
+                if claim.is_none() {
+                    return ExprRes::new(Some(false), Some("Could not obtain claim value as a number".to_string()));
+                }
+                let claim = claim.unwrap();
+
+                match op {
+                    OpType::Equals => ExprRes::new(Some(fact == claim), Some(format!("{} should be equal to {}", fact, claim))),
+                    OpType::Less => ExprRes::new(Some(fact < claim), Some(format!("{} should be less than {}", fact, claim))),
+                    OpType::More => ExprRes::new(Some(fact > claim), Some(format!("{} should be more than {}", fact, claim))),
+                    _ => ExprRes::new(None, Some("Unknown expression operator".to_string())),
+                }
+            }
+            serde_json::Value::String(fact) => {
+                let claim = as_str_opt(v_claim);
+                if claim.is_none() {
+                    return ExprRes::new(Some(false), Some("Could not obtain claim value as a string".to_string()));
+                }
+                let claim = claim.unwrap_or_default();
+
+                match op {
+                    OpType::Equals => ExprRes::new(Some(claim.eq(&fact)), Some(format!("{} should be equal to {}", claim, fact))),
+                    OpType::Less | OpType::More => {
+                        ExprRes::new(Some(claim.ne(&fact)), Some(format!("{} should not be equal to {}", claim, fact)))
+                    }
+                    OpType::Matches => {
+                        if let Ok(r) = Regex::new(&claim) {
+                            ExprRes::new(Some(r.is_match(&fact)), Some(format!("{} should match {}", fact, claim)))
+                        } else {
+                            ExprRes::new(None, Some("Bad regexp syntax".to_string()))
+                        }
+                    }
+                    OpType::Contains => {
+                        ExprRes::new(Some(claim.contains(&fact)), Some(format!("{} should contain {}", fact, claim)))
+                    }
+                    OpType::Starts => {
+                        ExprRes::new(Some(claim.starts_with(&fact)), Some(format!("{} should start with {}", fact, claim)))
+                    }
+                    OpType::Ends => {
+                        ExprRes::new(Some(claim.ends_with(&fact)), Some(format!("{} should ends with {}", fact, claim)))
+                    }
+                    _ => ExprRes::new(None, None),
+                }
+            }
+            _ => ExprRes::new(None, None),
         }
     }
 
