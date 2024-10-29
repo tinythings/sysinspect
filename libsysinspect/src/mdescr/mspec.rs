@@ -2,7 +2,7 @@ use super::{datapatch, mspecdef::ModelSpec};
 use crate::SysinspectError;
 use serde_yaml::Value;
 use std::{
-    fs::{self, canonicalize},
+    fs::{self},
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
