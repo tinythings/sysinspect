@@ -54,6 +54,10 @@ is not supported. Inheritance is started via ``inherits`` directive. Example:
 
 Parent model can also inheriting some other model etc.
 
+.. note::
+
+  Path usually is absolute but it can be also relative to the model location.
+
 Inheriting Data
 ---------------
 
