@@ -17,7 +17,7 @@ they only serve to properly link its navigation.
 
 List of currently supported functions:
 
-``fact(value | @)``
+``fact(value)``
 
   Function ``fact`` can accept the following parameters:
 
@@ -35,7 +35,7 @@ action consumer.
 
   The function returns a defined value of that claim.
 
-``static()``
+``static(value)``
 
   Function ``static`` accepts a type ``String`` with the whole absolute path with the ID of the claim.
 

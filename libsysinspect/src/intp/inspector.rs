@@ -140,7 +140,7 @@ impl SysInspector {
                     log::debug!("Action entity: {} (entity: {}, state: {state})", action.id(), &eid);
                     // Actions are registered with a specific Entitiy Id (eid)
                     // Because as the same Action gets registered with the another eid,
-                    // it also corresponds to other facts and conditions, and that then
+                    // it also corresponds to other claims and conditions, and that then
                     // needs to be passed to the reactor.
                     out.push(action.to_owned().setup(self, &eid, state.to_owned())?);
                 }
@@ -199,8 +199,8 @@ impl SysInspector {
         let entity = Entity::default();
         let entity = self.get_entity(eid).unwrap_or(&entity);
 
-        if let Some(facts) = entity.facts() {
-            if let Some(claims) = facts.get(state) {
+        if let Some(claims) = entity.claims() {
+            if let Some(claims) = claims.get(state) {
                 for claim in claims {
                     if let Some(v) = claim.get(func.ns_parts().unwrap()[0]) {
                         if let serde_yaml::Value::Mapping(v) = v {
@@ -209,7 +209,7 @@ impl SysInspector {
                             }
                         } else {
                             return Err(SysinspectError::ModelDSLError(format!(
-                                "Claim {}.facts.{}.{} must be a key/value mapping",
+                                "Claim {}.claims.{}.{} must be a key/value mapping",
                                 eid,
                                 state,
                                 func.namespace()
@@ -218,7 +218,7 @@ impl SysInspector {
                     }
                 }
             } else {
-                return Err(SysinspectError::ModelDSLError(format!("No claims at {}.facts defined", eid)));
+                return Err(SysinspectError::ModelDSLError(format!("No claims at {}.claims defined", eid)));
             }
         }
 

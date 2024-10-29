@@ -22,7 +22,7 @@ impl Claim {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Entity {
     descr: Option<String>,
-    facts: Option<HashMap<String, Vec<Claim>>>,
+    claims: Option<HashMap<String, Vec<Claim>>>,
     inherits: Option<Vec<String>>,
     depends: Option<Vec<String>>,
 
@@ -67,8 +67,8 @@ impl Entity {
         self.descr.to_owned().unwrap_or("".to_string())
     }
 
-    /// Return facts
-    pub fn facts(&self) -> Option<&HashMap<String, Vec<Claim>>> {
-        self.facts.as_ref()
+    /// Return claims
+    pub fn claims(&self) -> Option<&HashMap<String, Vec<Claim>>> {
+        self.claims.as_ref()
     }
 }
