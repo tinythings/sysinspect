@@ -17,17 +17,6 @@ they only serve to properly link its navigation.
 
 List of currently supported functions:
 
-``fact(value)``
-
-  Function ``fact`` can accept the following parameters:
-
-    - A type of ``String``, which is an ID of a specific fact. This would be a static call.
-    - An ``@`` symbol, which refers to a current fact. This would be a dynamic call.
-
-The function will return the entire structure of fact data as it is represented in the Model. This can be
-useful when a module already "understands" the structure "as is," without needing to adjust it within an
-action consumer.
-
 
 ``claim(value)``
 
