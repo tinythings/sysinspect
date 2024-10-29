@@ -12,7 +12,7 @@ Synopsis
     The following rules are applied to a relation:
 
     - It defines edge relation between two or more entities within the specific system
-    - It is only a transport between the facts of an entity
+    - It is only a transport between the claims of an entity
 
 Relations form a dependency graph, very similar to a typical package manager in a regular Linux
 distribution, such as RPM or Dpkg. However, the main difference between a map of package

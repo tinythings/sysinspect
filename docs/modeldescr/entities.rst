@@ -8,7 +8,7 @@ The element ``entitles`` is the basis of the model. It contains the entire inven
 of a system in a CMDB fashion.
 
 Each entity can be described in a specific manner, holding all the
-necessary attributes, facts, claims and other data that must be
+necessary attributes, claims and other data that must be
 understood by the corresponding consumers. Consumers are actions that
 call specific modules, and constraints that process them.
 
@@ -17,14 +17,14 @@ call specific modules, and constraints that process them.
    Entities the the following rules:
 
    - An entity is independent of the specific architecture of a system
-   - An entity may contain only self-applied facts, describing only that particular entity.
+   - An entity may contain only self-applied claims, describing only that particular entity.
    - A single entity exists on its own and is unaware of other entities.
    - A compound entity exists only when all its parts are active.
 
 Synopsis
 --------
 
-Entitles describe facts and relations within the architecture. These expectations should
+Entitles describe claims and relations within the architecture. These expectations should
 be aligned with constraints. Each entity has a **true** or **false** state. A "true" state is when
 all constraints and checks produce the expected result.
 
@@ -32,7 +32,7 @@ all constraints and checks produce the expected result.
 Each entity is a map. A map starts with an "id" and then contains the necessary attributes.
 The current attributes of an "entity" are as follows:
 
-1. ``facts`` *(required)* contains all data to be consumed by any module, check, or constraint, which must be true in the end.
+1. ``claims`` *(required)* contains all data to be consumed by any module, check, or constraint, which must be true in the end.
 2. ``consists`` *(optional)* It is only for collection entities (e.g., a network) and contains a list of other single entities that together form such a collection. This determines the operational state of the entity **itself**.
 3. ``depends`` *(optional)* It is for defining which other entities are required for this entity to be functional.
 
@@ -50,7 +50,7 @@ Here is the full entity description:
      <entity-id>:
         inherits:
           - <entity-id>
-        facts:
+        claims:
           <state-id>:
             <label>:
               key: value
@@ -62,18 +62,18 @@ Here is the full entity description:
 
 ``inherits`` (optional)
 
-  List of inherited (copied) facts from other entities. Facts section will be just
+  List of inherited (copied) claims from other entities. Claims section will be just
   merged (overwritten) over the inherited ones with "last wins" rule.
 
   .. warning::
 
-    The big limitation of the inheritance is that the facts's keys must be unique.
+    The big limitation of the inheritance is that the claims's keys must be unique.
     Otherwise they will clash and overwrite each other. However, often this is desired
     behavior.
 
 ``state-id``
 
-  The *state-id* is an ID within a current fact and keeps properties that could match that state. For example, it can hold a data
+  The *state-id* is an ID within a current claim and keeps properties that could match that state. For example, it can hold a data
   for a router with two states: 2.4GHz with 5GHz Wifi and only 2.4GHz Wifi.
 
 ``<label>``
@@ -90,7 +90,7 @@ An example of a single entities:
 
   entities:
     journald:
-      facts:
+      claims:
         default:
           - label:
             path: /lib/systemd/systemd-journald
@@ -106,7 +106,7 @@ An example of a compound entity:
       - syslogd
       - systemd
 
-An entity can be also just a static configuration of something, keeping facts.
+An entity can be also just a static configuration of something, keeping claims.
 For example:
 
 .. code-block:: yaml
@@ -114,7 +114,7 @@ For example:
   entities:
     systemconf:
       descr: static system configuration
-      facts:
+      claims:
         default:
           - main:
               storage:
@@ -129,43 +129,43 @@ a collection of those entities, or even just a physical wire. With this in mind,
 but it is a compound one, where one can "zoom in" to see its smaller parts, which can also be compound
 entities representing some part of the network, and so on.
 
-Facts
+claims
 ^^^^^
 
-Each entity **must** contain some facts about it.
+Each entity **must** contain some claims about it.
 
-A section in key/value format contains a series of facts under the name ``facts``. Each *fact* consists of *claims*,
-and a fact can have one or more claims. Facts also have states. States are essentially the segregation of
-facts, by which constraints and actions select different parameters for the processing module.
+A section in key/value format contains a series of claims under the name ``claims``. Each *claim* consists of *claims*,
+and a claim can have one or more claims. Claims also have states. States are essentially the segregation of
+claims, by which constraints and actions select different parameters for the processing module.
 
 Syntax:
 
 .. code-block:: text
 
-   facts:
+   claims:
      <id>:
       <state>:
         key: value
 
-Each fact has a label, which allows it to be tagged so that any other process can refer to this
-particular fact directly or indirectly. The main use of labels is in declarative constraints.
+Each claim has a label, which allows it to be tagged so that any other process can refer to this
+particular claim directly or indirectly. The main use of labels is in declarative constraints.
 
-Here is an example of a fact that claims there is a TCP network with an open SSH port,
+Here is an example of a claim that claims there is a TCP network with an open SSH port,
 listening to the world:
 
 .. code-block:: yaml
 
-   facts:
+   claims:
 
-      # Fact ID or label. It is unique per
-      # facts set within the entity.
+      # Claim ID or label. It is unique per
+      # claims set within the entity.
       # The label isn't addressed and skipped.
       tcp-network:
 
          # State ID by which action may refer it
          default-state:
 
-            # Fact label
+            # Claim label
             label:
 
               # Here are whatever key/value data, understandable by a
@@ -174,21 +174,21 @@ listening to the world:
               port: 0.0.0.0:22
               listen: 0.0.0.0:*
 
-A fact's claims are just arbitrary key/value pairs that can later be referred to by a
+A claim's claims are just arbitrary key/value pairs that can later be referred to by a
 corresponding consumer, such as a logic flow, an action, a plugin, etc.
 
-Facts can be addressed by built-in functions directly or indirectly:
+Claims can be addressed by built-in functions directly or indirectly:
 
 .. code-block:: yaml
 
    # Directly
-   foo: static(entitles.ssh-sockets.facts.port)
+   foo: static(entitles.ssh-sockets.claims.port)
 
-   # Indirectly, within the context of a current fact
-   # this returns the whole fact structure by its static ID
-   bar: fact(tcp-network)
+   # Indirectly, within the context of a current claim
+   # this returns the whole claim structure by its static ID
+   bar: claim(tcp-network)
 
-   # Claim returns a specific value of a claim within a current fact
+   # Claim returns a specific value of a claim within a current claim
    baz: claim(port)
 
-For more details about fact functions, please refer to the corresponding section.
+For more details about claim functions, please refer to the corresponding section.

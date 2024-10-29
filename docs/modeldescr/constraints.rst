@@ -6,13 +6,13 @@ Constraints
     This document explains how constraints work and what they are for.
 
 Constraints are declarative logic carriers. They provide clear rules what to *consume* within
-a specific fact.
+a specific claim.
 
 .. important::
 
     The following rules are applied to a constraint:
 
-    - It provides declarative logic for modules those are consuming a specific fact
+    - It provides declarative logic for modules those are consuming a specific claim
     - It operates on actions, using entities's data
 
 Synopsis
@@ -110,7 +110,7 @@ Example
     entities:
       # NOTE: An id of an entity, referred by a constraint below
       addresses:
-        facts:
+        claims:
           $:
             - wifi:
                 if: wlp0s20f3

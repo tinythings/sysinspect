@@ -12,8 +12,8 @@ data to modules.
 
     The following rules are applied to an action:
 
-    - An action is a consumer of facts of an entity
-    - One action applies only to one fact, but it may statically refer facts from other entities
+    - An action is a consumer of claims of an entity
+    - One action applies only to one claim, but it may statically refer claims from other entities
 
 Synopsis
 --------
@@ -78,7 +78,7 @@ Below is the description of configuration sections:
     If actions processing the system in a serial fashion without knowing what it is even discovered, then how exactly
     the state is determined?
 
-    They are not. An entity anyway is checked through all defined states. If facts are matching for one particular state,
+    They are not. An entity anyway is checked through all defined states. If claims are matching for one particular state,
     it is concluded that the device is in this state. Another option is to pass an argument to a module of a state. So
     if a module is able to request a state, then it can match the return result accordingly.
 
@@ -150,25 +150,25 @@ Given there are entities, such as ``syslogd``, ``systemd`` etc, one can bind an 
 
 .. warning::
 
-    The *minimal* data structure of a facts must be identical!
+    The *minimal* data structure of a claims must be identical!
 
-In this example of two entities that have additional facts and one action that is checking
+In this example of two entities that have additional claims and one action that is checking
 those processes. Module ``sys.proc`` receives a flag ``is-running`` which puts it to a
-process checking mode, accepting ``process`` parameter of a currently processed fact.
+process checking mode, accepting ``process`` parameter of a currently processed claim.
 In this case, ``sys.proc`` will accept ``/sbin/init`` and ``/usr/bin/syslogd`` file.
 
-The fact ``discspace`` from ``my-special`` fact will be omitted.
+The claim ``discspace`` from ``my-special`` claim will be omitted.
 
 .. code-block:: yaml
 
     entities:
       systemd:
-        facts:
-          my-fact:
+        claims:
+          my-claim:
             - default:
                 path: /sbin/init
       syslogd:
-        facts:
+        claims:
           my-special:
             - default:
                 path: /usr/bin/syslogd
@@ -198,7 +198,7 @@ to the Shell expression as such: ``$MY_VAR``.
     a clear arguments without complex interpolations.
 
     In some rare cases one might create a comma-separated string, if that is very necessary:
-    ``myfact: "claim(foo),claim(bar)"``, however this is very discouraged practice and it is strongly
+    ``myclaim: "claim(foo),claim(bar)"``, however this is very discouraged practice and it is strongly
     recommended to change the module so it accepts a list of values instead of a comma-separated string.
 
 Another example, showing static data references. Consider the following configuration:
@@ -209,7 +209,7 @@ Another example, showing static data references. Consider the following configur
     # An entity, describing a static configuration
       systemconf:
         descr: static system configuration
-        facts:
+        claims:
           default:
             - storage:
                 type: SSD
@@ -223,7 +223,7 @@ Another example, showing static data references. Consider the following configur
       syslogd-possible:
         # Description of the action that will be logged
         # The shorter, the better
-        description: Validate syslogd facts
+        description: Validate syslogd claims
 
         # Path to the module namespace.
         # Modules are located in $module_root and namespace
@@ -238,7 +238,7 @@ Another example, showing static data references. Consider the following configur
           $:
             args:
               # Variable $(foo.bar) always refers to a full path from the document root.
-              - free-disk: "static(entities.syslogd.facts.storage.free)"
-              - free-mem: "static(entities.systemconf.facts.mem.free)"
+              - free-disk: "static(entities.syslogd.claims.storage.free)"
+              - free-mem: "static(entities.systemconf.claims.mem.free)"
 
-In the example above, function ``static(....)`` can statically reach any defined value of a fact.
+In the example above, function ``static(....)`` can statically reach any defined value of a claim.
