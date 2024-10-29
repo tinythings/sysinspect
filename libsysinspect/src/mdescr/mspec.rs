@@ -2,7 +2,7 @@ use super::{datapatch, mspecdef::ModelSpec};
 use crate::SysinspectError;
 use serde_yaml::Value;
 use std::{
-    fs,
+    fs::{self},
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
@@ -20,8 +20,8 @@ struct SpecLoader {
 
 impl SpecLoader {
     // Constructor
-    fn new(pth: &str) -> Self {
-        Self { pth: PathBuf::from(pth), init: false }
+    fn new(pth: PathBuf) -> Self {
+        Self { pth, init: false }
     }
 
     /// Collect YAML parts of the model from a different files
@@ -110,6 +110,7 @@ impl SpecLoader {
         // Try inheriting
         if !mpt.is_empty() {
             if let Some(ipth) = serde_yaml::from_value::<ModelSpec>(mpt[0].to_owned())?.inherits() {
+                let ipth = fs::canonicalize(self.pth.join(ipth))?; // Redirect path
                 base.insert(0, mpt[0].to_owned());
                 base.extend(self.collect_by_path(&ipth, true)?);
                 iht.extend(mpt[1..].iter().map(|e| e.to_owned()).collect::<Vec<Value>>());
@@ -131,5 +132,5 @@ impl SpecLoader {
 
 /// Load spec from a given path
 pub fn load(path: &str) -> Result<ModelSpec, SysinspectError> {
-    SpecLoader::new(path).load()
+    SpecLoader::new(fs::canonicalize(path)?).load()
 }
