@@ -16,6 +16,7 @@ use std::{
     io::Write,
     path::PathBuf,
     process::{Command, Stdio},
+    vec,
 };
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -109,7 +110,7 @@ impl ModCall {
     }
 
     /// All expressions must be true
-    fn eval_cst_all(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<String>) {
+    fn eval_cst_all(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<Vec<String>>) {
         let exp = cstr.all(self.state());
         if exp.is_empty() {
             return (None, None);
@@ -119,15 +120,10 @@ impl ModCall {
             let fact = Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace());
             let res = exp.eval(fact.to_owned());
             if !res.is_positive() {
-                // XXX: Poor's man outcome tracer. This must be moved to the results
-                // XXX: Should not say "on all", but should say "constraint foo bar" instead.
-                for t in res.traces() {
-                    log::error!("On all: {}", t);
-                }
-                return (
-                    Some(false),
-                    Some(format!("{} fails with {}", &exp.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())),
-                );
+                let mut traces: Vec<String> =
+                    vec![format!("{} fails with {}", &exp.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())];
+                traces.extend(res.traces().to_owned());
+                return (Some(false), Some(traces));
             }
         }
 
@@ -135,14 +131,13 @@ impl ModCall {
     }
 
     /// At least one of the expressions must be true
-    fn eval_cst_any(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<String>) {
+    fn eval_cst_any(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<Vec<String>>) {
         let exp = cstr.any(self.state());
         if exp.is_empty() {
             return (None, None);
         }
 
         let mut traces: Vec<String> = vec![];
-
         for exp in exp {
             let res = exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace()));
             if res.is_positive() {
@@ -151,17 +146,11 @@ impl ModCall {
             traces.extend(res.traces().to_owned());
         }
 
-        // XXX: Poor's man outcome tracer. This must be moved to the results
-        // XXX: Should not say "on any" but say actual path to the constraint and its Id
-        for t in traces {
-            log::debug!("On any: {}", t);
-        }
-
-        (Some(false), Some("No constraints matches found".to_string()))
+        (Some(false), Some(traces))
     }
 
     /// None of expressions should be true. It is basically !all.
-    fn eval_cst_none(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<String>) {
+    fn eval_cst_none(&self, cstr: &Constraint, resp: &ActionModResponse) -> (Option<bool>, Option<Vec<String>>) {
         let exp = cstr.none(self.state());
         if exp.is_empty() {
             return (None, None);
@@ -171,15 +160,10 @@ impl ModCall {
             let fact = Expression::get_by_namespace(resp.data(), &e.get_fact_namespace());
             let res = e.eval(fact.to_owned());
             if res.is_positive() {
-                // XXX: Poor's man outcome tracer. This must be moved to the results
-                // XXX: Should not say "on none" but say actual path to the constrain and its Id
-                for t in res.traces() {
-                    log::debug!("On none: {}", t);
-                }
-                return (
-                    Some(false),
-                    Some(format!("{} fails with {}", &e.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())),
-                );
+                let mut traces: Vec<String> =
+                    vec![format!("{} fails with {}", &e.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())];
+                traces.extend(res.traces().to_owned());
+                return (Some(false), Some(traces));
             }
         }
 
@@ -191,12 +175,12 @@ impl ModCall {
         fn eval<F>(
             mc: &ModCall, cret: &mut ConstraintResponse, c: &Constraint, kind: ConstraintKind, eval_fn: F, ar: &ActionModResponse,
         ) where
-            F: Fn(&ModCall, &Constraint, &ActionModResponse) -> (Option<bool>, Option<String>),
+            F: Fn(&ModCall, &Constraint, &ActionModResponse) -> (Option<bool>, Option<Vec<String>>),
         {
-            let (res, msg) = eval_fn(mc, c, ar);
+            let (res, msgs) = eval_fn(mc, c, ar);
             if let Some(res) = res {
                 if !res {
-                    cret.add_failure(ConstraintFailure::new(c.descr(), msg.unwrap_or_default(), kind.clone()));
+                    cret.add_failure(ConstraintFailure::new(c.descr(), msgs.unwrap_or(vec![]).join(" - "), kind.clone()));
                 }
             }
         }
