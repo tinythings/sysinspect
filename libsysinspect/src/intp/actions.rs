@@ -190,7 +190,7 @@ impl Action {
                     match inspector.call_function(eid, &modcall.state(), &func) {
                         Ok(None) => {
                             return Err(SysinspectError::ModelDSLError(format!(
-                                "Entity {}.facts.{}.{} does not exist",
+                                "Entity {}.claims.{}.{} does not exist",
                                 eid,
                                 &modcall.state(),
                                 func.namespace()
