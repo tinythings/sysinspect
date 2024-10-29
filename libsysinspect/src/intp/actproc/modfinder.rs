@@ -2,9 +2,9 @@ use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
     intp::{
         actproc::response::ConstraintFailure,
-        constraints::{Constraint, ConstraintKind, Expression},
+        constraints::{Constraint, ConstraintKind},
     },
-    util::dataconv,
+    util::{dataconv, func},
     SysinspectError,
 };
 use core::str;
@@ -117,7 +117,7 @@ impl ModCall {
         }
 
         for exp in exp {
-            let fact = Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace());
+            let fact = func::get_by_namespace(resp.data(), &exp.get_fact_namespace());
             let res = exp.eval(fact.to_owned());
             if !res.is_positive() {
                 let mut traces: Vec<String> =
@@ -139,7 +139,7 @@ impl ModCall {
 
         let mut traces: Vec<String> = vec![];
         for exp in exp {
-            let res = exp.eval(Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace()));
+            let res = exp.eval(func::get_by_namespace(resp.data(), &exp.get_fact_namespace()));
             if res.is_positive() {
                 return (Some(true), None);
             }
@@ -157,7 +157,7 @@ impl ModCall {
         }
 
         for e in exp {
-            let fact = Expression::get_by_namespace(resp.data(), &e.get_fact_namespace());
+            let fact = func::get_by_namespace(resp.data(), &e.get_fact_namespace());
             let res = e.eval(fact.to_owned());
             if res.is_positive() {
                 let mut traces: Vec<String> =

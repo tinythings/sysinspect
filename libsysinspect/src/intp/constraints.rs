@@ -218,43 +218,6 @@ impl Expression {
             _ => ExprRes::new(None, None),
         }
     }
-
-    /// Get value from a JSON structure by the namespace
-    pub fn get_by_namespace(data: Option<serde_json::Value>, namespace: &str) -> Option<serde_json::Value> {
-        if let Some(ref data) = data {
-            let ns: Vec<&str> = namespace.split('.').collect();
-
-            if let Some(v) = Self::get_ns_val(data, &ns) {
-                return Some(v);
-            }
-        }
-
-        None
-    }
-
-    /// Recursively walk a JSON value to extract its content by a parsed namespace
-    fn get_ns_val(data: &serde_json::Value, ns: &[&str]) -> Option<serde_json::Value> {
-        for n in ns {
-            match data {
-                serde_json::Value::Array(data) => {
-                    for v in data {
-                        if let Some(v) = Self::get_ns_val(v, ns) {
-                            return Some(v.to_owned());
-                        } else {
-                            Self::get_ns_val(v, ns);
-                        }
-                    }
-                }
-                serde_json::Value::Object(data) => {
-                    if let Some(v) = data.get(&n.to_string()) {
-                        return Self::get_ns_val(v, ns);
-                    }
-                }
-                _ => return Some(data.to_owned()),
-            }
-        }
-        None
-    }
 }
 
 #[derive(Debug, Clone)]

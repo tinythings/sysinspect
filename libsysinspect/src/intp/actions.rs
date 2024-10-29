@@ -1,10 +1,12 @@
 use super::{
     actproc::{modfinder::ModCall, response::ActionResponse},
     constraints::Expression,
-    functions::ModArgFunction,
     inspector::SysInspector,
 };
-use crate::{util::dataconv, SysinspectError};
+use crate::{
+    util::{dataconv, func},
+    SysinspectError,
+};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -98,26 +100,12 @@ impl Action {
         Ok(None)
     }
 
-    /// Detect if an argument is a function
-    fn is_function(arg: &str) -> Result<Option<ModArgFunction>, SysinspectError> {
-        if !arg.contains("(") || !arg.ends_with(")") {
-            return Ok(None);
-        }
-
-        let f = ModArgFunction::new(
-            arg.split('(').nth(1).and_then(|s| s.split(')').next()).unwrap_or_default().to_string(),
-            arg.split("(").next().unwrap_or_default().to_string(),
-        )?;
-
-        Ok(Some(f))
-    }
-
     fn resolve_claims(
         &self, v_expr: Vec<Expression>, inspector: &SysInspector, eid: &str, state: String,
     ) -> Result<Vec<Expression>, SysinspectError> {
         let mut out: Vec<Expression> = Vec::default();
         for mut expr in v_expr {
-            if let Some(modfunc) = Self::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten() {
+            if let Some(modfunc) = func::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten() {
                 match inspector.call_function(eid, &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
@@ -186,7 +174,7 @@ impl Action {
 
             for (kw, arg) in &mod_args.args() {
                 let mut arg = arg.to_owned();
-                if let Ok(Some(func)) = Self::is_function(&arg) {
+                if let Ok(Some(func)) = func::is_function(&arg) {
                     match inspector.call_function(eid, &modcall.state(), &func) {
                         Ok(None) => {
                             return Err(SysinspectError::ModelDSLError(format!(
