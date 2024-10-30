@@ -108,7 +108,7 @@ impl Action {
                 match inspector.call_function(eid, &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
-                    Err(err) => log::error!("Error calling claim(): {}", err),
+                    Err(err) => log::error!("Data function error: {}", err),
                 }
             }
             out.push(expr);
