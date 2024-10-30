@@ -10,7 +10,7 @@ use std::env;
 mod clidef;
 mod mcf;
 
-static VERSION: &str = "0.1.0";
+static VERSION: &str = "0.2.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 /// Display event handlers

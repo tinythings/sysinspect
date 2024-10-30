@@ -1,5 +1,5 @@
 name: "sys.proc"
-version: "0.1.0"
+version: "0.2.0"
 author: "Bo Maryniuk"
 description: |
   Plugin to perform various operations on processes, such as starting them,
