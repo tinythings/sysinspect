@@ -1,6 +1,4 @@
 use super::{
-    actions::Action, checkbook::CheckbookSection, conf::Config, constraints::Constraint, entities::Entity,
-    functions::ModArgFunction, relations::Relation,
 };
 use crate::{
     intp::functions,
@@ -12,7 +10,6 @@ use crate::{
     SysinspectError,
 };
 use colored::Colorize;
-use serde::de::value::SeqDeserializer;
 use serde_yaml::Value;
 use std::collections::HashMap;
 
