@@ -122,9 +122,9 @@ impl ModCall {
                 return (
                     Some(false),
                     Some(format!(
-                        "{} {}{}",
+                        "{} fact {}{}",
                         &exp.get_fact_namespace(),
-                        if fact.is_empty() { "is missing" } else { "fails as " },
+                        if fact.is_empty() { "data was not found" } else { "fails as " },
                         fact
                     )),
                 );
