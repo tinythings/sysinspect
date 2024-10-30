@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
+use super::{
+    functions::{self},
+    inspector::SysInspector,
+};
+
 pub struct ExprRes {
     result: bool,
     traces: Vec<String>,
