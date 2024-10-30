@@ -77,6 +77,7 @@ impl SysInspector {
                         d if d == DSL_DIR_CONSTRAINTS => match Constraint::new(obj_id, obj_data) {
                             Ok(obj) => {
                                 log::trace!("{:#?}", obj);
+                                // XXX: call function resolver here
                                 self.constraints.insert(obj.id(), obj);
                                 amt += 1;
                             }
