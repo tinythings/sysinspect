@@ -2,7 +2,7 @@ use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
     intp::{
         actproc::response::ConstraintFailure,
-        constraints::{Constraint, ConstraintKind, Expression},
+        constraints::{Constraint, ConstraintKind},
         functions,
     },
     util::dataconv,
