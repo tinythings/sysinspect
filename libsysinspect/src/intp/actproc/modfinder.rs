@@ -2,7 +2,7 @@ use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
     intp::{
         actproc::response::ConstraintFailure,
-        constraints::{Constraint, ConstraintKind},
+        constraints::{Constraint, ConstraintKind, Expression},
         functions,
     },
     util::dataconv,
@@ -118,18 +118,17 @@ impl ModCall {
         }
 
         for exp in exp {
-            let fact = Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace());
-            if !exp.eval(fact.to_owned()) {
-                let fact = dataconv::to_string(fact).unwrap_or_default();
-                return (
-                    Some(false),
-                    Some(format!(
-                        "{} fact {}{}",
-                        &exp.get_fact_namespace(),
-                        if fact.is_empty() { "data was not found" } else { "fails as " },
-                        fact
-                    )),
-                );
+            let fact = functions::get_by_namespace(resp.data(), &exp.get_fact_namespace());
+            let res = exp.eval(fact.to_owned());
+            if !res.is_positive() {
+                let mut traces: Vec<String> = vec![format!(
+                    "{} fact {}{}",
+                    &exp.get_fact_namespace(),
+                    if fact.is_none() { "data was not found" } else { "fails as " },
+                    dataconv::to_string(fact).unwrap_or_default()
+                )];
+                traces.extend(res.traces().to_owned());
+                return (Some(false), Some(traces));
             }
         }
 
