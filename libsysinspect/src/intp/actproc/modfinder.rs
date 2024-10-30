@@ -118,9 +118,15 @@ impl ModCall {
         for exp in exp {
             let fact = Expression::get_by_namespace(resp.data(), &exp.get_fact_namespace());
             if !exp.eval(fact.to_owned()) {
+                let fact = dataconv::to_string(fact).unwrap_or_default();
                 return (
                     Some(false),
-                    Some(format!("{} fails with {}", &exp.get_fact_namespace(), dataconv::to_string(fact).unwrap_or_default())),
+                    Some(format!(
+                        "{} {}{}",
+                        &exp.get_fact_namespace(),
+                        if fact.is_empty() { "is missing" } else { "fails as " },
+                        fact
+                    )),
                 );
             }
         }
