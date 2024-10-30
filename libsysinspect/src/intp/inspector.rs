@@ -183,7 +183,6 @@ impl SysInspector {
     /// Claim function
 
     pub fn call_function(&self, eid: Option<&str>, state: &str, func: &ModArgFunction) -> Result<Option<Value>, SysinspectError> {
-        // TODO: Add support for static functions
         match func.fid() {
             "claim" | "static" => {
                 if func.namespace().is_empty() {
@@ -205,9 +204,9 @@ impl SysInspector {
             if let Some(claims) = entity.claims() {
                 if let Some(claims) = claims.get(state) {
                     for claim in claims {
-                        if let Some(v) = claim.get(func.ns_parts().unwrap()[0]) {
+                        if let Some(v) = claim.get(func.ns().get(0).unwrap()) {
                             if let serde_yaml::Value::Mapping(v) = v {
-                                if let Some(v) = v.get(func.ns_parts().unwrap()[1]) {
+                                if let Some(v) = v.get(func.ns().get(1).unwrap()) {
                                     return Ok(Some(v).cloned());
                                 }
                             } else {

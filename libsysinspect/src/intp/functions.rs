@@ -149,11 +149,6 @@ impl ModArgFunction {
         self.namespace.to_owned()
     }
 
-    // XXX: DEPRECATED
-    pub fn ns_parts(&self) -> Result<[&str; 2], SysinspectError> {
-        Ok([&self.namespace[0], &self.namespace[1]])
-    }
-
     /// Get function Id
     pub fn fid(&self) -> &str {
         &self.fid
