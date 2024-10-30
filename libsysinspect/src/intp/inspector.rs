@@ -209,18 +209,7 @@ impl SysInspector {
                 if let Some(claims) = claims.get(state) {
                     for claim in claims {
                         if let Some(v) = claim.get(func.ns().get(ClaimNamespace::LABEL as usize).unwrap()) {
-                            if let serde_yaml::Value::Mapping(v) = v {
-                                if let Some(v) = v.get(func.ns().get(1).unwrap()) {
-                                    return Ok(Some(v).cloned());
-                                }
-                            } else {
-                                return Err(SysinspectError::ModelDSLError(format!(
-                                    "Claim {}.claims.{}.{} must be a key/value mapping",
-                                    eid,
-                                    state,
-                                    func.namespace()
-                                )));
-                            }
+                            return Ok(functions::get_by_namespace(Some(v).cloned(), func.ns()[1..].join(".").as_str()));
                         }
                     }
                 } else {
