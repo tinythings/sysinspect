@@ -86,10 +86,15 @@ impl NetInfo {
     fn set_if_filter(&mut self, if_filter: Vec<String>) {
         self.if_filter.extend(if_filter);
     }
+
+    /// Get filter interfaces
+    fn get_if_filter(&self) -> &Vec<String> {
+        &self.if_filter
+    }
 }
 
 /// Get data
-fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> HashMap<String, serde_json::Value> {
+fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> Result<HashMap<String, serde_json::Value>, SysinspectError> {
     let mut data: HashMap<String, serde_json::Value> = HashMap::default();
 
     netinfo.set_if_filter(
@@ -102,7 +107,21 @@ fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> HashMap<String, serde_jso
 
     // Include running interfaces
     if runtime::get_opt(rt, "if-up") {
-        data.insert("if-up".to_string(), json!(netinfo.interfaces()));
+        let ifs = netinfo.interfaces();
+        let ifs_ids = ifs.keys().map(|s| s.to_string()).collect::<Vec<String>>();
+
+        // Reconcile found/requested interfaces
+        let mut missing: Vec<String> = vec![];
+        for rq_if in netinfo.get_if_filter() {
+            if !ifs_ids.contains(rq_if) {
+                missing.push(rq_if.to_owned());
+            }
+        }
+        if !missing.is_empty() {
+            return Err(SysinspectError::ModuleError(format!("missing network interfaces: {}", missing.join(", "))));
+        }
+
+        data.insert("if-up".to_string(), json!(ifs));
     }
 
     if runtime::get_opt(rt, "route-table") {
@@ -165,7 +184,7 @@ fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> HashMap<String, serde_jso
         }
     }
 
-    data
+    Ok(data)
 }
 
 /// Run sys.net
@@ -173,14 +192,20 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     let mut res = runtime::new_call_response();
 
     match NetInfo::new() {
-        Ok(mut netinfo) => {
-            if let Err(err) = res.set_data(json!(get_data(rt, &mut netinfo))) {
-                res.set_retcode(1);
-                res.add_warning(&format!("{}", err));
-            } else {
-                res.set_message("Network data obtained");
+        Ok(mut netinfo) => match get_data(rt, &mut netinfo) {
+            Ok(ret) => {
+                if let Err(err) = res.set_data(json!(ret)) {
+                    res.set_retcode(1);
+                    res.add_warning(&format!("{}", err));
+                } else {
+                    res.set_message("Network data obtained");
+                }
             }
-        }
+            Err(err) => {
+                res.set_retcode(1);
+                res.set_message(&format!("{}", err));
+            }
+        },
         Err(err) => {
             res.set_message(&format!("Error obtaining networking data: {}", err));
         }
