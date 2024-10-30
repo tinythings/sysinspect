@@ -1,7 +1,7 @@
 use super::{
     actproc::{modfinder::ModCall, response::ActionResponse},
     constraints::Expression,
-    functions::ModArgFunction,
+    functions,
     inspector::SysInspector,
 };
 use crate::{util::dataconv, SysinspectError};
@@ -98,30 +98,17 @@ impl Action {
         Ok(None)
     }
 
-    /// Detect if an argument is a function
-    fn is_function(arg: &str) -> Result<Option<ModArgFunction>, SysinspectError> {
-        if !arg.contains("(") || !arg.ends_with(")") {
-            return Ok(None);
-        }
-
-        let f = ModArgFunction::new(
-            arg.split('(').nth(1).and_then(|s| s.split(')').next()).unwrap_or_default().to_string(),
-            arg.split("(").next().unwrap_or_default().to_string(),
-        )?;
-
-        Ok(Some(f))
-    }
-
     fn resolve_claims(
         &self, v_expr: Vec<Expression>, inspector: &SysInspector, eid: &str, state: String,
     ) -> Result<Vec<Expression>, SysinspectError> {
         let mut out: Vec<Expression> = Vec::default();
         for mut expr in v_expr {
-            if let Some(modfunc) = Self::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten() {
-                match inspector.call_function(eid, &state, &modfunc) {
+            if let Some(modfunc) = functions::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten()
+            {
+                match inspector.call_function(Some(eid), &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
-                    Err(err) => log::error!("Error calling claim(): {}", err),
+                    Err(err) => log::error!("Data function error: {}", err),
                 }
             }
             out.push(expr);
@@ -186,8 +173,8 @@ impl Action {
 
             for (kw, arg) in &mod_args.args() {
                 let mut arg = arg.to_owned();
-                if let Ok(Some(func)) = Self::is_function(&arg) {
-                    match inspector.call_function(eid, &modcall.state(), &func) {
+                if let Ok(Some(func)) = functions::is_function(&arg) {
+                    match inspector.call_function(Some(eid), &modcall.state(), &func) {
                         Ok(None) => {
                             return Err(SysinspectError::ModelDSLError(format!(
                                 "Entity {}.claims.{}.{} does not exist",

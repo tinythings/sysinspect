@@ -1,8 +1,14 @@
 use super::{
-    actions::Action, checkbook::CheckbookSection, conf::Config, constraints::Constraint, entities::Entity,
-    functions::ModArgFunction, relations::Relation,
+    actions::Action,
+    checkbook::CheckbookSection,
+    conf::Config,
+    constraints::Constraint,
+    entities::Entity,
+    functions::{ClaimNamespace, ModArgFunction, StaticNamespace},
+    relations::Relation,
 };
 use crate::{
+    intp::functions,
     mdescr::{
         mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
         DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
@@ -180,14 +186,13 @@ impl SysInspector {
 
     /// Claim function
 
-    pub fn call_function(&self, eid: &str, state: &str, func: &ModArgFunction) -> Result<Option<Value>, SysinspectError> {
-        // TODO: Add support for static functions
-        //
-        // XXX: Functions are returning only strings.
-        //      This need to change: call_function should return Value instead
-
+    pub fn call_function(&self, eid: Option<&str>, state: &str, func: &ModArgFunction) -> Result<Option<Value>, SysinspectError> {
         match func.fid() {
-            "claim" => {}
+            "claim" | "static" => {
+                if func.namespace().is_empty() {
+                    return Err(SysinspectError::ModelDSLError(format!("A {} function is missing namespace", func.fid())));
+                }
+            }
             _ => {
                 return Err(SysinspectError::ModelDSLError(format!(
                     "Unknown claim function: {}",
@@ -196,29 +201,68 @@ impl SysInspector {
             }
         };
 
-        let entity = Entity::default();
-        let entity = self.get_entity(eid).unwrap_or(&entity);
+        if func.fid().eq("claim") {
+            let eid = eid.unwrap_or_default();
+            let entity = Entity::default();
+            let entity = self.get_entity(eid).unwrap_or(&entity);
+            if let Some(claims) = entity.claims() {
+                if let Some(claims) = claims.get(state) {
+                    for claim in claims {
+                        if let Some(v) = claim.get(func.ns().get(ClaimNamespace::LABEL as usize).unwrap()) {
+                            return Ok(functions::get_by_namespace(Some(v).cloned(), func.ns()[1..].join(".").as_str()));
+                        }
+                    }
+                } else {
+                    return Err(SysinspectError::ModelDSLError(format!("No claims at {}.claims defined", eid)));
+                }
+            }
+        } else if func.fid().eq("static") {
+            match func.ns().get(StaticNamespace::SECTION as usize).unwrap_or(&"".to_string()).as_str() {
+                "entities" => {
+                    if let Some(e) = self.entities.get(func.ns().get(StaticNamespace::ENTITY as usize).unwrap_or(&"".to_string()))
+                    {
+                        // Get function state
+                        let state = func.ns().get(StaticNamespace::STATE as usize).cloned();
+                        if state.is_none() {
+                            return Err(SysinspectError::ModelDSLError(
+                                "Static function doesn't reach state of a claim".to_string(),
+                            ));
+                        }
+                        let state = state.unwrap();
 
-        if let Some(claims) = entity.claims() {
-            if let Some(claims) = claims.get(state) {
-                for claim in claims {
-                    if let Some(v) = claim.get(func.ns_parts().unwrap()[0]) {
-                        if let serde_yaml::Value::Mapping(v) = v {
-                            if let Some(v) = v.get(func.ns_parts().unwrap()[1]) {
-                                return Ok(Some(v).cloned());
+                        // Get label
+                        let label = func.ns().get(StaticNamespace::LABEL as usize).cloned();
+                        if label.is_none() {
+                            return Err(SysinspectError::ModelDSLError(
+                                "Static function doesn't reach label of a claim".to_string(),
+                            ));
+                        }
+                        let label = label.unwrap();
+
+                        if let Some(claims) = e.claims() {
+                            if let Some(claims) = claims.get(&state) {
+                                for claim in claims {
+                                    let ret = functions::get_by_namespace(
+                                        claim.get(&label).cloned(),
+                                        func.ns()[5..].join(".").as_str(),
+                                    );
+                                    if ret.is_some() {
+                                        return Ok(ret);
+                                    }
+                                }
+                                return Err(SysinspectError::ModelDSLError(format!(
+                                    "Static namespace \"{}\" is unreachable",
+                                    func.namespace()
+                                )));
                             }
-                        } else {
-                            return Err(SysinspectError::ModelDSLError(format!(
-                                "Claim {}.claims.{}.{} must be a key/value mapping",
-                                eid,
-                                state,
-                                func.namespace()
-                            )));
                         }
                     }
                 }
-            } else {
-                return Err(SysinspectError::ModelDSLError(format!("No claims at {}.claims defined", eid)));
+                _ => {
+                    return Err(SysinspectError::ModelDSLError(
+                        "Static functions currently can take data only from entities".to_string(),
+                    ))
+                }
             }
         }
 
