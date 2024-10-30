@@ -130,8 +130,11 @@ impl ModArgFunction {
         let namespace = ns.split('.').map(|s| s.to_string()).collect::<Vec<String>>();
 
         // XXX: This check is probably not needed in a future
-        if ns.eq("claim") && namespace.len() != 2 {
-            return Err(SysinspectError::ModelDSLError(format!("Function {} does not have two fold namespace: {}", fid, ns)));
+        if namespace.len() < 2 {
+            return Err(SysinspectError::ModelDSLError(format!(
+                "Function {} does not have at least two fold namespace: {}",
+                fid, ns
+            )));
         }
 
         Ok(ModArgFunction { namespace, fid })
@@ -139,9 +142,14 @@ impl ModArgFunction {
 
     /// Get function namespace
     pub fn namespace(&self) -> String {
-        format!("{}.{}", &self.namespace[0], &self.namespace[1])
+        self.namespace.join(".").to_string()
     }
 
+    pub fn ns(&self) -> Vec<String> {
+        self.namespace.to_owned()
+    }
+
+    // XXX: DEPRECATED
     pub fn ns_parts(&self) -> Result<[&str; 2], SysinspectError> {
         Ok([&self.namespace[0], &self.namespace[1]])
     }

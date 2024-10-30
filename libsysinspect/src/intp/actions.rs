@@ -105,7 +105,7 @@ impl Action {
         for mut expr in v_expr {
             if let Some(modfunc) = functions::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten()
             {
-                match inspector.call_function(eid, &state, &modfunc) {
+                match inspector.call_function(Some(eid), &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
                     Err(err) => log::error!("Data function error: {}", err),
@@ -174,7 +174,7 @@ impl Action {
             for (kw, arg) in &mod_args.args() {
                 let mut arg = arg.to_owned();
                 if let Ok(Some(func)) = functions::is_function(&arg) {
-                    match inspector.call_function(eid, &modcall.state(), &func) {
+                    match inspector.call_function(Some(eid), &modcall.state(), &func) {
                         Ok(None) => {
                             return Err(SysinspectError::ModelDSLError(format!(
                                 "Entity {}.claims.{}.{} does not exist",
