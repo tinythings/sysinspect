@@ -1,4 +1,11 @@
 use super::{
+    actions::Action,
+    checkbook::CheckbookSection,
+    conf::Config,
+    constraints::Constraint,
+    entities::Entity,
+    functions::{ClaimNamespace, ModArgFunction, StaticNamespace},
+    relations::Relation,
 };
 use crate::{
     intp::functions,
@@ -183,7 +190,7 @@ impl SysInspector {
         match func.fid() {
             "claim" | "static" => {
                 if func.namespace().is_empty() {
-                    return Err(SysinspectError::ModelDSLError(format!("Function has missing namespace")));
+                    return Err(SysinspectError::ModelDSLError(format!("A {} function is missing namespace", func.fid())));
                 }
             }
             _ => {
@@ -201,7 +208,7 @@ impl SysInspector {
             if let Some(claims) = entity.claims() {
                 if let Some(claims) = claims.get(state) {
                     for claim in claims {
-                        if let Some(v) = claim.get(func.ns().get(0).unwrap()) {
+                        if let Some(v) = claim.get(func.ns().get(ClaimNamespace::LABEL as usize).unwrap()) {
                             if let serde_yaml::Value::Mapping(v) = v {
                                 if let Some(v) = v.get(func.ns().get(1).unwrap()) {
                                     return Ok(Some(v).cloned());
@@ -221,11 +228,12 @@ impl SysInspector {
                 }
             }
         } else if func.fid().eq("static") {
-            match func.ns().get(0).unwrap_or(&"".to_string()).as_str() {
+            match func.ns().get(StaticNamespace::SECTION as usize).unwrap_or(&"".to_string()).as_str() {
                 "entities" => {
-                    if let Some(e) = self.entities.get(func.ns().get(1).unwrap_or(&"".to_string())) {
+                    if let Some(e) = self.entities.get(func.ns().get(StaticNamespace::ENTITY as usize).unwrap_or(&"".to_string()))
+                    {
                         // Get function state
-                        let state = func.ns().get(3).cloned();
+                        let state = func.ns().get(StaticNamespace::STATE as usize).cloned();
                         if state.is_none() {
                             return Err(SysinspectError::ModelDSLError(
                                 "Static function doesn't reach state of a claim".to_string(),
@@ -234,7 +242,7 @@ impl SysInspector {
                         let state = state.unwrap();
 
                         // Get label
-                        let label = func.ns().get(4).cloned();
+                        let label = func.ns().get(StaticNamespace::LABEL as usize).cloned();
                         if label.is_none() {
                             return Err(SysinspectError::ModelDSLError(
                                 "Static function doesn't reach label of a claim".to_string(),

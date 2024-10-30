@@ -3,6 +3,18 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 use std::hash::Hash;
 
+pub enum StaticNamespace {
+    SECTION = 0,
+    ENTITY = 1,
+    REGION = 2,
+    STATE = 3,
+    LABEL = 4,
+}
+
+pub enum ClaimNamespace {
+    LABEL = 0,
+}
+
 pub trait ExtValue: Clone {
     type Key: Clone + Eq + Hash;
 
