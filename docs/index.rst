@@ -8,6 +8,7 @@ Welcome to the Project Sysinspect!
 .. toctree::
    :maxdepth: 1
 
+   global_config
    modeldescr/overview
    moddev/overview
    moddescr/overview

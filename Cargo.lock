@@ -525,6 +525,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "log",
+ "nix",
  "prettytable-rs",
  "regex",
  "serde",

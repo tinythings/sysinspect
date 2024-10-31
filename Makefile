@@ -8,13 +8,27 @@ ARC_NAME := sysinspect-${ARC_VERSION}
 check:
 	cargo clippy --all -- -Dwarnings -Aunused-variables -Adead-code
 
-devel:
-	cargo build -v
-	cargo build -v -p proc -p net -p run
+devel-musl:
+	cargo build -v --workspace --target x86_64-unknown-linux-musl
+	rm -rf target/x86_64-unknown-linux-musl/debug/sys/
+	mkdir -p target/x86_64-unknown-linux-musl/debug/sys/
+	mv target/x86_64-unknown-linux-musl/debug/proc target/x86_64-unknown-linux-musl/debug/sys/
+	mv target/x86_64-unknown-linux-musl/debug/net target/x86_64-unknown-linux-musl/debug/sys/
+	mv target/x86_64-unknown-linux-musl/debug/run target/x86_64-unknown-linux-musl/debug/sys/
 
-	# Move plugin binaries
-	rm -rf target/debug/sys
-	mkdir -p target/debug/sys
+musl:
+	cargo build --release
+	cargo build -p proc -p net -p run --release --target x86_64-unknown-linux-musl
+	rm -rf target/x86_64-unknown-linux-musl/release/sys
+	mkdir -p target/x86_64-unknown-linux-musl/release/sys
+	mv target/x86_64-unknown-linux-musl/release/proc target/x86_64-unknown-linux-musl/release/sys/
+	mv target/x86_64-unknown-linux-musl/release/net target/x86_64-unknown-linux-musl/release/sys/
+	mv target/x86_64-unknown-linux-musl/release/run target/x86_64-unknown-linux-musl/release/sys/
+
+devel:
+	cargo build -v --workspace
+	rm -rf target/debug/sys/
+	mkdir -p target/debug/sys/
 	mv target/debug/proc target/debug/sys/
 	mv target/debug/net target/debug/sys/
 	mv target/debug/run target/debug/sys/
