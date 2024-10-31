@@ -3,7 +3,7 @@ use crate::SysinspectError;
 use nix::unistd::Uid;
 use serde_yaml::Value;
 use std::{
-    env::{self, home_dir},
+    env::{self},
     fs::{self},
     path::{Path, PathBuf},
 };
