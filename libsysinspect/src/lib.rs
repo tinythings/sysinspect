@@ -19,10 +19,12 @@ pub enum SysinspectError {
     ModelMultipleIndex(String),
     ModelDSLError(String),
     ModuleError(String),
+    ConfigError(String),
 
     // Wrappers for the system errors
     IoErr(io::Error),
     SerdeYaml(serde_yaml::Error),
+    SerdeJson(serde_json::Error),
 }
 
 impl Error for SysinspectError {
@@ -42,8 +44,10 @@ impl Display for SysinspectError {
             }
             SysinspectError::IoErr(err) => format!("(I/O) {err}"),
             SysinspectError::SerdeYaml(err) => format!("(YAML) {err}"),
+            SysinspectError::SerdeJson(err) => format!("(JSON) {err}"),
             SysinspectError::ModelDSLError(err) => format!("(DSL) {err}"),
             SysinspectError::ModuleError(err) => format!("(Module) {err}"),
+            SysinspectError::ConfigError(err) => format!("(Config) {err}"),
         };
 
         write!(f, "{msg}")?;
@@ -62,5 +66,12 @@ impl From<io::Error> for SysinspectError {
 impl From<serde_yaml::Error> for SysinspectError {
     fn from(err: serde_yaml::Error) -> Self {
         SysinspectError::SerdeYaml(err)
+    }
+}
+
+/// Handle JSON errors
+impl From<serde_json::Error> for SysinspectError {
+    fn from(err: serde_json::Error) -> Self {
+        SysinspectError::SerdeJson(err)
     }
 }
