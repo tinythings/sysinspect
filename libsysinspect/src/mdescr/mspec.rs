@@ -12,6 +12,7 @@ use walkdir::WalkDir;
 pub const MODEL_INDEX: &str = "model.cfg";
 pub const MODEL_FILE_EXT: &str = ".cfg";
 pub const APP_CONF: &str = "sysinspect.conf";
+pub const APP_DOTCONF: &str = ".sysinspect";
 
 /// Spec loader object
 struct SpecLoader {
@@ -119,7 +120,7 @@ impl SpecLoader {
             }
         });
         if let Some(cfp) = cfp {
-            let cfp = cfp.join(format!(".{}", APP_CONF));
+            let cfp = cfp.join(APP_DOTCONF);
             if cfp.exists() {
                 return Ok(cfp);
             }
