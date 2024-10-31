@@ -1,7 +1,9 @@
 use super::{datapatch, mspecdef::ModelSpec};
 use crate::SysinspectError;
+use nix::unistd::Uid;
 use serde_yaml::Value;
 use std::{
+    env::{self, home_dir},
     fs::{self},
     path::{Path, PathBuf},
 };
@@ -9,6 +11,7 @@ use walkdir::WalkDir;
 
 pub const MODEL_INDEX: &str = "model.cfg";
 pub const MODEL_FILE_EXT: &str = ".cfg";
+pub const APP_CONF: &str = "sysinspect.conf";
 
 /// Spec loader object
 struct SpecLoader {
@@ -100,6 +103,37 @@ impl SpecLoader {
         Ok(base)
     }
 
+    /// Select app conf
+    fn select_config(&self) -> Result<PathBuf, SysinspectError> {
+        // Current
+        let cfp: PathBuf = env::current_dir()?.canonicalize()?.join(APP_CONF);
+        if cfp.exists() {
+            return Ok(cfp);
+        }
+
+        // Dot-file
+        let cfp = env::var_os("HOME").map(PathBuf::from).or_else(|| {
+            #[cfg(unix)]
+            {
+                Some(PathBuf::from(format!("/home/{}", Uid::current())))
+            }
+        });
+        if let Some(cfp) = cfp {
+            let cfp = cfp.join(format!(".{}", APP_CONF));
+            if cfp.exists() {
+                return Ok(cfp);
+            }
+        }
+
+        // Global conf
+        let cfp = PathBuf::from(format!("/etc/{}", APP_CONF));
+        if cfp.exists() {
+            return Ok(cfp);
+        }
+
+        Err(SysinspectError::ConfigError("No config has been found".to_string()))
+    }
+
     /// Load model spec by merging all the data parts and validating
     /// its content.
     fn load(&mut self) -> Result<ModelSpec, SysinspectError> {
@@ -120,6 +154,9 @@ impl SpecLoader {
         } else {
             return Err(SysinspectError::ModelDSLError(format!("No model found at {}", self.pth.to_str().unwrap_or_default())));
         }
+
+        // Load app config and merge to the main model
+        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(self.select_config()?)?)?);
 
         let mut base = self.merge_parts(&mut base)?;
         if !iht.is_empty() {
