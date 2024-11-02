@@ -1,5 +1,6 @@
 use std::{
     error::Error,
+    ffi::NulError,
     fmt::{Display, Formatter, Result},
     io,
 };
@@ -25,6 +26,7 @@ pub enum SysinspectError {
     IoErr(io::Error),
     SerdeYaml(serde_yaml::Error),
     SerdeJson(serde_json::Error),
+    FFINullError(NulError),
 }
 
 impl Error for SysinspectError {
@@ -48,6 +50,7 @@ impl Display for SysinspectError {
             SysinspectError::ModelDSLError(err) => format!("(DSL) {err}"),
             SysinspectError::ModuleError(err) => format!("(Module) {err}"),
             SysinspectError::ConfigError(err) => format!("(Config) {err}"),
+            SysinspectError::FFINullError(err) => format!("(System) {err}"),
         };
 
         write!(f, "{msg}")?;
@@ -73,5 +76,12 @@ impl From<serde_yaml::Error> for SysinspectError {
 impl From<serde_json::Error> for SysinspectError {
     fn from(err: serde_json::Error) -> Self {
         SysinspectError::SerdeJson(err)
+    }
+}
+
+/// Handle FFI Nul error
+impl From<NulError> for SysinspectError {
+    fn from(err: NulError) -> Self {
+        SysinspectError::FFINullError(err)
     }
 }
