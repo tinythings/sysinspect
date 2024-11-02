@@ -15,7 +15,7 @@ sysinfo = { version = "0.31.4", features = ["linux-tmpfs"] }
 
 [workspace]
 resolver = "2"
-members = ["modules/sys/*", "libsysinspect"]
+members = ["modules/sys/*", "libsysinspect", "sysmaster", "sysminion"]
 
 [profile.release]
 strip = true
