@@ -15,7 +15,8 @@ static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 async fn main() -> std::io::Result<()> {
     let mut cli = cli(VERSION, APPNAME);
     if env::args().collect::<Vec<String>>().len() == 1 {
-        return cli.print_help();
+        cli.print_help()?;
+        std::process::exit(1);
     }
 
     let params = cli.to_owned().get_matches();
