@@ -1,4 +1,4 @@
-use crate::config;
+use crate::{config, traits};
 use libsysinspect::{util, SysinspectError};
 use std::{path::PathBuf, sync::Arc};
 use tokio::net::TcpStream;
@@ -36,6 +36,7 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
         cfp = util::cfg::select_config()?;
     }
     let cfg = config::MinionConfig::new(cfp)?;
+    let st = traits::get_traits();
 
     let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
     let wstm = Arc::new(Mutex::new(wstm));

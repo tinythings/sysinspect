@@ -1,6 +1,7 @@
 mod clidef;
 mod config;
 mod minion;
+mod traits;
 
 use clidef::cli;
 use libsysinspect::logger;
