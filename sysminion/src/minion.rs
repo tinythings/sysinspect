@@ -1,3 +1,4 @@
+use crate::config;
 use libsysinspect::{util, SysinspectError};
 use std::{path::PathBuf, sync::Arc};
 use tokio::net::TcpStream;
@@ -7,8 +8,6 @@ use tokio::{
     io::{AsyncReadExt, BufReader},
     sync::mpsc,
 };
-
-use crate::config;
 
 /// Talk-back to the master
 pub async fn master_feedback(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
