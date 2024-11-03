@@ -1,12 +1,11 @@
 #[cfg(test)]
 mod rsa_test {
-    use std::fs;
-
     use libsysinspect::rsa::keys::{
-        key_to_file, keygen, sign_data, to_pem, verify_sign,
+        decrypt, encrypt, key_from_file, key_to_file, keygen, sign_data, to_pem, verify_sign,
         RsaKey::{Private, Public},
         DEFAULT_KEY_SIZE,
     };
+    use std::fs;
 
     #[test]
     fn test_keygen() {
@@ -52,11 +51,11 @@ mod rsa_test {
     fn test_cipher() {
         let (pr, pb) = keygen(DEFAULT_KEY_SIZE).unwrap();
         let data = "Sysinspect can also configure systems!";
-        let cipher = libsysinspect::rsa::keys::encrypt(pb.to_owned(), data.as_bytes().to_vec()).unwrap();
+        let cipher = encrypt(pb.to_owned(), data.as_bytes().to_vec()).unwrap();
 
         assert!(!cipher.is_empty(), "No cipher found");
 
-        let rdata = String::from_utf8(libsysinspect::rsa::keys::decrypt(pr.to_owned(), cipher).unwrap()).unwrap_or_default();
+        let rdata = String::from_utf8(decrypt(pr.to_owned(), cipher).unwrap()).unwrap_or_default();
 
         assert!(rdata.eq(data), "Data wasn't properly decryped");
     }
@@ -76,12 +75,12 @@ mod rsa_test {
             assert!(false, "Public key error: {}", err);
         };
 
-        match libsysinspect::rsa::keys::key_from_file("priv.key.pem").unwrap().unwrap() {
+        match key_from_file("priv.key.pem").unwrap().unwrap() {
             Private(_) => assert!(true),
             Public(_) => assert!(false, "Not a public key"),
         }
 
-        match libsysinspect::rsa::keys::key_from_file("pub.key.pem").unwrap().unwrap() {
+        match key_from_file("pub.key.pem").unwrap().unwrap() {
             Private(_) => assert!(false, "Not a private"),
             Public(_) => assert!(true),
         }
