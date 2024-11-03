@@ -14,8 +14,8 @@ use crate::SysinspectError;
 /// Default key size.
 pub static DEFAULT_KEY_SIZE: usize = 1048;
 pub enum RsaKey {
-    Prk(RsaPrivateKey),
-    Pbk(RsaPublicKey),
+    Private(RsaPrivateKey),
+    Public(RsaPublicKey),
 }
 
 /// Generate RSA keys
@@ -46,10 +46,20 @@ pub fn to_pem(
 }
 
 /// Deserializes RSA private and public keys from PEM format.
-pub fn from_pem(prk_pem: &str, pbk_pem: &str) -> Result<(RsaPrivateKey, RsaPublicKey), Box<dyn Error>> {
+pub fn from_pem(
+    prk_pem: Option<&str>, pbk_pem: Option<&str>,
+) -> Result<(Option<RsaPrivateKey>, Option<RsaPublicKey>), Box<dyn Error>> {
     Ok((
-        RsaPrivateKey::from_pkcs1_der(pem::parse(prk_pem)?.contents())?,
-        RsaPublicKey::from_pkcs1_der(pem::parse(pbk_pem)?.contents())?,
+        if prk_pem.is_some() {
+            Some(RsaPrivateKey::from_pkcs1_der(pem::parse(prk_pem.unwrap_or_default())?.contents())?)
+        } else {
+            None
+        },
+        if pbk_pem.is_some() {
+            Some(RsaPublicKey::from_pkcs1_der(pem::parse(pbk_pem.unwrap_or_default())?.contents())?)
+        } else {
+            None
+        },
     ))
 }
 
@@ -85,7 +95,7 @@ pub fn decrypt(prk: RsaPrivateKey, cipher: Vec<u8>) -> Result<Vec<u8>, Box<dyn E
     Ok(prk.decrypt(Pkcs1v15Encrypt, &cipher)?)
 }
 
-/// Write private key as a file
+/// Write private or a public key to a file
 pub fn key_to_file(prk: &RsaKey, p: &str, name: &str) -> Result<(), SysinspectError> {
     let p = PathBuf::from(p).join(name);
     if p.exists() {
@@ -97,7 +107,7 @@ pub fn key_to_file(prk: &RsaKey, p: &str, name: &str) -> Result<(), SysinspectEr
 
     let mut pem = String::default();
     match prk {
-        RsaKey::Prk(prk) => {
+        RsaKey::Private(prk) => {
             if let Ok((prk_pem, _)) = to_pem(Some(prk), None) {
                 if let Some(prk_pem) = prk_pem {
                     pem = prk_pem;
@@ -106,7 +116,7 @@ pub fn key_to_file(prk: &RsaKey, p: &str, name: &str) -> Result<(), SysinspectEr
                 return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::InvalidData, "Unable to create PEM key")));
             }
         }
-        RsaKey::Pbk(pbk) => {
+        RsaKey::Public(pbk) => {
             if let Ok((_, pbk_pem)) = to_pem(None, Some(pbk)) {
                 if let Some(pbk_pem) = pbk_pem {
                     pem = pbk_pem;
@@ -120,4 +130,30 @@ pub fn key_to_file(prk: &RsaKey, p: &str, name: &str) -> Result<(), SysinspectEr
     log::debug!("Wrote PEM file as {}", p.to_str().unwrap_or_default());
 
     Ok(())
+}
+
+/// Read private or a public key from a file
+pub fn key_from_file(p: &str) -> Result<Option<RsaKey>, SysinspectError> {
+    let pth = PathBuf::from(p);
+    if !pth.exists() {
+        return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::NotFound, format!("File {} not found", p))));
+    }
+
+    let data = &fs::read_to_string(pth)?;
+
+    if data.contains("RSA PRIVATE KEY") {
+        if let Ok((prk, _)) = from_pem(Some(data), None) {
+            if let Some(prk) = prk {
+                return Ok(Some(RsaKey::Private(prk)));
+            }
+        }
+    } else {
+        if let Ok((_, pbk)) = from_pem(None, Some(data)) {
+            if let Some(pbk) = pbk {
+                return Ok(Some(RsaKey::Public(pbk)));
+            }
+        }
+    }
+
+    Ok(None)
 }
