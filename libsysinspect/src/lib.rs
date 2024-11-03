@@ -12,6 +12,7 @@ pub mod logger;
 pub mod mdescr;
 pub mod modlib;
 pub mod reactor;
+pub mod rsa;
 pub mod util;
 
 #[derive(Debug)]
