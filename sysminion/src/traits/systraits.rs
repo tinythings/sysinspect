@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 
 /// SystemTraits contains a key/value of a system properties.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SystemTraits {
     data: IndexMap<String, Value>,
 }
@@ -113,11 +113,5 @@ impl SystemTraits {
     /// Read defined/configured static traits
     fn get_defined(&self) {
         log::debug!("Reading custon static traits data")
-    }
-}
-
-impl Default for SystemTraits {
-    fn default() -> Self {
-        Self { data: Default::default() }
     }
 }

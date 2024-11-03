@@ -63,6 +63,7 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     });
 
     // Handle incoming messages from minions
+    #[allow(clippy::while_let_loop)]
     tokio::spawn(async move {
         loop {
             if let Some((msg, client_id)) = client_rx.recv().await {
