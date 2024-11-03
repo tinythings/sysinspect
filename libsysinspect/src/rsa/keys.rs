@@ -13,6 +13,8 @@ use crate::SysinspectError;
 
 /// Default key size.
 pub static DEFAULT_KEY_SIZE: usize = 1048;
+
+#[allow(clippy::large_enum_variant)]
 pub enum RsaKey {
     Private(RsaPrivateKey),
     Public(RsaPublicKey),
@@ -142,17 +144,11 @@ pub fn key_from_file(p: &str) -> Result<Option<RsaKey>, SysinspectError> {
     let data = &fs::read_to_string(pth)?;
 
     if data.contains("RSA PRIVATE KEY") {
-        if let Ok((prk, _)) = from_pem(Some(data), None) {
-            if let Some(prk) = prk {
-                return Ok(Some(RsaKey::Private(prk)));
-            }
+        if let Ok((Some(prk), _)) = from_pem(Some(data), None) {
+            return Ok(Some(RsaKey::Private(prk)));
         }
-    } else {
-        if let Ok((_, pbk)) = from_pem(None, Some(data)) {
-            if let Some(pbk) = pbk {
-                return Ok(Some(RsaKey::Public(pbk)));
-            }
-        }
+    } else if let Ok((_, Some(pbk))) = from_pem(None, Some(data)) {
+        return Ok(Some(RsaKey::Public(pbk)));
     }
 
     Ok(None)
