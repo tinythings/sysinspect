@@ -1,5 +1,12 @@
-use crate::{config, traits};
-use libsysinspect::{util, SysinspectError};
+use crate::{
+    config::{self, MinionConfig},
+    traits,
+};
+use libsysinspect::{
+    proto::{rqtypes::RequestType, MinionMessage, ProtoConversion},
+    util::{self, dataconv},
+    SysinspectError,
+};
 use std::{path::PathBuf, sync::Arc};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -9,8 +16,20 @@ use tokio::{
     sync::mpsc,
 };
 
+/// Send ehlo
+async fn send_ehlo(stream: Arc<Mutex<OwnedWriteHalf>>, cfg: MinionConfig) -> Result<(), SysinspectError> {
+    let r = MinionMessage::new(
+        dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())),
+        RequestType::Ehlo,
+        "".to_string(),
+    );
+
+    log::info!("Ehlo on {}", cfg.master());
+    Ok(request(stream, r.sendable()?).await)
+}
+
 /// Talk-back to the master
-pub async fn master_feedback(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
+pub async fn request(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
     let mut stm = stream.lock().await;
 
     if let Err(e) = stm.write_all(&(msg.len() as u32).to_be_bytes()).await {
@@ -36,14 +55,14 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
         cfp = util::cfg::select_config()?;
     }
     let cfg = config::MinionConfig::new(cfp)?;
-    let st = traits::get_traits();
+    //let st = traits::get_traits();
 
     let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
-    let wstm = Arc::new(Mutex::new(wstm));
+    let wstm: Arc<Mutex<OwnedWriteHalf>> = Arc::new(Mutex::new(wstm));
     let (_w_chan, mut r_chan) = mpsc::channel(100);
 
     // ehlo
-    tokio::spawn(master_feedback(wstm.clone(), format!("Connected to {}", cfg.master()).as_bytes().to_vec()));
+    send_ehlo(wstm.clone(), cfg).await?;
 
     // Data exchange
     let wtsm_c = wstm.clone();
@@ -67,7 +86,7 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
 
             // Send a response back to the master after receiving each message
             let response = format!("Back: '{}'", String::from_utf8_lossy(&msg)).as_bytes().to_vec();
-            master_feedback(wtsm_c.clone(), response).await;
+            request(wtsm_c.clone(), response).await;
         }
     });
 
@@ -75,7 +94,7 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
     let qmsg_stm = wstm.to_owned();
     tokio::spawn(async move {
         while let Some(msg) = r_chan.recv().await {
-            master_feedback(qmsg_stm.clone(), msg).await;
+            request(qmsg_stm.clone(), msg).await;
         }
     });
 
