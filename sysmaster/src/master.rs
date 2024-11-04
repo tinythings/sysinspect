@@ -13,7 +13,7 @@ use tokio::time::{sleep, Duration};
 
 /// Parse minion request
 fn to_request(data: &str) -> Option<MinionMessage> {
-    match serde_json::from_str::<proto::MinionMessage>(&data) {
+    match serde_json::from_str::<proto::MinionMessage>(data) {
         Ok(request) => {
             return Some(request);
         }

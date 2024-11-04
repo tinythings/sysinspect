@@ -25,7 +25,8 @@ async fn send_ehlo(stream: Arc<Mutex<OwnedWriteHalf>>, cfg: MinionConfig) -> Res
     );
 
     log::info!("Ehlo on {}", cfg.master());
-    Ok(request(stream, r.sendable()?).await)
+    request(stream, r.sendable()?).await;
+    Ok(())
 }
 
 /// Talk-back to the master

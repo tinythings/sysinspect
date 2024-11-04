@@ -142,10 +142,8 @@ where
     /// Serialise self
     fn serialise(&self) -> Result<String, SysinspectError> {
         match serde_json::to_string(self) {
-            Ok(out) => return Ok(out),
-            Err(err) => {
-                return Err(SysinspectError::MinionGeneralError(format!("{err}")));
-            }
+            Ok(out) => Ok(out),
+            Err(err) => Err(SysinspectError::MinionGeneralError(format!("{err}"))),
         }
     }
 
