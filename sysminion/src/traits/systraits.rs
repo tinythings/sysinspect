@@ -1,7 +1,14 @@
 use std::{fs, path::PathBuf};
 
 use indexmap::IndexMap;
+use once_cell::sync::Lazy;
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
+
+use crate::traits::{
+    HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME,
+    SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+};
 
 /// SystemTraits contains a key/value of a system properties.
 #[derive(Debug, Clone, Default)]
@@ -56,22 +63,22 @@ impl SystemTraits {
 
         // Common
         if let Some(v) = sysinfo::System::host_name() {
-            self.put("system.hostname".to_string(), json!(v));
+            self.put(SYS_NET_HOSTNAME.to_string(), json!(v));
         }
 
         if let Some(v) = sysinfo::System::kernel_version() {
-            self.put("system.kernel".to_string(), json!(v));
+            self.put(SYS_OS_KERNEL.to_string(), json!(v));
         }
 
         if let Some(v) = sysinfo::System::os_version() {
-            self.put("system.os.version".to_string(), json!(v));
+            self.put(SYS_OS_VERSION.to_string(), json!(v));
         }
 
         if let Some(v) = sysinfo::System::name() {
-            self.put("system.os.name".to_string(), json!(v));
+            self.put(SYS_OS_NAME.to_string(), json!(v));
         }
 
-        self.put("system.os.distribution".to_string(), json!(sysinfo::System::distribution_id()));
+        self.put(SYS_OS_DISTRO.to_string(), json!(sysinfo::System::distribution_id()));
 
         // Machine Id (not always there)
         let mip = PathBuf::from("/etc/machine-id");
@@ -81,19 +88,19 @@ impl SystemTraits {
                 mid = id.trim().to_string();
             }
         }
-        self.put("system.id".to_string(), json!(mid));
+        self.put(SYS_ID.to_string(), json!(mid));
 
         // Memory
-        self.put("system.mem.total".to_string(), json!(system.total_memory()));
-        self.put("system.swap.total".to_string(), json!(system.total_swap()));
+        self.put(HW_MEM.to_string(), json!(system.total_memory()));
+        self.put(HW_SWAP.to_string(), json!(system.total_swap()));
 
         // Load CPU data
-        self.put("system.cpu.total".to_string(), json!(system.cpus().len()));
-        self.put("system.cpu.brand".to_string(), json!(system.cpus()[0].brand()));
-        self.put("system.cpu.frequency".to_string(), json!(system.cpus()[0].frequency()));
-        self.put("system.cpu.vendor".to_string(), json!(system.cpus()[0].vendor_id()));
+        self.put(HW_CPU_TOTAL.to_string(), json!(system.cpus().len()));
+        self.put(HW_CPU_BRAND.to_string(), json!(system.cpus()[0].brand()));
+        self.put(HW_CPU_FREQ.to_string(), json!(system.cpus()[0].frequency()));
+        self.put(HW_CPU_VENDOR.to_string(), json!(system.cpus()[0].vendor_id()));
         if let Some(pcrc) = system.physical_core_count() {
-            self.put("system.cpu.cores".to_string(), json!(pcrc));
+            self.put(HW_CPU_CORES.to_string(), json!(pcrc));
         }
     }
 
@@ -114,4 +121,11 @@ impl SystemTraits {
     fn get_defined(&self) {
         log::debug!("Reading custon static traits data")
     }
+}
+
+static _INSTANCE: Lazy<Mutex<SystemTraits>> = Lazy::new(|| Mutex::new(SystemTraits::new()));
+
+/// Get traits
+pub async fn get_traits() -> &'static Mutex<SystemTraits> {
+    &_INSTANCE
 }
