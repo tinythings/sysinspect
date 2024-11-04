@@ -1,9 +1,10 @@
 pub mod errcodes;
 pub mod rqtypes;
 
+use crate::SysinspectError;
 use errcodes::ProtoErrorCode;
 use rqtypes::RequestType;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -65,6 +66,33 @@ impl MinionMessage {
     pub fn set_retcode(&mut self, retcode: ProtoErrorCode) {
         self.retcode = retcode as usize;
     }
+
+    /// Get return code
+    pub fn get_retcode(&self) -> ProtoErrorCode {
+        match &self.retcode {
+            0 => ProtoErrorCode::Undef,
+            1 => ProtoErrorCode::Success,
+            2 => ProtoErrorCode::GeneralFailure,
+            3 => ProtoErrorCode::NotRegistered,
+            4 => ProtoErrorCode::AlreadyRegistered,
+            _ => ProtoErrorCode::Unknown,
+        }
+    }
+
+    /// Request type
+    pub fn req_type(&self) -> &RequestType {
+        &self.request
+    }
+
+    /// Get minion Id
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Get payload
+    pub fn payload(&self) -> &str {
+        &self.data
+    }
 }
 
 /// Minion target
@@ -99,5 +127,30 @@ impl MinionTarget {
     /// Add hostnames
     pub fn add_hostname(&mut self, hostname: String) {
         self.hostnames.push(hostname);
+    }
+}
+
+pub trait ProtoConversion: Serialize + DeserializeOwned {
+    fn serialise(&self) -> Result<String, SysinspectError>;
+    fn sendable(&self) -> Result<Vec<u8>, SysinspectError>;
+}
+
+impl<T> ProtoConversion for T
+where
+    T: Serialize + DeserializeOwned,
+{
+    /// Serialise self
+    fn serialise(&self) -> Result<String, SysinspectError> {
+        match serde_json::to_string(self) {
+            Ok(out) => return Ok(out),
+            Err(err) => {
+                return Err(SysinspectError::MinionGeneralError(format!("{err}")));
+            }
+        }
+    }
+
+    /// Serialise self to bytes
+    fn sendable(&self) -> Result<Vec<u8>, SysinspectError> {
+        Ok(self.serialise()?.as_bytes().to_vec())
     }
 }
