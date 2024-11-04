@@ -29,3 +29,4 @@ tokio = { version = "1.41.0", features = ["full"] }
 tokio-rustls = "0.26.0"
 libsysinspect = { path = "../libsysinspect" }
 log = "0.4.22"
+sled = "0.34.7"
