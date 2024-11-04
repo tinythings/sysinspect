@@ -11,6 +11,7 @@ pub mod intp;
 pub mod logger;
 pub mod mdescr;
 pub mod modlib;
+pub mod proto;
 pub mod reactor;
 pub mod rsa;
 pub mod util;
