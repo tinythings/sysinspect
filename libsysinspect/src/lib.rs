@@ -23,6 +23,8 @@ pub enum SysinspectError {
     ModelDSLError(String),
     ModuleError(String),
     ConfigError(String),
+    MasterGeneralError(String),
+    MinionGeneralError(String),
 
     // Wrappers for the system errors
     IoErr(io::Error),
@@ -53,6 +55,8 @@ impl Display for SysinspectError {
             SysinspectError::ModuleError(err) => format!("(Module) {err}"),
             SysinspectError::ConfigError(err) => format!("(Config) {err}"),
             SysinspectError::FFINullError(err) => format!("(System) {err}"),
+            SysinspectError::MasterGeneralError(err) => format!("(Master) {err}"),
+            SysinspectError::MinionGeneralError(err) => format!("(Minion) {err}"),
         };
 
         write!(f, "{msg}")?;
