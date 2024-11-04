@@ -45,8 +45,8 @@ by the following criterias:
 
 ```json
 {
-    // Trait          List of traits
-    "t":              [],
+    // Trait          Targeted traits
+    "t":              {},
 
     // Minion Id      List of minion Ids
     "id":             [],
@@ -60,9 +60,7 @@ Example targeting by an IPv4 trait, using globbing:
 
 ```json
 {
-    "t": [
-        {"system.net.*.ipv4": "192.168.*"},
-    ]
+    "t": {"system.net.*.ipv4": "192.168.*"},
 }
 ```
 
