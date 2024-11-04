@@ -1,5 +1,8 @@
 use crate::config::MasterConfig;
-use libsysinspect::SysinspectError;
+use libsysinspect::{
+    proto::{self, MinionMessage},
+    SysinspectError,
+};
 use std::path::Path;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
@@ -7,6 +10,20 @@ use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{sleep, Duration};
+
+/// Parse minion request
+fn to_request(data: &str) -> Option<MinionMessage> {
+    match serde_json::from_str::<proto::MinionMessage>(&data) {
+        Ok(request) => {
+            return Some(request);
+        }
+        Err(err) => {
+            log::error!("Error parse minion response: {err}");
+        }
+    }
+
+    None
+}
 
 /// Open FIFO socket for command-line communication
 fn open_socket(path: &str) -> Result<(), SysinspectError> {
@@ -67,7 +84,24 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     tokio::spawn(async move {
         loop {
             if let Some((msg, client_id)) = client_rx.recv().await {
-                log::info!("Minion: {}: {}", client_id, String::from_utf8_lossy(&msg));
+                let msg = String::from_utf8_lossy(&msg).to_string();
+                log::trace!("Minion response: {}: {}", client_id, msg);
+                if let Some(req) = to_request(&msg) {
+                    match req.req_type() {
+                        proto::rqtypes::RequestType::Add => {
+                            log::info!("Add");
+                        }
+                        proto::rqtypes::RequestType::Response => {
+                            log::info!("Response");
+                        }
+                        proto::rqtypes::RequestType::Ehlo => {
+                            log::info!("Ehlo from {}", req.id());
+                        }
+                        _ => {
+                            log::error!("Minion sends unknown request type");
+                        }
+                    }
+                }
             } else {
                 break;
             }
