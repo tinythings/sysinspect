@@ -1,6 +1,7 @@
 mod clidef;
 mod config;
 mod master;
+mod registry;
 mod rmt;
 
 use clidef::cli;
