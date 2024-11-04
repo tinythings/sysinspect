@@ -68,7 +68,7 @@ impl MinionMessage {
 }
 
 /// Minion target
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MinionTarget {
     /// List of minion Ids
     id: Vec<String>,
@@ -83,7 +83,7 @@ pub struct MinionTarget {
 
 impl MinionTarget {
     pub fn new() -> MinionTarget {
-        MinionTarget { id: vec![], traits: HashMap::default(), hostnames: vec![] }
+        MinionTarget::default()
     }
 
     /// Add target id
