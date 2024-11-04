@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ProtoErrorCode {
     /// No code
     Undef = 0,
@@ -13,4 +16,7 @@ pub enum ProtoErrorCode {
 
     /// Minion is already registered
     AlreadyRegistered = 4,
+
+    /// Unassigned, unknown
+    Unknown,
 }
