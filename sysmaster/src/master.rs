@@ -69,6 +69,7 @@ impl SysMaster {
     }
 
     /// Process incoming minion messages
+    #[allow(clippy::while_let_loop)]
     pub async fn do_incoming(master: Arc<Mutex<Self>>, mut rx: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>) {
         log::trace!("Init incoming channel");
         tokio::spawn(async move {
