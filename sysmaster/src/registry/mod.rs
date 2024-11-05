@@ -2,6 +2,7 @@
 Minion registry. It contains minion tasks, traits, location and other data
  */
 
+pub mod mkb;
 pub mod rec;
 
 use libsysinspect::SysinspectError;
@@ -9,9 +10,9 @@ use rec::MinionRecord;
 use serde_json::json;
 use sled::Db;
 
-static CFG_DEFAULT_ROOT: &str = "/etc/sysinspect";
-static CFG_DB: &str = "registry";
-static CFG_MINION_KEYS: &str = "minion-keys";
+pub static CFG_DEFAULT_ROOT: &str = "/etc/sysinspect";
+pub static CFG_DB: &str = "registry";
+pub static CFG_MINION_KEYS: &str = "minion-keys";
 
 pub struct MinionRegistry {
     conn: Db,
