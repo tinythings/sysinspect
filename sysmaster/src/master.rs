@@ -1,9 +1,10 @@
-use crate::config::MasterConfig;
+use crate::{config::MasterConfig, registry::mkb::MinionKeyRegistry};
 use libsysinspect::{
-    proto::{self, MinionMessage},
+    proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };
-use std::{path::Path, sync::Arc};
+use rustls::crypto::hash::Hash;
+use std::{collections::HashSet, path::Path, sync::Arc};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::TcpListener;
 use tokio::select;
@@ -15,13 +16,16 @@ use tokio::{fs::OpenOptions, sync::Mutex};
 pub struct SysMaster {
     cfg: MasterConfig,
     broadcast: broadcast::Sender<Vec<u8>>,
+    mkr: MinionKeyRegistry,
+    to_drop: HashSet<String>,
 }
 
 impl SysMaster {
-    pub fn new(cfg: MasterConfig) -> SysMaster {
+    pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
 
-        SysMaster { cfg, broadcast: tx }
+        let mkr = MinionKeyRegistry::new()?;
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default() })
     }
 
     /// Open FIFO socket for command-line communication
@@ -68,25 +72,57 @@ impl SysMaster {
         Ok(TcpListener::bind(self.cfg.bind_addr()).await?)
     }
 
+    /// Get Minion key registry
+    fn mkr(&self) -> &MinionKeyRegistry {
+        &self.mkr
+    }
+
+    /// Bounce message
+    fn msg_not_registered(&self, mid: String) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::AgentUnknown, "Minion is not registered".to_string());
+        let mut tgt = MinionTarget::new();
+        tgt.add_minion_id(mid);
+        m.add_target(tgt);
+        m.set_retcode(ProtoErrorCode::NotRegistered);
+
+        m
+    }
+
     /// Process incoming minion messages
     #[allow(clippy::while_let_loop)]
-    pub async fn do_incoming(master: Arc<Mutex<Self>>, mut rx: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>) {
+    pub async fn do_incoming(master: Arc<Mutex<Self>>, mut rx: tokio::sync::mpsc::Receiver<(Vec<u8>, String)>) {
         log::trace!("Init incoming channel");
+        let bcast = master.lock().await.broadcast();
         tokio::spawn(async move {
             loop {
-                if let Some((msg, client_id)) = rx.recv().await {
+                if let Some((msg, minion_addr)) = rx.recv().await {
                     let msg = String::from_utf8_lossy(&msg).to_string();
-                    log::trace!("Minion response: {}: {}", client_id, msg);
+                    log::trace!("Minion response: {}: {}", minion_addr, msg);
                     if let Some(req) = master.lock().await.to_request(&msg) {
                         match req.req_type() {
-                            proto::rqtypes::RequestType::Add => {
+                            RequestType::Add => {
                                 log::info!("Add");
                             }
-                            proto::rqtypes::RequestType::Response => {
+                            RequestType::Response => {
                                 log::info!("Response");
                             }
-                            proto::rqtypes::RequestType::Ehlo => {
+                            RequestType::Ehlo => {
                                 log::info!("Ehlo from {}", req.id());
+
+                                let c_master = Arc::clone(&master);
+                                let c_bcast = bcast.clone();
+                                let c_id = req.id().to_string();
+                                tokio::spawn(async move {
+                                    if !c_master.lock().await.mkr().is_registered(&c_id) {
+                                        log::info!("Not registered");
+                                        c_master.lock().await.to_drop.insert(minion_addr);
+                                        _ = c_bcast.send(
+                                            c_master.lock().await.msg_not_registered(req.id().to_string()).sendable().unwrap(),
+                                        );
+                                    } else {
+                                        log::info!("Registered");
+                                    }
+                                });
                             }
                             _ => {
                                 log::error!("Minion sends unknown request type");
@@ -138,60 +174,84 @@ impl SysMaster {
         });
     }
 
-    pub async fn do_outgoing(
-        master: Arc<Mutex<Self>>, tx: tokio::sync::mpsc::Sender<(Vec<u8>, usize)>,
-    ) -> Result<(), SysinspectError> {
+    pub async fn do_outgoing(master: Arc<Mutex<Self>>, tx: mpsc::Sender<(Vec<u8>, String)>) -> Result<(), SysinspectError> {
         log::trace!("Init outgoing channel");
         let listener = master.lock().await.listener().await?;
         tokio::spawn(async move {
             let bcast = master.lock().await.broadcast();
-            let mut client_id_counter: usize = 0;
+
             loop {
-                if let Ok((socket, _)) = listener.accept().await {
-                    client_id_counter += 1;
-                    let current_client_id = client_id_counter;
-                    let mut rx = bcast.subscribe();
-                    let client_tx = tx.clone();
+                tokio::select! {
+                    // Accept a new connection
+                    Ok((socket, _)) = listener.accept() => {
+                        let mut bcast_sub = bcast.subscribe();
+                        let client_tx = tx.clone();
+                        let local_addr = socket.local_addr().unwrap();
+                        let (reader, writer) = socket.into_split();
+                        let c_master = Arc::clone(&master);
+                        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-                    let (reader, writer) = socket.into_split();
+                        // Task to send messages to the client
+                        tokio::spawn(async move {
+                            let mut writer = writer;
+                            log::info!("Minion {} connected. Ready to send messages.", local_addr.to_string());
 
-                    // Task to send messages to the client
-                    tokio::spawn(async move {
-                        let mut writer = writer;
-                        log::info!("Minion {} connected. Ready to send messages.", current_client_id);
-                        loop {
-                            if let Ok(msg) = rx.recv().await {
-                                log::info!("Sending message to client {}: {:?}", current_client_id, msg);
-                                if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
-                                    || writer.write_all(&msg).await.is_err()
-                                    || writer.flush().await.is_err()
-                                {
-                                    break;
+                            loop {
+                                if let Ok(msg) = bcast_sub.recv().await {
+                                    log::trace!("Sending message to minion at {} length of {}", local_addr.to_string(), msg.len());
+                                    if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
+                                        || writer.write_all(&msg).await.is_err()
+                                        || writer.flush().await.is_err()
+                                    {
+                                        if let Err(err) = cancel_tx.send(true) {
+                                            log::error!("Sending cancel notification: {err}");
+                                        }
+                                        break;
+                                    }
+
+                                    if c_master.lock().await.to_drop.contains(&local_addr.to_string()) {
+                                        c_master.lock().await.to_drop.remove(&local_addr.to_string());
+                                        log::info!("Dropping minion: {}", &local_addr.to_string());
+                                        if let Err(err) = writer.shutdown().await {
+                                            log::error!("Error shutting down outgoing: {err}");
+                                        }
+                                        if let Err(err) = cancel_tx.send(true) {
+                                            log::error!("Sending cancel notification: {err}");
+                                        }
+
+                                        return;
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
 
-                    // Task to read messages from the client
-                    tokio::spawn(async move {
-                        let mut reader = TokioBufReader::new(reader);
-                        loop {
-                            let mut len_buf = [0u8; 4];
-                            if reader.read_exact(&mut len_buf).await.is_err() {
-                                return;
-                            }
+                        // Task to read messages from the client
+                        tokio::spawn(async move {
+                            let mut reader = TokioBufReader::new(reader);
+                            loop {
+                                if *cancel_rx.borrow() {
+                                    log::info!("Process terminated");
+                                    return;
+                                }
 
-                            let msg_len = u32::from_be_bytes(len_buf) as usize;
-                            let mut msg = vec![0u8; msg_len];
-                            if reader.read_exact(&mut msg).await.is_err() {
-                                return;
-                            }
+                                let mut len_buf = [0u8; 4];
+                                if reader.read_exact(&mut len_buf).await.is_err() {
+                                    return;
+                                }
 
-                            if client_tx.send((msg, current_client_id)).await.is_err() {
-                                break;
+                                let msg_len = u32::from_be_bytes(len_buf) as usize;
+                                let mut msg = vec![0u8; msg_len];
+                                if reader.read_exact(&mut msg).await.is_err() {
+                                    return;
+                                }
+
+                                if client_tx.send((msg, local_addr.to_string())).await.is_err() {
+                                    break;
+                                }
+
                             }
-                        }
-                    });
+                        });
+                    }
                 }
             }
         });
@@ -201,13 +261,13 @@ impl SysMaster {
 }
 
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
-    let master = Arc::new(Mutex::new(SysMaster::new(cfg)));
+    let master = Arc::new(Mutex::new(SysMaster::new(cfg)?));
     {
         let mut m = master.lock().await;
         m.init().await?;
     }
 
-    let (client_tx, client_rx) = mpsc::channel::<(Vec<u8>, usize)>(100);
+    let (client_tx, client_rx) = mpsc::channel::<(Vec<u8>, String)>(100);
 
     // Task to read from the FIFO and broadcast messages to clients
     SysMaster::do_fifo(Arc::clone(&master)).await;
