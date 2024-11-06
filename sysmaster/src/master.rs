@@ -107,14 +107,14 @@ impl SysMaster {
                                 log::info!("Response");
                             }
                             RequestType::Ehlo => {
-                                log::info!("Ehlo from {}", req.id());
+                                log::info!("EHLO from {}", req.id());
 
                                 let c_master = Arc::clone(&master);
                                 let c_bcast = bcast.clone();
                                 let c_id = req.id().to_string();
                                 tokio::spawn(async move {
                                     if !c_master.lock().await.mkr().is_registered(&c_id) {
-                                        log::info!("Not registered");
+                                        log::info!("Minion at {minion_addr} ({}) is not registered", req.id());
                                         c_master.lock().await.to_drop.insert(minion_addr);
                                         _ = c_bcast.send(
                                             c_master.lock().await.msg_not_registered(req.id().to_string()).sendable().unwrap(),
