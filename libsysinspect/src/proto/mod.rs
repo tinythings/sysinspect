@@ -39,6 +39,28 @@ impl MasterMessage {
     pub fn set_retcode(&mut self, retcode: ProtoErrorCode) {
         self.retcode = retcode as usize;
     }
+
+    /// Get return code
+    pub fn get_retcode(&self) -> ProtoErrorCode {
+        match &self.retcode {
+            0 => ProtoErrorCode::Undef,
+            1 => ProtoErrorCode::Success,
+            2 => ProtoErrorCode::GeneralFailure,
+            3 => ProtoErrorCode::NotRegistered,
+            4 => ProtoErrorCode::AlreadyRegistered,
+            _ => ProtoErrorCode::Unknown,
+        }
+    }
+
+    /// Request type
+    pub fn req_type(&self) -> &RequestType {
+        &self.request
+    }
+
+    /// Get payload
+    pub fn payload(&self) -> &str {
+        &self.data
+    }
 }
 
 /// Minion message
