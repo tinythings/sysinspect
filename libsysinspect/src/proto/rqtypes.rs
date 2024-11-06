@@ -25,4 +25,8 @@ pub enum RequestType {
     /// Hello/ehlo
     #[serde(rename = "ehlo")]
     Ehlo,
+
+    /// Unknown agent
+    #[serde(rename = "undef")]
+    AgentUnknown,
 }
