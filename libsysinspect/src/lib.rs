@@ -25,6 +25,7 @@ pub enum SysinspectError {
     ConfigError(String),
     MasterGeneralError(String),
     MinionGeneralError(String),
+    ProtoError(String),
 
     // Wrappers for the system errors
     IoErr(io::Error),
@@ -57,6 +58,7 @@ impl Display for SysinspectError {
             SysinspectError::FFINullError(err) => format!("(System) {err}"),
             SysinspectError::MasterGeneralError(err) => format!("(Master) {err}"),
             SysinspectError::MinionGeneralError(err) => format!("(Minion) {err}"),
+            SysinspectError::ProtoError(err) => format!("(Protocol) {err}"),
         };
 
         write!(f, "{msg}")?;
