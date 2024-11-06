@@ -36,7 +36,7 @@ impl MinionKeyRegistry {
     }
 
     /// Returns a method if a minion Id is known to the key registry.
-    pub fn is_registered(&self, mid: String) -> bool {
-        self.keys.contains_key(&mid)
+    pub fn is_registered(&self, mid: &str) -> bool {
+        self.keys.contains_key(mid)
     }
 }
