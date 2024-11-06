@@ -1,10 +1,9 @@
 use crate::{
-    config::{self, MinionConfig},
-    traits,
+    config::{self},
+    proto,
 };
 use libsysinspect::{
-    proto::{rqtypes::RequestType, MinionMessage, ProtoConversion},
-    util::{self, dataconv},
+    util::{self},
     SysinspectError,
 };
 use std::{path::PathBuf, sync::Arc};
@@ -15,19 +14,6 @@ use tokio::{
     io::{AsyncReadExt, BufReader},
     sync::mpsc,
 };
-
-/// Send ehlo
-async fn send_ehlo(stream: Arc<Mutex<OwnedWriteHalf>>, cfg: MinionConfig) -> Result<(), SysinspectError> {
-    let r = MinionMessage::new(
-        dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())),
-        RequestType::Ehlo,
-        "".to_string(),
-    );
-
-    log::info!("Ehlo on {}", cfg.master());
-    request(stream, r.sendable()?).await;
-    Ok(())
-}
 
 /// Talk-back to the master
 pub async fn request(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
@@ -63,7 +49,7 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
     let (_w_chan, mut r_chan) = mpsc::channel(100);
 
     // ehlo
-    send_ehlo(wstm.clone(), cfg).await?;
+    proto::msg::send_ehlo(wstm.clone(), cfg).await?;
 
     // Data exchange
     let wtsm_c = wstm.clone();
@@ -72,7 +58,7 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
         loop {
             let mut buff = [0u8; 4];
             if let Err(e) = input.read_exact(&mut buff).await {
-                log::error!("Unknown message length from the master: {}", e);
+                log::trace!("Unknown message length from the master: {}", e);
                 break;
             }
             let msg_len = u32::from_be_bytes(buff) as usize;
@@ -83,11 +69,37 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
                 break;
             }
 
-            log::info!("Received: {}", String::from_utf8_lossy(&msg));
+            match proto::msg::get_message(msg) {
+                Ok(msg) => {
+                    log::debug!("Received: {:?}", msg);
+                    match msg.req_type() {
+                        libsysinspect::proto::rqtypes::RequestType::Add => {
+                            log::debug!("Master asks to register");
+                        }
+                        libsysinspect::proto::rqtypes::RequestType::Remove => {
+                            log::debug!("Master asks to unregister");
+                        }
+                        libsysinspect::proto::rqtypes::RequestType::Command => {
+                            log::debug!("Master sends a command");
+                        }
+                        libsysinspect::proto::rqtypes::RequestType::Traits => {
+                            log::debug!("Master requests traits");
+                        }
+                        libsysinspect::proto::rqtypes::RequestType::AgentUnknown => {
+                            log::info!("{}", msg.payload()); // Unknowns are NOT encrypted.
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            log::error!("Unknown request type");
+                        }
+                    }
 
-            // Send a response back to the master after receiving each message
-            let response = format!("Back: '{}'", String::from_utf8_lossy(&msg)).as_bytes().to_vec();
-            request(wtsm_c.clone(), response).await;
+                    //request(wtsm_c.clone(), response).await;
+                }
+                Err(err) => {
+                    log::error!("{err}");
+                }
+            }
         }
     });
 

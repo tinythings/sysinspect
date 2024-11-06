@@ -1,6 +1,7 @@
 mod clidef;
 mod config;
 mod minion;
+mod proto;
 mod traits;
 
 use clidef::cli;
