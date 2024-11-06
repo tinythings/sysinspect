@@ -23,10 +23,10 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .help("Alternative path to the config")
         )
         .arg(
-            Arg::new("master")
+            Arg::new("register")
                 .short('r')
-                .long("master")
-                .help("Register to the master by Id") // XXX: This must be a key fingerprint in a future
+                .long("register")
+                .help("Register to the master by its fingerprint") // XXX: This must be a key fingerprint in a future
         )
         .arg(
             Arg::new("start")
