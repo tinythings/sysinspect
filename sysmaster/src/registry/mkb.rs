@@ -38,7 +38,7 @@ impl MinionsKeyRegistry {
             (self.ms_prk, self.ms_pbk) = rsa::keys::from_pem(Some(&prk_pem), self.ms_pbk_pem.as_deref())?;
 
             if self.ms_pbk.is_none() || self.ms_pbk.is_none() {
-                return Err(SysinspectError::MasterGeneralError(format!("Unable to initialise RSA keys")));
+                return Err(SysinspectError::MasterGeneralError("Unable to initialise RSA keys".to_string()));
             }
 
             return Ok(());
@@ -50,7 +50,7 @@ impl MinionsKeyRegistry {
         let (prk_pem, pbk_pem) = rsa::keys::to_pem(Some(&prk), Some(&pbk))?;
 
         if prk_pem.is_none() || pbk_pem.is_none() {
-            return Err(SysinspectError::MasterGeneralError(format!("Unable to generate RSA keys")));
+            return Err(SysinspectError::MasterGeneralError("Unable to generate RSA keys".to_string()));
         }
 
         fs::write(prk_pth, prk_pem.unwrap().as_bytes())?;
