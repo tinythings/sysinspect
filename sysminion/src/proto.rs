@@ -24,8 +24,19 @@ pub mod msg {
         Ok(())
     }
 
+    pub async fn send_registration(
+        stream: Arc<Mutex<OwnedWriteHalf>>, cfg: MinionConfig, pbk_pem: String,
+    ) -> Result<(), SysinspectError> {
+        let r =
+            MinionMessage::new(dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())), RequestType::Add, pbk_pem);
+
+        log::info!("Registration request to {}", cfg.master());
+        request(stream, r.sendable()?).await;
+        Ok(())
+    }
+
     /// Get message
-    pub fn get_message(data: Vec<u8>) -> Result<MasterMessage, SysinspectError> {
+    pub fn payload_to_msg(data: Vec<u8>) -> Result<MasterMessage, SysinspectError> {
         let data = match String::from_utf8(data) {
             Ok(data) => data,
             Err(err) => return Err(SysinspectError::ProtoError(format!("unable to parse master message: {err}"))),

@@ -3,6 +3,7 @@ use crate::{
     proto,
 };
 use libsysinspect::{
+    rsa,
     util::{self},
     SysinspectError,
 };
@@ -37,19 +38,18 @@ pub async fn request(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
 }
 
 /// Minion routine
-pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
+pub async fn minion(mut cfp: PathBuf, fingerprint: Option<String>) -> Result<(), SysinspectError> {
+    let fingerprint = fingerprint.unwrap_or_default();
     if !cfp.exists() {
         cfp = util::cfg::select_config()?;
     }
     let cfg = config::MinionConfig::new(cfp)?;
     //let st = traits::get_traits();
+    let mkeys = crate::rsa::MinionRSAKeyManager::new(None)?; // XXX: Get optional root from the configuration
 
     let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
     let wstm: Arc<Mutex<OwnedWriteHalf>> = Arc::new(Mutex::new(wstm));
     let (_w_chan, mut r_chan) = mpsc::channel(100);
-
-    // ehlo
-    proto::msg::send_ehlo(wstm.clone(), cfg).await?;
 
     // Data exchange
     let wtsm_c = wstm.clone();
@@ -69,13 +69,20 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
                 break;
             }
 
-            match proto::msg::get_message(msg) {
+            match proto::msg::payload_to_msg(msg) {
                 Ok(msg) => {
                     log::debug!("Received: {:?}", msg);
                     match msg.req_type() {
                         libsysinspect::proto::rqtypes::RequestType::Add => {
-                            log::debug!("Master asks to register");
+                            log::debug!("Master accepts registration");
                         }
+
+                        libsysinspect::proto::rqtypes::RequestType::Reconnect => {
+                            log::debug!("Master requires reconnection");
+                            log::info!("{}", msg.payload());
+                            std::process::exit(0);
+                        }
+
                         libsysinspect::proto::rqtypes::RequestType::Remove => {
                             log::debug!("Master asks to unregister");
                         }
@@ -86,7 +93,12 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
                             log::debug!("Master requests traits");
                         }
                         libsysinspect::proto::rqtypes::RequestType::AgentUnknown => {
-                            log::info!("{}", msg.payload()); // Unknowns are NOT encrypted.
+                            let pbk_pem = msg.payload(); // Expected PEM RSA pub key
+                            let (_, pbk) = rsa::keys::from_pem(None, Some(pbk_pem)).unwrap();
+                            let fpt = rsa::keys::get_fingerprint(&pbk.unwrap()).unwrap();
+
+                            log::error!("Minion is not registered");
+                            log::info!("Master fingerprint: {}", fpt);
                             std::process::exit(1);
                         }
                         _ => {
@@ -110,6 +122,14 @@ pub async fn minion(mut cfp: PathBuf) -> Result<(), SysinspectError> {
             request(qmsg_stm.clone(), msg).await;
         }
     });
+
+    // Messages
+    if !fingerprint.is_empty() {
+        proto::msg::send_registration(wstm.clone(), cfg, mkeys.get_pubkey_pem()).await?;
+    } else {
+        // ehlo
+        proto::msg::send_ehlo(wstm.clone(), cfg).await?;
+    }
 
     // Keep the client alive until Ctrl+C is pressed
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
