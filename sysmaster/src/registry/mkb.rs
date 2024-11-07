@@ -116,11 +116,9 @@ impl MinionsKeyRegistry {
 
         match fs::read_to_string(k_pth) {
             Ok(pbk_pem) => {
-                if let Ok((_, pbk)) = rsa::keys::from_pem(None, Some(&pbk_pem)) {
-                    if let Some(pbk) = pbk {
-                        self.keys.insert(mid.to_string(), Some(pbk.to_owned()));
-                        return Some(pbk);
-                    }
+                if let Ok((_, Some(pbk))) = rsa::keys::from_pem(None, Some(&pbk_pem)) {
+                    self.keys.insert(mid.to_string(), Some(pbk.to_owned()));
+                    return Some(pbk);
                 }
             }
             Err(err) => log::error!("Unable to read minion RSA key: {err}"),
