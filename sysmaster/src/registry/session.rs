@@ -47,6 +47,7 @@ impl SessionKeeper {
     }
 
     /// Collect the garbage (outdated sessions)
+    #[allow(clippy::useless_conversion)] // Not useless: it has to be a copy because it self-shooting itself
     fn gc(&mut self) {
         for s in self.sessions.keys().into_iter().map(|s| s.to_string()).collect::<Vec<String>>() {
             self.alive(&s);
@@ -61,7 +62,7 @@ impl SessionKeeper {
 
     /// Return uptime for a minion (seconds)
     pub fn uptime(&self, mid: &str) -> Option<u64> {
-        self.sessions.get(mid).and_then(|s| Some(s.uptime_sec()))
+        self.sessions.get(mid).map(|s| s.uptime_sec())
     }
 
     /// Returns true if a minion is alive.
@@ -83,6 +84,6 @@ impl SessionKeeper {
 
     /// Get session Id for the minion
     pub(crate) fn get_id(&self, mid: &str) -> Option<String> {
-        self.sessions.get(mid).and_then(|s| Some(s.session_id()))
+        self.sessions.get(mid).map(|s| s.session_id())
     }
 }
