@@ -26,6 +26,10 @@ pub enum RequestType {
     #[serde(rename = "ehlo")]
     Ehlo,
 
+    /// Retry connect (e.g. after the registration)
+    #[serde(rename = "retry")]
+    Reconnect,
+
     /// Unknown agent
     #[serde(rename = "undef")]
     AgentUnknown,
