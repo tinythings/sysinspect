@@ -1,9 +1,8 @@
-use crate::{config::MasterConfig, registry::mkb::MinionKeyRegistry};
+use crate::{config::MasterConfig, registry::mkb::MinionsKeyRegistry};
 use libsysinspect::{
     proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };
-use rustls::crypto::hash::Hash;
 use std::{collections::HashSet, path::Path, sync::Arc};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::TcpListener;
@@ -16,7 +15,7 @@ use tokio::{fs::OpenOptions, sync::Mutex};
 pub struct SysMaster {
     cfg: MasterConfig,
     broadcast: broadcast::Sender<Vec<u8>>,
-    mkr: MinionKeyRegistry,
+    mkr: MinionsKeyRegistry,
     to_drop: HashSet<String>,
 }
 
@@ -24,7 +23,7 @@ impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
 
-        let mkr = MinionKeyRegistry::new()?;
+        let mkr = MinionsKeyRegistry::new()?;
         Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default() })
     }
 
@@ -73,17 +72,28 @@ impl SysMaster {
     }
 
     /// Get Minion key registry
-    fn mkr(&self) -> &MinionKeyRegistry {
-        &self.mkr
+    fn mkr(&mut self) -> &mut MinionsKeyRegistry {
+        &mut self.mkr
     }
 
     /// Bounce message
-    fn msg_not_registered(&self, mid: String) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::AgentUnknown, "Minion is not registered".to_string());
+    fn msg_not_registered(&mut self, mid: String) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::AgentUnknown, self.mkr().get_master_key_pem().clone().unwrap().to_string());
         let mut tgt = MinionTarget::new();
         tgt.add_minion_id(mid);
         m.add_target(tgt);
-        m.set_retcode(ProtoErrorCode::NotRegistered);
+        m.set_retcode(ProtoErrorCode::Success);
+
+        m
+    }
+
+    /// Accept registration
+    fn msg_registered(&self, mid: String, msg: &str) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::Reconnect, msg.to_string()); // XXX: Should it be already encrypted?
+        let mut tgt = MinionTarget::new();
+        tgt.add_minion_id(mid);
+        m.add_target(tgt);
+        m.set_retcode(ProtoErrorCode::Success);
 
         m
     }
@@ -101,7 +111,26 @@ impl SysMaster {
                     if let Some(req) = master.lock().await.to_request(&msg) {
                         match req.req_type() {
                             RequestType::Add => {
-                                log::info!("Add");
+                                let c_master = Arc::clone(&master);
+                                let c_bcast = bcast.clone();
+                                let c_mid = req.id().to_string();
+                                tokio::spawn(async move {
+                                    log::info!("Minion \"{}\" requested registration", minion_addr);
+                                    let mut guard = c_master.lock().await;
+                                    let resp_msg: &str;
+                                    if !guard.mkr().is_registered(&c_mid) {
+                                        if let Err(err) = guard.mkr().add_mn_key(&c_mid, &minion_addr, req.payload()) {
+                                            log::error!("Unable to add minion RSA key: {err}");
+                                        }
+                                        guard.to_drop.insert(minion_addr.to_owned());
+                                        resp_msg = "Minion registration has been accepted";
+                                        log::info!("Registered a minion at {minion_addr} ({})", c_mid);
+                                    } else {
+                                        resp_msg = "Minion already registered";
+                                        log::warn!("Minion {minion_addr} ({}) is already registered", c_mid);
+                                    }
+                                    _ = c_bcast.send(guard.msg_registered(req.id().to_string(), resp_msg).sendable().unwrap());
+                                });
                             }
                             RequestType::Response => {
                                 log::info!("Response");
@@ -120,7 +149,7 @@ impl SysMaster {
                                             c_master.lock().await.msg_not_registered(req.id().to_string()).sendable().unwrap(),
                                         );
                                     } else {
-                                        log::info!("Registered");
+                                        log::info!("{} connected successfully", c_id);
                                     }
                                 });
                             }
