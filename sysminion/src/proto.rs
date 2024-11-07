@@ -1,5 +1,9 @@
 pub mod msg {
-    use crate::{config::MinionConfig, minion::request, traits};
+    use crate::{
+        config::MinionConfig,
+        minion::{request, MINION_SID},
+        traits,
+    };
     use libsysinspect::{
         proto::{rqtypes::RequestType, MinionMessage},
         util::dataconv,
@@ -11,12 +15,26 @@ pub mod msg {
     use std::sync::Arc;
     use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
+    /// Make pong message
+    pub fn get_pong() -> Vec<u8> {
+        let p = MinionMessage::new(
+            dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())),
+            RequestType::Pong,
+            MINION_SID.to_string(),
+        );
+
+        if let Ok(data) = p.sendable() {
+            return data;
+        }
+        vec![]
+    }
+
     /// Send ehlo
     pub async fn send_ehlo(stream: Arc<Mutex<OwnedWriteHalf>>, cfg: MinionConfig) -> Result<(), SysinspectError> {
         let r = MinionMessage::new(
             dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())),
             RequestType::Ehlo,
-            "".to_string(),
+            MINION_SID.to_string(),
         );
 
         log::info!("Ehlo on {}", cfg.master());

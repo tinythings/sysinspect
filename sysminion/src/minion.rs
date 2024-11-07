@@ -3,10 +3,12 @@ use crate::{
     proto,
 };
 use libsysinspect::{
+    proto::{errcodes::ProtoErrorCode, rqtypes::RequestType},
     rsa,
     util::{self},
     SysinspectError,
 };
+use once_cell::sync::Lazy;
 use std::{path::PathBuf, sync::Arc};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -15,6 +17,10 @@ use tokio::{
     io::{AsyncReadExt, BufReader},
     sync::mpsc,
 };
+use uuid::Uuid;
+
+/// Session Id of the minion
+pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
 
 /// Talk-back to the master
 pub async fn request(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
@@ -33,7 +39,7 @@ pub async fn request(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
     if let Err(e) = stm.flush().await {
         log::error!("Failed to flush writer to master: {}", e);
     } else {
-        log::debug!("To master: {}", String::from_utf8_lossy(&msg));
+        log::trace!("To master: {}", String::from_utf8_lossy(&msg));
     }
 }
 
@@ -55,6 +61,7 @@ pub async fn minion(mut cfp: PathBuf, fingerprint: Option<String>) -> Result<(),
     let wtsm_c = wstm.clone();
     tokio::spawn(async move {
         let mut input = BufReader::new(rstm);
+
         loop {
             let mut buff = [0u8; 4];
             if let Err(e) = input.read_exact(&mut buff).await {
@@ -69,49 +76,65 @@ pub async fn minion(mut cfp: PathBuf, fingerprint: Option<String>) -> Result<(),
                 break;
             }
 
-            match proto::msg::payload_to_msg(msg) {
-                Ok(msg) => {
-                    log::debug!("Received: {:?}", msg);
-                    match msg.req_type() {
-                        libsysinspect::proto::rqtypes::RequestType::Add => {
-                            log::debug!("Master accepts registration");
-                        }
+            let msg = match proto::msg::payload_to_msg(msg) {
+                Ok(msg) => msg,
+                Err(err) => {
+                    log::error!("Error getting network payload as message: {err}");
+                    continue;
+                }
+            };
 
-                        libsysinspect::proto::rqtypes::RequestType::Reconnect => {
-                            log::debug!("Master requires reconnection");
-                            log::info!("{}", msg.payload());
-                            std::process::exit(0);
-                        }
+            log::trace!("Received: {:?}", msg);
 
-                        libsysinspect::proto::rqtypes::RequestType::Remove => {
-                            log::debug!("Master asks to unregister");
-                        }
-                        libsysinspect::proto::rqtypes::RequestType::Command => {
-                            log::debug!("Master sends a command");
-                        }
-                        libsysinspect::proto::rqtypes::RequestType::Traits => {
-                            log::debug!("Master requests traits");
-                        }
-                        libsysinspect::proto::rqtypes::RequestType::AgentUnknown => {
-                            let pbk_pem = msg.payload(); // Expected PEM RSA pub key
-                            let (_, pbk) = rsa::keys::from_pem(None, Some(pbk_pem)).unwrap();
-                            let fpt = rsa::keys::get_fingerprint(&pbk.unwrap()).unwrap();
+            match msg.req_type() {
+                RequestType::Add => {
+                    log::debug!("Master accepts registration");
+                }
 
-                            log::error!("Minion is not registered");
-                            log::info!("Master fingerprint: {}", fpt);
-                            std::process::exit(1);
+                RequestType::Reconnect => {
+                    log::debug!("Master requires reconnection");
+                    log::info!("{}", msg.payload());
+                    std::process::exit(0);
+                }
+
+                RequestType::Remove => {
+                    log::debug!("Master asks to unregister");
+                }
+                RequestType::Command => {
+                    log::debug!("Master sends a command");
+                    match msg.get_retcode() {
+                        ProtoErrorCode::AlreadyConnected => {
+                            if MINION_SID.eq(msg.payload()) {
+                                log::error!("Another minion from this machine is already connected");
+                                std::process::exit(1);
+                            }
                         }
-                        _ => {
-                            log::error!("Unknown request type");
+                        ret => {
+                            log::debug!("Return code {:?} not yet implemented", ret);
                         }
                     }
-
-                    //request(wtsm_c.clone(), response).await;
                 }
-                Err(err) => {
-                    log::error!("{err}");
+                RequestType::Traits => {
+                    log::debug!("Master requests traits");
+                }
+                RequestType::AgentUnknown => {
+                    let pbk_pem = msg.payload(); // Expected PEM RSA pub key
+                    let (_, pbk) = rsa::keys::from_pem(None, Some(pbk_pem)).unwrap();
+                    let fpt = rsa::keys::get_fingerprint(&pbk.unwrap()).unwrap();
+
+                    log::error!("Minion is not registered");
+                    log::info!("Master fingerprint: {}", fpt);
+                    std::process::exit(1);
+                }
+                RequestType::Ping => {
+                    request(wtsm_c.clone(), proto::msg::get_pong()).await;
+                }
+                _ => {
+                    log::error!("Unknown request type");
                 }
             }
+
+            //request(wtsm_c.clone(), response).await;
         }
     });
 

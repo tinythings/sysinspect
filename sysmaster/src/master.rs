@@ -1,15 +1,24 @@
-use crate::{config::MasterConfig, registry::mkb::MinionsKeyRegistry};
+use crate::{
+    config::MasterConfig,
+    registry::{
+        mkb::MinionsKeyRegistry,
+        session::{self, SessionKeeper},
+    },
+};
 use libsysinspect::{
     proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };
 use std::{collections::HashSet, path::Path, sync::Arc};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{sleep, Duration};
 use tokio::{fs::OpenOptions, sync::Mutex};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader},
+    time,
+};
 
 #[derive(Debug)]
 pub struct SysMaster {
@@ -17,14 +26,14 @@ pub struct SysMaster {
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
     to_drop: HashSet<String>,
+    session: session::SessionKeeper,
 }
 
 impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
-
         let mkr = MinionsKeyRegistry::new()?;
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default() })
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: SessionKeeper::new(30) })
     }
 
     /// Open FIFO socket for command-line communication
@@ -74,6 +83,17 @@ impl SysMaster {
     /// Get Minion key registry
     fn mkr(&mut self) -> &mut MinionsKeyRegistry {
         &mut self.mkr
+    }
+
+    /// Already connected
+    fn msg_already_connected(&mut self, mid: String, sid: String) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::Command, sid);
+        let mut tgt = MinionTarget::new();
+        tgt.add_minion_id(mid);
+        m.add_target(tgt);
+        m.set_retcode(ProtoErrorCode::AlreadyConnected);
+
+        m
     }
 
     /// Bounce message
@@ -141,16 +161,39 @@ impl SysMaster {
                                 let c_master = Arc::clone(&master);
                                 let c_bcast = bcast.clone();
                                 let c_id = req.id().to_string();
+                                let c_payload = req.payload().to_string();
                                 tokio::spawn(async move {
-                                    if !c_master.lock().await.mkr().is_registered(&c_id) {
+                                    let mut guard = c_master.lock().await;
+                                    if !guard.mkr().is_registered(&c_id) {
                                         log::info!("Minion at {minion_addr} ({}) is not registered", req.id());
-                                        c_master.lock().await.to_drop.insert(minion_addr);
+                                        guard.to_drop.insert(minion_addr);
+                                        _ = c_bcast.send(guard.msg_not_registered(req.id().to_string()).sendable().unwrap());
+                                    } else if guard.session.exists(&c_id) {
+                                        log::info!("Minion at {minion_addr} ({}) is already connected", req.id());
+                                        guard.to_drop.insert(minion_addr);
                                         _ = c_bcast.send(
-                                            c_master.lock().await.msg_not_registered(req.id().to_string()).sendable().unwrap(),
+                                            guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap(),
                                         );
                                     } else {
                                         log::info!("{} connected successfully", c_id);
+                                        guard.session.ping(&c_id, &c_payload);
                                     }
+                                });
+                            }
+
+                            RequestType::Pong => {
+                                let c_master = Arc::clone(&master);
+                                let c_id = req.id().to_string();
+                                let c_payload = req.payload().to_string();
+                                tokio::spawn(async move {
+                                    let mut guard = c_master.lock().await;
+                                    guard.session.ping(&c_id, &c_payload);
+                                    let uptime = guard.session.uptime(req.id()).unwrap_or_default();
+                                    log::debug!(
+                                        "Update last contacted for {} (alive for {:.2} min)",
+                                        req.id().to_string(),
+                                        uptime as f64 / 60.0
+                                    );
                                 });
                             }
                             _ => {
@@ -199,6 +242,21 @@ impl SysMaster {
                         sleep(Duration::from_secs(1)).await; // Retry after a sec
                     }
                 }
+            }
+        });
+    }
+
+    pub async fn do_heartbeat(master: Arc<Mutex<Self>>) {
+        log::trace!("Starting heartbeat");
+        let bcast = master.lock().await.broadcast();
+        tokio::spawn(async move {
+            loop {
+                _ = time::sleep(Duration::from_secs(5)).await;
+                let mut p = MasterMessage::new(RequestType::Ping, "".to_string());
+                let mut t = MinionTarget::new();
+                t.add_hostname("*");
+                p.add_target(t);
+                let _ = bcast.send(p.sendable().unwrap());
             }
         });
     }
@@ -306,6 +364,8 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
 
     // Accept connections and spawn tasks for each client
     SysMaster::do_outgoing(Arc::clone(&master), client_tx).await?;
+
+    SysMaster::do_heartbeat(Arc::clone(&master)).await;
 
     // Listen for shutdown signal and cancel tasks
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");

@@ -33,4 +33,12 @@ pub enum RequestType {
     /// Unknown agent
     #[serde(rename = "undef")]
     AgentUnknown,
+
+    /// Ping
+    #[serde(rename = "pi")]
+    Ping,
+
+    /// Pong
+    #[serde(rename = "po")]
+    Pong,
 }

@@ -4,6 +4,7 @@ Minion registry. It contains minion tasks, traits, location and other data
 
 pub mod mkb;
 pub mod rec;
+pub mod session;
 
 use libsysinspect::SysinspectError;
 use rec::MinionRecord;

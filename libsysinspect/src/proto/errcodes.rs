@@ -17,6 +17,9 @@ pub enum ProtoErrorCode {
     /// Minion is already registered
     AlreadyRegistered = 4,
 
+    /// Minion is already connected
+    AlreadyConnected = 5,
+
     /// Unassigned, unknown
     Unknown,
 }

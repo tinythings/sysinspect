@@ -48,6 +48,7 @@ impl MasterMessage {
             2 => ProtoErrorCode::GeneralFailure,
             3 => ProtoErrorCode::NotRegistered,
             4 => ProtoErrorCode::AlreadyRegistered,
+            5 => ProtoErrorCode::AlreadyConnected,
             _ => ProtoErrorCode::Unknown,
         }
     }
@@ -147,8 +148,8 @@ impl MinionTarget {
     }
 
     /// Add hostnames
-    pub fn add_hostname(&mut self, hostname: String) {
-        self.hostnames.push(hostname);
+    pub fn add_hostname(&mut self, hostname: &str) {
+        self.hostnames.push(hostname.to_string());
     }
 }
 
