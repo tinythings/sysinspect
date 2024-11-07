@@ -26,6 +26,7 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
             Arg::new("register")
                 .short('r')
                 .long("register")
+                .conflicts_with("start")
                 .help("Register to the master by its fingerprint") // XXX: This must be a key fingerprint in a future
         )
         .arg(
