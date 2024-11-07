@@ -31,3 +31,4 @@ libsysinspect = { path = "../libsysinspect" }
 log = "0.4.22"
 sled = "0.34.7"
 rsa = { version = "0.9.6", features = ["pkcs5", "sha1", "sha2"] }
+uuid = { version = "1.11.0", features = ["v4"] }
