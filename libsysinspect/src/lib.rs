@@ -33,6 +33,7 @@ pub enum SysinspectError {
     SerdeJson(serde_json::Error),
     FFINullError(NulError),
     DynError(Box<dyn Error>),
+    AsynDynError(Box<dyn Error + Send + Sync>),
 }
 
 impl Error for SysinspectError {
@@ -61,6 +62,7 @@ impl Display for SysinspectError {
             SysinspectError::MinionGeneralError(err) => format!("(Minion) {err}"),
             SysinspectError::ProtoError(err) => format!("(Protocol) {err}"),
             SysinspectError::DynError(err) => format!("(General) {err}"),
+            SysinspectError::AsynDynError(err) => format!("(General part) {err}"),
         };
 
         write!(f, "{msg}")?;
@@ -100,5 +102,11 @@ impl From<NulError> for SysinspectError {
 impl From<Box<dyn Error>> for SysinspectError {
     fn from(err: Box<dyn Error>) -> SysinspectError {
         SysinspectError::DynError(err)
+    }
+}
+
+impl From<Box<dyn Error + Send + Sync>> for SysinspectError {
+    fn from(err: Box<dyn Error + Send + Sync>) -> SysinspectError {
+        SysinspectError::AsynDynError(err)
     }
 }
