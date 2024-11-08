@@ -1,4 +1,9 @@
-use libsysinspect::{intp::actproc::response::ActionResponse, reactor::evtproc::EventProcessor};
+use crate::{
+    intp::{self, inspector::SysInspector},
+    mdescr::mspec,
+    reactor::evtproc::EventProcessor,
+};
+use intp::actproc::response::ActionResponse;
 
 #[derive(Debug, Default)]
 pub struct SysInspectRunner {
@@ -37,10 +42,10 @@ impl SysInspectRunner {
 
     pub fn start(&self) {
         log::info!("Starting sysinspect runner");
-        match libsysinspect::mdescr::mspec::load(&self.model_pth) {
+        match mspec::load(&self.model_pth) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
-                match libsysinspect::intp::inspector::SysInspector::new(spec) {
+                match SysInspector::new(spec) {
                     Ok(isp) => {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg());

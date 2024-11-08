@@ -7,6 +7,7 @@ use std::{
 
 use mdescr::mspec;
 
+pub mod inspector;
 pub mod intp;
 pub mod logger;
 pub mod mdescr;

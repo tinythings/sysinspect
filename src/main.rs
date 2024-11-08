@@ -5,7 +5,6 @@ use log::LevelFilter;
 use std::env;
 
 mod clidef;
-mod inspector;
 mod mcf;
 
 static VERSION: &str = "0.2.0";
