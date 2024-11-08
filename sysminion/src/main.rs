@@ -1,5 +1,4 @@
 mod clidef;
-mod config;
 mod minion;
 mod proto;
 mod rsa;

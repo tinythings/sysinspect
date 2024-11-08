@@ -2,6 +2,8 @@
 Config reader
  */
 
+pub mod mmconf;
+
 use crate::SysinspectError;
 use nix::unistd::Uid;
 use std::{env, path::PathBuf};

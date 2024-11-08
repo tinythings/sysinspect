@@ -1,13 +1,8 @@
-use crate::{
-    config::{self},
-    proto,
-};
+use crate::proto;
 use libsysinspect::{
-    cfg,
+    cfg::{self, mmconf::MinionConfig},
     proto::{errcodes::ProtoErrorCode, rqtypes::RequestType},
-    rsa,
-    util::{self},
-    SysinspectError,
+    rsa, SysinspectError,
 };
 use once_cell::sync::Lazy;
 use std::{path::PathBuf, sync::Arc};
@@ -50,7 +45,7 @@ pub async fn minion(mut cfp: PathBuf, fingerprint: Option<String>) -> Result<(),
     if !cfp.exists() {
         cfp = cfg::select_config()?;
     }
-    let cfg = config::MinionConfig::new(cfp)?;
+    let cfg = MinionConfig::new(cfp)?;
     //let st = traits::get_traits();
     let mkeys = crate::rsa::MinionRSAKeyManager::new(None)?; // XXX: Get optional root from the configuration
 

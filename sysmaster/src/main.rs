@@ -1,11 +1,13 @@
 mod clidef;
-mod config;
 mod master;
 mod registry;
 mod rmt;
 
 use clidef::cli;
-use libsysinspect::{cfg::select_config, logger, SysinspectError};
+use libsysinspect::{
+    cfg::{mmconf::MasterConfig, select_config},
+    logger, SysinspectError,
+};
 use log::LevelFilter;
 use rmt::send_message;
 use std::{env, path::PathBuf};
@@ -56,7 +58,7 @@ async fn main() -> Result<(), SysinspectError> {
             }
         };
     }
-    let cfg = config::MasterConfig::new(cfp)?;
+    let cfg = MasterConfig::new(cfp)?;
 
     // Mode
     let query = params.get_one::<String>("query").unwrap_or(&"".to_string()).to_owned();

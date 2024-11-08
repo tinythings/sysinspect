@@ -1,11 +1,9 @@
-use crate::{
-    config::MasterConfig,
-    registry::{
-        mkb::MinionsKeyRegistry,
-        session::{self, SessionKeeper},
-    },
+use crate::registry::{
+    mkb::MinionsKeyRegistry,
+    session::{self, SessionKeeper},
 };
 use libsysinspect::{
+    cfg::mmconf::MasterConfig,
     proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };

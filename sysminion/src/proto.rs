@@ -1,10 +1,10 @@
 pub mod msg {
     use crate::{
-        config::MinionConfig,
         minion::{request, MINION_SID},
         traits,
     };
     use libsysinspect::{
+        cfg::mmconf::MinionConfig,
         proto::{rqtypes::RequestType, MinionMessage},
         util::dataconv,
     };
