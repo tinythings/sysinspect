@@ -12,9 +12,10 @@ pub const APP_CONF: &str = "sysinspect.conf";
 pub const APP_DOTCONF: &str = ".sysinspect";
 
 /// Select app conf
-pub fn select_config(p: Option<PathBuf>) -> Result<PathBuf, SysinspectError> {
+pub fn select_config(p: Option<String>) -> Result<PathBuf, SysinspectError> {
     // Override path from options
     if let Some(ovrp) = p {
+        let ovrp = PathBuf::from(ovrp);
         if ovrp.exists() {
             return Ok(ovrp);
         }

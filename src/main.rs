@@ -1,7 +1,14 @@
+use clap::ArgMatches;
 use colored::Colorize;
-use libsysinspect::{inspector::SysInspectRunner, logger, reactor::handlers};
+use libsysinspect::{
+    cfg::{mmconf::MasterConfig, select_config},
+    inspector::SysInspectRunner,
+    logger,
+    reactor::handlers,
+    SysinspectError,
+};
 use log::LevelFilter;
-use std::env;
+use std::{env, fs::OpenOptions, io::Write, path::PathBuf};
 
 mod clidef;
 
@@ -18,6 +25,32 @@ fn print_event_handlers() {
     println!();
 }
 
+/// Call master via FIFO
+fn call_master_fifo(msg: &str, fifo: &str) -> Result<(), SysinspectError> {
+    OpenOptions::new().write(true).open(fifo)?.write_all(format!("{}\n", msg).as_bytes())?;
+
+    log::debug!("Message sent to FIFO: {}", msg);
+    Ok(())
+}
+
+/// Set logger
+fn set_logger(p: &ArgMatches) {
+    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+        log::set_max_level(match p.get_count("debug") {
+            0 => LevelFilter::Info,
+            1 => LevelFilter::Debug,
+            2.. => LevelFilter::max(),
+        })
+    }) {
+        println!("{}", err)
+    }
+}
+
+/// Get configuration of the master
+fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
+    MasterConfig::new(select_config(p.get_one::<String>("config").cloned())?)
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut cli = clidef::cli(VERSION);
@@ -30,6 +63,9 @@ fn main() {
 
     // Our main params
     let params = cli.to_owned().get_matches();
+
+    // Set logger
+    set_logger(&params);
 
     // Print help?
     if *params.get_one::<bool>("help").unwrap() {
@@ -50,18 +86,20 @@ fn main() {
         return;
     }
 
-    // Setup logger
-    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
-        log::set_max_level(match params.get_count("debug") {
-            0 => LevelFilter::Info,
-            1 => LevelFilter::Debug,
-            2.. => LevelFilter::max(),
-        })
-    }) {
-        return println!("{}", err);
-    }
+    // Get master config
+    let cfg = match get_cfg(&params) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::error!("Unable to get master configuration: {err}");
+            std::process::exit(1);
+        }
+    };
 
-    if let Some(mpath) = params.get_one::<String>("model") {
+    if let Some(query) = params.get_one::<String>("query") {
+        if let Err(err) = call_master_fifo(&query, &cfg.socket()) {
+            log::error!("Cannot reach master: {err}");
+        }
+    } else if let Some(mpath) = params.get_one::<String>("model") {
         let mut sr = SysInspectRunner::new();
         sr.set_model_path(mpath);
         sr.set_state(params.get_one::<String>("state").cloned());
