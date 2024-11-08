@@ -8,7 +8,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use log::LevelFilter;
-use std::{env, fs::OpenOptions, io::Write, path::PathBuf};
+use std::{env, fs::OpenOptions, io::Write};
 
 mod clidef;
 
@@ -96,7 +96,7 @@ fn main() {
     };
 
     if let Some(query) = params.get_one::<String>("query") {
-        if let Err(err) = call_master_fifo(&query, &cfg.socket()) {
+        if let Err(err) = call_master_fifo(query, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
