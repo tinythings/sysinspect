@@ -98,6 +98,7 @@ impl MinionMessage {
             2 => ProtoErrorCode::GeneralFailure,
             3 => ProtoErrorCode::NotRegistered,
             4 => ProtoErrorCode::AlreadyRegistered,
+            5 => ProtoErrorCode::AlreadyConnected,
             _ => ProtoErrorCode::Unknown,
         }
     }
