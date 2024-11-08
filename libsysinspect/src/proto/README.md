@@ -117,6 +117,31 @@ The following request types for "`r`" are available:
 - `rsp` — A regular response to any command.
 - `ehlo` — Hello notice for a newly connected minion (any). Contains Minion Id RSA cipher.
 
+## Types
+
+### Request/Response
+
+- `add` — Add a minion, registration request.
+- `rm` — Remove a minion, un-registration.
+- `rsp` — Regular response to any Master command.
+- `cmd` — Regular command to any Minion.
+- `tr` — Request to return all minion traits.
+- `ehlo` — Hello message to initiate protocol.
+- `retry` — Retry connect (e.g. after the registration).
+- `pi` — Ping request.
+- `po` — Pong response.
+- `undef` — Unknown agent.
+
+### Return Codes
+
+- `Undef`: 0 — No specific return code or code is ignorable.
+- `Success`: 1 — Successfully completed the routine.
+- `GeneralFailure`: 2 — General failure, unspecified. Equal to 1 of POSIX.
+- `NotRegistered`: 3 — Minion is not registered. Registration sequence required.
+- `AlreadyRegistered`: 4 — Minion is already registered.
+- `AlreadyConnected`: 5 — Minion connection duplicate.
+- `Unknown`: N/A — Internal designator of unrecognised incoming error code.
+
 ## Hello (ehlo)
 
 This sequence requires no established connection.
