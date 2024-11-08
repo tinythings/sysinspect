@@ -5,7 +5,7 @@ mod registry;
 mod rmt;
 
 use clidef::cli;
-use libsysinspect::{logger, util::cfg::select_config, SysinspectError};
+use libsysinspect::{cfg::select_config, logger, SysinspectError};
 use log::LevelFilter;
 use rmt::send_message;
 use std::{env, path::PathBuf};

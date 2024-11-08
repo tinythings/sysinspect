@@ -1,5 +1,5 @@
 use super::{datapatch, mspecdef::ModelSpec};
-use crate::{util::cfg::select_config, SysinspectError};
+use crate::{cfg::select_config, SysinspectError};
 use serde_yaml::Value;
 use std::{
     fs::{self},
