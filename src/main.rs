@@ -1,17 +1,15 @@
 use colored::Colorize;
-use inspector::SysInspectRunner;
-use libsysinspect::{logger, reactor::handlers};
+use libsysinspect::{inspector::SysInspectRunner, logger, reactor::handlers};
 use log::LevelFilter;
 use std::env;
 
 mod clidef;
-mod mcf;
 
 static VERSION: &str = "0.2.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 /// Display event handlers
-pub fn print_event_handlers() {
+fn print_event_handlers() {
     handlers::registry::init_handlers();
     println!("{}", format!("Supported event handlers in {}:", clidef::APPNAME.bold()).yellow());
     for (i, h) in handlers::registry::get_handler_names().iter().enumerate() {
