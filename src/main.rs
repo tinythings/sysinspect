@@ -1,20 +1,18 @@
 use colored::Colorize;
-use libsysinspect::{
-    intp::actproc::response::ActionResponse,
-    logger,
-    reactor::{evtproc::EventProcessor, handlers},
-};
+use inspector::SysInspectRunner;
+use libsysinspect::{logger, reactor::handlers};
 use log::LevelFilter;
 use std::env;
 
 mod clidef;
+mod inspector;
 mod mcf;
 
 static VERSION: &str = "0.2.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 /// Display event handlers
-fn print_event_handlers() {
+pub fn print_event_handlers() {
     handlers::registry::init_handlers();
     println!("{}", format!("Supported event handlers in {}:", clidef::APPNAME.bold()).yellow());
     for (i, h) in handlers::registry::get_handler_names().iter().enumerate() {
@@ -67,48 +65,11 @@ fn main() {
     }
 
     if let Some(mpath) = params.get_one::<String>("model") {
-        match libsysinspect::mdescr::mspec::load(mpath) {
-            Ok(spec) => {
-                log::debug!("Initalising inspector");
-                match libsysinspect::intp::inspector::SysInspector::new(spec) {
-                    Ok(isp) => {
-                        // Setup event processor
-                        let mut evtproc = EventProcessor::new().set_config(isp.cfg());
-
-                        let arg_state = params.get_one::<String>("state").cloned();
-                        let arg_labels = clidef::split_by(&params, "labels", None);
-
-                        let actions = if !arg_labels.is_empty() {
-                            isp.actions_by_relations(arg_labels, arg_state.to_owned())
-                        } else {
-                            isp.actions_by_entities(clidef::split_by(&params, "entities", None), arg_state)
-                        };
-
-                        match actions {
-                            Ok(actions) => {
-                                for ac in actions {
-                                    match ac.run() {
-                                        Ok(response) => {
-                                            let response = response.unwrap_or(ActionResponse::default());
-                                            evtproc.receiver().register(response.eid().to_owned(), response);
-                                        }
-                                        Err(err) => {
-                                            log::error!("{err}")
-                                        }
-                                    }
-                                }
-                                evtproc.process();
-                            }
-                            Err(err) => {
-                                log::error!("{}", err);
-                            }
-                        }
-                    }
-                    Err(err) => log::error!("{err}"),
-                }
-                log::debug!("Done");
-            }
-            Err(err) => log::error!("Error: {}", err),
-        };
+        let mut sr = SysInspectRunner::new();
+        sr.set_model_path(mpath);
+        sr.set_state(params.get_one::<String>("state").cloned());
+        sr.set_entities(clidef::split_by(&params, "entities", None));
+        sr.set_checkbook_labels(clidef::split_by(&params, "labels", None));
+        sr.start();
     }
 }
