@@ -43,7 +43,7 @@ pub async fn request(stream: Arc<Mutex<OwnedWriteHalf>>, msg: Vec<u8>) {
 pub async fn minion(mut cfp: PathBuf, fingerprint: Option<String>) -> Result<(), SysinspectError> {
     let fingerprint = fingerprint.unwrap_or_default();
     if !cfp.exists() {
-        cfp = cfg::select_config()?;
+        cfp = cfg::select_config(None)?;
     }
     let cfg = MinionConfig::new(cfp)?;
     //let st = traits::get_traits();

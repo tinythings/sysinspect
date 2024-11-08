@@ -122,7 +122,7 @@ impl SpecLoader {
         }
 
         // Load app config and merge to the main model
-        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(select_config()?)?)?);
+        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(select_config(None)?)?)?);
 
         let mut base = self.merge_parts(&mut base)?;
         if !iht.is_empty() {
