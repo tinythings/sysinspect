@@ -1,6 +1,9 @@
-use crate::registry::{
-    mkb::MinionsKeyRegistry,
-    session::{self, SessionKeeper},
+use crate::{
+    dataserv::fls,
+    registry::{
+        mkb::MinionsKeyRegistry,
+        session::{self, SessionKeeper},
+    },
 };
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
@@ -346,13 +349,16 @@ impl SysMaster {
 }
 
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
-    let master = Arc::new(Mutex::new(SysMaster::new(cfg)?));
+    let master = Arc::new(Mutex::new(SysMaster::new(cfg.to_owned())?));
     {
         let mut m = master.lock().await;
         m.init().await?;
     }
 
     let (client_tx, client_rx) = mpsc::channel::<(Vec<u8>, String)>(100);
+
+    // Start internal fileserver for minions
+    fls::start(cfg).await?;
 
     // Task to read from the FIFO and broadcast messages to clients
     SysMaster::do_fifo(Arc::clone(&master)).await;

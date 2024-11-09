@@ -1,4 +1,5 @@
 mod clidef;
+mod dataserv;
 mod master;
 mod registry;
 mod rmt;
@@ -10,7 +11,8 @@ use libsysinspect::{
 };
 use log::LevelFilter;
 use rmt::send_message;
-use std::{env, path::PathBuf};
+use std::env;
+use std::path::PathBuf;
 
 static APPNAME: &str = "sysmaster";
 static VERSION: &str = "0.0.1";
