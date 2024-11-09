@@ -49,7 +49,7 @@ async fn main() -> std::io::Result<()> {
     let fp = params.get_one::<String>("register").cloned();
     if *params.get_one::<bool>("start").unwrap_or(&false) || fp.is_some() {
         let cfp = params.get_one::<String>("config");
-        if let Err(err) = minion::minion(PathBuf::from(cfp.map_or("", |v| v)), fp).await {
+        if let Err(err) = minion::minion(cfp.map_or("", |v| v), fp).await {
             log::error!("Unable to start minion: {}", err);
             return Ok(());
         }
