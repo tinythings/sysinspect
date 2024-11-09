@@ -5,6 +5,7 @@ use std::{fs, path::PathBuf};
 
 static DEFAULT_ADDR: &str = "0.0.0.0";
 static DEFAULT_PORT: u32 = 4200;
+static DEFAULT_FILESERVER_PORT: u32 = 4201;
 static DEFAULT_SOCKET: &str = "/var/run/sysinspect-master.socket";
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -48,6 +49,12 @@ pub struct MasterConfig {
 
     // Path to FIFO socket. Default: /var/run/sysinspect-master.socket
     socket: Option<String>,
+
+    #[serde(rename = "fileserver.bind.ip")]
+    fileserver_ip: Option<String>,
+
+    #[serde(rename = "fileserver.bind.port")]
+    fileserver_port: Option<u32>,
 }
 
 impl MasterConfig {
@@ -72,5 +79,14 @@ impl MasterConfig {
     /// Get socket address
     pub fn socket(&self) -> String {
         self.socket.to_owned().unwrap_or(DEFAULT_SOCKET.to_string())
+    }
+
+    /// Return fileserver addr
+    pub fn fileserver_bind_addr(&self) -> String {
+        format!(
+            "{}:{}",
+            self.fileserver_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()),
+            self.fileserver_port.unwrap_or(DEFAULT_FILESERVER_PORT)
+        )
     }
 }
