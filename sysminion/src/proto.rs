@@ -1,10 +1,6 @@
 pub mod msg {
-    use crate::{
-        minion::{request, MINION_SID},
-        traits,
-    };
+    use crate::{minion::MINION_SID, traits};
     use libsysinspect::{
-        cfg::mmconf::MinionConfig,
         proto::{rqtypes::RequestType, MinionMessage},
         util::dataconv,
     };
@@ -12,8 +8,6 @@ pub mod msg {
         proto::{MasterMessage, ProtoConversion},
         SysinspectError,
     };
-    use std::sync::Arc;
-    use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
     /// Make pong message
     pub fn get_pong() -> Vec<u8> {
@@ -27,30 +21,6 @@ pub mod msg {
             return data;
         }
         vec![]
-    }
-
-    /// Send ehlo
-    pub async fn send_ehlo(stream: Arc<Mutex<OwnedWriteHalf>>, cfg: MinionConfig) -> Result<(), SysinspectError> {
-        let r = MinionMessage::new(
-            dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())),
-            RequestType::Ehlo,
-            MINION_SID.to_string(),
-        );
-
-        log::info!("Ehlo on {}", cfg.master());
-        request(stream, r.sendable()?).await;
-        Ok(())
-    }
-
-    pub async fn send_registration(
-        stream: Arc<Mutex<OwnedWriteHalf>>, cfg: MinionConfig, pbk_pem: String,
-    ) -> Result<(), SysinspectError> {
-        let r =
-            MinionMessage::new(dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())), RequestType::Add, pbk_pem);
-
-        log::info!("Registration request to {}", cfg.master());
-        request(stream, r.sendable()?).await;
-        Ok(())
     }
 
     /// Get message
