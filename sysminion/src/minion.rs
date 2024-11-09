@@ -204,8 +204,8 @@ impl SysMinion {
                         return Err(SysinspectError::MinionGeneralError(format!("{}", err)));
                     }
                 },
-                reqwest::StatusCode::NOT_FOUND => return Err(SysinspectError::MinionGeneralError(format!("File not found"))),
-                _ => return Err(SysinspectError::MinionGeneralError(format!("Unknown status"))),
+                reqwest::StatusCode::NOT_FOUND => return Err(SysinspectError::MinionGeneralError("File not found".to_string())),
+                _ => return Err(SysinspectError::MinionGeneralError("Unknown status".to_string())),
             })
         }
         tokio::spawn(async move {
