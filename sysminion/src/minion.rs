@@ -45,7 +45,7 @@ impl SysMinion {
     }
 
     pub fn as_ptr(self: &Arc<Self>) -> Arc<Self> {
-        Arc::clone(&self)
+        Arc::clone(self)
     }
 
     /// Talk-back to the master
