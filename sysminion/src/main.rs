@@ -7,7 +7,7 @@ mod traits;
 use clidef::cli;
 use libsysinspect::logger;
 use log::LevelFilter;
-use std::{env, path::PathBuf};
+use std::env;
 
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.0.1";
