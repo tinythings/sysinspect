@@ -14,7 +14,10 @@ pub struct MinionConfig {
     master_ip: String,
 
     #[serde(rename = "master.port")]
-    master_port: u32,
+    master_port: Option<u32>,
+
+    #[serde(rename = "master.fileserver.port")]
+    master_fileserver_port: Option<u32>,
 }
 
 impl MinionConfig {
@@ -33,7 +36,12 @@ impl MinionConfig {
 
     /// Return master addr
     pub fn master(&self) -> String {
-        format!("{}:{}", self.master_ip, self.master_port)
+        format!("{}:{}", self.master_ip, self.master_port.unwrap_or(DEFAULT_PORT))
+    }
+
+    /// Return master fileserver addr
+    pub fn fileserver(&self) -> String {
+        format!("{}:{}", self.master_ip, self.master_fileserver_port.unwrap_or(DEFAULT_FILESERVER_PORT))
     }
 }
 

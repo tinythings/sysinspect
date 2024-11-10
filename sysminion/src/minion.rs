@@ -187,10 +187,9 @@ impl SysMinion {
     }
 
     /// Download a file from master
-    async fn download_file(self: Arc<Self>, url: String, fname: String) {
+    async fn download_file(self: Arc<Self>, fname: String) {
         async fn fetch_file(url: &str, filename: &str) -> Result<String, SysinspectError> {
-            let url = format!("{}/{}", url.strip_suffix("/").unwrap_or_default(), filename);
-            let rsp = match reqwest::get(&url).await {
+            let rsp = match reqwest::get(format!("http://{}/{}", url, filename)).await {
                 Ok(rsp) => rsp,
                 Err(err) => {
                     return Err(SysinspectError::MinionGeneralError(format!("{}", err)));
@@ -208,8 +207,9 @@ impl SysMinion {
                 _ => return Err(SysinspectError::MinionGeneralError("Unknown status".to_string())),
             })
         }
+        let addr = self.cfg.fileserver();
         tokio::spawn(async move {
-            match fetch_file(&url, &fname).await {
+            match fetch_file(&addr, &fname).await {
                 Ok(data) => log::debug!("Result returned as {:#?}", data),
                 Err(err) => log::error!("{err}"),
             }
@@ -220,7 +220,9 @@ impl SysMinion {
 pub async fn minion(cfp: &str, fingerprint: Option<String>) -> Result<(), SysinspectError> {
     let minion = SysMinion::new(cfp, fingerprint).await?;
     minion.as_ptr().do_proto().await?;
-    // minion.as_ptr().download_file("http://127.0.0.1:4201".to_string(), "models/inherited/model.cfg".to_string()).await;
+
+    // Example downloading file
+    //minion.as_ptr().download_file("models/inherited/model.cfg".to_string()).await;
 
     // Messages
     if minion.fingerprint.is_some() {
