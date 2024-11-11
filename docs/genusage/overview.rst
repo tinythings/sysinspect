@@ -23,5 +23,5 @@ sections:
    :maxdepth: 2
 
    distributed_model
-   systrails
+   systraits
    targeting

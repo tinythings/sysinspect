@@ -1,0 +1,154 @@
+.. raw:: html
+
+   <style type="text/css">
+     span.underlined {
+       text-decoration: underline;
+     }
+     span.bolditalic {
+       font-weight: bold;
+       font-style: italic;
+     }
+   </style>
+
+.. role:: u
+   :class: underlined
+
+.. role:: bi
+   :class: bolditalic
+
+Targeting Entities
+==================
+
+.. note::
+
+    Entities are bound to the specific hardware, which is related to a specific minion.
+    This document explains how to target specific minions to complete entity description.
+
+General
+-------
+
+Sysinspect has a query mechanism where master can target remote minions by a specific
+criteria. Similarly, the Model itself can be called from different "entry points".
+
+**Checkbook**
+
+    A Checkbook is basically a list of "entry points" to a complex trees of entities,
+    essentially a group of entities that form a feature or a set of features to be checked.
+
+**Entities**
+
+    A regular Model entities. This type of entry is usually used to narrow down assessment
+    path.
+
+
+Checkbook query is using path-like tuples to target a feature (a group of entities etc)
+in the following format:
+
+.. code-block:: text
+    :caption: Query synopsis
+
+    "<model>/[entity]/[state] [traits query]"
+
+Since there can be many models, it is essential to select one, therefore a model Id is
+always required. If ``entity`` and/or ``state`` are not specified, they are defaulted to
+``$`` (all).
+
+.. code-block:: bash
+    :caption: Example of Model targeting
+
+    sysinspect "router/network/online"
+
+In the example above, a network is verified in a router only when it supposed to be online.
+Under the hood, omitted parts are translated to "all" (``$``). E.g. ``router/network`` is
+translated as ``router/network/$``, or Model name alone e.g. ``router`` is translated to
+``router/$/$`` etc.
+
+Traits query is separated with a space and essentially a list of possible traits with their
+values and logical operations. See :ref:`query_targeting` for more details.
+
+Using Traits
+------------
+
+Every minion, running on the system can be targeted with specific criterion, describing it.
+Each :bi:`minion` has a set of attributes, called :ref:`systraits`. They are used to identify
+and target minions directly or from the Model.
+
+.. warning::
+
+    Using dynamic or static traits strongly depends on the use case of the Model. In terms of
+    portability, even though static traits are "hard-coding" claims, they are stable to the
+    system architecture. Likewise dynamic traits are move flexible, but they can also be more
+    difficult to debug, when they clash with each other.
+
+
+.. _query_targeting:
+
+Query Targeting
+---------------
+
+Additionally, traits can be incorporated in the query. The main use of traits are
+within the model, but sometimes one needs to target only a specific entity that has scope
+exclusively bound to a specific minion. In the nutshell, the idea is to filter-out other
+irrelevant minions, carrying *similar* entities.
+
+Synopsis of the query is as following:
+
+.. code-block:: text
+    :caption: Query synopsis
+
+    <trait> <op> <trait> <op> <trait>...
+
+Query does not support grouping with `( ... )` parentheses and is read from left to right.
+Example:
+
+.. code-block:: bash
+
+    "system.os.vendor:Debian and system.os.arch:ARM64
+    or system.os.vendor:RHEL and system.os.arch:x86_64"
+
+The expression above is telling Sysinspect to target minions, those are:
+
+1. Running Linux Debian on ARM-64 architecture
+2. Running Linux RHEL on x86_64 architecture
+
+As it is very clear from the example above, the use of operators must be careful. Switch
+of them differently will cause different results. For example:
+
+.. code-block:: bash
+
+    "system.os.vendor:Debian or system.os.arch:ARM64
+    and system.os.vendor:RHEL or system.os.arch:x86_64"
+
+The expression above is telling Sysinspect to target minions, those are:
+
+1. Running Linux Debian
+2. Running Linux RHEL on x86_64 architecture
+3. Running on ARM-64 architecture
+
+
+Distributed Entity
+------------------
+
+.. warning::
+
+    ⚠️ Planned feature for future releases, not implemented yet.
+
+Some entities can be distributed across different boxes. For example, "Backup over WiFi"
+may involve a router, a WiFi antennae online and a storage with all disks in the RAID online.
+However, Sysinspect can query that feature directly by its label.
+
+The following synopsis of the distributed entity notation in Checkbook:
+
+.. code-block:: text
+
+    <feature-label>:
+      <group-label>: <query>
+
+For example, the use case of "Backup over WiFi" would be expressed the following way:
+
+.. code-block:: yaml
+
+    backup_over_wifi:
+      - antennae: 'status:online and freq_ghz:5' # Use of custom traits via functions
+      - raid: 'system.os.vendor:Debian and net.hostname:storage.local'
+      - router: 'system.os.mem:16GB and &raid' # References "raid" group by label
