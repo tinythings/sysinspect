@@ -4,6 +4,8 @@ Model Description
 .. note::
    Document explains the Model Definition and its components.
 
+.. _model_description:
+
 The Model is essentially a configuration of a system. It is written in YAML format,
 and it is following a specific expression schema and logic.
 

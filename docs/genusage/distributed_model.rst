@@ -16,6 +16,8 @@
 .. role:: bi
    :class: bolditalic
 
+.. _distributed_model:
+
 Distributed Model
 =================
 
@@ -87,6 +89,8 @@ mode.
 For this, an entity needs to match a minion by its traits, and claims are defined under
 the section, where traits are filtering (or selecting) :bi:`the relevant part` of the claims
 description in a declarative way.
+
+.. _splitting_claims:
 
 Splitting Claims
 ----------------
