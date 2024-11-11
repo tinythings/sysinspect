@@ -1680,6 +1680,8 @@ dependencies = [
  "nix",
  "once_cell",
  "pem",
+ "pest",
+ "pest_derive",
  "prettytable-rs",
  "rand",
  "regex",
@@ -2293,14 +2295,6 @@ dependencies = [
  "bitflags 2.6.0",
  "chrono",
  "hex",
-]
-
-[[package]]
-name = "qparse"
-version = "0.1.0"
-dependencies = [
- "pest",
- "pest_derive",
 ]
 
 [[package]]
