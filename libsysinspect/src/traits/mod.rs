@@ -1,8 +1,11 @@
 mod systraits;
-
 use once_cell::sync::Lazy;
+use pest::Parser;
+use pest_derive::Parser;
 use std::sync::Mutex;
 use systraits::SystemTraits;
+
+use crate::SysinspectError;
 
 /// Standard Traits
 pub static SYS_ID: &str = "system.id";
@@ -37,4 +40,45 @@ pub fn get_traits() -> SystemTraits {
     }
 
     SystemTraits::default()
+}
+
+#[derive(Parser)]
+#[grammar = "traits/traits_query.pest"]
+struct QueryParser;
+
+/// Parse a very simple traits query. It returns an array of OR arrays, containing AND values.
+/// Example:
+///
+///     "foo and bar or baz"
+///
+/// This yields to the following structure:
+///
+///     [[foo, bar], [baz]]
+///
+/// Each inner array should be treated with AND operator.
+pub fn get_traits_query(input: &str) -> Result<Vec<Vec<String>>, SysinspectError> {
+    let mut out = Vec::new();
+    let mut pairs = match QueryParser::parse(Rule::expression, input) {
+        Ok(prs) => prs,
+        Err(err) => return Err(SysinspectError::ModelDSLError(format!("Invalid query: {err}"))),
+    };
+
+    let expr = match pairs.next() {
+        Some(expr) => expr,
+        None => return Ok(out),
+    };
+
+    for grp in expr.into_inner() {
+        if grp.as_rule() == Rule::group {
+            let mut terms = Vec::new();
+            for t_pair in grp.into_inner() {
+                if t_pair.as_rule() == Rule::term {
+                    terms.push(t_pair.as_str().to_string());
+                }
+            }
+            out.push(terms);
+        }
+    }
+
+    Ok(out)
 }
