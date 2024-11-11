@@ -1,7 +1,8 @@
 pub mod msg {
-    use crate::{minion::MINION_SID, traits};
+    use crate::minion::MINION_SID;
     use libsysinspect::{
         proto::{rqtypes::RequestType, MinionMessage},
+        traits,
         util::dataconv,
     };
     use libsysinspect::{

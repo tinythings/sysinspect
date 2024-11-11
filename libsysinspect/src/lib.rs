@@ -16,6 +16,7 @@ pub mod modlib;
 pub mod proto;
 pub mod reactor;
 pub mod rsa;
+pub mod traits;
 pub mod util;
 
 #[derive(Debug)]

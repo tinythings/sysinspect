@@ -2,7 +2,6 @@ mod clidef;
 mod minion;
 mod proto;
 mod rsa;
-mod traits;
 
 use clidef::cli;
 use libsysinspect::logger;

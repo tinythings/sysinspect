@@ -1,8 +1,8 @@
-use crate::{proto, rsa::MinionRSAKeyManager, traits};
+use crate::{proto, rsa::MinionRSAKeyManager};
 use libsysinspect::{
     cfg::{self, mmconf::MinionConfig},
     proto::{errcodes::ProtoErrorCode, rqtypes::RequestType, MinionMessage, ProtoConversion},
-    rsa,
+    rsa, traits,
     util::dataconv,
     SysinspectError,
 };
