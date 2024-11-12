@@ -7,7 +7,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::Lazy;
-use std::{path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf, sync::Arc};
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncReadExt, sync::mpsc};
@@ -35,18 +35,49 @@ impl SysMinion {
 
         let cfg = MinionConfig::new(cfp)?;
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
-        Ok(Arc::new(SysMinion {
+        let instance = SysMinion {
             cfg: cfg.clone(),
             fingerprint,
             kman: MinionRSAKeyManager::new(cfg.root_dir())?,
             rstm: Arc::new(Mutex::new(rstm)),
             wstm: Arc::new(Mutex::new(wstm)),
-        }))
+        };
+        instance.init()?;
+
+        Ok(Arc::new(instance))
     }
 
     /// Initialise minion.
     /// This creates all directory structures if none etc.
     fn init(&self) -> Result<(), SysinspectError> {
+        log::info!("Initialising minion");
+        // Place for models
+        if !self.cfg.models_dir().exists() {
+            log::debug!(
+                "Creating directory for the models at {}",
+                self.cfg.models_dir().as_os_str().to_str().unwrap_or_default()
+            );
+            fs::create_dir_all(self.cfg.models_dir())?;
+        }
+
+        // Place for traits.d
+        if !self.cfg.traits_dir().exists() {
+            log::debug!(
+                "Creating directory for the drop-in traits at {}",
+                self.cfg.traits_dir().as_os_str().to_str().unwrap_or_default()
+            );
+            fs::create_dir_all(self.cfg.traits_dir())?;
+        }
+
+        // Place for trait functions
+        if !self.cfg.functions_dir().exists() {
+            log::debug!(
+                "Creating directory for the custom trait functions at {}",
+                self.cfg.functions_dir().as_os_str().to_str().unwrap_or_default()
+            );
+            fs::create_dir_all(self.cfg.functions_dir())?;
+        }
+
         Ok(())
     }
 
