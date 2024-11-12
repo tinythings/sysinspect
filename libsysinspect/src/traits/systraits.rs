@@ -8,7 +8,13 @@ use crate::{
 };
 use indexmap::IndexMap;
 use serde_json::{json, Value};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs::{self, metadata},
+    os::unix::fs::PermissionsExt,
+    path::PathBuf,
+    process::Command,
+};
 
 /// SystemTraits contains a key/value of a system properties.
 #[derive(Debug, Clone, Default)]
@@ -23,7 +29,13 @@ impl SystemTraits {
         let mut traits = SystemTraits { cfg, ..Default::default() };
         traits.get_system();
         traits.get_network();
-        traits.get_defined();
+        if let Err(err) = traits.get_defined() {
+            log::error!("Unable to load custom traits: {err}");
+        }
+
+        if let Err(err) = traits.get_functions() {
+            log::error!("Unable to load trait functions: {err}");
+        }
 
         traits
     }
@@ -70,7 +82,7 @@ impl SystemTraits {
 
     /// Read standard system traits
     fn get_system(&mut self) {
-        log::debug!("Reading system traits data");
+        log::info!("Loading system traits data");
         let system = sysinfo::System::new_all();
 
         // Common
@@ -118,7 +130,7 @@ impl SystemTraits {
 
     /// Load network data
     fn get_network(&mut self) {
-        log::debug!("Reading network traits data");
+        log::info!("Lading network traits data");
         let net = sysinfo::Networks::new_with_refreshed_list();
         for (ifs, data) in net.iter() {
             self.put(format!("system.net.{}.mac", ifs), json!(data.mac_address().to_string()));
@@ -131,7 +143,7 @@ impl SystemTraits {
 
     /// Read defined/configured static traits
     fn get_defined(&mut self) -> Result<(), SysinspectError> {
-        log::debug!("Reading custon static traits data");
+        log::debug!("Loading custom static traits data");
 
         for f in fs::read_dir(self.cfg.traits_dir())?.flatten() {
             let fname = f.file_name();
@@ -173,6 +185,58 @@ impl SystemTraits {
                 } else {
                     log::error!("Custom traits data is empty or in a wrong format");
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Load custom functions
+    fn get_functions(&mut self) -> Result<(), SysinspectError> {
+        log::info!("Loading trait functions");
+        for f in fs::read_dir(self.cfg.functions_dir())?.flatten() {
+            let fname = f.path();
+            let fname = fname.file_name().unwrap_or_default().to_str().unwrap_or_default();
+
+            log::info!("Calling function {fname}");
+
+            let is_exec = match fs::metadata(f.path()) {
+                Ok(m) => {
+                    #[cfg(unix)]
+                    {
+                        m.permissions().mode() & 0o111 != 0
+                    }
+                }
+                Err(_) => false,
+            };
+
+            if is_exec {
+                let out = Command::new(f.path()).output()?;
+                if out.status.success() {
+                    let data = Self::proxy_log_error(
+                        String::from_utf8(out.stdout),
+                        format!("Unable to load content from the function {}", fname).as_str(),
+                    );
+                    if data.is_none() {
+                        log::error!("Function {fname} returned no content");
+                        continue;
+                    }
+                    let data = data.unwrap_or_default();
+                    let data = Self::proxy_log_error(
+                        serde_json::from_str::<HashMap<String, serde_json::Value>>(&data),
+                        format!("Unable to parse JSON output from trait function at {fname}").as_str(),
+                    );
+                    if let Some(data) = data {
+                        for (k, v) in data {
+                            self.put(k, json!(v));
+                        }
+                    } else {
+                        log::error!("Custom traits data is empty or in a wrong format");
+                    }
+                } else {
+                    log::error!("Error running {fname}");
+                }
+            } else {
+                log::warn!("Function {fname} is not an executable, skipping");
             }
         }
         Ok(())
