@@ -8,6 +8,7 @@ use crate::{
 };
 use indexmap::IndexMap;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs::{self},
@@ -21,6 +22,7 @@ use std::{
 pub struct SystemTraits {
     data: IndexMap<String, Value>,
     cfg: MinionConfig,
+    checksum: String,
 }
 
 impl SystemTraits {
@@ -70,6 +72,21 @@ impl SystemTraits {
         items.sort();
 
         items
+    }
+
+    /// Return checksum of traits.
+    /// This is done by calculating checksum of the *keys*, as values can change on every restart,
+    /// e.g. IPv6 data, which is usually irrelevant or any other things that *meant* to change.
+    pub fn checksum(&mut self) -> String {
+        if !self.checksum.is_empty() {
+            return self.checksum.to_owned();
+        }
+
+        let mut keys = self.data.keys().map(|s| s.to_string()).collect::<Vec<String>>();
+        keys.sort();
+
+        self.checksum = format!("{:x}", Sha256::digest(keys.join("|").as_bytes()));
+        self.checksum.to_owned()
     }
 
     /// Proxypass the error logging
