@@ -1,17 +1,17 @@
 use actix_web::{rt::System, web, App, HttpResponse, HttpServer, Responder};
-use libsysinspect::{cfg::mmconf::MasterConfig, SysinspectError};
+use libsysinspect::{
+    cfg::mmconf::{MasterConfig, CFG_FILESERVER_ROOT, DEFAULT_SYSINSPECT_ROOT},
+    SysinspectError,
+};
 use std::{
     fs,
     path::{Path, PathBuf},
     thread,
 };
 
-use crate::registry::CFG_DEFAULT_ROOT;
-static FILESERVER_ROOT_DIR: &str = "data";
-
 // Separate handler on every HTTP call
 async fn serve_file(path: web::Path<PathBuf>, _cfg: web::Data<MasterConfig>) -> impl Responder {
-    let pth = Path::new(CFG_DEFAULT_ROOT).join(FILESERVER_ROOT_DIR).join(path.into_inner());
+    let pth = Path::new(DEFAULT_SYSINSPECT_ROOT).join(CFG_FILESERVER_ROOT).join(path.into_inner());
     log::debug!("Requested local file: {:?}", pth);
     if pth.is_file() {
         return HttpResponse::Ok().body(fs::read(pth).unwrap());

@@ -4,12 +4,11 @@ RSA keys manager
 
 use std::{fs, path::PathBuf};
 
-use libsysinspect::SysinspectError;
+use libsysinspect::{
+    cfg::mmconf::{CFG_MINION_RSA_PRV, CFG_MINION_RSA_PUB},
+    SysinspectError,
+};
 use rsa::{RsaPrivateKey, RsaPublicKey};
-
-static CFG_DEFAULT_MINION_ROOT: &str = "/etc/sysinspect";
-static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
-static CFG_MINION_RSA_PRV: &str = "minion.rsa";
 
 #[derive(Debug, Default, Clone)]
 pub struct MinionRSAKeyManager {
@@ -24,11 +23,8 @@ pub struct MinionRSAKeyManager {
 impl MinionRSAKeyManager {
     /// Initiate Minion's RSA key manager. Parameter `root` is
     /// optional, if configuration contains alternative Minion root.
-    pub fn new(root: Option<String>) -> Result<MinionRSAKeyManager, SysinspectError> {
-        let mut keyman = MinionRSAKeyManager {
-            root: PathBuf::from(root.unwrap_or(CFG_DEFAULT_MINION_ROOT.to_string())),
-            ..Default::default()
-        };
+    pub fn new(root: PathBuf) -> Result<MinionRSAKeyManager, SysinspectError> {
+        let mut keyman = MinionRSAKeyManager { root, ..Default::default() };
 
         keyman.setup()?;
         Ok(keyman)

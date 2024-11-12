@@ -11,12 +11,6 @@ use rec::MinionRecord;
 use serde_json::json;
 use sled::Db;
 
-pub static CFG_DEFAULT_ROOT: &str = "/etc/sysinspect";
-pub static CFG_DB: &str = "registry";
-pub static CFG_MINION_KEYS: &str = "minion-keys";
-pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
-pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
-
 pub struct MinionRegistry {
     conn: Db,
 }

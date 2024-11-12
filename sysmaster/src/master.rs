@@ -33,7 +33,7 @@ pub struct SysMaster {
 impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
-        let mkr = MinionsKeyRegistry::new()?;
+        let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
         Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: SessionKeeper::new(30) })
     }
 

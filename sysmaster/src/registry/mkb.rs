@@ -1,6 +1,8 @@
-use super::{CFG_DEFAULT_ROOT, CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB, CFG_MINION_KEYS};
 use ::rsa::{RsaPrivateKey, RsaPublicKey};
-use libsysinspect::{rsa, SysinspectError};
+use libsysinspect::{
+    cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB},
+    rsa, SysinspectError,
+};
 use std::{collections::HashMap, fs, path::PathBuf};
 
 /// Registered minion base.
@@ -19,9 +21,8 @@ pub struct MinionsKeyRegistry {
 }
 
 impl MinionsKeyRegistry {
-    pub fn new() -> Result<MinionsKeyRegistry, SysinspectError> {
-        let mut reg =
-            MinionsKeyRegistry { root: PathBuf::from(CFG_DEFAULT_ROOT).join(CFG_MINION_KEYS), ..MinionsKeyRegistry::default() };
+    pub fn new(root: PathBuf) -> Result<MinionsKeyRegistry, SysinspectError> {
+        let mut reg = MinionsKeyRegistry { root, ..MinionsKeyRegistry::default() };
         reg.setup()?;
 
         Ok(reg)

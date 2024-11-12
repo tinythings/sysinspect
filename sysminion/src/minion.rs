@@ -36,12 +36,18 @@ impl SysMinion {
         let cfg = MinionConfig::new(cfp)?;
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
         Ok(Arc::new(SysMinion {
-            cfg,
+            cfg: cfg.clone(),
             fingerprint,
-            kman: MinionRSAKeyManager::new(None)?,
+            kman: MinionRSAKeyManager::new(cfg.root_dir())?,
             rstm: Arc::new(Mutex::new(rstm)),
             wstm: Arc::new(Mutex::new(wstm)),
         }))
+    }
+
+    /// Initialise minion.
+    /// This creates all directory structures if none etc.
+    fn init(&self) -> Result<(), SysinspectError> {
+        Ok(())
     }
 
     pub fn as_ptr(self: &Arc<Self>) -> Arc<Self> {

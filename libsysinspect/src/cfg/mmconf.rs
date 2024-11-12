@@ -3,19 +3,37 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::{from_str, from_value, Value};
 use std::{fs, path::PathBuf};
 
-static DEFAULT_ADDR: &str = "0.0.0.0";
-static DEFAULT_PORT: u32 = 4200;
-static DEFAULT_FILESERVER_PORT: u32 = 4201;
-static DEFAULT_SOCKET: &str = "/var/run/sysinspect-master.socket";
+pub static DEFAULT_ADDR: &str = "0.0.0.0";
+pub static DEFAULT_PORT: u32 = 4200;
+pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
+pub static DEFAULT_SOCKET: &str = "/var/run/sysinspect-master.socket";
+pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
+
+pub static CFG_MINION_KEYS: &str = "minion-keys";
+pub static CFG_FILESERVER_ROOT: &str = "data"; // Relative to the sysinspect root
+pub static CFG_DEFAULT_ROOT: &str = "/etc/sysinspect";
+pub static CFG_DB: &str = "registry";
+
+pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
+pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
+pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
+pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MinionConfig {
+    /// Root directory where minion keeps all data.
+    /// Default: /etc/sysinspect — same as for master
+    root: Option<String>,
+
+    /// IP address of Master
     #[serde(rename = "master.ip")]
     master_ip: String,
 
+    /// Port of Master. Default: 4200
     #[serde(rename = "master.port")]
     master_port: Option<u32>,
 
+    /// Port of Master's fileserver. Default: 4201
     #[serde(rename = "master.fileserver.port")]
     master_fileserver_port: Option<u32>,
 }
@@ -42,6 +60,11 @@ impl MinionConfig {
     /// Return master fileserver addr
     pub fn fileserver(&self) -> String {
         format!("{}:{}", self.master_ip, self.master_fileserver_port.unwrap_or(DEFAULT_FILESERVER_PORT))
+    }
+
+    /// Get minion root directory
+    pub fn root_dir(&self) -> PathBuf {
+        PathBuf::from(self.root.clone().unwrap_or(DEFAULT_SYSINSPECT_ROOT.to_string()))
     }
 }
 
@@ -96,5 +119,20 @@ impl MasterConfig {
             self.fileserver_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()),
             self.fileserver_port.unwrap_or(DEFAULT_FILESERVER_PORT)
         )
+    }
+
+    /// Get default sysinspect root. For master it is always /etc/sysinspect
+    pub fn root_dir(&self) -> PathBuf {
+        PathBuf::from(DEFAULT_SYSINSPECT_ROOT.to_string())
+    }
+
+    /// Get fileserver root
+    pub fn fileserver_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_FILESERVER_ROOT)
+    }
+
+    /// Get minion keys store
+    pub fn keyman_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_MINION_KEYS)
     }
 }
