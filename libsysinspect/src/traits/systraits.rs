@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    fs::{self, metadata},
+    fs::{self},
     os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::Command,

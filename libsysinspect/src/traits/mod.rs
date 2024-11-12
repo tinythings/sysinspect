@@ -1,12 +1,8 @@
 pub mod systraits;
 
-use once_cell::sync::Lazy;
+use crate::SysinspectError;
 use pest::Parser;
 use pest_derive::Parser;
-use std::sync::Mutex;
-use systraits::SystemTraits;
-
-use crate::SysinspectError;
 
 /// Standard Traits
 pub static SYS_ID: &str = "system.id";
