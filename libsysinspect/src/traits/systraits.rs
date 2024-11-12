@@ -66,7 +66,10 @@ impl SystemTraits {
 
     /// Return known trait items
     pub fn items(&self) -> Vec<String> {
-        self.data.keys().map(|s| s.to_string()).collect::<Vec<String>>()
+        let mut items = self.data.keys().map(|s| s.to_string()).collect::<Vec<String>>();
+        items.sort();
+
+        items
     }
 
     /// Proxypass the error logging
