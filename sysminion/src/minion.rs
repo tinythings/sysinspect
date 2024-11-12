@@ -8,7 +8,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::{Lazy, OnceCell};
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf, sync::Arc, vec};
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncReadExt, sync::mpsc};
@@ -96,7 +96,11 @@ impl SysMinion {
             fs::create_dir_all(self.cfg.functions_dir())?;
         }
 
-        println!("Traits:\n{:#?}", get_minion_traits());
+        let mut out: Vec<String> = vec![];
+        for t in get_minion_traits().items() {
+            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(get_minion_traits().get(t)).unwrap_or_default()));
+        }
+        log::debug!("Minion traits:\n{}", out.join("\n"));
 
         Ok(())
     }
