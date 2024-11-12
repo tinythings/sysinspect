@@ -1,4 +1,5 @@
-mod systraits;
+pub mod systraits;
+
 use once_cell::sync::Lazy;
 use pest::Parser;
 use pest_derive::Parser;
@@ -22,25 +23,6 @@ pub static HW_CPU_BRAND: &str = "hardware.cpu.brand";
 pub static HW_CPU_FREQ: &str = "hardware.cpu.frequency";
 pub static HW_CPU_VENDOR: &str = "hardware.cpu.vendor";
 pub static HW_CPU_CORES: &str = "hardware.cpu.cores";
-
-/*
-Traits are system properties and attributes on which a minion is running.
-
-P.S. These are not Rust traits. :-)
- */
-
-/// System traits instance
-static TRAITS: Lazy<Mutex<SystemTraits>> = Lazy::new(|| Mutex::new(SystemTraits::new()));
-
-/// Returns a copy of initialised traits.
-pub fn get_traits() -> SystemTraits {
-    let traits = &TRAITS;
-    if let Ok(traits) = traits.lock() {
-        return traits.to_owned();
-    }
-
-    SystemTraits::default()
-}
 
 #[derive(Parser)]
 #[grammar = "traits/traits_query.pest"]

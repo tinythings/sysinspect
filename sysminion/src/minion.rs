@@ -2,11 +2,12 @@ use crate::{proto, rsa::MinionRSAKeyManager};
 use libsysinspect::{
     cfg::{self, mmconf::MinionConfig},
     proto::{errcodes::ProtoErrorCode, rqtypes::RequestType, MinionMessage, ProtoConversion},
-    rsa, traits,
+    rsa,
+    traits::{self, systraits::SystemTraits},
     util::dataconv,
     SysinspectError,
 };
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use std::{fs, path::PathBuf, sync::Arc};
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
@@ -16,6 +17,19 @@ use uuid::Uuid;
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
+/*
+Traits are system properties and attributes on which a minion is running.
+
+P.S. These are not Rust traits. :-)
+ */
+
+/// System traits instance
+static _TRAITS: OnceCell<SystemTraits> = OnceCell::new();
+
+/// Returns a copy of initialised traits.
+pub fn get_minion_traits() -> SystemTraits {
+    _TRAITS.get().expect("Traits are not initialised!?").to_owned()
+}
 
 pub struct SysMinion {
     cfg: MinionConfig,
@@ -34,6 +48,10 @@ impl SysMinion {
         }
 
         let cfg = MinionConfig::new(cfp)?;
+
+        // Init traits
+        _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone()));
+
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
         let instance = SysMinion {
             cfg: cfg.clone(),
@@ -77,6 +95,8 @@ impl SysMinion {
             );
             fs::create_dir_all(self.cfg.functions_dir())?;
         }
+
+        println!("Traits:\n{:#?}", get_minion_traits());
 
         Ok(())
     }
@@ -203,7 +223,7 @@ impl SysMinion {
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
         let r = MinionMessage::new(
-            dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())),
+            dataconv::as_str(get_minion_traits().get(traits::SYS_ID.to_string())),
             RequestType::Ehlo,
             MINION_SID.to_string(),
         );
@@ -216,7 +236,7 @@ impl SysMinion {
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
         let r =
-            MinionMessage::new(dataconv::as_str(traits::get_traits().get(traits::SYS_ID.to_string())), RequestType::Add, pbk_pem);
+            MinionMessage::new(dataconv::as_str(get_minion_traits().get(traits::SYS_ID.to_string())), RequestType::Add, pbk_pem);
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;

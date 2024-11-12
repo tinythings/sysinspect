@@ -1,24 +1,26 @@
-use indexmap::IndexMap;
-use once_cell::sync::Lazy;
-use serde_json::{json, Value};
-use std::{fs, path::PathBuf};
-use tokio::sync::Mutex;
-
-use crate::traits::{
-    HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME,
-    SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+use crate::{
+    cfg::mmconf::MinionConfig,
+    traits::{
+        HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME,
+        SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+    },
+    SysinspectError,
 };
+use indexmap::IndexMap;
+use serde_json::{json, Value};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 /// SystemTraits contains a key/value of a system properties.
 #[derive(Debug, Clone, Default)]
 pub struct SystemTraits {
     data: IndexMap<String, Value>,
+    cfg: MinionConfig,
 }
 
 impl SystemTraits {
-    pub fn new() -> SystemTraits {
+    pub fn new(cfg: MinionConfig) -> SystemTraits {
         log::debug!("Initialising system traits");
-        let mut traits = SystemTraits::default();
+        let mut traits = SystemTraits { cfg, ..Default::default() };
         traits.get_system();
         traits.get_network();
         traits.get_defined();
@@ -53,6 +55,17 @@ impl SystemTraits {
     /// Return known trait items
     pub fn items(&self) -> Vec<String> {
         self.data.keys().map(|s| s.to_string()).collect::<Vec<String>>()
+    }
+
+    /// Proxypass the error logging
+    fn proxy_log_error<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> Option<T> {
+        match result {
+            Ok(v) => Some(v),
+            Err(err) => {
+                log::error!("{}: {}", context, err);
+                None
+            }
+        }
     }
 
     /// Read standard system traits
@@ -117,14 +130,51 @@ impl SystemTraits {
     }
 
     /// Read defined/configured static traits
-    fn get_defined(&self) {
-        log::debug!("Reading custon static traits data")
+    fn get_defined(&mut self) -> Result<(), SysinspectError> {
+        log::debug!("Reading custon static traits data");
+
+        for f in fs::read_dir(self.cfg.traits_dir())?.flatten() {
+            let fname = f.file_name();
+            let fname = fname.to_str().unwrap_or_default();
+            if fname.ends_with(".cfg") {
+                let content = Self::proxy_log_error(
+                    fs::read_to_string(f.path()),
+                    format!("Unable to read custom trait file at {}", fname).as_str(),
+                )
+                .unwrap_or_default();
+
+                if content.is_empty() {
+                    continue;
+                }
+
+                let content: Option<serde_yaml::Value> =
+                    Self::proxy_log_error(serde_yaml::from_str(&content), "Custom trait file has broken YAML");
+
+                let content: Option<serde_json::Value> = content.as_ref().and_then(|v| {
+                    Self::proxy_log_error(serde_json::to_value(v), "Unable to convert existing YAML to JSON format")
+                });
+
+                if content.is_none() {
+                    log::error!("Unable to load custom traits from {}", f.file_name().to_str().unwrap_or_default());
+                    continue;
+                }
+
+                let content = content.as_ref().and_then(|v| {
+                    Self::proxy_log_error(
+                        serde_json::from_value::<HashMap<String, serde_json::Value>>(v.clone()),
+                        "Unable to parse JSON",
+                    )
+                });
+
+                if let Some(content) = content {
+                    for (k, v) in content {
+                        self.put(k, json!(v));
+                    }
+                } else {
+                    log::error!("Custom traits data is empty or in a wrong format");
+                }
+            }
+        }
+        Ok(())
     }
-}
-
-static _INSTANCE: Lazy<Mutex<SystemTraits>> = Lazy::new(|| Mutex::new(SystemTraits::new()));
-
-/// Get traits
-pub async fn get_traits() -> &'static Mutex<SystemTraits> {
-    &_INSTANCE
 }
