@@ -3,17 +3,24 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::{from_str, from_value, Value};
 use std::{fs, path::PathBuf};
 
+// Network
 pub static DEFAULT_ADDR: &str = "0.0.0.0";
 pub static DEFAULT_PORT: u32 = 4200;
 pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
+
+// Default directories
 pub static DEFAULT_SOCKET: &str = "/var/run/sysinspect-master.socket";
 pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
 
+// All directories are relative to the sysinspect root
 pub static CFG_MINION_KEYS: &str = "minion-keys";
-pub static CFG_FILESERVER_ROOT: &str = "data"; // Relative to the sysinspect root
-pub static CFG_DEFAULT_ROOT: &str = "/etc/sysinspect";
+pub static CFG_FILESERVER_ROOT: &str = "data";
+pub static CFG_MODELS_ROOT: &str = "models";
+pub static CFG_TRAITS_ROOT: &str = "traits";
+pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 pub static CFG_DB: &str = "registry";
 
+// Key names
 pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
 pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
@@ -65,6 +72,20 @@ impl MinionConfig {
     /// Get minion root directory
     pub fn root_dir(&self) -> PathBuf {
         PathBuf::from(self.root.clone().unwrap_or(DEFAULT_SYSINSPECT_ROOT.to_string()))
+    }
+
+    /// Get root directory for models
+    pub fn models_dir(&self) -> PathBuf {
+        self.root_dir().join(CFG_MODELS_ROOT)
+    }
+    /// Get root directory for functions
+    pub fn functions_dir(&self) -> PathBuf {
+        self.root_dir().join(CFG_TRAIT_FUNCTIONS_ROOT)
+    }
+
+    /// Get root directory for drop-in traits
+    pub fn traits_dir(&self) -> PathBuf {
+        self.root_dir().join(CFG_TRAITS_ROOT)
     }
 }
 
