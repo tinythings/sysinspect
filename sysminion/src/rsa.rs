@@ -2,13 +2,12 @@
 RSA keys manager
  */
 
-use std::{fs, path::PathBuf};
-
 use libsysinspect::{
     cfg::mmconf::{CFG_MINION_RSA_PRV, CFG_MINION_RSA_PUB},
     SysinspectError,
 };
 use rsa::{RsaPrivateKey, RsaPublicKey};
+use std::{fs, path::PathBuf};
 
 #[derive(Debug, Default, Clone)]
 pub struct MinionRSAKeyManager {
