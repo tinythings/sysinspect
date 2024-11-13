@@ -2,6 +2,7 @@ use crate::{
     dataserv::fls,
     registry::{
         mkb::MinionsKeyRegistry,
+        mreg::MinionRegistry,
         session::{self, SessionKeeper},
     },
 };
@@ -10,7 +11,11 @@ use libsysinspect::{
     proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
@@ -26,6 +31,7 @@ pub struct SysMaster {
     cfg: MasterConfig,
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
+    mreg: MinionRegistry,
     to_drop: HashSet<String>,
     session: session::SessionKeeper,
 }
@@ -34,7 +40,8 @@ impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: SessionKeeper::new(30) })
+        let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: SessionKeeper::new(30), mreg })
     }
 
     /// Open FIFO socket for command-line communication
@@ -84,6 +91,17 @@ impl SysMaster {
     /// Get Minion key registry
     fn mkr(&mut self) -> &mut MinionsKeyRegistry {
         &mut self.mkr
+    }
+
+    /// Request minion to sync its traits
+    fn msg_request_traits(&mut self, mid: String, sid: String) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::Traits, sid);
+        let mut tgt = MinionTarget::new();
+        tgt.add_minion_id(mid);
+        m.add_target(tgt);
+        m.set_retcode(ProtoErrorCode::Success);
+
+        m
     }
 
     /// Already connected
@@ -178,6 +196,9 @@ impl SysMaster {
                                     } else {
                                         log::info!("{} connected successfully", c_id);
                                         guard.session.ping(&c_id, &c_payload);
+                                        _ = c_bcast
+                                            .send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
+                                        log::info!("Syncing traits with minion at {}", c_id);
                                     }
                                 });
                             }
@@ -197,6 +218,17 @@ impl SysMaster {
                                     );
                                 });
                             }
+
+                            RequestType::Traits => {
+                                log::debug!("Syncing traits from {}", req.id());
+                                let c_master = Arc::clone(&master);
+                                let c_id = req.id().to_string();
+                                let c_payload = req.payload().to_string();
+                                tokio::spawn(async move {
+                                    let mut guard = c_master.lock().await;
+                                    guard.on_traits(c_id, c_payload).await;
+                                });
+                            }
                             _ => {
                                 log::error!("Minion sends unknown request type");
                             }
@@ -207,6 +239,21 @@ impl SysMaster {
                 }
             }
         });
+    }
+
+    pub async fn on_traits(&mut self, mid: String, payload: String) {
+        let traits = serde_json::from_str::<HashMap<String, serde_json::Value>>(&payload).unwrap_or_default();
+        if !traits.is_empty() {
+            if let Err(err) = self.mreg.refresh(&mid, traits) {
+                log::error!("Unable to sync traits: {err}");
+            } else {
+                log::info!("Traits added");
+            }
+        }
+        //self.mreg.add(&mid, mrec);
+        //let x = serde_json::to_vec(&traits).unwrap_or_default();
+        //let y = serde_json::from_slice::<HashMap<String, serde_json::Value>>(&x).unwrap();
+        //println!("{:#?}", y);
     }
 
     pub async fn do_fifo(master: Arc<Mutex<Self>>) {

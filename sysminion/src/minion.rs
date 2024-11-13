@@ -109,6 +109,11 @@ impl SysMinion {
         Arc::clone(self)
     }
 
+    /// Get current minion Id
+    fn get_minion_id(&self) -> String {
+        dataconv::as_str(get_minion_traits().get(traits::SYS_ID.to_string()))
+    }
+
     /// Talk-back to the master
     async fn request(&self, msg: Vec<u8>) {
         let mut stm = self.wstm.lock().await;
@@ -200,6 +205,9 @@ impl SysMinion {
                     }
                     RequestType::Traits => {
                         log::debug!("Master requests traits");
+                        if let Err(err) = cls.as_ptr().send_traits().await {
+                            log::error!("Unable to send traits: {err}");
+                        }
                     }
                     RequestType::AgentUnknown => {
                         let pbk_pem = msg.payload(); // Expected PEM RSA pub key
@@ -224,13 +232,21 @@ impl SysMinion {
         Ok(())
     }
 
+    pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
+        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, get_minion_traits().to_json_string()?);
+        r.set_sid(MINION_SID.to_string());
+        self.request(r.sendable().unwrap()).await; // XXX: make a better error handling for Tokio
+        Ok(())
+    }
+
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let r = MinionMessage::new(
+        let mut r = MinionMessage::new(
             dataconv::as_str(get_minion_traits().get(traits::SYS_ID.to_string())),
             RequestType::Ehlo,
             MINION_SID.to_string(),
         );
+        r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
         self.request(r.sendable()?).await;

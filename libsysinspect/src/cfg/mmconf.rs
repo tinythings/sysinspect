@@ -14,6 +14,7 @@ pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
 
 // All directories are relative to the sysinspect root
 pub static CFG_MINION_KEYS: &str = "minion-keys";
+pub static CFG_MINION_REGISTRY: &str = "minion-registry";
 pub static CFG_FILESERVER_ROOT: &str = "data";
 pub static CFG_MODELS_ROOT: &str = "models";
 pub static CFG_TRAITS_ROOT: &str = "traits";
@@ -155,5 +156,10 @@ impl MasterConfig {
     /// Get minion keys store
     pub fn keyman_root(&self) -> PathBuf {
         self.root_dir().join(CFG_MINION_KEYS)
+    }
+
+    /// Get minion registry
+    pub fn minion_registry_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_MINION_REGISTRY)
     }
 }

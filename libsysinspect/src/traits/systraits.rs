@@ -261,4 +261,9 @@ impl SystemTraits {
         }
         Ok(())
     }
+
+    /// Convert the data to the JSON body
+    pub fn to_json_string(&self) -> Result<String, SysinspectError> {
+        Ok(serde_json::to_string(&json!(self.data))?)
+    }
 }

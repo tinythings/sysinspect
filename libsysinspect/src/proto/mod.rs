@@ -68,6 +68,7 @@ impl MasterMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinionMessage {
     id: String,
+    sid: String, // Temporary session Id
 
     #[serde(rename = "r")]
     request: RequestType,
@@ -82,7 +83,7 @@ pub struct MinionMessage {
 impl MinionMessage {
     /// Message constructor
     pub fn new(id: String, rtype: RequestType, data: String) -> MinionMessage {
-        MinionMessage { id, request: rtype, data, retcode: ProtoErrorCode::Undef as usize }
+        MinionMessage { id, request: rtype, data, retcode: ProtoErrorCode::Undef as usize, sid: "".to_string() }
     }
 
     /// Set return code
@@ -101,6 +102,11 @@ impl MinionMessage {
             5 => ProtoErrorCode::AlreadyConnected,
             _ => ProtoErrorCode::Unknown,
         }
+    }
+
+    /// Set Session Id
+    pub fn set_sid(&mut self, sid: String) {
+        self.sid = sid
     }
 
     /// Request type
