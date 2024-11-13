@@ -1,4 +1,4 @@
-use std::{collections::HashMap, default};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -16,7 +16,7 @@ impl MinionRecord {
 
     /// Check if the record matches the value
     pub fn matches(&self, attr: &str, v: Value) -> bool {
-        self.traits.get(attr).and_then(|f| Some(f.eq(&v))).unwrap_or(false)
+        self.traits.get(attr).map(|f| f.eq(&v)).unwrap_or(false)
     }
 
     pub fn get_traits(&self) -> &HashMap<String, Value> {
