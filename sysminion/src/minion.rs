@@ -136,18 +136,6 @@ impl SysMinion {
         }
     }
 
-    /*
-    pub async fn do_qmsg(self: Arc<Self>) {
-        let (_w_chan, mut r_chan) = mpsc::channel(100);
-        let cls = Arc::new(self.clone());
-        tokio::spawn(async move {
-            while let Some(msg) = r_chan.recv().await {
-                cls.request(msg).await;
-            }
-        });
-    }
-    */
-
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
         let rstm = Arc::clone(&self.rstm);
         let cls = Arc::new(self.clone());
