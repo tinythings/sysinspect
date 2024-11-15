@@ -112,7 +112,7 @@ impl SysMinion {
 
     /// Get current minion Id
     fn get_minion_id(&self) -> String {
-        dataconv::as_str(get_minion_traits().get(&traits::SYS_ID.to_string()))
+        dataconv::as_str(get_minion_traits().get(traits::SYS_ID))
     }
 
     /// Talk-back to the master
@@ -236,7 +236,7 @@ impl SysMinion {
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
         let mut r = MinionMessage::new(
-            dataconv::as_str(get_minion_traits().get(&traits::SYS_ID.to_string())),
+            dataconv::as_str(get_minion_traits().get(traits::SYS_ID)),
             RequestType::Ehlo,
             MINION_SID.to_string(),
         );
@@ -249,8 +249,7 @@ impl SysMinion {
 
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
-        let r =
-            MinionMessage::new(dataconv::as_str(get_minion_traits().get(&traits::SYS_ID.to_string())), RequestType::Add, pbk_pem);
+        let r = MinionMessage::new(dataconv::as_str(get_minion_traits().get(traits::SYS_ID)), RequestType::Add, pbk_pem);
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
@@ -303,7 +302,7 @@ impl SysMinion {
             let hostname = dataconv::as_str(traits.get("system.hostname"));
             if !hostname.is_empty() {
                 for hq in tgt.hostnames() {
-                    if let Ok(hq) = glob::Pattern::new(&hq) {
+                    if let Ok(hq) = glob::Pattern::new(hq) {
                         if hq.matches(&hostname) {
                             skip = false;
                             break;
