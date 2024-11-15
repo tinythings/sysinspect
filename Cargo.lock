@@ -2977,7 +2977,6 @@ dependencies = [
  "libsysinspect",
  "log",
  "rand",
- "regex",
  "rsa",
  "rustls",
  "rustls-pemfile",
