@@ -48,17 +48,17 @@ impl SystemTraits {
     }
 
     /// Get a trait value in JSON
-    pub fn get(&self, path: String) -> Option<Value> {
-        self.data.get(&path).cloned()
+    pub fn get(&self, path: &str) -> Option<Value> {
+        self.data.get(path).cloned()
     }
 
     /// Check if trait is present
-    pub fn has(&self, path: String) -> bool {
+    pub fn has(&self, path: &str) -> bool {
         self.get(path).is_some()
     }
 
     /// Check if trait matches the requested value.
-    pub fn matches(&self, path: String, v: Value) -> bool {
+    pub fn matches(&self, path: &str, v: Value) -> bool {
         if let Some(t) = self.get(path) {
             return t.eq(&v);
         }

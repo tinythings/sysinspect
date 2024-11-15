@@ -1,13 +1,14 @@
 use crate::{proto, rsa::MinionRSAKeyManager};
 use libsysinspect::{
     cfg::{self, mmconf::MinionConfig},
-    proto::{errcodes::ProtoErrorCode, rqtypes::RequestType, MinionMessage, ProtoConversion},
+    proto::{errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, ProtoConversion},
     rsa,
     traits::{self, systraits::SystemTraits},
     util::dataconv,
     SysinspectError,
 };
 use once_cell::sync::{Lazy, OnceCell};
+use regex::Regex;
 use std::{fs, path::PathBuf, sync::Arc, vec};
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
@@ -98,7 +99,7 @@ impl SysMinion {
 
         let mut out: Vec<String> = vec![];
         for t in get_minion_traits().items() {
-            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(get_minion_traits().get(t)).unwrap_or_default()));
+            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(get_minion_traits().get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
 
@@ -111,7 +112,7 @@ impl SysMinion {
 
     /// Get current minion Id
     fn get_minion_id(&self) -> String {
-        dataconv::as_str(get_minion_traits().get(traits::SYS_ID.to_string()))
+        dataconv::as_str(get_minion_traits().get(&traits::SYS_ID.to_string()))
     }
 
     /// Talk-back to the master
@@ -242,7 +243,7 @@ impl SysMinion {
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
         let mut r = MinionMessage::new(
-            dataconv::as_str(get_minion_traits().get(traits::SYS_ID.to_string())),
+            dataconv::as_str(get_minion_traits().get(&traits::SYS_ID.to_string())),
             RequestType::Ehlo,
             MINION_SID.to_string(),
         );
@@ -256,7 +257,7 @@ impl SysMinion {
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
         let r =
-            MinionMessage::new(dataconv::as_str(get_minion_traits().get(traits::SYS_ID.to_string())), RequestType::Add, pbk_pem);
+            MinionMessage::new(dataconv::as_str(get_minion_traits().get(&traits::SYS_ID.to_string())), RequestType::Add, pbk_pem);
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
