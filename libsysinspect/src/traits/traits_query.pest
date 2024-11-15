@@ -1,12 +1,11 @@
-// src/query.pest
-
-// Define silent whitespace rule to skip over spaces and tabs
 WHITESPACE = _{ " " | "\t" }
 
-// Define a term as one or more alphanumeric characters
-term = @{ ASCII_ALPHANUMERIC+ }
+// Define a term as one or more alphanumeric characters, or a quoted value
+term = { key ~ ":" ~ value }
+key = @{ (ASCII_ALPHANUMERIC | "-" | "_" | ".")+ }
+value = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ | quoted_value }
+quoted_value = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 
-// Define "and" and "or" operators as silent rules
 and_op = _{ "and" }
 or_op = _{ "or" }
 
