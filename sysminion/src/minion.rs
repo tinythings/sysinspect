@@ -195,6 +195,9 @@ impl SysMinion {
                     RequestType::Command => {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
+                            ProtoErrorCode::Success => {
+                                cls.as_ptr().dispatch_command(msg.to_owned()).await;
+                            }
                             ProtoErrorCode::AlreadyConnected => {
                                 if MINION_SID.eq(msg.payload()) {
                                     log::error!("Another minion from this machine is already connected");
@@ -294,6 +297,83 @@ impl SysMinion {
                 Err(err) => log::error!("{err}"),
             }
         });
+    }
+
+    async fn dispatch_command(self: Arc<Self>, cmd: MasterMessage) {
+        log::debug!("Dispatching message");
+        let tgt = cmd.get_target();
+
+        // Is command minion-specific?
+        if !tgt.id().is_empty() && tgt.id().ne(&self.get_minion_id()) {
+            log::trace!("Command was dropped as it was specifically addressed for another minion");
+            return;
+        } else if tgt.id().is_empty() {
+            let traits = get_minion_traits();
+
+            // Is matching this host?
+            let mut skip = true;
+            let hostname = dataconv::as_str(traits.get("system.hostname"));
+            if !hostname.is_empty() {
+                for hq in tgt.hostnames() {
+                    if let Ok(hq) = glob::Pattern::new(&hq) {
+                        if hq.matches(&hostname) {
+                            skip = false;
+                            break;
+                        }
+                    }
+                }
+                if skip {
+                    log::trace!("Command was dropped as it is specifically targeting different hosts");
+                    return;
+                }
+            }
+
+            // Can match the host, but might not match by traits.
+            // For example, web* can match "webschool.com" or "webshop.com",
+            // but traits for those hosts might be different.
+            let tq = tgt.traits_query();
+            if !tq.is_empty() {
+                match traits::parse_traits_query(tq) {
+                    Ok(q) => {
+                        match traits::to_typed_query(q) {
+                            Ok(tpq) => {
+                                println!("Typed query:\n{:#?}", tpq);
+                                log::debug!("Traits query matches: {:?}", traits::matches_traits(tpq, get_minion_traits()));
+                            }
+                            Err(e) => log::error!("{e}"),
+                        };
+                    }
+                    Err(e) => log::error!("{e}"),
+                };
+            }
+        } // else: this minion is directly targeted by its Id.
+        log::debug!("Dispatched");
+    }
+
+    /// Process query
+    /// Query consists of:
+    ///
+    /// 1. Model or state path, starting with the schema (`model://` or `state://` respectively)
+    /// 2. Traits query (string)
+    ///
+    /// The query is parsed on the minion side
+    fn get_query(q: &str) -> Option<(String, String)> {
+        // XXX: This is for the minion, not master
+        let q = q.trim();
+
+        if !q.starts_with("model://") && !q.starts_with("state://") {
+            return None;
+        }
+
+        if !q.contains(" ") {
+            return Some((q.to_string(), "".to_string()));
+        }
+
+        let mut tkn = q.splitn(2, |c| c == ' ');
+        let pth = tkn.next()?.trim();
+        let trt = tkn.next()?.trim();
+
+        Some((pth.to_string(), Regex::new(r"[ \t]+").unwrap().replace_all(trt, " ").to_string()))
     }
 }
 

@@ -11,6 +11,7 @@ use libsysinspect::{
     proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };
+use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -93,12 +94,32 @@ impl SysMaster {
         &mut self.mkr
     }
 
+    fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+        let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
+
+        if let [scheme, query, traits] = query.as_slice() {
+            let mut tgt = MinionTarget::default();
+            tgt.set_scheme(scheme);
+            tgt.set_traits_query(traits);
+            for hostname in query.split(",") {
+                tgt.add_hostname(hostname);
+            }
+
+            let mut m = MasterMessage::new(RequestType::Command, "SID or something".to_string());
+            m.set_target(tgt);
+            m.set_retcode(ProtoErrorCode::Success);
+
+            return Some(m);
+        }
+
+        None
+    }
+
     /// Request minion to sync its traits
     fn msg_request_traits(&mut self, mid: String, sid: String) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::Traits, sid);
-        let mut tgt = MinionTarget::new();
-        tgt.add_minion_id(mid);
-        m.add_target(tgt);
+        let mut m = MasterMessage::new(RequestType::Traits, sid.clone());
+        let mut tgt = MinionTarget::new(&mid, &sid);
+        m.set_target(tgt);
         m.set_retcode(ProtoErrorCode::Success);
 
         m
@@ -106,10 +127,8 @@ impl SysMaster {
 
     /// Already connected
     fn msg_already_connected(&mut self, mid: String, sid: String) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::Command, sid);
-        let mut tgt = MinionTarget::new();
-        tgt.add_minion_id(mid);
-        m.add_target(tgt);
+        let mut m = MasterMessage::new(RequestType::Command, sid.clone());
+        m.set_target(MinionTarget::new(&mid, &sid));
         m.set_retcode(ProtoErrorCode::AlreadyConnected);
 
         m
@@ -118,9 +137,7 @@ impl SysMaster {
     /// Bounce message
     fn msg_not_registered(&mut self, mid: String) -> MasterMessage {
         let mut m = MasterMessage::new(RequestType::AgentUnknown, self.mkr().get_master_key_pem().clone().unwrap().to_string());
-        let mut tgt = MinionTarget::new();
-        tgt.add_minion_id(mid);
-        m.add_target(tgt);
+        m.set_target(MinionTarget::new(&mid, ""));
         m.set_retcode(ProtoErrorCode::Success);
 
         m
@@ -129,9 +146,7 @@ impl SysMaster {
     /// Accept registration
     fn msg_registered(&self, mid: String, msg: &str) -> MasterMessage {
         let mut m = MasterMessage::new(RequestType::Reconnect, msg.to_string()); // XXX: Should it be already encrypted?
-        let mut tgt = MinionTarget::new();
-        tgt.add_minion_id(mid);
-        m.add_target(tgt);
+        m.set_target(MinionTarget::new(&mid, ""));
         m.set_retcode(ProtoErrorCode::Success);
 
         m
@@ -250,10 +265,6 @@ impl SysMaster {
                 log::info!("Traits added");
             }
         }
-        //self.mreg.add(&mid, mrec);
-        //let x = serde_json::to_vec(&traits).unwrap_or_default();
-        //let y = serde_json::from_slice::<HashMap<String, serde_json::Value>>(&x).unwrap();
-        //println!("{:#?}", y);
     }
 
     pub async fn do_fifo(master: Arc<Mutex<Self>>) {
@@ -271,9 +282,12 @@ impl SysMaster {
                             select! {
                                 line = lines.next_line() => {
                                     match line {
-                                        Ok(Some(message)) => {
-                                            log::info!("Broadcasting FIFO message to clients: {}", message);
-                                            let _ = bcast.send(message.into_bytes());
+                                        Ok(Some(payload)) => {
+                                            log::info!("Querying minions: {}", payload);
+                                            if let Some(msg) = master.lock().await.msg_query(&payload) {
+                                                log::debug!("{:#?}", msg);
+                                                let _ = bcast.send(msg.sendable().unwrap());
+                                            }
                                         }
                                         Ok(None) => break, // End of file, re-open the FIFO
                                         Err(e) => {
@@ -301,9 +315,9 @@ impl SysMaster {
             loop {
                 _ = time::sleep(Duration::from_secs(5)).await;
                 let mut p = MasterMessage::new(RequestType::Ping, "".to_string());
-                let mut t = MinionTarget::new();
+                let mut t = MinionTarget::default();
                 t.add_hostname("*");
-                p.add_target(t);
+                p.set_target(t);
                 let _ = bcast.send(p.sendable().unwrap());
             }
         });
