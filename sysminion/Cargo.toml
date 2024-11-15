@@ -32,3 +32,5 @@ sysinfo = { version = "0.32.0", features = ["linux-tmpfs"] }
 rsa = { version = "0.9.6", features = ["pkcs5", "sha1", "sha2"] }
 uuid = { version = "1.11.0", features = ["v4"] }
 reqwest = "0.12.9"
+regex = "1.11.1"
+glob = "0.3.1"
