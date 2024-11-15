@@ -10,9 +10,9 @@ use libsysinspect::{
 use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
 use std::{fs, path::PathBuf, sync::Arc, vec};
+use tokio::io::AsyncReadExt;
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
-use tokio::{io::AsyncReadExt, sync::mpsc};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
 use uuid::Uuid;
 
@@ -356,7 +356,7 @@ impl SysMinion {
             return Some((q.to_string(), "".to_string()));
         }
 
-        let mut tkn = q.splitn(2, |c| c == ' ');
+        let mut tkn = q.splitn(2, ' ');
         let pth = tkn.next()?.trim();
         let trt = tkn.next()?.trim();
 

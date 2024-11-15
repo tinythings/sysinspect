@@ -5,14 +5,12 @@ use crate::SysinspectError;
 use errcodes::ProtoErrorCode;
 use rqtypes::RequestType;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
 
 /// Master message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasterMessage {
     #[serde(rename = "t")]
-    target: Vec<MinionTarget>,
+    target: MinionTarget,
 
     #[serde(rename = "r")]
     request: RequestType,
@@ -27,12 +25,12 @@ pub struct MasterMessage {
 impl MasterMessage {
     /// Master message constructor
     pub fn new(rtype: RequestType, data: String) -> MasterMessage {
-        MasterMessage { target: vec![], request: rtype, data, retcode: ProtoErrorCode::Undef as usize }
+        MasterMessage { target: Default::default(), request: rtype, data, retcode: ProtoErrorCode::Undef as usize }
     }
 
     /// Add a target.
-    pub fn add_target(&mut self, t: MinionTarget) {
-        self.target.push(t);
+    pub fn set_target(&mut self, t: MinionTarget) {
+        self.target = t;
     }
 
     /// Set return code
@@ -61,6 +59,11 @@ impl MasterMessage {
     /// Get payload
     pub fn payload(&self) -> &str {
         &self.data
+    }
+
+    /// Get targeting means
+    pub fn get_target(&self) -> &MinionTarget {
+        &self.target
     }
 }
 
@@ -129,34 +132,58 @@ impl MinionMessage {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MinionTarget {
     /// List of minion Ids
-    id: Vec<String>,
+    id: String,
 
-    /// List of a collection of traits
-    #[serde(rename = "t")]
-    traits: HashMap<String, Value>,
+    /// Session Id
+    sid: String, // XXX: Should be gone
+
+    /// Scheme to call (model:// or state://)
+    #[serde(rename = "s")]
+    scheme: String,
+
+    /// Traits query that needs to be parsed at Minion
+    #[serde(rename = "qt")]
+    traits_query: String,
 
     #[serde(rename = "h")]
     hostnames: Vec<String>,
 }
 
 impl MinionTarget {
-    pub fn new() -> MinionTarget {
-        MinionTarget::default()
-    }
-
-    /// Add target id
-    pub fn add_minion_id(&mut self, id: String) {
-        self.id.push(id);
-    }
-
-    /// Add targeting trait
-    pub fn add_trait(&mut self, tid: String, v: Value) {
-        self.traits.insert(tid, v);
+    pub fn new(mid: &str, sid: &str) -> MinionTarget {
+        MinionTarget { id: mid.to_string(), sid: sid.to_string(), ..Default::default() }
     }
 
     /// Add hostnames
     pub fn add_hostname(&mut self, hostname: &str) {
         self.hostnames.push(hostname.to_string());
+    }
+
+    pub fn id(&self) -> &String {
+        &self.id
+    }
+
+    pub fn sid(&self) -> &String {
+        &self.sid
+    }
+
+    pub fn hostnames(&self) -> &Vec<String> {
+        &self.hostnames
+    }
+
+    /// Set scheme
+    pub fn set_scheme(&mut self, scheme: &str) {
+        self.scheme = scheme.to_string();
+    }
+
+    /// Set traits query
+    pub fn set_traits_query(&mut self, traits: &str) {
+        self.traits_query = traits.to_string();
+    }
+
+    /// Traits query itself.
+    pub fn traits_query(&self) -> &String {
+        &self.traits_query
     }
 }
 

@@ -87,7 +87,7 @@ pub fn matches_traits(qt: Vec<Vec<HashMap<String, Value>>>, traits: SystemTraits
         for ophm in and_op {
             // op hashmap has always just one key and one value
             for (opk, opv) in ophm {
-                and_op_c.push(traits.get(&opk).and_then(|x| Some(x.eq(&opv))).unwrap_or(false));
+                and_op_c.push(traits.get(&opk).map(|x| x.eq(&opv)).unwrap_or(false));
             }
         }
         or_op_c.push(!and_op_c.contains(&false));

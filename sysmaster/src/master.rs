@@ -11,7 +11,6 @@ use libsysinspect::{
     proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };
-use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -118,7 +117,7 @@ impl SysMaster {
     /// Request minion to sync its traits
     fn msg_request_traits(&mut self, mid: String, sid: String) -> MasterMessage {
         let mut m = MasterMessage::new(RequestType::Traits, sid.clone());
-        let mut tgt = MinionTarget::new(&mid, &sid);
+        let tgt = MinionTarget::new(&mid, &sid);
         m.set_target(tgt);
         m.set_retcode(ProtoErrorCode::Success);
 
