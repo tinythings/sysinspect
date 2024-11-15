@@ -26,10 +26,11 @@ fn print_event_handlers() {
 }
 
 /// Call master via FIFO
-fn call_master_fifo(msg: &str, fifo: &str) -> Result<(), SysinspectError> {
-    OpenOptions::new().write(true).open(fifo)?.write_all(format!("{}\n", msg).as_bytes())?;
+fn call_master_fifo(model: &str, query: &str, traits: Option<&String>, fifo: &str) -> Result<(), SysinspectError> {
+    let payload = format!("{model};{query};{}\n", traits.unwrap_or(&"".to_string()));
+    OpenOptions::new().write(true).open(fifo)?.write_all(payload.as_bytes())?;
 
-    log::debug!("Message sent to FIFO: {}", msg);
+    log::debug!("Message sent to the master via FIFO: {:?}", payload);
     Ok(())
 }
 
@@ -95,8 +96,10 @@ fn main() {
         }
     };
 
-    if let Some(query) = params.get_one::<String>("query") {
-        if let Err(err) = call_master_fifo(query, &cfg.socket()) {
+    if let Some(model) = params.get_one::<String>("scheme") {
+        let query = params.get_one::<String>("query");
+        let traits = params.get_one::<String>("traits");
+        if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {

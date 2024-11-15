@@ -20,10 +20,16 @@ pub fn cli(version: &'static str) -> Command {
         // Sysinspect
         .next_help_heading("Main")
         .arg(
-            Arg::new("query")
-                .help("Network query")
+            Arg::new("scheme")
+                .help("Specify scheme that needs to be requested (model:// or state://)")
                 .required(false)
                 .index(1)
+        )
+        .arg(
+            Arg::new("query")
+                .help("Minions to query")
+                .required(false)
+                .index(2)
         )
         .arg(
             Arg::new("traits")
