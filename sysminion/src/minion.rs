@@ -207,8 +207,8 @@ impl SysMinion {
                         }
                     }
                     RequestType::AgentUnknown => {
-                        let pbk_pem = msg.payload(); // Expected PEM RSA pub key
-                        let (_, pbk) = rsa::keys::from_pem(None, Some(pbk_pem)).unwrap();
+                        let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
+                        let (_, pbk) = rsa::keys::from_pem(None, Some(&pbk_pem)).unwrap();
                         let fpt = rsa::keys::get_fingerprint(&pbk.unwrap()).unwrap();
 
                         log::error!("Minion is not registered");
@@ -341,7 +341,6 @@ impl SysMinion {
         } // else: this minion is directly targeted by its Id.
 
         // Valid?
-        cmd.
 
         log::debug!("Dispatched");
         log::trace!("Command:\n{:#?}", cmd);

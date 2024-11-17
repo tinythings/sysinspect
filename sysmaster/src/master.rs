@@ -11,6 +11,7 @@ use libsysinspect::{
     proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
     SysinspectError,
 };
+use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -104,7 +105,7 @@ impl SysMaster {
                 tgt.add_hostname(hostname);
             }
 
-            let mut m = MasterMessage::new(RequestType::Command, "SID or something".to_string());
+            let mut m = MasterMessage::new(RequestType::Command, json!("SID or something"));
             m.set_target(tgt);
             m.set_retcode(ProtoErrorCode::Success);
 
@@ -116,7 +117,7 @@ impl SysMaster {
 
     /// Request minion to sync its traits
     fn msg_request_traits(&mut self, mid: String, sid: String) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::Traits, sid.clone());
+        let mut m = MasterMessage::new(RequestType::Traits, json!(sid));
         let tgt = MinionTarget::new(&mid, &sid);
         m.set_target(tgt);
         m.set_retcode(ProtoErrorCode::Success);
@@ -126,7 +127,7 @@ impl SysMaster {
 
     /// Already connected
     fn msg_already_connected(&mut self, mid: String, sid: String) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::Command, sid.clone());
+        let mut m = MasterMessage::new(RequestType::Command, json!(sid));
         m.set_target(MinionTarget::new(&mid, &sid));
         m.set_retcode(ProtoErrorCode::AlreadyConnected);
 
@@ -135,7 +136,8 @@ impl SysMaster {
 
     /// Bounce message
     fn msg_not_registered(&mut self, mid: String) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::AgentUnknown, self.mkr().get_master_key_pem().clone().unwrap().to_string());
+        let mut m =
+            MasterMessage::new(RequestType::AgentUnknown, json!(self.mkr().get_master_key_pem().clone().unwrap().to_string()));
         m.set_target(MinionTarget::new(&mid, ""));
         m.set_retcode(ProtoErrorCode::Success);
 
@@ -144,7 +146,7 @@ impl SysMaster {
 
     /// Accept registration
     fn msg_registered(&self, mid: String, msg: &str) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::Reconnect, msg.to_string()); // XXX: Should it be already encrypted?
+        let mut m = MasterMessage::new(RequestType::Reconnect, json!(msg)); // XXX: Should it be already encrypted?
         m.set_target(MinionTarget::new(&mid, ""));
         m.set_retcode(ProtoErrorCode::Success);
 
@@ -313,7 +315,7 @@ impl SysMaster {
         tokio::spawn(async move {
             loop {
                 _ = time::sleep(Duration::from_secs(5)).await;
-                let mut p = MasterMessage::new(RequestType::Ping, "".to_string());
+                let mut p = MasterMessage::new(RequestType::Ping, json!(""));
                 let mut t = MinionTarget::default();
                 t.add_hostname("*");
                 p.set_target(t);

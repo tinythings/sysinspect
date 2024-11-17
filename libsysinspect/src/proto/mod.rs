@@ -5,6 +5,7 @@ use crate::SysinspectError;
 use errcodes::ProtoErrorCode;
 use rqtypes::RequestType;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 
 /// Master message
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,7 +17,7 @@ pub struct MasterMessage {
     request: RequestType,
 
     #[serde(rename = "d")]
-    data: String,
+    data: Value,
 
     #[serde(rename = "c")]
     retcode: usize,
@@ -24,7 +25,7 @@ pub struct MasterMessage {
 
 impl MasterMessage {
     /// Master message constructor
-    pub fn new(rtype: RequestType, data: String) -> MasterMessage {
+    pub fn new(rtype: RequestType, data: Value) -> MasterMessage {
         MasterMessage { target: Default::default(), request: rtype, data, retcode: ProtoErrorCode::Undef as usize }
     }
 
@@ -57,7 +58,7 @@ impl MasterMessage {
     }
 
     /// Get payload
-    pub fn payload(&self) -> &str {
+    pub fn payload(&self) -> &Value {
         &self.data
     }
 
