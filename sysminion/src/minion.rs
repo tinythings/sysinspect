@@ -184,7 +184,10 @@ impl SysMinion {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
-                                cls.as_ptr().dispatch_command(msg.to_owned()).await;
+                                let cls = cls.as_ptr().clone();
+                                tokio::spawn(async move {
+                                    cls.dispatch_command(msg.to_owned()).await;
+                                });
                             }
                             ProtoErrorCode::AlreadyConnected => {
                                 if MINION_SID.eq(msg.payload()) {
@@ -324,8 +327,10 @@ impl SysMinion {
                     Ok(q) => {
                         match traits::to_typed_query(q) {
                             Ok(tpq) => {
-                                println!("Typed query:\n{:#?}", tpq);
-                                log::debug!("Traits query matches: {:?}", traits::matches_traits(tpq, get_minion_traits()));
+                                if !traits::matches_traits(tpq, get_minion_traits()) {
+                                    log::trace!("Command was dropped as it does not match the traits");
+                                    return;
+                                }
                             }
                             Err(e) => log::error!("{e}"),
                         };
@@ -334,7 +339,12 @@ impl SysMinion {
                 };
             }
         } // else: this minion is directly targeted by its Id.
+
+        // Valid?
+        cmd.
+
         log::debug!("Dispatched");
+        log::trace!("Command:\n{:#?}", cmd);
     }
 
     /// Process query
