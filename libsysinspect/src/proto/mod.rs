@@ -1,4 +1,5 @@
 pub mod errcodes;
+pub mod payload;
 pub mod rqtypes;
 
 use crate::SysinspectError;
@@ -170,6 +171,11 @@ impl MinionTarget {
 
     pub fn hostnames(&self) -> &Vec<String> {
         &self.hostnames
+    }
+
+    /// Get scheme
+    pub fn scheme(&self) -> &String {
+        &self.scheme
     }
 
     /// Set scheme

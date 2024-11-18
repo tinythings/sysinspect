@@ -1,14 +1,18 @@
-use crate::{proto, rsa::MinionRSAKeyManager};
+use crate::{filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use libsysinspect::{
     cfg::{self, mmconf::MinionConfig},
-    proto::{errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, ProtoConversion},
+    proto::{
+        errcodes::ProtoErrorCode,
+        payload::{ModStatePayload, PayloadType},
+        rqtypes::RequestType,
+        MasterMessage, MinionMessage, ProtoConversion,
+    },
     rsa,
     traits::{self, systraits::SystemTraits},
     util::dataconv,
     SysinspectError,
 };
 use once_cell::sync::{Lazy, OnceCell};
-use regex::Regex;
 use std::{fs, path::PathBuf, sync::Arc, vec};
 use tokio::io::AsyncReadExt;
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
@@ -39,6 +43,8 @@ pub struct SysMinion {
 
     rstm: Arc<Mutex<OwnedReadHalf>>,
     wstm: Arc<Mutex<OwnedWriteHalf>>,
+
+    filedata: Mutex<MinionFiledata>,
 }
 
 impl SysMinion {
@@ -60,6 +66,7 @@ impl SysMinion {
             kman: MinionRSAKeyManager::new(cfg.root_dir())?,
             rstm: Arc::new(Mutex::new(rstm)),
             wstm: Arc::new(Mutex::new(wstm)),
+            filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
         };
         instance.init()?;
 
@@ -164,7 +171,7 @@ impl SysMinion {
                     }
                 };
 
-                log::trace!("Received: {:?}", msg);
+                log::trace!("Received: {:#?}", msg);
 
                 match msg.req_type() {
                     RequestType::Add => {
@@ -186,7 +193,7 @@ impl SysMinion {
                             ProtoErrorCode::Success => {
                                 let cls = cls.as_ptr().clone();
                                 tokio::spawn(async move {
-                                    cls.dispatch_command(msg.to_owned()).await;
+                                    cls.dispatch(msg.to_owned()).await;
                                 });
                             }
                             ProtoErrorCode::AlreadyConnected => {
@@ -260,12 +267,13 @@ impl SysMinion {
     }
 
     /// Download a file from master
-    async fn download_file(self: Arc<Self>, fname: String) {
+    async fn download_file(self: Arc<Self>, fname: &str) -> Result<Vec<u8>, SysinspectError> {
         async fn fetch_file(url: &str, filename: &str) -> Result<String, SysinspectError> {
-            let rsp = match reqwest::get(format!("http://{}/{}", url, filename)).await {
+            let url = format!("http://{}/{}", url.trim_end_matches('/'), filename.to_string().trim_start_matches('/'));
+            let rsp = match reqwest::get(url.to_owned()).await {
                 Ok(rsp) => rsp,
                 Err(err) => {
-                    return Err(SysinspectError::MinionGeneralError(format!("{}", err)));
+                    return Err(SysinspectError::MinionGeneralError(format!("Unable to get file at {url}: {err}")));
                 }
             };
 
@@ -273,7 +281,7 @@ impl SysMinion {
                 reqwest::StatusCode::OK => match rsp.text().await {
                     Ok(data) => data,
                     Err(err) => {
-                        return Err(SysinspectError::MinionGeneralError(format!("{}", err)));
+                        return Err(SysinspectError::MinionGeneralError(format!("Unable to get text from the file: {}", err)));
                     }
                 },
                 reqwest::StatusCode::NOT_FOUND => return Err(SysinspectError::MinionGeneralError("File not found".to_string())),
@@ -281,15 +289,80 @@ impl SysMinion {
             })
         }
         let addr = self.cfg.fileserver();
-        tokio::spawn(async move {
+        let fname = fname.to_string();
+        let h = tokio::spawn(async move {
             match fetch_file(&addr, &fname).await {
-                Ok(data) => log::debug!("Result returned as {:#?}", data),
-                Err(err) => log::error!("{err}"),
+                Ok(data) => {
+                    log::debug!("Filename: {fname} contains {} bytes", data.len());
+                    Some(data.into_bytes())
+                }
+                Err(err) => {
+                    log::error!("Error while downloading file {fname}: {err}");
+                    None
+                }
             }
         });
+
+        if let Ok(Some(data)) = h.await {
+            return Ok(data);
+        }
+
+        Err(SysinspectError::MinionGeneralError("File was not downloaded".to_string()))
     }
 
-    async fn dispatch_command(self: Arc<Self>, cmd: MasterMessage) {
+    /// Launch sysinspect
+    async fn launch_sysinspect(self: Arc<Self>, msp: &ModStatePayload) {
+        // TODO: Now dispatch sysinspect!
+        //
+        // 1. [ ] Check if files are there, if not download them
+        // 2. [ ] Render the DSL according to the traits
+        // 3. [ ] Run the model
+        // 4. [ ] Collect the output and send back
+
+        // Check if all files are there.
+        let cls = Arc::new(self);
+        let mut dirty = false;
+        for (uri_file, fcs) in msp.files() {
+            let dst = cls
+                .cfg
+                .models_dir()
+                .join(uri_file.trim_start_matches(&format!("/{}", msp.models_root())).strip_prefix("/").unwrap_or_default());
+
+            if cls.as_ptr().filedata.lock().await.check_sha256(uri_file.to_owned(), fcs.to_owned(), true) {
+                continue;
+            }
+            log::debug!("File {uri_file} has different checksum");
+
+            match cls.as_ptr().download_file(uri_file).await {
+                Ok(data) => {
+                    let dst_dir = dst.parent().unwrap();
+                    if !dst_dir.exists() {
+                        log::debug!("Creating directory: {:?}", dst_dir);
+                        if let Err(err) = fs::create_dir_all(dst_dir) {
+                            log::error!("Unable to create directories for model download: {err}");
+                            return;
+                        }
+                    }
+
+                    log::debug!("Saving URI {uri_file} as {:?}", dst_dir);
+                    if let Err(err) = fs::write(dst.to_owned(), data) {
+                        log::error!("Unable to save downloaded file to {:?}: {err}", dst);
+                        return;
+                    }
+                    dirty = true;
+                }
+                Err(_) => todo!(),
+            }
+        }
+
+        if dirty {
+            cls.as_ptr().filedata.lock().await.init();
+        }
+
+        log::warn!("Launching sysinspect. Does it work?");
+    }
+
+    async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
         log::debug!("Dispatching message");
         let tgt = cmd.get_target();
 
@@ -340,36 +413,19 @@ impl SysMinion {
             }
         } // else: this minion is directly targeted by its Id.
 
-        // Valid?
-
-        log::debug!("Dispatched");
-        log::trace!("Command:\n{:#?}", cmd);
-    }
-
-    /// Process query
-    /// Query consists of:
-    ///
-    /// 1. Model or state path, starting with the schema (`model://` or `state://` respectively)
-    /// 2. Traits query (string)
-    ///
-    /// The query is parsed on the minion side
-    fn get_query(q: &str) -> Option<(String, String)> {
-        // XXX: This is for the minion, not master
-        let q = q.trim();
-
-        if !q.starts_with("model://") && !q.starts_with("state://") {
-            return None;
+        match PayloadType::try_from(cmd.payload().clone()) {
+            Ok(PayloadType::ModelOrStatement(pld)) => {
+                self.launch_sysinspect(&pld).await;
+                log::debug!("Command dispatched");
+                log::trace!("Command payload: {:#?}", pld);
+            }
+            Ok(PayloadType::Undef(pld)) => {
+                log::error!("Unknown command: {:#?}", pld);
+            }
+            Err(err) => {
+                log::error!("Error dispatching command: {err}");
+            }
         }
-
-        if !q.contains(" ") {
-            return Some((q.to_string(), "".to_string()));
-        }
-
-        let mut tkn = q.splitn(2, ' ');
-        let pth = tkn.next()?.trim();
-        let trt = tkn.next()?.trim();
-
-        Some((pth.to_string(), Regex::new(r"[ \t]+").unwrap().replace_all(trt, " ").to_string()))
     }
 }
 

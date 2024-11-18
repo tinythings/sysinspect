@@ -104,10 +104,18 @@ pub struct MasterConfig {
     socket: Option<String>,
 
     #[serde(rename = "fileserver.bind.ip")]
-    fileserver_ip: Option<String>,
+    fsr_ip: Option<String>,
 
     #[serde(rename = "fileserver.bind.port")]
-    fileserver_port: Option<u32>,
+    fsr_port: Option<u32>,
+
+    // Exported models path root on the fileserver
+    #[serde(rename = "fileserver.models.root")]
+    fsr_models_root: String,
+
+    // Exported models on the fileserver
+    #[serde(rename = "fileserver.models")]
+    fsr_models: Vec<String>,
 }
 
 impl MasterConfig {
@@ -138,19 +146,34 @@ impl MasterConfig {
     pub fn fileserver_bind_addr(&self) -> String {
         format!(
             "{}:{}",
-            self.fileserver_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()),
-            self.fileserver_port.unwrap_or(DEFAULT_FILESERVER_PORT)
+            self.fsr_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()),
+            self.fsr_port.unwrap_or(DEFAULT_FILESERVER_PORT)
         )
     }
 
-    /// Get default sysinspect root. For master it is always /etc/sysinspect
-    pub fn root_dir(&self) -> PathBuf {
-        PathBuf::from(DEFAULT_SYSINSPECT_ROOT.to_string())
+    /// Get a list of exported models from the fileserver
+    pub fn fileserver_models(&self) -> &Vec<String> {
+        &self.fsr_models
     }
 
     /// Get fileserver root
     pub fn fileserver_root(&self) -> PathBuf {
         self.root_dir().join(CFG_FILESERVER_ROOT)
+    }
+
+    /// Get models root on the fileserver
+    pub fn fileserver_mdl_root(&self, alone: bool) -> PathBuf {
+        let mr = PathBuf::from(&self.fsr_models_root.strip_prefix("/").unwrap_or_default());
+        if alone {
+            mr
+        } else {
+            self.fileserver_root().join(mr)
+        }
+    }
+
+    /// Get default sysinspect root. For master it is always /etc/sysinspect
+    pub fn root_dir(&self) -> PathBuf {
+        PathBuf::from(DEFAULT_SYSINSPECT_ROOT.to_string())
     }
 
     /// Get minion keys store

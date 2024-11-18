@@ -8,9 +8,14 @@ use crate::{
 };
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
-    proto::{self, errcodes::ProtoErrorCode, rqtypes::RequestType, MasterMessage, MinionMessage, MinionTarget, ProtoConversion},
+    mdescr::distr::model_files,
+    proto::{
+        self, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType, MasterMessage, MinionMessage,
+        MinionTarget, ProtoConversion,
+    },
     SysinspectError,
 };
+use rustls::crypto::hash::Hash;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -94,6 +99,7 @@ impl SysMaster {
         &mut self.mkr
     }
 
+    /// Construct a Command message to the minion
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
@@ -105,11 +111,28 @@ impl SysMaster {
                 tgt.add_hostname(hostname);
             }
 
-            let mut m = MasterMessage::new(RequestType::Command, json!("SID or something"));
-            m.set_target(tgt);
-            m.set_retcode(ProtoErrorCode::Success);
+            // Collect downloadable model(s) files
+            let mut out: HashMap<String, String> = HashMap::default();
+            for em in self.cfg.fileserver_models() {
+                for (n, cs) in model_files(self.cfg.fileserver_mdl_root(false).join(&em)) {
+                    out.insert(
+                        format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()),
+                        cs,
+                    );
+                }
+            }
 
-            return Some(m);
+            let mut msg = MasterMessage::new(
+                RequestType::Command,
+                json!(ModStatePayload::new("12345".to_string())
+                    .set_uri(scheme.to_string())
+                    .add_files(out)
+                    .set_models_root(self.cfg.fileserver_mdl_root(true).to_str().unwrap_or_default())), // TODO: SID part
+            );
+            msg.set_target(tgt);
+            msg.set_retcode(ProtoErrorCode::Success);
+
+            return Some(msg);
         }
 
         None
@@ -286,7 +309,6 @@ impl SysMaster {
                                         Ok(Some(payload)) => {
                                             log::info!("Querying minions: {}", payload);
                                             if let Some(msg) = master.lock().await.msg_query(&payload) {
-                                                log::debug!("{:#?}", msg);
                                                 let _ = bcast.send(msg.sendable().unwrap());
                                             }
                                         }

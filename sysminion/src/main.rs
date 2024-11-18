@@ -1,4 +1,5 @@
 mod clidef;
+mod filedata;
 mod minion;
 mod proto;
 mod rsa;

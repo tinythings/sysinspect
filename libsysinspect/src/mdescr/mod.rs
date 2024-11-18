@@ -1,4 +1,5 @@
 pub mod datapatch;
+pub mod distr;
 pub mod mspec;
 pub mod mspecdef;
 

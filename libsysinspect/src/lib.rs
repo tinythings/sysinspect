@@ -110,6 +110,6 @@ impl From<Box<dyn Error>> for SysinspectError {
 
 impl From<Box<dyn Error + Send + Sync>> for SysinspectError {
     fn from(err: Box<dyn Error + Send + Sync>) -> SysinspectError {
-        SysinspectError::AsynDynError(err)
+        SysinspectError::DynError(err)
     }
 }
