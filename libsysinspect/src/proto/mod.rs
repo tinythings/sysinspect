@@ -1,5 +1,6 @@
 pub mod errcodes;
 pub mod payload;
+pub mod query;
 pub mod rqtypes;
 
 use crate::SysinspectError;
