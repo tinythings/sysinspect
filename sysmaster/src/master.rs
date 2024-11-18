@@ -8,11 +8,12 @@ use crate::{
 };
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
-    mdescr::distr::model_files,
+    mdescr::mspec::MODEL_FILE_EXT,
     proto::{
         self, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType, MasterMessage, MinionMessage,
         MinionTarget, ProtoConversion,
     },
+    util::iofs::scan_files_sha256,
     SysinspectError,
 };
 use serde_json::json;
@@ -113,7 +114,7 @@ impl SysMaster {
             // Collect downloadable model(s) files
             let mut out: HashMap<String, String> = HashMap::default();
             for em in self.cfg.fileserver_models() {
-                for (n, cs) in model_files(self.cfg.fileserver_mdl_root(false).join(em)) {
+                for (n, cs) in scan_files_sha256(self.cfg.fileserver_mdl_root(false).join(em), Some(MODEL_FILE_EXT)) {
                     out.insert(
                         format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()),
                         cs,
