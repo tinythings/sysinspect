@@ -314,7 +314,7 @@ impl SysMinion {
     async fn launch_sysinspect(self: Arc<Self>, msp: &ModStatePayload) {
         // TODO: Now dispatch sysinspect!
         //
-        // 1. [ ] Check if files are there, if not download them
+        // 1. [x] Check if files are there, if not download them
         // 2. [ ] Render the DSL according to the traits
         // 3. [ ] Run the model
         // 4. [ ] Collect the output and send back
@@ -359,7 +359,8 @@ impl SysMinion {
             cls.as_ptr().filedata.lock().await.init();
         }
 
-        log::warn!("Launching sysinspect. Does it work?");
+        log::debug!("Launching model for sysinspect");
+        // TODO: launch sysinspect here
     }
 
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
