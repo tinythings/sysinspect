@@ -15,7 +15,6 @@ use libsysinspect::{
     },
     SysinspectError,
 };
-use rustls::crypto::hash::Hash;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -114,7 +113,7 @@ impl SysMaster {
             // Collect downloadable model(s) files
             let mut out: HashMap<String, String> = HashMap::default();
             for em in self.cfg.fileserver_models() {
-                for (n, cs) in model_files(self.cfg.fileserver_mdl_root(false).join(&em)) {
+                for (n, cs) in model_files(self.cfg.fileserver_mdl_root(false).join(em)) {
                     out.insert(
                         format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()),
                         cs,
