@@ -1675,6 +1675,7 @@ dependencies = [
  "base64",
  "chrono",
  "colored",
+ "hex",
  "indexmap",
  "lazy_static",
  "log",
