@@ -4,10 +4,9 @@
 Payload types and their deserialisation.
 */
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
+use std::collections::HashMap;
 
 /// Payload types
 pub enum PayloadType {
