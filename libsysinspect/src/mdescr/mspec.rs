@@ -66,7 +66,6 @@ impl SpecLoader {
     fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
         if chunks.is_empty() {
             return Err(SysinspectError::ModelMultipleIndex("No data found".to_string()));
-            // XXX: Add one more exception
         }
 
         let mut base = chunks.remove(0);
