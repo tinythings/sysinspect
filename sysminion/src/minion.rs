@@ -345,7 +345,7 @@ impl SysMinion {
                     }
 
                     log::debug!("Saving URI {uri_file} as {:?}", dst_dir);
-                    if let Err(err) = fs::write(dst.to_owned(), data) {
+                    if let Err(err) = fs::write(&dst, data) {
                         log::error!("Unable to save downloaded file to {:?}: {err}", dst);
                         return;
                     }
