@@ -311,7 +311,7 @@ impl SysMinion {
     }
 
     /// Launch sysinspect
-    async fn launch_sysinspect(self: Arc<Self>, msp: &ModStatePayload) {
+    async fn launch_sysinspect(self: Arc<Self>, scheme: &str, msp: &ModStatePayload) {
         // TODO: Now dispatch sysinspect!
         //
         // 1. [x] Check if files are there, if not download them
@@ -319,7 +319,7 @@ impl SysMinion {
         // 3. [ ] Run the model
         // 4. [ ] Collect the output and send back
 
-        // Check if all files are there.
+        // Auto-sync all data files
         let cls = Arc::new(self);
         let mut dirty = false;
         for (uri_file, fcs) in msp.files() {
@@ -359,7 +359,7 @@ impl SysMinion {
             cls.as_ptr().filedata.lock().await.init();
         }
 
-        log::debug!("Launching model for sysinspect");
+        log::debug!("Launching model for sysinspect for: {scheme}");
         // TODO: launch sysinspect here
     }
 
@@ -416,7 +416,7 @@ impl SysMinion {
 
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
-                self.launch_sysinspect(&pld).await;
+                self.launch_sysinspect(cmd.get_target().scheme(), &pld).await;
                 log::debug!("Command dispatched");
                 log::trace!("Command payload: {:#?}", pld);
             }
