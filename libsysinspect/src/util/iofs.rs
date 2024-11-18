@@ -31,7 +31,7 @@ pub fn get_file_sha256(pth: PathBuf) -> Result<String, SysinspectError> {
 /// Scan a given root for any file.
 /// Returns a `HashMap` with format `path` to `checksum`.
 pub fn scan_files_sha256(pth: PathBuf, ext: Option<&str>) -> HashMap<String, String> {
-    let ext = ext.and_then(|e| Some(e.trim_start_matches('.'))); // Just in case :)
+    let ext = ext.map(|e| e.trim_start_matches('.')); // Just in case :)
     WalkDir::new(&pth)
         .into_iter()
         .filter_map(|entry| {
