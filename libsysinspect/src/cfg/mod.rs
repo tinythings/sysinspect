@@ -10,6 +10,7 @@ use std::{env, path::PathBuf};
 
 pub const APP_CONF: &str = "sysinspect.conf";
 pub const APP_DOTCONF: &str = ".sysinspect";
+pub const APP_HOME: &str = "/etc/sysinspect";
 
 /// Select app conf
 pub fn select_config(p: Option<String>) -> Result<PathBuf, SysinspectError> {
@@ -42,7 +43,7 @@ pub fn select_config(p: Option<String>) -> Result<PathBuf, SysinspectError> {
     }
 
     // Global conf
-    let cfp = PathBuf::from(format!("/etc/{}", APP_CONF));
+    let cfp = PathBuf::from(format!("{APP_HOME}/{APP_CONF}"));
     if cfp.exists() {
         return Ok(cfp);
     }
