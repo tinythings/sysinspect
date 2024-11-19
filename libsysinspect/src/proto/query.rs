@@ -61,12 +61,12 @@ impl MinionQuery {
         &self.src
     }
 
-    pub fn entity(&self) -> Option<String> {
+    pub fn entities(&self) -> Vec<String> {
         if let Some(entity) = &self.entity {
-            return Some(entity.to_owned());
+            return entity.split(',').map(|s| s.to_string()).collect::<Vec<String>>();
         }
 
-        None
+        vec![]
     }
 
     pub fn state(&self) -> Option<String> {
