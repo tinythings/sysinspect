@@ -11,6 +11,7 @@ pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
 // Default directories
 pub static DEFAULT_SOCKET: &str = "/var/run/sysinspect-master.socket";
 pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
+pub static DEFAULT_MODULES_ROOT: &str = "/usr/share/sysinspect/modules";
 
 // All directories are relative to the sysinspect root
 pub static CFG_MINION_KEYS: &str = "minion-keys";
