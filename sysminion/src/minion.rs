@@ -1,9 +1,11 @@
 use crate::{filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use libsysinspect::{
     cfg::{self, mmconf::MinionConfig},
+    inspector::SysInspectRunner,
     proto::{
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
+        query::MinionQuery,
         rqtypes::RequestType,
         MasterMessage, MinionMessage, ProtoConversion,
     },
@@ -312,12 +314,14 @@ impl SysMinion {
 
     /// Launch sysinspect
     async fn launch_sysinspect(self: Arc<Self>, scheme: &str, msp: &ModStatePayload) {
-        // TODO: Now dispatch sysinspect!
-        //
-        // 1. [x] Check if files are there, if not download them
-        // 2. [ ] Render the DSL according to the traits
-        // 3. [ ] Run the model
-        // 4. [ ] Collect the output and send back
+        // Get the query first
+        let mqr = match MinionQuery::new(&scheme) {
+            Ok(mqr) => mqr,
+            Err(err) => {
+                log::error!("Query error: {err}");
+                return;
+            }
+        };
 
         // Auto-sync all data files
         let cls = Arc::new(self);
@@ -354,13 +358,22 @@ impl SysMinion {
                 Err(_) => todo!(),
             }
         }
-
         if dirty {
             cls.as_ptr().filedata.lock().await.init();
         }
 
+        // Render DSL
+
+        // Run the model
         log::debug!("Launching model for sysinspect for: {scheme}");
-        // TODO: launch sysinspect here
+        let mqr_l = mqr.lock().unwrap();
+        let mut sr = SysInspectRunner::new();
+        sr.set_model_path(cls.as_ptr().cfg.models_dir().join(mqr_l.target().to_string()).to_str().unwrap_or_default());
+        sr.set_state(mqr_l.state());
+        sr.set_entities(mqr_l.entities());
+        //sr.set_checkbook_labels(....);
+        sr.start();
+        log::debug!("Sysinspect model cycle finished");
     }
 
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
