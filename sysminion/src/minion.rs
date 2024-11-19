@@ -147,10 +147,8 @@ impl SysMinion {
 
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
         let rstm = Arc::clone(&self.rstm);
-        let cls = Arc::new(self.clone());
 
         tokio::spawn(async move {
-            //let mut input = BufReader::new(rstm.lock().await);
             loop {
                 let mut buff = [0u8; 4];
                 if let Err(e) = rstm.lock().await.read_exact(&mut buff).await {
@@ -193,7 +191,7 @@ impl SysMinion {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
-                                let cls = cls.as_ptr().clone();
+                                let cls = self.as_ptr().clone();
                                 tokio::spawn(async move {
                                     cls.dispatch(msg.to_owned()).await;
                                 });
@@ -211,7 +209,7 @@ impl SysMinion {
                     }
                     RequestType::Traits => {
                         log::debug!("Master requests traits");
-                        if let Err(err) = cls.as_ptr().send_traits().await {
+                        if let Err(err) = self.as_ptr().send_traits().await {
                             log::error!("Unable to send traits: {err}");
                         }
                     }
@@ -225,14 +223,12 @@ impl SysMinion {
                         std::process::exit(1);
                     }
                     RequestType::Ping => {
-                        cls.request(proto::msg::get_pong()).await;
+                        self.request(proto::msg::get_pong()).await;
                     }
                     _ => {
                         log::error!("Unknown request type");
                     }
                 }
-
-                //request(wtsm_c.clone(), response).await;
             }
         });
         Ok(())
@@ -315,7 +311,7 @@ impl SysMinion {
     /// Launch sysinspect
     async fn launch_sysinspect(self: Arc<Self>, scheme: &str, msp: &ModStatePayload) {
         // Get the query first
-        let mqr = match MinionQuery::new(&scheme) {
+        let mqr = match MinionQuery::new(scheme) {
             Ok(mqr) => mqr,
             Err(err) => {
                 log::error!("Query error: {err}");
@@ -324,20 +320,20 @@ impl SysMinion {
         };
 
         // Auto-sync all data files
-        let cls = Arc::new(self);
         let mut dirty = false;
         for (uri_file, fcs) in msp.files() {
-            let dst = cls
+            let dst = self
+                .as_ptr()
                 .cfg
                 .models_dir()
                 .join(uri_file.trim_start_matches(&format!("/{}", msp.models_root())).strip_prefix("/").unwrap_or_default());
 
-            if cls.as_ptr().filedata.lock().await.check_sha256(uri_file.to_owned(), fcs.to_owned(), true) {
+            if self.as_ptr().filedata.lock().await.check_sha256(uri_file.to_owned(), fcs.to_owned(), true) {
                 continue;
             }
             log::debug!("File {uri_file} has different checksum");
 
-            match cls.as_ptr().download_file(uri_file).await {
+            match self.as_ptr().download_file(uri_file).await {
                 Ok(data) => {
                     let dst_dir = dst.parent().unwrap();
                     if !dst_dir.exists() {
@@ -359,7 +355,7 @@ impl SysMinion {
             }
         }
         if dirty {
-            cls.as_ptr().filedata.lock().await.init();
+            self.as_ptr().filedata.lock().await.init();
         }
 
         // Render DSL
@@ -368,7 +364,7 @@ impl SysMinion {
         log::debug!("Launching model for sysinspect for: {scheme}");
         let mqr_l = mqr.lock().unwrap();
         let mut sr = SysInspectRunner::new();
-        sr.set_model_path(cls.as_ptr().cfg.models_dir().join(mqr_l.target().to_string()).to_str().unwrap_or_default());
+        sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_l.target()).to_str().unwrap_or_default());
         sr.set_state(mqr_l.state());
         sr.set_entities(mqr_l.entities());
         //sr.set_checkbook_labels(....);
