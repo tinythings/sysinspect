@@ -80,7 +80,7 @@ impl SysInspectRunner {
                 }
                 log::debug!("Done");
             }
-            Err(err) => log::error!("Error: {}", err),
+            Err(err) => log::error!("Error loading mspec: {}", err),
         };
     }
 }
