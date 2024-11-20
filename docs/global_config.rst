@@ -188,3 +188,68 @@ Example configuration for the Sysinspect Minion:
             root: /etc/sysinspect
             master.ip: 192.168.2.31
             master.port: 4200
+
+Layout of ``/etc/sysinspect``
+-----------------------------
+
+Ideally, both Master and Minion have the same location of configuration and data collection,
+which is defaulted to ``/etc/sysinspect``. This directory has many objects stored and has
+a specific structure and purpose. For more making paths more short, this directory will be
+referred as ``$SR`` *(Sysinspect Root)*.
+
+Common
+^^^^^^
+
+There are directories that are same on both Master and Minion:
+
+``$SR/functions``
+
+    Directory, containing custom trait functions. They are meant to be defined on the Master side
+    and then sync'ed to all the minions.
+
+Only on Master
+^^^^^^^^^^^^^^
+
+Public and private RSA keys of Master are:
+
+``$SR/master.rsa``
+
+    Master's private RSA key.
+
+``$SR/master.rsa.pub``
+
+    Master's public RSA key.
+
+``$SR/minion-keys``
+
+    Public keys from registered minions in format ``<minion-id>.rsa.pub``.
+
+    Each registered minion has its own Id. Typically it is ``/etc/machine-id`` or automatically
+    generated one, if this file does not exist.
+
+``$SR/minion-registry``
+
+    A binary cache of minion's data, such as minion traits, data about currently connected minions etc.
+    This is fully purge-able directory, i.e. data can be freely deleted. However, Sysinspect Master
+    needs to be restarted and all minions needs to reconnect.
+
+Only on Minion
+^^^^^^^^^^^^^^
+
+Public and private RSA keys of Master are:
+
+``$SR/master.rsa``
+
+    Minion's private RSA key.
+
+``$SR/master.rsa.pub``
+
+    Minion's public RSA key.
+
+``$SR/traits``
+
+    Directory, containing custom static traits of a Minion.
+
+``$SR/models``
+
+    Directory, containing models.
