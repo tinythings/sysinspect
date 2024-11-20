@@ -45,18 +45,23 @@ Checkbook query is using path-like tuples to target a feature (a group of entiti
 in the following format:
 
 .. code-block:: text
-    :caption: Query synopsis
+    :caption: Precise model query synopsis
 
-    "<model>/[entity]/[state] [traits query]"
+    "model://<model>/[entity]/[state] [traits query]"
+
+.. code-block:: text
+    :caption: Checkbook model query synopsis
+
+    "model://<model>/[entity]:[checkbook labels]"
 
 Since there can be many models, it is essential to select one, therefore a model Id is
 always required. If ``entity`` and/or ``state`` are not specified, they are defaulted to
 ``$`` (all).
 
 .. code-block:: bash
-    :caption: Example of Model targeting
+    :caption: Example of Model targeting by precise query
 
-    sysinspect "router/network/online"
+    sysinspect "model://router/network,devices/online"
 
 In the example above, a network is verified in a router only when it supposed to be online.
 Under the hood, omitted parts are translated to "all" (``$``). E.g. ``router/network`` is
@@ -65,6 +70,14 @@ translated as ``router/network/$``, or Model name alone e.g. ``router`` is trans
 
 Traits query is separated with a space and essentially a list of possible traits with their
 values and logical operations. See :ref:`query_targeting` for more details.
+
+.. code-block:: bash
+    :caption: Example of Model targeting by checkbook labels
+
+    sysinspect "model://router:network,devices"
+
+The example above is the same as the previous one, except it is using Checkbook. Entities
+in the Checkbook are basically the top-high groups of other entities.
 
 Using Traits
 ------------
