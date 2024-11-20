@@ -1,9 +1,7 @@
 use super::{datapatch, mspecdef::ModelSpec};
-use crate::SysinspectError;
-use nix::unistd::Uid;
+use crate::{cfg::select_config, SysinspectError};
 use serde_yaml::Value;
 use std::{
-    env::{self},
     fs::{self},
     path::{Path, PathBuf},
 };
@@ -11,8 +9,6 @@ use walkdir::WalkDir;
 
 pub const MODEL_INDEX: &str = "model.cfg";
 pub const MODEL_FILE_EXT: &str = ".cfg";
-pub const APP_CONF: &str = "sysinspect.conf";
-pub const APP_DOTCONF: &str = ".sysinspect";
 
 /// Spec loader object
 struct SpecLoader {
@@ -70,7 +66,6 @@ impl SpecLoader {
     fn merge_parts(&mut self, chunks: &mut Vec<Value>) -> Result<Value, SysinspectError> {
         if chunks.is_empty() {
             return Err(SysinspectError::ModelMultipleIndex("No data found".to_string()));
-            // XXX: Add one more exception
         }
 
         let mut base = chunks.remove(0);
@@ -104,37 +99,6 @@ impl SpecLoader {
         Ok(base)
     }
 
-    /// Select app conf
-    fn select_config(&self) -> Result<PathBuf, SysinspectError> {
-        // Current
-        let cfp: PathBuf = env::current_dir()?.canonicalize()?.join(APP_CONF);
-        if cfp.exists() {
-            return Ok(cfp);
-        }
-
-        // Dot-file
-        let cfp = env::var_os("HOME").map(PathBuf::from).or_else(|| {
-            #[cfg(unix)]
-            {
-                Some(PathBuf::from(format!("/home/{}", Uid::current())))
-            }
-        });
-        if let Some(cfp) = cfp {
-            let cfp = cfp.join(APP_DOTCONF);
-            if cfp.exists() {
-                return Ok(cfp);
-            }
-        }
-
-        // Global conf
-        let cfp = PathBuf::from(format!("/etc/{}", APP_CONF));
-        if cfp.exists() {
-            return Ok(cfp);
-        }
-
-        Err(SysinspectError::ConfigError("No config has been found".to_string()))
-    }
-
     /// Load model spec by merging all the data parts and validating
     /// its content.
     fn load(&mut self) -> Result<ModelSpec, SysinspectError> {
@@ -157,7 +121,7 @@ impl SpecLoader {
         }
 
         // Load app config and merge to the main model
-        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(self.select_config()?)?)?);
+        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(select_config(None)?)?)?);
 
         let mut base = self.merge_parts(&mut base)?;
         if !iht.is_empty() {

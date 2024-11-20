@@ -1,0 +1,16 @@
+WHITESPACE = _{ " " | "\t" }
+
+// Define a term as one or more alphanumeric characters, or a quoted value
+term = { key ~ ":" ~ value }
+key = @{ (ASCII_ALPHANUMERIC | "-" | "_" | ".")+ }
+value = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ | quoted_value }
+quoted_value = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+
+and_op = _{ "and" }
+or_op = _{ "or" }
+
+// Define a group: one or more terms connected by "and"
+group = { term ~ (and_op ~ term)* }
+
+// Define an expression: one or more groups connected by "or"
+expression = { group ~ (or_op ~ group)* }

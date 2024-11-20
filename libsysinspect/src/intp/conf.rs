@@ -1,4 +1,4 @@
-use crate::{util, SysinspectError};
+use crate::{cfg::mmconf::DEFAULT_MODULES_ROOT, util, SysinspectError};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::{collections::HashMap, path::PathBuf};
@@ -69,7 +69,7 @@ impl EventConfig {
 /// The entire config
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
-    modules: PathBuf,
+    modules: Option<PathBuf>,
 
     // EventId to config, added later
     events: Option<HashMap<String, EventConfig>>,
@@ -87,7 +87,7 @@ impl Config {
     /// Get module from the namespace
     pub fn get_module(&self, namespace: &str) -> Result<PathBuf, SysinspectError> {
         // Fool-proof cleanup, likely a bad idea
-        let modpath = self.modules.join(
+        let modpath = &self.modules.to_owned().unwrap_or(PathBuf::from(DEFAULT_MODULES_ROOT)).join(
             namespace
                 .trim_start_matches('.')
                 .trim_end_matches('.')
@@ -102,7 +102,7 @@ impl Config {
             return Err(SysinspectError::ModuleError(format!("Module \"{}\" was not found at {:?}", namespace, modpath)));
         }
 
-        Ok(modpath)
+        Ok(modpath.to_owned())
     }
 
     /// Set events config

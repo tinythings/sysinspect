@@ -9,6 +9,7 @@ Welcome to the Project Sysinspect!
    :maxdepth: 1
 
    global_config
+   genusage/overview
    modeldescr/overview
    moddev/overview
    moddescr/overview

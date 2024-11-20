@@ -17,6 +17,30 @@ pub fn cli(version: &'static str) -> Command {
         .about(format!("{} - {}", APPNAME.bright_magenta().bold(), "is a tool for anomaly detection and root cause analysis in a known system"))
         .override_usage(format!("{} [OPTIONS] [FILTERS]", APPNAME))
 
+        // Sysinspect
+        .next_help_heading("Main")
+        .arg(
+            Arg::new("scheme")
+                .help("Specify scheme that needs to be requested (model:// or state://)")
+                .required(false)
+                .index(1)
+        )
+        .arg(
+            Arg::new("query")
+                .help("Minions to query")
+                .required(false)
+                .index(2)
+        )
+        .arg(
+            Arg::new("traits")
+                .short('t')
+                .long("traits")
+                .help("Specify traits to select remote systems")
+        )
+
+        // Local
+        .next_help_heading("Local")
+
         // Config
         .arg(
             Arg::new("model")
@@ -56,6 +80,12 @@ pub fn cli(version: &'static str) -> Command {
 
         // Other
         .next_help_heading("Other")
+        .arg(
+            Arg::new("config")
+                .short('c')
+                .long("config")
+                .help("Specify alternative configuration")
+        )
         .arg(
             Arg::new("debug")
                 .short('d')

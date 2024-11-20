@@ -1,14 +1,16 @@
+use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
-    intp::actproc::response::ActionResponse,
+    cfg::{mmconf::MasterConfig, select_config},
+    inspector::SysInspectRunner,
     logger,
-    reactor::{evtproc::EventProcessor, handlers},
+    reactor::handlers,
+    SysinspectError,
 };
 use log::LevelFilter;
-use std::env;
+use std::{env, fs::OpenOptions, io::Write};
 
 mod clidef;
-mod mcf;
 
 static VERSION: &str = "0.2.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
@@ -23,6 +25,33 @@ fn print_event_handlers() {
     println!();
 }
 
+/// Call master via FIFO
+fn call_master_fifo(model: &str, query: &str, traits: Option<&String>, fifo: &str) -> Result<(), SysinspectError> {
+    let payload = format!("{model};{query};{}\n", traits.unwrap_or(&"".to_string()));
+    OpenOptions::new().write(true).open(fifo)?.write_all(payload.as_bytes())?;
+
+    log::debug!("Message sent to the master via FIFO: {:?}", payload);
+    Ok(())
+}
+
+/// Set logger
+fn set_logger(p: &ArgMatches) {
+    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+        log::set_max_level(match p.get_count("debug") {
+            0 => LevelFilter::Info,
+            1 => LevelFilter::Debug,
+            2.. => LevelFilter::max(),
+        })
+    }) {
+        println!("{}", err)
+    }
+}
+
+/// Get configuration of the master
+fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
+    MasterConfig::new(select_config(p.get_one::<String>("config").cloned())?)
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut cli = clidef::cli(VERSION);
@@ -35,6 +64,9 @@ fn main() {
 
     // Our main params
     let params = cli.to_owned().get_matches();
+
+    // Set logger
+    set_logger(&params);
 
     // Print help?
     if *params.get_one::<bool>("help").unwrap() {
@@ -55,60 +87,27 @@ fn main() {
         return;
     }
 
-    // Setup logger
-    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
-        log::set_max_level(match params.get_count("debug") {
-            0 => LevelFilter::Info,
-            1 => LevelFilter::Debug,
-            2.. => LevelFilter::max(),
-        })
-    }) {
-        return println!("{}", err);
-    }
+    // Get master config
+    let cfg = match get_cfg(&params) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::error!("Unable to get master configuration: {err}");
+            std::process::exit(1);
+        }
+    };
 
-    if let Some(mpath) = params.get_one::<String>("model") {
-        match libsysinspect::mdescr::mspec::load(mpath) {
-            Ok(spec) => {
-                log::debug!("Initalising inspector");
-                match libsysinspect::intp::inspector::SysInspector::new(spec) {
-                    Ok(isp) => {
-                        // Setup event processor
-                        let mut evtproc = EventProcessor::new().set_config(isp.cfg());
-
-                        let arg_state = params.get_one::<String>("state").cloned();
-                        let arg_labels = clidef::split_by(&params, "labels", None);
-
-                        let actions = if !arg_labels.is_empty() {
-                            isp.actions_by_relations(arg_labels, arg_state.to_owned())
-                        } else {
-                            isp.actions_by_entities(clidef::split_by(&params, "entities", None), arg_state)
-                        };
-
-                        match actions {
-                            Ok(actions) => {
-                                for ac in actions {
-                                    match ac.run() {
-                                        Ok(response) => {
-                                            let response = response.unwrap_or(ActionResponse::default());
-                                            evtproc.receiver().register(response.eid().to_owned(), response);
-                                        }
-                                        Err(err) => {
-                                            log::error!("{err}")
-                                        }
-                                    }
-                                }
-                                evtproc.process();
-                            }
-                            Err(err) => {
-                                log::error!("{}", err);
-                            }
-                        }
-                    }
-                    Err(err) => log::error!("{err}"),
-                }
-                log::debug!("Done");
-            }
-            Err(err) => log::error!("Error: {}", err),
-        };
+    if let Some(model) = params.get_one::<String>("scheme") {
+        let query = params.get_one::<String>("query");
+        let traits = params.get_one::<String>("traits");
+        if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, &cfg.socket()) {
+            log::error!("Cannot reach master: {err}");
+        }
+    } else if let Some(mpath) = params.get_one::<String>("model") {
+        let mut sr = SysInspectRunner::new();
+        sr.set_model_path(mpath);
+        sr.set_state(params.get_one::<String>("state").cloned());
+        sr.set_entities(clidef::split_by(&params, "entities", None));
+        sr.set_checkbook_labels(clidef::split_by(&params, "labels", None));
+        sr.start();
     }
 }
