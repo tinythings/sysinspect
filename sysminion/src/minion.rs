@@ -446,9 +446,6 @@ pub async fn minion(cfp: &str, fingerprint: Option<String>) -> Result<(), Sysins
     let minion = SysMinion::new(cfp, fingerprint).await?;
     minion.as_ptr().do_proto().await?;
 
-    // Example downloading file
-    //minion.as_ptr().download_file("models/inherited/model.cfg".to_string()).await;
-
     // Messages
     if minion.fingerprint.is_some() {
         minion.as_ptr().send_registration(minion.kman.get_pubkey_pem()).await?;
