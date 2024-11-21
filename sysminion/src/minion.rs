@@ -368,7 +368,10 @@ impl SysMinion {
         sr.set_state(mqr_l.state());
         sr.set_entities(mqr_l.entities());
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
+        sr.set_traits(get_minion_traits());
+
         sr.start();
+
         log::debug!("Sysinspect model cycle finished");
     }
 
