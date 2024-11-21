@@ -16,6 +16,7 @@ pub mod modlib;
 pub mod proto;
 pub mod reactor;
 pub mod rsa;
+pub mod tmpl;
 pub mod traits;
 pub mod util;
 
@@ -37,6 +38,7 @@ pub enum SysinspectError {
     FFINullError(NulError),
     DynError(Box<dyn Error>),
     AsynDynError(Box<dyn Error + Send + Sync>),
+    TemplateError(tera::Error),
 }
 
 impl Error for SysinspectError {
@@ -66,6 +68,7 @@ impl Display for SysinspectError {
             SysinspectError::ProtoError(err) => format!("(Protocol) {err}"),
             SysinspectError::DynError(err) => format!("(General) {err}"),
             SysinspectError::AsynDynError(err) => format!("(General part) {err}"),
+            SysinspectError::TemplateError(err) => format!("(DSL) {err}"),
         };
 
         write!(f, "{msg}")?;
@@ -111,5 +114,11 @@ impl From<Box<dyn Error>> for SysinspectError {
 impl From<Box<dyn Error + Send + Sync>> for SysinspectError {
     fn from(err: Box<dyn Error + Send + Sync>) -> SysinspectError {
         SysinspectError::DynError(err)
+    }
+}
+
+impl From<tera::Error> for SysinspectError {
+    fn from(err: tera::Error) -> Self {
+        SysinspectError::TemplateError(err)
     }
 }
