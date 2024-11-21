@@ -25,6 +25,7 @@ serde_json = "1.0.128"
 serde_yaml = "0.9.34"
 sha2 = "0.10.8"
 sysinfo = { version = "0.32.0", features = ["linux-tmpfs"] }
+tera = { version = "1.20.0", features = ["preserve_order", "date-locale"] }
 textwrap = { version = "0.16.1", features = ["hyphenation", "terminal_size"] }
 tokio = { version = "1.41.1", features = ["full"] }
 unicode-segmentation = "1.12.0"
