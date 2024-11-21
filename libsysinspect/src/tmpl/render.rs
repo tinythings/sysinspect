@@ -1,9 +1,8 @@
+use crate::SysinspectError;
 use colored::Colorize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::{collections::HashMap, error::Error};
 use tera::{Context, Tera};
-
-use crate::SysinspectError;
 
 /// Renderer for the model templates.
 ///

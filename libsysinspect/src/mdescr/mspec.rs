@@ -1,11 +1,5 @@
 use super::{datapatch, mspecdef::ModelSpec};
-use crate::{
-    cfg::select_config,
-    tmpl::render::ModelTplRender,
-    traits::{self, systraits::SystemTraits},
-    SysinspectError,
-};
-use serde_json::json;
+use crate::{cfg::select_config, tmpl::render::ModelTplRender, traits::systraits::SystemTraits, SysinspectError};
 use serde_yaml::Value;
 use std::{
     collections::HashMap,
