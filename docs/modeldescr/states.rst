@@ -16,8 +16,8 @@
 .. role:: bi
    :class: bolditalic
 
-States
-======
+Entity States
+=============
 
 .. note::
 

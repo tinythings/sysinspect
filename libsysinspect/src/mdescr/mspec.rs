@@ -1,7 +1,8 @@
 use super::{datapatch, mspecdef::ModelSpec};
-use crate::{cfg::select_config, SysinspectError};
+use crate::{cfg::select_config, tmpl::render::ModelTplRender, traits::systraits::SystemTraits, SysinspectError};
 use serde_yaml::Value;
 use std::{
+    collections::HashMap,
     fs::{self},
     path::{Path, PathBuf},
 };
@@ -16,12 +17,26 @@ struct SpecLoader {
 
     // Only one init allowed
     init: bool,
+
+    // System traits if running in distributed mode
+    traits: Option<HashMap<String, serde_json::Value>>,
 }
 
 impl SpecLoader {
     // Constructor
-    fn new(pth: PathBuf) -> Self {
-        Self { pth, init: false }
+    fn new(pth: PathBuf, traits: Option<SystemTraits>) -> Self {
+        let mut ext: Option<HashMap<String, serde_json::Value>> = None;
+        if let Some(traits) = traits {
+            let mut et: HashMap<String, serde_json::Value> = HashMap::new();
+            for k in traits.items() {
+                if let Some(v) = traits.get(&k) {
+                    et.insert(k, v);
+                }
+            }
+            ext = Some(et);
+        }
+
+        Self { pth, init: false, traits: ext }
     }
 
     /// Collect YAML parts of the model from a different files
@@ -48,8 +63,13 @@ impl SpecLoader {
                         out.insert(0, serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?)?);
                     }
                 } else if fname != MODEL_INDEX {
-                    // Get YAML chunks
-                    match serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?) {
+                    // Get YAML chunks and render them
+                    let mut mtr = ModelTplRender::new(fname, &fs::read_to_string(etr.path())?);
+                    if let Some(traits) = self.traits.clone() {
+                        mtr.set_ns_values("traits", traits);
+                    }
+
+                    match serde_yaml::from_str::<Value>(&mtr.render()?) {
                         Ok(chunk) => out.push(chunk),
                         Err(err) => return Err(SysinspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
                     }
@@ -133,6 +153,6 @@ impl SpecLoader {
 }
 
 /// Load spec from a given path
-pub fn load(path: &str) -> Result<ModelSpec, SysinspectError> {
-    SpecLoader::new(fs::canonicalize(path)?).load()
+pub fn load(path: &str, traits: Option<SystemTraits>) -> Result<ModelSpec, SysinspectError> {
+    SpecLoader::new(fs::canonicalize(path)?, traits).load()
 }

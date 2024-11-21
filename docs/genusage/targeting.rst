@@ -142,13 +142,10 @@ The expression above is telling Sysinspect to target minions, those are:
 Distributed Entity
 ------------------
 
-.. warning::
-
-    ⚠️ Planned feature for future releases, not implemented yet.
-
-Some entities can be distributed across different boxes. For example, "Backup over WiFi"
-may involve a router, a WiFi antennae online and a storage with all disks in the RAID online.
-However, Sysinspect can query that feature directly by its label.
+Since an entity can be something that is scattered across the boxes, a model needs to
+self-adjust to different claims on different boxes. For example, a *"Network Entity"* can be
+considered working :bi:`iff` one box e.g. has ``virbr0``, and the other one has ``wifi0``
+network interfaces.
 
 The following synopsis of the distributed entity notation in Checkbook:
 
@@ -157,11 +154,42 @@ The following synopsis of the distributed entity notation in Checkbook:
     <feature-label>:
       <group-label>: <query>
 
+In order to achieve this, model should include or exclude "chunks" of itself on a particular
+box, using some criteria, using Jinja-like templating expressions. Currently supported criteria
+is all available minion traits *(static and dynamic via functions)*.
+
+Each part of a model has exported built-in ``traits`` and it supports dot-notation, as well
+as Python dictionary notation. The following example shows both available notations:
+
+.. code-block:: jinja
+
+    vendor: {{ traits.system.os.vendor }}
+    hostname: {{ traits["net"]["hostname"] }}
+
+The following literals in the templating system can be used:
+
+- :bi:`boolean` ``true`` (or ``True``) and ``false`` (or ``False``)
+- :bi:`integer` and :bi:`float` — just like in a regular Python
+- :bi:`string` is any data surrounded with ``""`` double quotes, ``''`` single quotes or even with `````` backticks.
+- :bi:`arrays` are a comma-separated list of literals and/or idents surrounded by
+  square brackets ``[]``. Trailing comma allowed.
+
+Templating supports all kind of comparisons and logic operators, those found in Python.
+
 For example, the use case of "Backup over WiFi" would be expressed the following way:
 
-.. code-block:: yaml
+.. code-block:: jinja
 
     backup_over_wifi:
-      - antennae: 'status:online and freq_ghz:5' # Use of custom traits via functions
-      - raid: 'system.os.vendor:Debian and net.hostname:storage.local'
-      - router: 'system.os.mem:16GB and &raid' # References "raid" group by label
+    {% if traits.status.online and traits.device.freq_ghz == 5 %}
+      - antennae
+    {% endif %}
+
+    {% if traits.system.os.vendor == "Debian" and traits.net.hostname == "storage.local" %}
+      - raid
+    {% endif %}
+      - router
+
+.. note::
+
+    Please note, that the example above is just an example. The actual traits might vary!

@@ -2,6 +2,7 @@ use crate::{
     intp::{self, inspector::SysInspector},
     mdescr::mspec,
     reactor::evtproc::EventProcessor,
+    traits::systraits::SystemTraits,
 };
 use intp::actproc::response::ActionResponse;
 
@@ -13,6 +14,9 @@ pub struct SysInspectRunner {
 
     // Check book labels
     cb_labels: Vec<String>,
+
+    // Minion traits, if running in distributed mode
+    traits: Option<SystemTraits>,
 }
 
 impl SysInspectRunner {
@@ -42,7 +46,7 @@ impl SysInspectRunner {
 
     pub fn start(&self) {
         log::info!("Starting sysinspect runner");
-        match mspec::load(&self.model_pth) {
+        match mspec::load(&self.model_pth, self.traits.clone()) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
                 match SysInspector::new(spec) {
@@ -82,5 +86,9 @@ impl SysInspectRunner {
             }
             Err(err) => log::error!("Error loading mspec: {}", err),
         };
+    }
+
+    pub fn set_traits(&mut self, traits: SystemTraits) {
+        self.traits = Some(traits);
     }
 }

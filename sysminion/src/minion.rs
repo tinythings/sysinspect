@@ -368,7 +368,10 @@ impl SysMinion {
         sr.set_state(mqr_l.state());
         sr.set_entities(mqr_l.entities());
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
+        sr.set_traits(get_minion_traits());
+
         sr.start();
+
         log::debug!("Sysinspect model cycle finished");
     }
 
@@ -442,9 +445,6 @@ impl SysMinion {
 pub async fn minion(cfp: &str, fingerprint: Option<String>) -> Result<(), SysinspectError> {
     let minion = SysMinion::new(cfp, fingerprint).await?;
     minion.as_ptr().do_proto().await?;
-
-    // Example downloading file
-    //minion.as_ptr().download_file("models/inherited/model.cfg".to_string()).await;
 
     // Messages
     if minion.fingerprint.is_some() {
