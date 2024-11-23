@@ -5,11 +5,9 @@ Python virtual machine
 use crate::SysinspectError;
 use colored::Colorize;
 use rustpython_vm::{
-    builtins::PyStr,
     compiler::Mode::Exec,
-    convert::IntoObject,
     function::{FuncArgs, KwArgs},
-    AsObject, PyRef, PyResult,
+    AsObject, PyResult,
 };
 use rustpython_vm::{Interpreter, Settings};
 use rustpython_vm::{PyObjectRef, VirtualMachine};
@@ -82,6 +80,8 @@ impl PyVm {
         Arc::new(self)
     }
 
+    #[allow(clippy::wrong_self_convention)]
+    #[allow(clippy::only_used_in_recursion)]
     fn from_json(&self, vm: &VirtualMachine, value: Value) -> PyResult<PyObjectRef> {
         Ok(match value {
             Value::Null => vm.ctx.none(),
