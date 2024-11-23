@@ -9,6 +9,7 @@ use libsysinspect::{
         rqtypes::RequestType,
         MasterMessage, MinionMessage, ProtoConversion,
     },
+    pylang::{self, pvm::PyVm},
     rsa,
     traits::{self, systraits::SystemTraits},
     util::dataconv,
