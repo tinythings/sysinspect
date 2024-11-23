@@ -4,10 +4,18 @@ Python virtual machine
 
 use crate::SysinspectError;
 use colored::Colorize;
-use rustpython_vm::compiler::Mode::Exec;
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::{
+    builtins::PyStr,
+    compiler::Mode::Exec,
+    convert::IntoObject,
+    function::{FuncArgs, KwArgs},
+    AsObject, PyRef, PyResult,
+};
 use rustpython_vm::{Interpreter, Settings};
+use rustpython_vm::{PyObjectRef, VirtualMachine};
+use serde_json::{json, Value};
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -74,8 +82,39 @@ impl PyVm {
         Arc::new(self)
     }
 
+    fn from_json(&self, vm: &VirtualMachine, value: Value) -> PyResult<PyObjectRef> {
+        Ok(match value {
+            Value::Null => vm.ctx.none(),
+            Value::Bool(b) => vm.ctx.new_bool(b).into(),
+            Value::Number(num) => {
+                if let Some(i) = num.as_i64() {
+                    vm.ctx.new_int(i).into()
+                } else if let Some(f) = num.as_f64() {
+                    vm.ctx.new_float(f).into()
+                } else {
+                    vm.ctx.none()
+                }
+            }
+            Value::String(s) => vm.ctx.new_str(s).into(),
+            Value::Array(arr) => vm
+                .ctx
+                .new_list(arr.into_iter().map(|item| self.from_json(vm, item).expect("Failed to convert JSON")).collect())
+                .into(),
+            Value::Object(obj) => {
+                let py_dict = vm.ctx.new_dict();
+                for (key, val) in obj {
+                    let py_val = self.from_json(vm, val)?;
+                    py_dict.set_item(key.as_str(), py_val, vm)?;
+                }
+                py_dict.into()
+            }
+        })
+    }
+
     /// Call a light Python module
-    pub fn call(self: Arc<&Self>, namespace: &str) -> Result<(), SysinspectError> {
+    pub fn call(
+        self: Arc<&Self>, namespace: &str, opts: Option<Vec<Value>>, args: Option<HashMap<String, Value>>,
+    ) -> Result<(), SysinspectError> {
         self.itp.enter(|vm| {
             let lpth = Path::new(&self.libpath);
             if !lpth.exists() || !lpth.is_dir() {
@@ -97,8 +136,23 @@ impl PyVm {
                 return Err(SysinspectError::ModuleError(format!("Error running \"{namespace}\" Python module: {:?}", err)));
             }
 
+            // opts/args
+            let py_opts = opts.into_iter().map(|val| self.from_json(vm, json!(val)).unwrap()).collect::<Vec<_>>();
+            let py_args = vm.ctx.new_dict();
+            for (key, val) in args.unwrap_or_default() {
+                let py_key = vm.ctx.new_str(key);
+                let py_val = self.from_json(vm, val).unwrap();
+                py_args.set_item(py_key.as_object(), py_val, vm).unwrap();
+            }
+
+            let kwargs: KwArgs = py_args
+                .into_iter()
+                .map(|(k, v)| (k.downcast::<rustpython_vm::builtins::PyStr>().unwrap().as_str().to_string(), v))
+                .collect();
+            let farg = FuncArgs::new(py_opts, kwargs);
+
             let dispatcher_function = scope.globals.get_item("dispatch", vm).expect("Failed to find `dispatch` function");
-            let result = match dispatcher_function.call((), vm) {
+            let result = match dispatcher_function.call(farg, vm) {
                 Ok(r) => r,
                 Err(err) => {
                     vm.print_exception(err);
