@@ -3,6 +3,7 @@ Python virtual machine
  */
 
 use crate::SysinspectError;
+use colored::Colorize;
 use rustpython_vm::compiler::Mode::Exec;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{Interpreter, Settings};
@@ -38,9 +39,15 @@ impl PyVm {
     }
 
     /// Load main script of a module by a regular namespace
-    fn load_script(&self, ns: &str) -> String {
-        // XXX: empty string is also python code!
-        fs::read_to_string(PathBuf::from(&self.modpath).join(format!("{ns}.py"))).unwrap_or_default()
+    fn load_script(&self, ns: &str) -> Result<String, SysinspectError> {
+        // XXX: util::get_namespace() ? Because something similar exists for the binaries
+        let pbuff = PathBuf::from(&self.modpath)
+            .join(format!("{}.py", ns.replace(".", "/").trim_start_matches("/").trim_end_matches("/")));
+        if pbuff.exists() {
+            return Ok(fs::read_to_string(pbuff).unwrap_or_default());
+        }
+
+        Err(SysinspectError::ModuleError(format!("Module at {} was not found", pbuff.to_str().unwrap_or_default().yellow())))
     }
 
     fn load_pylib(&self, vm: &VirtualMachine) -> Result<(), SysinspectError> {
@@ -76,7 +83,7 @@ impl PyVm {
             }
             self.load_pylib(vm)?;
 
-            let code_obj = match vm.compile(&self.load_script(namespace), Exec, "<embedded>".to_owned()) {
+            let code_obj = match vm.compile(&self.load_script(namespace)?, Exec, "<embedded>".to_owned()) {
                 Ok(src) => src,
                 Err(err) => {
                     return Err(SysinspectError::ModuleError(format!("Unable to compile source code for {namespace}: {err}")));
