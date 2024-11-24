@@ -9,7 +9,6 @@ use crate::{
     util::dataconv,
     SysinspectError,
 };
-use colored::Colorize;
 use core::str;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
