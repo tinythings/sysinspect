@@ -84,7 +84,7 @@ impl Config {
         Err(SysinspectError::ModelDSLError("Unable to parse configuration".to_string()))
     }
 
-    /// Get module from the namespace
+    /// Get module (or Python module) from the namespace
     pub fn get_module(&self, namespace: &str) -> Result<PathBuf, SysinspectError> {
         // Fool-proof cleanup, likely a bad idea
         let modpath = &self.modules.to_owned().unwrap_or(PathBuf::from(DEFAULT_MODULES_ROOT)).join(
@@ -99,7 +99,7 @@ impl Config {
         );
 
         if !modpath.exists() {
-            return Err(SysinspectError::ModuleError(format!("Module \"{}\" was not found at {:?}", namespace, modpath)));
+            //return Err(SysinspectError::ModuleError(format!("Module \"{}\" was not found at {:?}", namespace, modpath)));
         }
 
         Ok(modpath.to_owned())

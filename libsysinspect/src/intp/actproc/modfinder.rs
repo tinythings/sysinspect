@@ -5,10 +5,13 @@ use crate::{
         constraints::{Constraint, ConstraintKind},
         functions,
     },
+    pylang,
     util::dataconv,
     SysinspectError,
 };
+use colored::Colorize;
 use core::str;
+use pest::pratt_parser::Op;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -38,7 +41,7 @@ pub struct ModCall {
     constraints: Vec<Constraint>,
 
     // Module params
-    args: HashMap<String, String>,
+    args: HashMap<String, String>, // XXX: Should be String/Value, not String/String!
     opts: Vec<String>,
 }
 
@@ -201,12 +204,58 @@ impl ModCall {
         cret
     }
 
+    /// Run the module
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
-        //   Event reactor:
-        //   - Configurable
-        //   - Chain plugins/functions
-        //   - Event reactions
-        //   - Should probably store all the result in a common structure
+        let pymod = self
+            .module
+            .parent()
+            .unwrap()
+            .join(format!("{}.py", self.module.file_name().unwrap_or_default().to_str().unwrap_or_default()));
+        if pymod.exists() && self.module.exists() {
+            return Err(SysinspectError::ModuleError(format!(
+                "Module names must be unique, however both \"{}\" and \"{}\" do exist. Please rename one of these, update your model and continue.",
+                pymod.file_name().unwrap_or_default().to_str().unwrap_or_default().yellow(),
+                self.module.file_name().unwrap_or_default().to_str().unwrap_or_default().yellow()
+            )));
+        } else if pymod.exists() {
+            self.run_python_module(pymod)
+        } else if self.module.exists() {
+            self.run_native_module()
+        } else {
+            Err(SysinspectError::ModuleError(format!(
+                "No such module under the namespace: {}",
+                self.module.file_name().unwrap_or_default().to_str().unwrap_or_default()
+            )))
+        }
+    }
+
+    /// Runs python script module
+    fn run_python_module(&self, pymod: PathBuf) -> Result<Option<ActionResponse>, SysinspectError> {
+        log::debug!("Calling Python module: {}", pymod.as_os_str().to_str().unwrap_or_default());
+
+        let opts = self.opts.iter().map(|v| json!(v)).collect::<Vec<serde_json::Value>>();
+        let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<HashMap<String, serde_json::Value>>();
+
+        match pylang::pvm::PyVm::new(None, None).as_ptr().call(pymod, Some(opts), Some(args)) {
+            Ok(out) => {
+                return match serde_json::from_str::<ActionModResponse>(&out) {
+                    Ok(r) => Ok(Some(ActionResponse::new(
+                        self.eid.to_owned(),
+                        self.aid.to_owned(),
+                        self.state.to_owned(),
+                        r.clone(),
+                        self.eval_constraints(&r),
+                    ))),
+                    Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
+                };
+            }
+            Err(err) => return Err(err),
+        };
+    }
+
+    /// Runs native external module
+    fn run_native_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
+        log::debug!("Calling native module: {}", self.module.as_os_str().to_str().unwrap_or_default());
         match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
             Ok(mut p) => {
                 // Send options

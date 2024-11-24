@@ -2,7 +2,7 @@
 Python virtual machine
  */
 
-use crate::SysinspectError;
+use crate::{pylang::PY_MAIN_FUNC, SysinspectError};
 use colored::Colorize;
 use rustpython_vm::{
     compiler::Mode::Exec,
@@ -45,15 +45,19 @@ impl PyVm {
     }
 
     /// Load main script of a module by a regular namespace
-    fn load_script(&self, ns: &str) -> Result<String, SysinspectError> {
+    fn load_by_ns(&self, ns: &str) -> Result<String, SysinspectError> {
         // XXX: util::get_namespace() ? Because something similar exists for the binaries
         let pbuff = PathBuf::from(&self.modpath)
             .join(format!("{}.py", ns.replace(".", "/").trim_start_matches("/").trim_end_matches("/")));
-        if pbuff.exists() {
-            return Ok(fs::read_to_string(pbuff).unwrap_or_default());
+        self.load_by_path(&pbuff)
+    }
+
+    fn load_by_path(&self, pth: &PathBuf) -> Result<String, SysinspectError> {
+        if pth.exists() {
+            return Ok(fs::read_to_string(pth).unwrap_or_default());
         }
 
-        Err(SysinspectError::ModuleError(format!("Module at {} was not found", pbuff.to_str().unwrap_or_default().yellow())))
+        Err(SysinspectError::ModuleError(format!("Module at {} was not found", pth.to_str().unwrap_or_default().yellow())))
     }
 
     fn load_pylib(&self, vm: &VirtualMachine) -> Result<(), SysinspectError> {
@@ -112,9 +116,9 @@ impl PyVm {
     }
 
     /// Call a light Python module
-    pub fn call(
-        self: Arc<&Self>, namespace: &str, opts: Option<Vec<Value>>, args: Option<HashMap<String, Value>>,
-    ) -> Result<(), SysinspectError> {
+    pub fn call<T: AsRef<Path>>(
+        self: Arc<&Self>, namespace: T, opts: Option<Vec<Value>>, args: Option<HashMap<String, Value>>,
+    ) -> Result<String, SysinspectError> {
         self.itp.enter(|vm| {
             let lpth = Path::new(&self.libpath);
             if !lpth.exists() || !lpth.is_dir() {
@@ -122,10 +126,21 @@ impl PyVm {
             }
             self.load_pylib(vm)?;
 
-            let code_obj = match vm.compile(&self.load_script(namespace)?, Exec, "<embedded>".to_owned()) {
+            // Get script source
+            let src: String;
+            if namespace.as_ref().is_absolute() {
+                src = self.load_by_path(&namespace.as_ref().to_path_buf())?;
+            } else {
+                src = self.load_by_ns(namespace.as_ref().to_str().unwrap_or_default())?;
+            }
+
+            let code_obj = match vm.compile(&src, Exec, "<embedded>".to_owned()) {
                 Ok(src) => src,
                 Err(err) => {
-                    return Err(SysinspectError::ModuleError(format!("Unable to compile source code for {namespace}: {err}")));
+                    return Err(SysinspectError::ModuleError(format!(
+                        "Unable to compile source code for {}: {err}",
+                        namespace.as_ref().to_str().unwrap_or_default()
+                    )));
                 }
             };
 
@@ -133,7 +148,13 @@ impl PyVm {
 
             let scope = vm.new_scope_with_builtins();
             if let Err(err) = vm.run_code_obj(code_obj, scope.clone()) {
-                return Err(SysinspectError::ModuleError(format!("Error running \"{namespace}\" Python module: {:?}", err)));
+                let mut buff = String::new();
+                _ = vm.write_exception(&mut buff, &err);
+                return Err(SysinspectError::ModuleError(format!(
+                    "Error running Python function \"{}\": {}",
+                    namespace.as_ref().to_str().unwrap_or_default(),
+                    buff.trim()
+                )));
             }
 
             // opts/args
@@ -149,23 +170,38 @@ impl PyVm {
                 .into_iter()
                 .map(|(k, v)| (k.downcast::<rustpython_vm::builtins::PyStr>().unwrap().as_str().to_string(), v))
                 .collect();
-            let farg = FuncArgs::new(py_opts, kwargs);
 
-            let dispatcher_function = scope.globals.get_item("dispatch", vm).expect("Failed to find `dispatch` function");
-            let result = match dispatcher_function.call(farg, vm) {
-                Ok(r) => r,
+            let fref = match scope.globals.get_item(PY_MAIN_FUNC, vm) {
+                Ok(fref) => fref,
                 Err(err) => {
-                    vm.print_exception(err);
-                    return Ok(());
+                    let mut buff = String::new();
+                    _ = vm.write_exception(&mut buff, &err);
+                    return Err(SysinspectError::ModuleError(format!(
+                        "Error running Python function \"{}\": {}",
+                        namespace.as_ref().to_str().unwrap_or_default(),
+                        buff.trim()
+                    )));
                 }
             };
 
-            if let Ok(py_str) = result.downcast::<rustpython_vm::builtins::PyStr>() {
-                println!("{}", py_str.as_str());
-            } else {
-                println!("error: no string return");
+            let r = match fref.call(FuncArgs::new(py_opts, kwargs), vm) {
+                Ok(r) => r,
+                Err(err) => {
+                    let mut buff = String::new();
+                    _ = vm.write_exception(&mut buff, &err);
+                    return Err(SysinspectError::ModuleError(format!(
+                        "Error running \"{}\" Python module:\n{}",
+                        namespace.as_ref().to_str().unwrap_or_default(),
+                        buff.trim()
+                    )));
+                }
+            };
+
+            if let Ok(py_str) = r.downcast::<rustpython_vm::builtins::PyStr>() {
+                return Ok(py_str.as_str().to_string());
             }
-            Ok(())
+
+            Err(SysinspectError::ModuleError("Python script does not returns a JSON string".to_string()))
         })
     }
 }
