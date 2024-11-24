@@ -16,7 +16,8 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::{Lazy, OnceCell};
-use std::{fs, path::PathBuf, sync::Arc, vec};
+use serde_json::json;
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, vec};
 use tokio::io::AsyncReadExt;
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
