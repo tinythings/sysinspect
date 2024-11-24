@@ -19,6 +19,8 @@ use std::{
     sync::Arc,
 };
 
+// use super::pylib::pysystem::syscore;
+
 pub struct PyVm {
     itp: Interpreter,
     libpath: String,
@@ -34,11 +36,9 @@ impl PyVm {
         let itp = rustpython::InterpreterConfig::new()
             .init_stdlib()
             .settings(cfg)
-            /*
             .init_hook(Box::new(|vm| {
-                vm.add_native_module("rust_py_module".to_owned(), Box::new(rust_py_module::make_module));
+                //vm.add_native_module("syscore".to_owned(), Box::new(syscore::make_module));
             }))
-            */
             .interpreter();
 
         Self { itp, libpath: libpath.to_string(), modpath: modpath.unwrap_or("/usr/share/sysinspect/modules/".to_string()) }
