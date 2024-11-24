@@ -205,37 +205,21 @@ impl ModCall {
 
     /// Run the module
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
-        let pymod = self
-            .module
-            .parent()
-            .unwrap()
-            .join(format!("{}.py", self.module.file_name().unwrap_or_default().to_str().unwrap_or_default()));
-        if pymod.exists() && self.module.exists() {
-            Err(SysinspectError::ModuleError(format!(
-                "Module names must be unique, however both \"{}\" and \"{}\" do exist. Please rename one of these, update your model and continue.",
-                pymod.file_name().unwrap_or_default().to_str().unwrap_or_default().yellow(),
-                self.module.file_name().unwrap_or_default().to_str().unwrap_or_default().yellow()
-            )))
-        } else if pymod.exists() {
-            self.run_python_module(pymod)
-        } else if self.module.exists() {
-            self.run_native_module()
+        if self.module.extension().unwrap_or_default().to_str().unwrap_or_default().eq("py") {
+            self.run_python_module()
         } else {
-            Err(SysinspectError::ModuleError(format!(
-                "No such module under the namespace: {}",
-                self.module.file_name().unwrap_or_default().to_str().unwrap_or_default()
-            )))
+            self.run_native_module()
         }
     }
 
     /// Runs python script module
-    fn run_python_module(&self, pymod: PathBuf) -> Result<Option<ActionResponse>, SysinspectError> {
-        log::debug!("Calling Python module: {}", pymod.as_os_str().to_str().unwrap_or_default());
+    fn run_python_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
+        log::debug!("Calling Python module: {}", self.module.as_os_str().to_str().unwrap_or_default());
 
         let opts = self.opts.iter().map(|v| json!(v)).collect::<Vec<serde_json::Value>>();
         let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<HashMap<String, serde_json::Value>>();
 
-        match pylang::pvm::PyVm::new(None, None).as_ptr().call(pymod, Some(opts), Some(args)) {
+        match pylang::pvm::PyVm::new(None, None).as_ptr().call(&self.module, Some(opts), Some(args)) {
             Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
                 Ok(r) => Ok(Some(ActionResponse::new(
                     self.eid.to_owned(),

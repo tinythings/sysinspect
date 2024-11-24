@@ -87,7 +87,7 @@ impl Config {
     /// Get module (or Python module) from the namespace
     pub fn get_module(&self, namespace: &str) -> Result<PathBuf, SysinspectError> {
         // Fool-proof cleanup, likely a bad idea
-        let modpath = &self.modules.to_owned().unwrap_or(PathBuf::from(DEFAULT_MODULES_ROOT)).join(
+        let mut modpath = self.modules.to_owned().unwrap_or(PathBuf::from(DEFAULT_MODULES_ROOT)).join(
             namespace
                 .trim_start_matches('.')
                 .trim_end_matches('.')
@@ -98,8 +98,29 @@ impl Config {
                 .join("/"),
         );
 
+        let pymodpath = modpath
+            .parent()
+            .unwrap()
+            .join(format!("{}.py", modpath.file_name().unwrap().to_os_string().to_str().unwrap_or_default()));
+
+        // Collision
+        if pymodpath.exists() && modpath.exists() {
+            return Err(SysinspectError::ModuleError(format!(
+                "Module names must be unique, however both \"{}\" and \"{}\" do exist. Please rename one of these, update your model and continue.",
+                pymodpath.file_name().unwrap_or_default().to_str().unwrap_or_default(),
+                modpath.file_name().unwrap_or_default().to_str().unwrap_or_default()
+            )));
+        }
+
         if !modpath.exists() {
-            //return Err(SysinspectError::ModuleError(format!("Module \"{}\" was not found at {:?}", namespace, modpath)));
+            if !pymodpath.exists() {
+                return Err(SysinspectError::ModuleError(format!(
+                    "No module \"{}\" was not found as \"{:?}\"",
+                    namespace, modpath
+                )));
+            } else {
+                modpath = pymodpath;
+            }
         }
 
         Ok(modpath.to_owned())
