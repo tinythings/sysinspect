@@ -11,7 +11,6 @@ use crate::{
 };
 use colored::Colorize;
 use core::str;
-use pest::pratt_parser::Op;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -212,11 +211,11 @@ impl ModCall {
             .unwrap()
             .join(format!("{}.py", self.module.file_name().unwrap_or_default().to_str().unwrap_or_default()));
         if pymod.exists() && self.module.exists() {
-            return Err(SysinspectError::ModuleError(format!(
+            Err(SysinspectError::ModuleError(format!(
                 "Module names must be unique, however both \"{}\" and \"{}\" do exist. Please rename one of these, update your model and continue.",
                 pymod.file_name().unwrap_or_default().to_str().unwrap_or_default().yellow(),
                 self.module.file_name().unwrap_or_default().to_str().unwrap_or_default().yellow()
-            )));
+            )))
         } else if pymod.exists() {
             self.run_python_module(pymod)
         } else if self.module.exists() {
@@ -237,20 +236,18 @@ impl ModCall {
         let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<HashMap<String, serde_json::Value>>();
 
         match pylang::pvm::PyVm::new(None, None).as_ptr().call(pymod, Some(opts), Some(args)) {
-            Ok(out) => {
-                return match serde_json::from_str::<ActionModResponse>(&out) {
-                    Ok(r) => Ok(Some(ActionResponse::new(
-                        self.eid.to_owned(),
-                        self.aid.to_owned(),
-                        self.state.to_owned(),
-                        r.clone(),
-                        self.eval_constraints(&r),
-                    ))),
-                    Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
-                };
-            }
-            Err(err) => return Err(err),
-        };
+            Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
+                Ok(r) => Ok(Some(ActionResponse::new(
+                    self.eid.to_owned(),
+                    self.aid.to_owned(),
+                    self.state.to_owned(),
+                    r.clone(),
+                    self.eval_constraints(&r),
+                ))),
+                Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
+            },
+            Err(err) => Err(err),
+        }
     }
 
     /// Runs native external module

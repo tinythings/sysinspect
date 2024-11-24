@@ -127,12 +127,11 @@ impl PyVm {
             self.load_pylib(vm)?;
 
             // Get script source
-            let src: String;
-            if namespace.as_ref().is_absolute() {
-                src = self.load_by_path(&namespace.as_ref().to_path_buf())?;
+            let src = if namespace.as_ref().is_absolute() {
+                self.load_by_path(&namespace.as_ref().to_path_buf())?
             } else {
-                src = self.load_by_ns(namespace.as_ref().to_str().unwrap_or_default())?;
-            }
+                self.load_by_ns(namespace.as_ref().to_str().unwrap_or_default())?
+            };
 
             let code_obj = match vm.compile(&src, Exec, "<embedded>".to_owned()) {
                 Ok(src) => src,
