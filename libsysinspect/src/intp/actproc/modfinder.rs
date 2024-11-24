@@ -5,6 +5,7 @@ use crate::{
         constraints::{Constraint, ConstraintKind},
         functions,
     },
+    pylang,
     util::dataconv,
     SysinspectError,
 };
@@ -38,7 +39,7 @@ pub struct ModCall {
     constraints: Vec<Constraint>,
 
     // Module params
-    args: HashMap<String, String>,
+    args: HashMap<String, String>, // XXX: Should be String/Value, not String/String!
     opts: Vec<String>,
 }
 
@@ -201,12 +202,40 @@ impl ModCall {
         cret
     }
 
+    /// Run the module
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
-        //   Event reactor:
-        //   - Configurable
-        //   - Chain plugins/functions
-        //   - Event reactions
-        //   - Should probably store all the result in a common structure
+        if self.module.extension().unwrap_or_default().to_str().unwrap_or_default().eq("py") {
+            self.run_python_module()
+        } else {
+            self.run_native_module()
+        }
+    }
+
+    /// Runs python script module
+    fn run_python_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
+        log::debug!("Calling Python module: {}", self.module.as_os_str().to_str().unwrap_or_default());
+
+        let opts = self.opts.iter().map(|v| json!(v)).collect::<Vec<serde_json::Value>>();
+        let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<HashMap<String, serde_json::Value>>();
+
+        match pylang::pvm::PyVm::new(None, None).as_ptr().call(&self.module, Some(opts), Some(args)) {
+            Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
+                Ok(r) => Ok(Some(ActionResponse::new(
+                    self.eid.to_owned(),
+                    self.aid.to_owned(),
+                    self.state.to_owned(),
+                    r.clone(),
+                    self.eval_constraints(&r),
+                ))),
+                Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
+            },
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Runs native external module
+    fn run_native_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
+        log::debug!("Calling native module: {}", self.module.as_os_str().to_str().unwrap_or_default());
         match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
             Ok(mut p) => {
                 // Send options

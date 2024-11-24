@@ -17,7 +17,7 @@ devel-musl:
 	mv target/x86_64-unknown-linux-musl/debug/run target/x86_64-unknown-linux-musl/debug/sys/
 
 musl:
-	cargo build --release
+	cargo build --release --workspace --target x86_64-unknown-linux-musl
 	cargo build -p proc -p net -p run --release --target x86_64-unknown-linux-musl
 	rm -rf target/x86_64-unknown-linux-musl/release/sys
 	mkdir -p target/x86_64-unknown-linux-musl/release/sys
@@ -34,8 +34,13 @@ devel:
 	mv target/debug/run target/debug/sys/
 
 build:
-	cargo build --release
+	cargo build --release --workspace
 	cargo build -p proc -p net -p run --release
+	rm -rf target/release/sys/
+	mkdir -p target/release/sys/
+	mv target/release/proc target/release/sys/
+	mv target/release/net target/release/sys/
+	mv target/release/run target/release/sys/
 
 	# Move plugin binaries
 	rm -rf target/release/sys
