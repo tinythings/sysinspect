@@ -1,5 +1,5 @@
 pub mod msg {
-    use crate::minion::{get_minion_traits, MINION_SID};
+    use crate::minion::MINION_SID;
     use libsysinspect::{
         proto::{rqtypes::RequestType, MinionMessage},
         traits,
@@ -13,7 +13,7 @@ pub mod msg {
     /// Make pong message
     pub fn get_pong() -> Vec<u8> {
         let p = MinionMessage::new(
-            dataconv::as_str(get_minion_traits(None).get(traits::SYS_ID)),
+            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
             RequestType::Pong,
             MINION_SID.to_string(),
         );
