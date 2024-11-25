@@ -10,14 +10,13 @@ pub mod syscore {
         traits::{self, systraits::SystemTraits},
         util::dataconv,
     };
+    use rustpython_vm::PyResult;
     use rustpython_vm::{
         builtins::{PyDict, PyList},
         common::lock::PyMutex,
         convert::ToPyObject,
         pyclass, PyObjectRef, PyPayload, PyRef, VirtualMachine,
     };
-    use rustpython_vm::{AsObject, PyResult};
-    use std::collections::HashMap;
 
     #[derive(Debug, Clone)]
     struct StrVec(Vec<String>);
