@@ -19,7 +19,7 @@ use std::{
     sync::Arc,
 };
 
-// use super::pylib::pysystem::syscore;
+use super::pylib::pysystem::syscore;
 
 pub struct PyVm {
     itp: Interpreter,
@@ -37,7 +37,7 @@ impl PyVm {
             .init_stdlib()
             .settings(cfg)
             .init_hook(Box::new(|vm| {
-                //vm.add_native_module("syscore".to_owned(), Box::new(syscore::make_module));
+                vm.add_native_module("syscore".to_owned(), Box::new(syscore::make_module));
             }))
             .interpreter();
 
