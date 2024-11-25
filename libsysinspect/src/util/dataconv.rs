@@ -2,6 +2,7 @@
 Convenience functions to save the boilerplate.
 */
 
+use rustpython_vm::{convert::ToPyObject, AsObject, PyObjectRef, VirtualMachine};
 use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 
@@ -12,6 +13,7 @@ pub trait ExtValue {
     fn as_i64_opt(&self) -> Option<i64>;
     fn as_bool_opt(&self) -> Option<bool>;
     fn to_string(&self) -> Option<String>;
+    fn to_pyobjectref(&self, vm: &VirtualMachine) -> PyObjectRef;
 }
 
 impl ExtValue for YamlValue {
@@ -63,6 +65,37 @@ impl ExtValue for YamlValue {
             _ => None,
         }
     }
+
+    fn to_pyobjectref(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            YamlValue::Null => vm.ctx.none(),
+            YamlValue::Bool(b) => vm.ctx.new_bool(*b).into(),
+            YamlValue::Number(num) => {
+                if let Some(i) = num.as_i64() {
+                    vm.ctx.new_int(i).into()
+                } else if let Some(f) = num.as_f64() {
+                    vm.ctx.new_float(f).into()
+                } else {
+                    vm.ctx.none()
+                }
+            }
+            YamlValue::String(s) => vm.new_pyobj(s),
+            YamlValue::Sequence(vec) => {
+                let py_list = vm.ctx.new_list(vec.into_iter().map(|item| item.to_pyobjectref(vm)).collect());
+                py_list.into()
+            }
+            YamlValue::Mapping(obj) => {
+                let py_dict = vm.ctx.new_dict();
+                for (key, val) in obj {
+                    let py_key = vm.ctx.new_str(key.as_str().unwrap_or_default());
+                    let py_val = val.to_pyobjectref(vm);
+                    py_dict.set_item(py_key.as_object(), py_val, vm).expect("Failed to set dict item");
+                }
+                py_dict.into()
+            }
+            _ => vm.ctx.none(),
+        }
+    }
 }
 
 impl ExtValue for JsonValue {
@@ -112,6 +145,36 @@ impl ExtValue for JsonValue {
             JsonValue::String(v) => Some(v.to_string()),
             JsonValue::Array(_) => Some(as_str_list(Some(self).cloned()).join(",")),
             _ => None,
+        }
+    }
+
+    fn to_pyobjectref(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            JsonValue::Null => vm.ctx.none(),
+            JsonValue::Bool(b) => vm.ctx.new_bool(*b).into(),
+            JsonValue::Number(num) => {
+                if let Some(i) = num.as_i64() {
+                    vm.ctx.new_int(i).into()
+                } else if let Some(f) = num.as_f64() {
+                    vm.ctx.new_float(f).into()
+                } else {
+                    vm.ctx.none()
+                }
+            }
+            JsonValue::String(s) => vm.new_pyobj(s),
+            JsonValue::Array(vec) => {
+                let py_list = vm.ctx.new_list(vec.into_iter().map(|item| item.to_pyobjectref(vm)).collect());
+                py_list.into()
+            }
+            JsonValue::Object(obj) => {
+                let py_dict = vm.ctx.new_dict();
+                for (key, val) in obj {
+                    let py_key = vm.ctx.new_str(key.as_str());
+                    let py_val = val.to_pyobjectref(vm);
+                    py_dict.set_item(py_key.as_object(), py_val, vm).expect("Failed to set dict item");
+                }
+                py_dict.into()
+            }
         }
     }
 }
@@ -188,4 +251,13 @@ pub fn as_bool<V: ExtValue>(v: Option<V>) -> bool {
 /// Convert a value to a string
 pub fn to_string<V: ExtValue>(v: Option<V>) -> Option<String> {
     v.and_then(|v| v.to_string())
+}
+
+/// Convert a value to a PyObjectRef
+pub fn to_pyobjectref<V: ExtValue>(v: Option<V>, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    if let Some(v) = v {
+        return Some(v.to_pyobjectref(vm));
+    }
+
+    None
 }
