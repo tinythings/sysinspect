@@ -10,8 +10,14 @@ pub mod syscore {
         traits::{self, systraits::SystemTraits},
         util::dataconv,
     };
-    use rustpython_vm::PyResult;
-    use rustpython_vm::{builtins::PyList, convert::ToPyObject, pyclass, PyObjectRef, PyPayload, VirtualMachine};
+    use rustpython_vm::{
+        builtins::{PyDict, PyList},
+        common::lock::PyMutex,
+        convert::ToPyObject,
+        pyclass, PyObjectRef, PyPayload, PyRef, VirtualMachine,
+    };
+    use rustpython_vm::{AsObject, PyResult};
+    use std::collections::HashMap;
 
     #[derive(Debug, Clone)]
     struct StrVec(Vec<String>);
@@ -62,5 +68,79 @@ pub mod syscore {
     /// which needs to be called for the init.
     fn MinionTraits() -> PyResult<MinionTraits> {
         Ok(MinionTraits::new())
+    }
+
+    #[derive(Debug)]
+    struct Inner {
+        retcode: usize,
+        warnings: Vec<String>,
+        message: String,
+        data: PyRef<PyDict>,
+    }
+
+    #[pyattr]
+    #[pyclass(module = "syscore", name = "__SysinspectReturn")]
+    #[derive(Debug, PyPayload)]
+    pub struct SysinspectReturn {
+        inner: PyMutex<Inner>,
+    }
+
+    #[pyclass]
+    impl SysinspectReturn {
+        fn new(_vm: &VirtualMachine) -> SysinspectReturn {
+            SysinspectReturn {
+                inner: PyMutex::new(Inner { retcode: 0, data: _vm.ctx.new_dict(), warnings: vec![], message: "".to_string() }),
+            }
+        }
+
+        #[pygetset]
+        fn retcode(&self) -> usize {
+            self.inner.lock().retcode
+        }
+
+        #[pymethod]
+        fn set_retcode(&self, retcode: usize, _vm: &VirtualMachine) -> PyObjectRef {
+            self.inner.lock().retcode = retcode;
+            _vm.ctx.none()
+        }
+
+        #[pygetset]
+        fn message(&self) -> String {
+            self.inner.lock().message.to_owned()
+        }
+
+        #[pymethod]
+        fn set_message(&self, message: String) {
+            self.inner.lock().message = message
+        }
+
+        #[pygetset]
+        fn warnings(&self, _vm: &VirtualMachine) -> PyObjectRef {
+            let list = self.inner.lock().warnings.iter().map(|e| _vm.new_pyobj(e)).collect();
+            PyList::new_ref(list, _vm.as_ref()).to_pyobject(_vm)
+        }
+
+        #[pymethod]
+        fn add_warning(&self, warn: String, _vm: &VirtualMachine) {
+            self.inner.lock().warnings.push(warn);
+        }
+
+        #[pygetset]
+        fn data(&self) -> PyRef<PyDict> {
+            self.inner.lock().data.to_owned()
+        }
+
+        #[pymethod]
+        fn set_data(&self, data: PyRef<PyDict>) {
+            self.inner.lock().data = data;
+        }
+    }
+
+    #[pyfunction]
+    #[allow(non_snake_case)]
+    /// This is a mimic of "MinionTraits" Python class,
+    /// which needs to be called for the init.
+    fn SysinspectReturn(_vm: &VirtualMachine) -> PyResult<SysinspectReturn> {
+        Ok(SysinspectReturn::new(_vm))
     }
 }
