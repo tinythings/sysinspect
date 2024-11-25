@@ -13,7 +13,7 @@ pub mod msg {
     /// Make pong message
     pub fn get_pong() -> Vec<u8> {
         let p = MinionMessage::new(
-            dataconv::as_str(get_minion_traits().get(traits::SYS_ID)),
+            dataconv::as_str(get_minion_traits(None).get(traits::SYS_ID)),
             RequestType::Pong,
             MINION_SID.to_string(),
         );

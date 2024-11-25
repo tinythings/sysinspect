@@ -34,8 +34,12 @@ P.S. These are not Rust traits. :-)
 static _TRAITS: OnceCell<SystemTraits> = OnceCell::new();
 
 /// Returns a copy of initialised traits.
-pub fn get_minion_traits() -> SystemTraits {
-    _TRAITS.get().expect("Traits are not initialised!?").to_owned()
+pub fn get_minion_traits(cfg: Option<&MinionConfig>) -> SystemTraits {
+    if let Some(cfg) = cfg {
+        return _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone())).to_owned();
+    }
+
+    _TRAITS.get_or_init(|| SystemTraits::new(MinionConfig::default())).to_owned()
 }
 
 pub struct SysMinion {
@@ -57,9 +61,7 @@ impl SysMinion {
         }
 
         let cfg = MinionConfig::new(cfp)?;
-
-        // Init traits
-        _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone()));
+        get_minion_traits(Some(&cfg));
 
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
         let instance = SysMinion {
@@ -107,8 +109,8 @@ impl SysMinion {
         }
 
         let mut out: Vec<String> = vec![];
-        for t in get_minion_traits().items() {
-            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(get_minion_traits().get(&t)).unwrap_or_default()));
+        for t in get_minion_traits(None).items() {
+            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(get_minion_traits(None).get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
 
@@ -121,7 +123,7 @@ impl SysMinion {
 
     /// Get current minion Id
     fn get_minion_id(&self) -> String {
-        dataconv::as_str(get_minion_traits().get(traits::SYS_ID))
+        dataconv::as_str(get_minion_traits(None).get(traits::SYS_ID))
     }
 
     /// Talk-back to the master
@@ -235,7 +237,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, get_minion_traits().to_json_string()?);
+        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, get_minion_traits(None).to_json_string()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().unwrap()).await; // XXX: make a better error handling for Tokio
         Ok(())
@@ -244,7 +246,7 @@ impl SysMinion {
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
         let mut r = MinionMessage::new(
-            dataconv::as_str(get_minion_traits().get(traits::SYS_ID)),
+            dataconv::as_str(get_minion_traits(None).get(traits::SYS_ID)),
             RequestType::Ehlo,
             MINION_SID.to_string(),
         );
@@ -257,7 +259,7 @@ impl SysMinion {
 
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
-        let r = MinionMessage::new(dataconv::as_str(get_minion_traits().get(traits::SYS_ID)), RequestType::Add, pbk_pem);
+        let r = MinionMessage::new(dataconv::as_str(get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, pbk_pem);
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
@@ -368,7 +370,7 @@ impl SysMinion {
         sr.set_state(mqr_l.state());
         sr.set_entities(mqr_l.entities());
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
-        sr.set_traits(get_minion_traits());
+        sr.set_traits(get_minion_traits(None));
 
         sr.start();
 
@@ -384,7 +386,7 @@ impl SysMinion {
             log::trace!("Command was dropped as it was specifically addressed for another minion");
             return;
         } else if tgt.id().is_empty() {
-            let traits = get_minion_traits();
+            let traits = get_minion_traits(None);
 
             // Is matching this host?
             let mut skip = true;
@@ -413,7 +415,7 @@ impl SysMinion {
                     Ok(q) => {
                         match traits::to_typed_query(q) {
                             Ok(tpq) => {
-                                if !traits::matches_traits(tpq, get_minion_traits()) {
+                                if !traits::matches_traits(tpq, get_minion_traits(None)) {
                                     log::trace!("Command was dropped as it does not match the traits");
                                     return;
                                 }
