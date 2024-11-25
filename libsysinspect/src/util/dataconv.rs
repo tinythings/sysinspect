@@ -2,7 +2,7 @@
 Convenience functions to save the boilerplate.
 */
 
-use rustpython_vm::{convert::ToPyObject, AsObject, PyObjectRef, VirtualMachine};
+use rustpython_vm::{AsObject, PyObjectRef, VirtualMachine};
 use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 
@@ -81,7 +81,7 @@ impl ExtValue for YamlValue {
             }
             YamlValue::String(s) => vm.new_pyobj(s),
             YamlValue::Sequence(vec) => {
-                let py_list = vm.ctx.new_list(vec.into_iter().map(|item| item.to_pyobjectref(vm)).collect());
+                let py_list = vm.ctx.new_list(vec.iter().map(|item| item.to_pyobjectref(vm)).collect());
                 py_list.into()
             }
             YamlValue::Mapping(obj) => {
@@ -163,7 +163,7 @@ impl ExtValue for JsonValue {
             }
             JsonValue::String(s) => vm.new_pyobj(s),
             JsonValue::Array(vec) => {
-                let py_list = vm.ctx.new_list(vec.into_iter().map(|item| item.to_pyobjectref(vm)).collect());
+                let py_list = vm.ctx.new_list(vec.iter().map(|item| item.to_pyobjectref(vm)).collect());
                 py_list.into()
             }
             JsonValue::Object(obj) => {
