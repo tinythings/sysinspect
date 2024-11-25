@@ -2,7 +2,8 @@ pub mod systraits;
 
 use std::collections::HashMap;
 
-use crate::SysinspectError;
+use crate::{cfg::mmconf::MinionConfig, SysinspectError};
+use once_cell::sync::OnceCell;
 use pest::Parser;
 use pest_derive::Parser;
 use serde_json::Value;
@@ -94,4 +95,16 @@ pub fn matches_traits(qt: Vec<Vec<HashMap<String, Value>>>, traits: SystemTraits
     }
 
     or_op_c.contains(&true)
+}
+
+/// System traits instance
+static _TRAITS: OnceCell<SystemTraits> = OnceCell::new();
+
+/// Returns a copy of initialised traits.
+pub fn get_minion_traits(cfg: Option<&MinionConfig>) -> SystemTraits {
+    if let Some(cfg) = cfg {
+        return _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone())).to_owned();
+    }
+
+    _TRAITS.get_or_init(|| SystemTraits::new(MinionConfig::default())).to_owned()
 }

@@ -6,10 +6,12 @@ use rustpython_vm::pymodule;
 
 #[pymodule]
 pub mod syscore {
-    use crate::{cfg::mmconf::MinionConfig, traits::systraits::SystemTraits, util::dataconv};
+    use crate::{
+        traits::{self, systraits::SystemTraits},
+        util::dataconv,
+    };
     use rustpython_vm::PyResult;
     use rustpython_vm::{builtins::PyList, convert::ToPyObject, pyclass, PyObjectRef, PyPayload, VirtualMachine};
-    use std::path::PathBuf;
 
     #[derive(Debug, Clone)]
     struct StrVec(Vec<String>);
@@ -30,20 +32,7 @@ pub mod syscore {
     #[pyclass]
     impl MinionTraits {
         fn new() -> MinionTraits {
-            // This sucks big time. It always initialises traits for every script call
-            let cfg = match MinionConfig::new(PathBuf::from("/etc/sysinspect/sysinspect.conf")) {
-                Ok(c) => Some(c),
-                Err(err) => {
-                    log::debug!("Error initialising traits: {err}");
-                    None
-                }
-            };
-
-            if let Some(cfg) = cfg {
-                return MinionTraits { traits: Some(SystemTraits::new(cfg)) };
-            }
-
-            MinionTraits { ..Default::default() }
+            MinionTraits { traits: Some(traits::get_minion_traits(None)) }
         }
 
         #[pymethod]
