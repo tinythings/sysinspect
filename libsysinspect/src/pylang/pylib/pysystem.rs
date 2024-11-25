@@ -36,15 +36,15 @@ pub mod syscore {
         }
 
         #[pymethod]
-        fn get(&self, key: String) -> String {
+        fn get(&self, key: String, _vm: &VirtualMachine) -> PyObjectRef {
             if self.traits.is_some() {
-                return dataconv::to_string(self.traits.clone().and_then(|v| v.get(&key))).unwrap_or_default();
+                return dataconv::to_pyobjectref(self.traits.clone().and_then(|v| v.get(&key)), _vm).unwrap();
             }
-            "".to_string()
+            _vm.ctx.none()
         }
 
         #[pymethod]
-        fn list(&self) -> StrVec {
+        fn list(&self, _vm: &VirtualMachine) -> StrVec {
             let mut out: StrVec = StrVec(vec![]);
             if let Some(traits) = self.traits.clone() {
                 for item in traits.items() {
