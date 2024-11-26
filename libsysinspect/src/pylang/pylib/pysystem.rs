@@ -133,6 +133,15 @@ pub mod syscore {
         fn set_data(&self, data: PyRef<PyDict>) {
             self.inner.lock().data = data;
         }
+
+        #[pymethod(name = "__repr__")]
+        fn str(this: PyObjectRef, _vm: &VirtualMachine) -> String {
+            if let Some(x) = this.downcast_ref::<SysinspectReturn>() {
+                return format!("<SysinspectReturn: {:?}>", x);
+            }
+
+            "".to_string()
+        }
     }
 
     #[pyfunction]
