@@ -39,15 +39,21 @@ impl Relation {
         &self.states
     }
 
-    /// Get related entities
-    pub fn get_entities(&self, state: Option<String>) -> Vec<String> {
-        let mut out: Vec<String> = Vec::default();
-        let state = state.unwrap_or_default();
-        for (st, ent) in self.states() {
-            if st.eq(&state) || st.eq("$") {
-                out.extend(ent.values().flat_map(|eids| eids.to_owned()).collect::<Vec<String>>());
+    /// Get required entities (consists of).
+    /// There is no clear distinction between "consists of" and "required".
+    pub fn required(&self, state: &str) -> Result<Vec<String>, SysinspectError> {
+        let mut out = Vec::default();
+        if let Some(set) = self.states().get(state) {
+            if let Some(required) = set.get("requires") {
+                out.extend(required.iter().map(|s| s.to_string()));
             }
+        } else {
+            return Err(SysinspectError::ModelDSLError(format!(
+                "No required entities has been found in the \"{}\" relation as the \"{state}\" state",
+                self.id()
+            )));
         }
-        out
+
+        Ok(out)
     }
 }
