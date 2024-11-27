@@ -18,7 +18,7 @@ use crate::{
 };
 use colored::Colorize;
 use serde_yaml::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct SysInspector {
     entities: HashMap<String, Entity>,
@@ -147,6 +147,8 @@ impl SysInspector {
     pub fn actions_by_entities(&self, eids: Vec<String>, state: Option<String>) -> Result<Vec<Action>, SysinspectError> {
         let mut out: Vec<Action> = Vec::default();
         let state = parse_state(state);
+        let mut dropped: HashSet<String> = HashSet::default();
+        dropped.extend(eids.clone());
 
         for eid in eids {
             for action in self.actions.values() {
@@ -157,8 +159,17 @@ impl SysInspector {
                     // it also corresponds to other claims and conditions, and that then
                     // needs to be passed to the reactor.
                     out.push(action.to_owned().setup(self, &eid, state.to_owned())?);
+                    dropped.remove(&eid);
                 }
             }
+        }
+
+        if !dropped.is_empty() {
+            return Err(SysinspectError::ModelDSLError(format!(
+                "Entities \"{}\" are not bound with the state \"{}\" or don't exist",
+                dropped.iter().map(|s| s.to_string()).collect::<Vec<String>>().join(", "),
+                state
+            )));
         }
 
         Ok(out)
