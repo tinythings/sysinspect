@@ -1,10 +1,7 @@
 use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
-    cfg::{
-        mmconf::{MasterConfig, MinionConfig},
-        select_config,
-    },
+    cfg::{mmconf::MasterConfig, select_config},
     inspector::SysInspectRunner,
     logger,
     reactor::handlers,
