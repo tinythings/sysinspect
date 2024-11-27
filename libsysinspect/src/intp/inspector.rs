@@ -126,10 +126,18 @@ impl SysInspector {
         let mut out: Vec<Action> = Vec::default();
         for s in &self.checkbook {
             if rids.contains(&s.id()) {
-                for rel in s.relations() {
-                    out.extend(self.actions_by_entities(rel.get_entities(state.to_owned()), state.to_owned())?);
+                for r in s.relations() {
+                    out.extend(self.actions_by_entities(r.required(&parse_state(state.clone()))?, state.clone())?);
                 }
             }
+        }
+
+        if out.is_empty() {
+            return Err(SysinspectError::ModelDSLError(format!(
+                "Checkbook contains no such relations as \"{}\" that would be aligned with the state \"{}\"",
+                rids.join(", "),
+                parse_state(state)
+            )));
         }
 
         Ok(out)
