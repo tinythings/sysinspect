@@ -1,10 +1,14 @@
 use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
-    cfg::{mmconf::MasterConfig, select_config},
+    cfg::{
+        mmconf::{MasterConfig, MinionConfig},
+        select_config,
+    },
     inspector::SysInspectRunner,
     logger,
     reactor::handlers,
+    traits::get_minion_traits,
     SysinspectError,
 };
 use log::LevelFilter;
@@ -108,6 +112,7 @@ fn main() {
         sr.set_state(params.get_one::<String>("state").cloned());
         sr.set_entities(clidef::split_by(&params, "entities", None));
         sr.set_checkbook_labels(clidef::split_by(&params, "labels", None));
+        sr.set_traits(get_minion_traits(None));
         sr.start();
     }
 }
