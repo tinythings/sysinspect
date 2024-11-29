@@ -50,7 +50,7 @@ fn set_logger(p: &ArgMatches) {
 
 /// Get configuration of the master
 fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
-    MasterConfig::new(select_config(p.get_one::<String>("config").cloned())?)
+    MasterConfig::new(select_config(p.get_one::<&str>("config").cloned())?)
 }
 
 fn main() {

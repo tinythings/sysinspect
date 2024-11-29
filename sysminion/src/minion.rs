@@ -57,10 +57,7 @@ pub struct SysMinion {
 
 impl SysMinion {
     pub async fn new(cfp: &str, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
-        let mut cfp = PathBuf::from(cfp);
-        if !cfp.exists() {
-            cfp = cfg::select_config(None)?;
-        }
+        let cfp = cfg::select_config(Some(cfp))?;
 
         let cfg = MinionConfig::new(cfp)?;
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();

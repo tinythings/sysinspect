@@ -13,13 +13,15 @@ pub const APP_DOTCONF: &str = ".sysinspect";
 pub const APP_HOME: &str = "/etc/sysinspect";
 
 /// Select app conf
-pub fn select_config(p: Option<String>) -> Result<PathBuf, SysinspectError> {
+pub fn select_config(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
     // Override path from options
     if let Some(ovrp) = p {
         let ovrp = PathBuf::from(ovrp);
         if ovrp.exists() {
             return Ok(ovrp);
         }
+
+        log::warn!("Preferred config at {} does not exist, falling back", ovrp.to_str().unwrap_or_default());
     }
 
     // Current
