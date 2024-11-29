@@ -169,6 +169,26 @@ and contains the following directives:
     and writable directories are limited to only a few. In this case *root* must be
     set according to the system setup.
 
+``id.path``
+
+    By default, the minion Id is the ``/etc/machine-id``. However, this file is usually
+    present on a regular Linux server and desktop distributions, but practically never
+    on the embedded systems. For this reason, the alternative location of the ``machine-id``
+    needs to be specified. On many embedded Linux systems and Android, usually ``/etc`` is
+    read-only, and very few places are allowed to be written.
+
+    This option takes one of the following:
+
+    - An absolute path to an existing ``machine-id`` file
+    - ``relative`` keyword, so it is ``$MINION_ROOT/machine-id``, which is ``/etc/sysinspect/machine-id``
+      by default.
+
+    .. code-block:: yaml
+
+        id.path: </absolute/path>|relative
+
+
+
 ``master.ip``
 
     Corresponds to ``bind.ip`` of Master node and should be identical.

@@ -2112,6 +2112,7 @@ dependencies = [
  "textwrap 0.16.1",
  "tokio",
  "unicode-segmentation",
+ "uuid",
  "walkdir",
 ]
 
