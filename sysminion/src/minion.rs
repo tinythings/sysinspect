@@ -15,7 +15,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::Lazy;
-use std::{fs, path::PathBuf, sync::Arc, vec};
+use std::{fs, sync::Arc, vec};
 use tokio::io::AsyncReadExt;
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
