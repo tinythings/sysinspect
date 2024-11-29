@@ -41,14 +41,6 @@ build:
 	mv target/release/proc target/release/sys/
 	mv target/release/net target/release/sys/
 	mv target/release/run target/release/sys/
-
-	# Move plugin binaries
-	rm -rf target/release/sys
-	mkdir -p target/release/sys
-	mv target/release/proc target/release/sys/
-	mv target/release/net target/release/sys/
-	mv target/release/run target/release/sys/
-
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
 
