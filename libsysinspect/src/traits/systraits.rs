@@ -13,7 +13,6 @@ use std::{
     collections::HashMap,
     fs::{self},
     os::unix::fs::PermissionsExt,
-    path::PathBuf,
     process::Command,
 };
 
@@ -125,10 +124,9 @@ impl SystemTraits {
         self.put(SYS_OS_DISTRO.to_string(), json!(sysinfo::System::distribution_id()));
 
         // Machine Id (not always there)
-        let mip = PathBuf::from("/etc/machine-id");
         let mut mid = String::default();
-        if mip.exists() {
-            if let Ok(id) = fs::read_to_string(mip) {
+        if self.cfg.machine_id_path().exists() {
+            if let Ok(id) = fs::read_to_string(self.cfg.machine_id_path()) {
                 mid = id.trim().to_string();
             }
         }

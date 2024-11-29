@@ -6,7 +6,7 @@ use libsysinspect::{
     logger,
     reactor::handlers,
     traits::get_minion_traits,
-    SysinspectError,
+    util, SysinspectError,
 };
 use log::LevelFilter;
 use std::{env, fs::OpenOptions, io::Write};

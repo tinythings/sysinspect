@@ -45,6 +45,9 @@ pub struct MinionConfig {
     /// Port of Master's fileserver. Default: 4201
     #[serde(rename = "master.fileserver.port")]
     master_fileserver_port: Option<u32>,
+
+    #[serde(rename = "id.path")]
+    machine_id: Option<String>,
 }
 
 impl MinionConfig {
@@ -88,6 +91,19 @@ impl MinionConfig {
     /// Get root directory for drop-in traits
     pub fn traits_dir(&self) -> PathBuf {
         self.root_dir().join(CFG_TRAITS_ROOT)
+    }
+
+    /// Return machine Id path
+    pub fn machine_id_path(&self) -> PathBuf {
+        if let Some(mid) = self.machine_id.clone() {
+            if mid.eq("relative") {
+                return self.root_dir().join("machine-id");
+            } else {
+                return PathBuf::from(mid);
+            }
+        }
+
+        PathBuf::from("/etc/machine-id")
     }
 }
 

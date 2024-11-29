@@ -11,7 +11,7 @@ use libsysinspect::{
     },
     rsa,
     traits::{self},
-    util::dataconv,
+    util::{self, dataconv},
     SysinspectError,
 };
 use once_cell::sync::Lazy;
@@ -63,8 +63,6 @@ impl SysMinion {
         }
 
         let cfg = MinionConfig::new(cfp)?;
-        traits::get_minion_traits(Some(&cfg));
-
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
         let instance = SysMinion {
             cfg: cfg.clone(),
@@ -83,6 +81,11 @@ impl SysMinion {
     /// This creates all directory structures if none etc.
     fn init(&self) -> Result<(), SysinspectError> {
         log::info!("Initialising minion");
+        // Machine id?
+        if !self.cfg.machine_id_path().exists() {
+            util::write_machine_id(Some(self.cfg.machine_id_path()))?;
+        }
+
         // Place for models
         if !self.cfg.models_dir().exists() {
             log::debug!(
@@ -111,7 +114,7 @@ impl SysMinion {
         }
 
         let mut out: Vec<String> = vec![];
-        for t in traits::get_minion_traits(None).items() {
+        for t in traits::get_minion_traits(Some(&self.cfg)).items() {
             out.push(format!(
                 "{}: {}",
                 t.to_owned(),
