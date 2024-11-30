@@ -123,7 +123,7 @@ impl ActionResponse {
 
     /// Return state Id of the action
     pub fn sid(&self) -> &str {
-        if self.sid.eq("") {
+        if self.sid.is_empty() {
             "$"
         } else {
             &self.sid
