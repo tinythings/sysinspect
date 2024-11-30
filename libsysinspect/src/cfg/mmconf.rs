@@ -11,7 +11,9 @@ pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
 // Default directories
 pub static DEFAULT_SOCKET: &str = "/var/run/sysinspect-master.socket";
 pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
-pub static DEFAULT_MODULES_ROOT: &str = "/usr/share/sysinspect/modules";
+pub static DEFAULT_MODULES_DIR: &str = "modules";
+pub static DEFAULT_PYLIB_DIR: &str = "lib";
+pub static DEFAULT_SHARELIB: &str = "/usr/share/sysinspect";
 
 // All directories are relative to the sysinspect root
 pub static CFG_MINION_KEYS: &str = "minion-keys";
@@ -32,7 +34,21 @@ pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
 pub struct MinionConfig {
     /// Root directory where minion keeps all data.
     /// Default: /etc/sysinspect — same as for master
+    #[serde(rename = "path.root")]
     root: Option<String>,
+
+    /// Path to alternative /etc/machine-id
+    /// Values are:
+    /// - Absolute path
+    /// - "relative" (keyword)
+    ///
+    /// Relative keyword links to $ROOT/machine-id
+    #[serde(rename = "path.id")]
+    machine_id: Option<String>,
+
+    /// Path to the sharelib, other than /usr/share/sysinspect
+    #[serde(rename = "path.sharelib")]
+    sharelib_path: Option<String>,
 
     /// IP address of Master
     #[serde(rename = "master.ip")]
@@ -45,9 +61,6 @@ pub struct MinionConfig {
     /// Port of Master's fileserver. Default: 4201
     #[serde(rename = "master.fileserver.port")]
     master_fileserver_port: Option<u32>,
-
-    #[serde(rename = "id.path")]
-    machine_id: Option<String>,
 }
 
 impl MinionConfig {
@@ -104,6 +117,11 @@ impl MinionConfig {
         }
 
         PathBuf::from("/etc/machine-id")
+    }
+
+    /// Return sharelib path
+    pub fn sharelib_dir(&self) -> PathBuf {
+        PathBuf::from(self.sharelib_path.clone().unwrap_or(DEFAULT_SHARELIB.to_string()))
     }
 }
 

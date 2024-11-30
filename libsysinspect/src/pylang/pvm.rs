@@ -28,9 +28,9 @@ pub struct PyVm {
 }
 
 impl PyVm {
-    pub fn new(libpath: Option<String>, modpath: Option<String>) -> Self {
+    pub fn new(libpath: PathBuf, modpath: PathBuf) -> Self {
         let mut cfg = Settings::default();
-        let libpath = libpath.unwrap_or("/usr/share/sysinspect/lib".to_string());
+        let libpath = libpath.to_str().unwrap_or_default();
         cfg.path_list.push(libpath.to_string());
 
         let itp = rustpython::InterpreterConfig::new()
@@ -41,7 +41,7 @@ impl PyVm {
             }))
             .interpreter();
 
-        Self { itp, libpath: libpath.to_string(), modpath: modpath.unwrap_or("/usr/share/sysinspect/modules/".to_string()) }
+        Self { itp, libpath: libpath.to_string(), modpath: modpath.to_str().unwrap_or_default().to_string() }
     }
 
     /// Load main script of a module by a regular namespace

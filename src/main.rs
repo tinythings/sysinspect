@@ -104,7 +104,7 @@ fn main() {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
-        let mut sr = SysInspectRunner::new();
+        let mut sr = SysInspectRunner::new(None);
         sr.set_model_path(mpath);
         sr.set_state(params.get_one::<String>("state").cloned());
         sr.set_entities(clidef::split_by(&params, "entities", None));

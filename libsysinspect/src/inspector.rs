@@ -1,4 +1,7 @@
+use std::path::PathBuf;
+
 use crate::{
+    cfg::mmconf::DEFAULT_SHARELIB,
     intp::{self, inspector::SysInspector},
     mdescr::mspec,
     reactor::evtproc::EventProcessor,
@@ -17,11 +20,14 @@ pub struct SysInspectRunner {
 
     // Minion traits, if running in distributed mode
     traits: Option<SystemTraits>,
+
+    // Sharelib
+    sharelib: PathBuf,
 }
 
 impl SysInspectRunner {
-    pub fn new() -> SysInspectRunner {
-        SysInspectRunner { ..Default::default() }
+    pub fn new(sharelib: Option<PathBuf>) -> SysInspectRunner {
+        SysInspectRunner { sharelib: sharelib.unwrap_or(PathBuf::from(DEFAULT_SHARELIB)), ..Default::default() }
     }
 
     /// Set model path
@@ -49,7 +55,7 @@ impl SysInspectRunner {
         match mspec::load(&self.model_pth, self.traits.clone()) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
-                match SysInspector::new(spec) {
+                match SysInspector::new(spec, Some(self.sharelib.clone())) {
                     Ok(isp) => {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg());

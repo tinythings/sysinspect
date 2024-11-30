@@ -1,9 +1,11 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
+    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_PYLIB_DIR},
     intp::{
         actproc::response::ConstraintFailure,
         constraints::{Constraint, ConstraintKind},
         functions,
+        inspector::get_cfg_sharelib,
     },
     pylang,
     util::dataconv,
@@ -218,7 +220,11 @@ impl ModCall {
         let opts = self.opts.iter().map(|v| json!(v)).collect::<Vec<serde_json::Value>>();
         let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<HashMap<String, serde_json::Value>>();
 
-        match pylang::pvm::PyVm::new(None, None).as_ptr().call(&self.module, Some(opts), Some(args)) {
+        // TODO: Add libpath and modpath here! Must come from MinionConfig
+        match pylang::pvm::PyVm::new(get_cfg_sharelib().join(DEFAULT_PYLIB_DIR), get_cfg_sharelib().join(DEFAULT_MODULES_DIR))
+            .as_ptr()
+            .call(&self.module, Some(opts), Some(args))
+        {
             Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
                 Ok(r) => Ok(Some(ActionResponse::new(
                     self.eid.to_owned(),

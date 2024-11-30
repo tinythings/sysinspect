@@ -8,6 +8,7 @@ use super::{
     relations::Relation,
 };
 use crate::{
+    cfg::mmconf::DEFAULT_SHARELIB,
     intp::functions,
     mdescr::{
         mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
@@ -17,8 +18,30 @@ use crate::{
     SysinspectError,
 };
 use colored::Colorize;
+use once_cell::sync::OnceCell;
 use serde_yaml::Value;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
+
+static _SHARELIB: OnceCell<PathBuf> = OnceCell::new();
+
+/// Set sharelib for further work
+fn set_sharelib(sharelib: Option<PathBuf>) {
+    _ = _SHARELIB.set(sharelib.unwrap_or(PathBuf::from(DEFAULT_SHARELIB)));
+}
+
+/// Get sharelib
+pub fn get_cfg_sharelib() -> PathBuf {
+    if let Some(sharelib) = _SHARELIB.get() {
+        return sharelib.clone();
+    }
+
+    // Default
+    set_sharelib(None);
+    _SHARELIB.get().unwrap().clone()
+}
 
 pub struct SysInspector {
     entities: HashMap<String, Entity>,
@@ -31,7 +54,11 @@ pub struct SysInspector {
 }
 
 impl SysInspector {
-    pub fn new(spec: ModelSpec) -> Result<Self, SysinspectError> {
+    pub fn new(spec: ModelSpec, sharelib: Option<PathBuf>) -> Result<Self, SysinspectError> {
+        // Set sharelib
+        set_sharelib(sharelib);
+
+        // Create inspector
         let mut sr = SysInspector {
             entities: HashMap::new(),
             relations: HashMap::new(),
@@ -204,7 +231,6 @@ impl SysInspector {
     }
 
     /// Claim function
-
     pub fn call_function(&self, eid: Option<&str>, state: &str, func: &ModArgFunction) -> Result<Option<Value>, SysinspectError> {
         match func.fid() {
             "claim" | "static" => {

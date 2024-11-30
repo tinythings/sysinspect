@@ -1,7 +1,9 @@
-use crate::{cfg::mmconf::DEFAULT_MODULES_ROOT, util, SysinspectError};
+use crate::{cfg::mmconf::DEFAULT_MODULES_DIR, util, SysinspectError};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::{collections::HashMap, path::PathBuf};
+
+use super::inspector::get_cfg_sharelib;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct EventConfigOption {
@@ -87,7 +89,7 @@ impl Config {
     /// Get module (or Python module) from the namespace
     pub fn get_module(&self, namespace: &str) -> Result<PathBuf, SysinspectError> {
         // Fool-proof cleanup, likely a bad idea
-        let mut modpath = self.modules.to_owned().unwrap_or(PathBuf::from(DEFAULT_MODULES_ROOT)).join(
+        let mut modpath = self.modules.to_owned().unwrap_or(get_cfg_sharelib().join(DEFAULT_MODULES_DIR)).join(
             namespace
                 .trim_start_matches('.')
                 .trim_end_matches('.')

@@ -373,7 +373,7 @@ impl SysMinion {
         // Run the model
         log::debug!("Launching model for sysinspect for: {scheme}");
         let mqr_l = mqr.lock().unwrap();
-        let mut sr = SysInspectRunner::new();
+        let mut sr = SysInspectRunner::new(Some(self.cfg.sharelib_dir()));
         sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_l.target()).to_str().unwrap_or_default());
         sr.set_state(mqr_l.state());
         sr.set_entities(mqr_l.entities());
