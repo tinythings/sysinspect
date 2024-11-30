@@ -61,7 +61,7 @@ impl<'a> EventProcessor<'a> {
     }
 }
 
-impl<'a> Default for EventProcessor<'a> {
+impl Default for EventProcessor<'_> {
     fn default() -> Self {
         Self::new()
     }
