@@ -7,6 +7,7 @@ use rustpython_vm::pymodule;
 #[pymodule]
 pub mod syscore {
     use crate::{
+        cfg::{get_minion_config, mmconf::MinionConfig},
         traits::{self, systraits::SystemTraits},
         util::dataconv,
     };
@@ -67,6 +68,42 @@ pub mod syscore {
     /// which needs to be called for the init.
     fn MinionTraits() -> PyResult<MinionTraits> {
         Ok(MinionTraits::new())
+    }
+
+    #[pyattr]
+    #[pyclass(module = "syscore", name = "__AnsibleBridge")]
+    #[derive(Debug, PyPayload)]
+    pub struct AnsibleBridge {
+        cfg: MinionConfig,
+    }
+
+    #[pyclass]
+    impl AnsibleBridge {
+        #[pymethod]
+        pub fn sharelib(&self, _vm: &VirtualMachine) -> PyObjectRef {
+            _vm.ctx.new_str(self.cfg.sharelib_dir().to_string_lossy().to_string()).into()
+        }
+
+        #[pymethod]
+        pub fn root_dir(&self, _vm: &VirtualMachine) -> PyObjectRef {
+            _vm.ctx.new_str(self.cfg.root_dir().to_string_lossy().to_string()).into()
+        }
+
+        #[pymethod]
+        pub fn builtin_path(&self, name: String, _vm: &VirtualMachine) -> PyObjectRef {
+            let p = self.cfg.sharelib_dir().join(format!("lib/ansible/modules/{name}.py"));
+            if p.exists() {
+                return _vm.ctx.new_str(p.to_string_lossy().to_string()).into();
+            }
+
+            _vm.ctx.none()
+        }
+    }
+
+    #[pyfunction]
+    #[allow(non_snake_case)]
+    fn AnsibleBridge() -> PyResult<AnsibleBridge> {
+        Ok(AnsibleBridge { cfg: get_minion_config(None).unwrap() })
     }
 
     #[derive(Debug)]
