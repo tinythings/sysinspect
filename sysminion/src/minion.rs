@@ -24,26 +24,6 @@ use uuid::Uuid;
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
-/*
-Traits are system properties and attributes on which a minion is running.
-
-P.S. These are not Rust traits. :-)
- */
-
-/*
-/// System traits instance
-static _TRAITS: OnceCell<SystemTraits> = OnceCell::new();
-
-/// Returns a copy of initialised traits.
-pub fn traits::get_minion_traits(cfg: Option<&MinionConfig>) -> SystemTraits {
-    if let Some(cfg) = cfg {
-        return _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone())).to_owned();
-    }
-
-    _TRAITS.get_or_init(|| SystemTraits::new(MinionConfig::default())).to_owned()
-}
-    */
-
 pub struct SysMinion {
     cfg: MinionConfig,
     fingerprint: Option<String>,
