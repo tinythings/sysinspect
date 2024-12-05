@@ -18,7 +18,7 @@ impl Receiver {
     ///   `eid` - Entity Id
     ///   `response` - ActionResponse object
     pub fn register(&mut self, eid: String, response: ActionResponse) {
-        log::trace!("Registered action response: {:#?}", response);
+        log::debug!("Registered action response: {:#?}", response);
         self.actions.insert(eid, response);
 
         // XXX: And process here as well!
