@@ -1,6 +1,6 @@
 use crate::{filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use libsysinspect::{
-    cfg::{self, mmconf::MinionConfig},
+    cfg::{get_minion_config, mmconf::MinionConfig},
     inspector::SysInspectRunner,
     proto::{
         errcodes::ProtoErrorCode,
@@ -37,9 +37,7 @@ pub struct SysMinion {
 
 impl SysMinion {
     pub async fn new(cfp: &str, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
-        let cfp = cfg::select_config(Some(cfp))?;
-
-        let cfg = MinionConfig::new(cfp)?;
+        let cfg = get_minion_config(Some(cfp))?;
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
         let instance = SysMinion {
             cfg: cfg.clone(),

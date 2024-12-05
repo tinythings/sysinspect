@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
-    cfg::{mmconf::MasterConfig, select_config},
+    cfg::{mmconf::MasterConfig, select_config_path},
     inspector::SysInspectRunner,
     logger,
     reactor::handlers,
@@ -50,7 +50,7 @@ fn set_logger(p: &ArgMatches) {
 
 /// Get configuration of the master
 fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
-    MasterConfig::new(select_config(p.get_one::<&str>("config").cloned())?)
+    MasterConfig::new(select_config_path(p.get_one::<&str>("config").cloned())?)
 }
 
 fn main() {
