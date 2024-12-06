@@ -250,7 +250,7 @@ impl SysMaster {
                                     let mut guard = c_master.lock().await;
                                     guard.session.ping(&c_id, &c_payload);
                                     let uptime = guard.session.uptime(req.id()).unwrap_or_default();
-                                    log::debug!(
+                                    log::trace!(
                                         "Update last contacted for {} (alive for {:.2} min)",
                                         req.id().to_string(),
                                         uptime as f64 / 60.0
@@ -307,7 +307,7 @@ impl SysMaster {
                                 line = lines.next_line() => {
                                     match line {
                                         Ok(Some(payload)) => {
-                                            log::info!("Querying minions: {}", payload);
+                                            log::debug!("Querying minions: {}", payload);
                                             if let Some(msg) = master.lock().await.msg_query(&payload) {
                                                 let _ = bcast.send(msg.sendable().unwrap());
                                             }

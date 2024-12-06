@@ -5,7 +5,9 @@ Config reader
 pub mod mmconf;
 
 use crate::SysinspectError;
+use mmconf::MinionConfig;
 use nix::unistd::Uid;
+use once_cell::sync::OnceCell;
 use std::{env, path::PathBuf};
 
 pub const APP_CONF: &str = "sysinspect.conf";
@@ -13,7 +15,7 @@ pub const APP_DOTCONF: &str = ".sysinspect";
 pub const APP_HOME: &str = "/etc/sysinspect";
 
 /// Select app conf
-pub fn select_config(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
+pub fn select_config_path(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
     // Override path from options
     if let Some(ovrp) = p {
         let ovrp = PathBuf::from(ovrp);
@@ -51,4 +53,12 @@ pub fn select_config(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
     }
 
     Err(SysinspectError::ConfigError("No config has been found".to_string()))
+}
+
+/// Minion Confinguration
+static _MINION_CFG: OnceCell<MinionConfig> = OnceCell::new();
+
+/// Returns a copy of initialised traits.
+pub fn get_minion_config(p: Option<&str>) -> Result<MinionConfig, SysinspectError> {
+    Ok(_MINION_CFG.get_or_try_init(|| MinionConfig::new(select_config_path(p)?))?.to_owned())
 }

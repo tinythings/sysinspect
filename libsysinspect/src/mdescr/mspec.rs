@@ -1,5 +1,5 @@
 use super::{datapatch, mspecdef::ModelSpec};
-use crate::{cfg::select_config, tmpl::render::ModelTplRender, traits::systraits::SystemTraits, SysinspectError};
+use crate::{cfg::select_config_path, tmpl::render::ModelTplRender, traits::systraits::SystemTraits, SysinspectError};
 use serde_yaml::Value;
 use std::{
     collections::HashMap,
@@ -141,7 +141,7 @@ impl SpecLoader {
         }
 
         // Load app config and merge to the main model
-        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(select_config(None)?)?)?);
+        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(select_config_path(None)?)?)?);
 
         let mut base = self.merge_parts(&mut base)?;
         if !iht.is_empty() {

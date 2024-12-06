@@ -97,7 +97,10 @@ pub fn matches_traits(qt: Vec<Vec<HashMap<String, Value>>>, traits: SystemTraits
     or_op_c.contains(&true)
 }
 
-/// System traits instance
+/// System traits instance. Traits are system properties and attributes
+/// on which a minion is running.
+///
+/// P.S. These are not Rust traits. :-)
 static _TRAITS: OnceCell<SystemTraits> = OnceCell::new();
 
 /// Returns a copy of initialised traits.

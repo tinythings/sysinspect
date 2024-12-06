@@ -6,7 +6,7 @@ mod rmt;
 
 use clidef::cli;
 use libsysinspect::{
-    cfg::{mmconf::MasterConfig, select_config},
+    cfg::{mmconf::MasterConfig, select_config_path},
     logger, SysinspectError,
 };
 use log::LevelFilter;
@@ -49,7 +49,7 @@ async fn main() -> Result<(), SysinspectError> {
     // Get config
     let mut cfp = PathBuf::from(params.get_one::<String>("config").unwrap_or(&"".to_string()).to_owned());
     if !cfp.exists() {
-        cfp = match select_config(None) {
+        cfp = match select_config_path(None) {
             Ok(cfp) => {
                 log::debug!("Reading config at {}", cfp.to_str().unwrap_or_default());
                 cfp
