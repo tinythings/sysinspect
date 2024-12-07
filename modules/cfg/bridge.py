@@ -89,10 +89,6 @@ def main(*opts, **args) -> str:
     modpath = bridge.builtin_path(opts[0][0])
 
     try:
-        return str(
-            SysinspectReturn().add_data(
-                {"ansible": invoke_ansible_module(modpath, args)}
-            )
-        )
+        return str(SysinspectReturn().add_data(invoke_ansible_module(modpath, args)))
     except Exception as e:
         return str(SysinspectReturn(retcode=1, message=str(e)))
