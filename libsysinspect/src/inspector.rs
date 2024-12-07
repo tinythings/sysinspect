@@ -79,12 +79,12 @@ impl SysInspectRunner {
                                         }
                                     }
                                 }
-                                evtproc.process();
                             }
                             Err(err) => {
                                 log::error!("{}", err);
                             }
                         }
+                        evtproc.process();
                     }
                     Err(err) => log::error!("{err}"),
                 }
