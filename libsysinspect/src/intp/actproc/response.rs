@@ -103,12 +103,14 @@ pub struct ActionResponse {
 
     // Module response
     pub response: ActionModResponse,
-    pub errors: ConstraintResponse,
+    pub constraints: ConstraintResponse,
 }
 
 impl ActionResponse {
-    pub(crate) fn new(eid: String, aid: String, sid: String, response: ActionModResponse, errors: ConstraintResponse) -> Self {
-        Self { eid, aid, sid, response, errors }
+    pub(crate) fn new(
+        eid: String, aid: String, sid: String, response: ActionModResponse, constraints: ConstraintResponse,
+    ) -> Self {
+        Self { eid, aid, sid, response, constraints }
     }
 
     /// Return an Entity Id to which this action was bound to
