@@ -52,13 +52,12 @@ impl EventHandler for ConstraintHandler {
 
         let prefix = self.get_prefix();
 
-        if !evt.errors.has_errors() {
+        if !evt.constraints.has_errors() {
             log::info!("{}{} {}", prefix, evt.aid(), "passed".bright_green().bold());
             return;
         }
 
-        log::info!("{}", evt.errors.descr());
-        for f in evt.errors.failures() {
+        for f in evt.constraints.failures() {
             log::error!("{}{}: {}", prefix, f.title.yellow(), f.msg);
         }
     }
