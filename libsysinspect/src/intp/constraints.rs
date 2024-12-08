@@ -1,5 +1,5 @@
 use crate::{
-    util::dataconv::{as_bool_opt, as_int_opt, as_str_opt},
+    util::dataconv::{self, as_bool_opt, as_int_opt, as_str_opt},
     SysinspectError,
 };
 use regex::Regex;
@@ -7,8 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub struct ExprRes {
     result: bool,
+
+    // Infos are expression results those have no evaluation expression.
+    info: bool,
+    event_id: Option<String>,
     traces: Vec<String>,
 }
 
@@ -17,13 +22,15 @@ impl ExprRes {
     pub fn new(result: Option<bool>, trace: Option<String>) -> Self {
         ExprRes {
             result: result.unwrap_or(false),
+            info: false,
+            event_id: None,
             traces: if trace.is_some() { vec![trace.unwrap_or_default()] } else { vec![] },
         }
     }
 
     /// Add trace to the stack
     pub fn add_trace(&mut self, msg: String) {
-        _ = &self.traces.push(msg);
+        _ = &self.traces.push(msg)
     }
 
     /// Get existing traces
@@ -34,6 +41,29 @@ impl ExprRes {
     /// Get the outcome
     pub fn is_positive(&self) -> bool {
         self.result
+    }
+
+    /// Set the expression result as an information
+    pub fn set_info(mut self, info: bool) -> Self {
+        self.info = info;
+        self
+    }
+
+    /// Set an optional event Id to be emitted to
+    pub fn set_event_id(mut self, eid: Option<String>) -> Self {
+        self.event_id = eid;
+        self
+    }
+
+    /// Get explicitly set event id. If none set, then
+    /// the result is forwarded to a standard one.
+    pub fn get_event_id(&self) -> Option<String> {
+        self.event_id.clone()
+    }
+
+    /// Get the flag if the expression result is an info (not a part of a constraint)
+    pub fn is_info(&self) -> bool {
+        self.info
     }
 }
 
@@ -65,6 +95,9 @@ pub struct Expression {
     contains: Option<Value>,
     starts: Option<Value>,
     ends: Option<Value>,
+
+    // Configuration management
+    event: Option<String>,
 }
 
 impl Expression {
@@ -145,72 +178,93 @@ impl Expression {
         // Module data is a "fact", compared to the "claim" from the model.
         let (op, claim) = self.op().unwrap_or_else(|| (OpType::Undef, Value::default()));
         if op == OpType::Undef {
-            return ExprRes::new(Some(false), Some("Undefined expression".to_string()));
+            if let Some(event) = self.event.clone() {
+                return ExprRes::new(Some(true), Some(format!("Info event \"{event}\" of {}", dataconv::as_str(Some(fact)))))
+                    .set_event_id(Some(event))
+                    .set_info(true);
+            } else {
+                return ExprRes::new(Some(true), None).set_info(true);
+            }
         }
 
         let v_claim = Some(&claim).cloned();
 
         match fact {
-            serde_json::Value::Null => ExprRes::new(Some(fact.is_null()), Some("No facts to evaluate".to_string())),
+            serde_json::Value::Null => {
+                ExprRes::new(Some(fact.is_null()), Some("No facts to evaluate".to_string())).set_event_id(self.event.clone())
+            }
             serde_json::Value::Bool(fact) => {
                 let claim = as_bool_opt(v_claim);
                 if claim.is_none() {
-                    return ExprRes::new(Some(false), Some("Could not obtain claim value as boolean".to_string()));
+                    return ExprRes::new(Some(false), Some("Could not obtain claim value as boolean".to_string()))
+                        .set_event_id(self.event.clone());
                 }
                 let claim = claim.unwrap();
 
                 match op {
-                    OpType::Equals => ExprRes::new(Some(fact == claim), None),
-                    OpType::Less | OpType::More => ExprRes::new(Some(fact != claim), None),
+                    OpType::Equals => ExprRes::new(Some(fact == claim), None).set_event_id(self.event.clone()),
+                    OpType::Less | OpType::More => ExprRes::new(Some(fact != claim), None).set_event_id(self.event.clone()),
                     _ => ExprRes::new(Some(false), Some("Unknown expression operator".to_string())),
                 }
             }
             serde_json::Value::Number(_) => {
                 let fact = as_int_opt(Some(fact.to_owned()));
                 if fact.is_none() {
-                    return ExprRes::new(Some(false), Some("Could not obtain fact value as a number".to_string()));
+                    return ExprRes::new(Some(false), Some("Could not obtain fact value as a number".to_string()))
+                        .set_event_id(self.event.clone());
                 }
                 let fact = fact.unwrap();
                 let claim = as_int_opt(v_claim.clone());
                 if claim.is_none() {
-                    return ExprRes::new(Some(false), Some("Could not obtain claim value as a number".to_string()));
+                    return ExprRes::new(Some(false), Some("Could not obtain claim value as a number".to_string()))
+                        .set_event_id(self.event.clone());
                 }
                 let claim = claim.unwrap();
 
                 match op {
-                    OpType::Equals => ExprRes::new(Some(fact == claim), Some(format!("{} should be equal to {}", fact, claim))),
-                    OpType::Less => ExprRes::new(Some(fact < claim), Some(format!("{} should be less than {}", fact, claim))),
-                    OpType::More => ExprRes::new(Some(fact > claim), Some(format!("{} should be more than {}", fact, claim))),
+                    OpType::Equals => ExprRes::new(Some(fact == claim), Some(format!("{} should be equal to {}", fact, claim)))
+                        .set_event_id(self.event.clone()),
+                    OpType::Less => ExprRes::new(Some(fact < claim), Some(format!("{} should be less than {}", fact, claim)))
+                        .set_event_id(self.event.clone()),
+                    OpType::More => ExprRes::new(Some(fact > claim), Some(format!("{} should be more than {}", fact, claim)))
+                        .set_event_id(self.event.clone()),
                     _ => ExprRes::new(None, Some("Unknown expression operator".to_string())),
                 }
             }
             serde_json::Value::String(fact) => {
                 let claim = as_str_opt(v_claim);
                 if claim.is_none() {
-                    return ExprRes::new(Some(false), Some("Could not obtain claim value as a string".to_string()));
+                    return ExprRes::new(Some(false), Some("Could not obtain claim value as a string".to_string()))
+                        .set_event_id(self.event.clone());
                 }
                 let claim = claim.unwrap_or_default();
 
                 match op {
-                    OpType::Equals => ExprRes::new(Some(claim.eq(&fact)), Some(format!("{} should be equal to {}", claim, fact))),
+                    OpType::Equals => ExprRes::new(Some(claim.eq(&fact)), Some(format!("{} should be equal to {}", claim, fact)))
+                        .set_event_id(self.event.clone()),
                     OpType::Less | OpType::More => {
                         ExprRes::new(Some(claim.ne(&fact)), Some(format!("{} should not be equal to {}", claim, fact)))
+                            .set_event_id(self.event.clone())
                     }
                     OpType::Matches => {
                         if let Ok(r) = Regex::new(&claim) {
                             ExprRes::new(Some(r.is_match(&fact)), Some(format!("{} should match {}", fact, claim)))
+                                .set_event_id(self.event.clone())
                         } else {
                             ExprRes::new(None, Some("Bad regexp syntax".to_string()))
                         }
                     }
                     OpType::Contains => {
                         ExprRes::new(Some(claim.contains(&fact)), Some(format!("{} should contain {}", fact, claim)))
+                            .set_event_id(self.event.clone())
                     }
                     OpType::Starts => {
                         ExprRes::new(Some(claim.starts_with(&fact)), Some(format!("{} should start with {}", fact, claim)))
+                            .set_event_id(self.event.clone())
                     }
                     OpType::Ends => {
                         ExprRes::new(Some(claim.ends_with(&fact)), Some(format!("{} should ends with {}", fact, claim)))
+                            .set_event_id(self.event.clone())
                     }
                     _ => ExprRes::new(None, None),
                 }
