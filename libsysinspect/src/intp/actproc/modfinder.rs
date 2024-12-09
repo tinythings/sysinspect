@@ -7,7 +7,7 @@ use crate::{
         functions,
         inspector::get_cfg_sharelib,
     },
-    pylang,
+    pylang, traits,
     util::dataconv,
     SysinspectError,
 };
@@ -143,7 +143,7 @@ impl ModCall {
             }
         }
 
-        (Some(true), None, er)
+        (None, Some(vec![]), er)
     }
 
     /// At least one of the expressions must be true
@@ -170,7 +170,7 @@ impl ModCall {
             traces.extend(res.traces().to_owned());
         }
 
-        (Some(false), Some(traces), er)
+        (None, Some(traces), er)
     }
 
     /// None of expressions should be true. It is basically !all.
@@ -199,7 +199,7 @@ impl ModCall {
             }
         }
 
-        (Some(true), None, er)
+        (None, None, er)
     }
 
     /// Evaluate constraints

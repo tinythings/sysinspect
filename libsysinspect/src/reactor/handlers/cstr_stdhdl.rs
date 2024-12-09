@@ -52,8 +52,16 @@ impl EventHandler for ConstraintHandler {
 
         let prefix = self.get_prefix();
 
-        if !evt.constraints.has_errors() {
-            log::info!("{}{} {}", prefix, evt.aid(), "passed".bright_green().bold());
+        if evt.constraints.is_info() {
+            log::info!("{}{} config {}", prefix, evt.aid(), "state applied".bright_white().bold());
+            return;
+        } else if !evt.constraints.has_errors() {
+            let mut sfx = String::from("");
+            if evt.constraints.has_info() {
+                sfx = format!(", config {}", "state applied".bright_white().bold());
+            }
+
+            log::info!("{}{} assertions {}{}", prefix, evt.aid(), "passed".bright_green().bold(), sfx);
             return;
         }
 

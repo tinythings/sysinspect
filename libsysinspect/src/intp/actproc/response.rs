@@ -57,6 +57,32 @@ impl ConstraintResponse {
     pub fn expressions(&self) -> Vec<ExprRes> {
         self.expr.to_owned()
     }
+
+    /// Returns True if expressions do not contain any evaluated facts,
+    /// but only meant to be rerouted to a specific event of a configuration
+    /// management as its action module applied a specific state to the system.
+    pub fn is_info(&self) -> bool {
+        let mut evals = 0;
+        for xpr in &self.expr {
+            if !xpr.is_info() {
+                evals += 1;
+            }
+        }
+
+        evals == 0
+    }
+
+    /// Returns True if there is an info expression among other expressions.
+    pub fn has_info(&self) -> bool {
+        let mut nfo = 0;
+        for xpr in &self.expr {
+            if xpr.is_info() {
+                nfo += 1;
+            }
+        }
+
+        nfo > 0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
