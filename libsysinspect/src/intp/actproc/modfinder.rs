@@ -7,7 +7,7 @@ use crate::{
         functions,
         inspector::get_cfg_sharelib,
     },
-    pylang, traits,
+    pylang,
     util::dataconv,
     SysinspectError,
 };
