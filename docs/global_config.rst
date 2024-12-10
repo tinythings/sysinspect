@@ -161,7 +161,7 @@ Minion
 Sysinspect Minion configuration is located under earlier mentioned ``minion`` section,
 and contains the following directives:
 
-``root``
+``path.root``
 
     Typically, Minion if running standard, the root of all data kept by a Minion is
     defaulted to ``/etc/sysinspect``, same as Master. However, in an embedded and custom
@@ -169,7 +169,7 @@ and contains the following directives:
     and writable directories are limited to only a few. In this case *root* must be
     set according to the system setup.
 
-``id.path``
+``path.id``
 
     By default, the minion Id is the ``/etc/machine-id``. However, this file is usually
     present on a regular Linux server and desktop distributions, but practically never
@@ -187,6 +187,11 @@ and contains the following directives:
 
         id.path: </absolute/path>|relative
 
+``path.sharelib``
+
+    The location of sharelib directory, which is by default is at the location
+    ``/usr/share/sysinspect``. On most embedded systems those root filesystem is usually read-only,
+    this location can be changed. This directory contains ``lib`` and ``modules`` subdirectories.
 
 
 ``master.ip``
@@ -195,7 +200,12 @@ and contains the following directives:
 
 ``master.port``
 
-    Corresponds to ``bind.ip.port`` of Master node and should be identical.
+    Corresponds to ``bind.ip.port`` of Master node and should be identical. By default it is
+    set to ``4200``.
+
+``master.fileserver.port``
+
+    Port of Master's fileserver. By default it is set to ``4201``.
 
 Example configuration for the Sysinspect Minion:
 

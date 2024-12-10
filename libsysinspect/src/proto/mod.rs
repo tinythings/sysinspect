@@ -140,7 +140,7 @@ pub struct MinionTarget {
     /// Session Id
     sid: String, // XXX: Should be gone
 
-    /// Scheme to call (model:// or state://)
+    /// Which scheme must be called (model://)
     #[serde(rename = "s")]
     scheme: String,
 

@@ -1,4 +1,4 @@
-use crate::intp::constraints::ConstraintKind;
+use crate::intp::constraints::{ConstraintKind, ExprRes};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -21,11 +21,12 @@ impl ConstraintFailure {
 pub struct ConstraintResponse {
     descr: String,
     failures: Vec<ConstraintFailure>,
+    expr: Vec<ExprRes>,
 }
 
 impl ConstraintResponse {
     pub fn new(descr: String) -> Self {
-        ConstraintResponse { descr, failures: vec![] }
+        ConstraintResponse { descr, failures: vec![], expr: vec![] }
     }
 
     pub fn add_failure(&mut self, fl: ConstraintFailure) {
@@ -45,6 +46,42 @@ impl ConstraintResponse {
     /// Get list of failures
     pub fn failures(&self) -> &[ConstraintFailure] {
         &self.failures
+    }
+
+    /// Set list of evaluated expressions
+    pub(crate) fn set_eval_results(&mut self, expr: Vec<ExprRes>) {
+        self.expr.extend(expr);
+    }
+
+    /// Get list of evaluated expressions
+    pub fn expressions(&self) -> Vec<ExprRes> {
+        self.expr.to_owned()
+    }
+
+    /// Returns True if expressions do not contain any evaluated facts,
+    /// but only meant to be rerouted to a specific event of a configuration
+    /// management as its action module applied a specific state to the system.
+    pub fn is_info(&self) -> bool {
+        let mut evals = 0;
+        for xpr in &self.expr {
+            if !xpr.is_info() {
+                evals += 1;
+            }
+        }
+
+        evals == 0
+    }
+
+    /// Returns True if there is an info expression among other expressions.
+    pub fn has_info(&self) -> bool {
+        let mut nfo = 0;
+        for xpr in &self.expr {
+            if xpr.is_info() {
+                nfo += 1;
+            }
+        }
+
+        nfo > 0
     }
 }
 
@@ -103,12 +140,14 @@ pub struct ActionResponse {
 
     // Module response
     pub response: ActionModResponse,
-    pub errors: ConstraintResponse,
+    pub constraints: ConstraintResponse,
 }
 
 impl ActionResponse {
-    pub(crate) fn new(eid: String, aid: String, sid: String, response: ActionModResponse, errors: ConstraintResponse) -> Self {
-        Self { eid, aid, sid, response, errors }
+    pub(crate) fn new(
+        eid: String, aid: String, sid: String, response: ActionModResponse, constraints: ConstraintResponse,
+    ) -> Self {
+        Self { eid, aid, sid, response, constraints }
     }
 
     /// Return an Entity Id to which this action was bound to
@@ -138,10 +177,17 @@ impl ActionResponse {
     ///   - `0..255`  - specific code
     ///   - `E`       - error only (non-0)
     ///
-    pub fn match_eid(&self, eid: &str) -> bool {
-        let p_eid = eid.split('/').map(|s| s.trim()).collect::<Vec<&str>>();
+    pub fn match_eid(&self, evt_id: &str) -> bool {
+        // If explicitly specified and already matching
+        for expr in self.constraints.expressions() {
+            if let Some(ovr_evt_id) = expr.get_event_id() {
+                if evt_id.eq(&ovr_evt_id) {
+                    return true;
+                }
+            }
+        }
 
-        // Have fun reading this :-P
+        let p_eid = evt_id.split('/').map(|s| s.trim()).collect::<Vec<&str>>();
         p_eid.len() == 4
             && (self.aid().eq(p_eid[0]) || p_eid[0] == "$")
             && (self.eid().eq(p_eid[1]) || p_eid[1] == "$")

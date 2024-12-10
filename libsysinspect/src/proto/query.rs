@@ -4,7 +4,6 @@ use crate::SysinspectError;
 
 /// Targeting schemes
 pub static SCHEME_MODEL: &str = "model://";
-pub static SCHEME_STATE: &str = "state://";
 
 ///
 /// Query parser (scheme).
@@ -25,21 +24,12 @@ pub struct MinionQuery {
 
 impl MinionQuery {
     pub fn new(q: &str) -> Result<Arc<Mutex<Self>>, SysinspectError> {
-        let q = q.trim();
-        if !q.starts_with(SCHEME_STATE) && !q.starts_with(SCHEME_MODEL) {
-            return Err(SysinspectError::ProtoError("Query has unknown scheme".to_string()));
-        }
-
-        let sq: Vec<&str> = q.split("://").collect();
-        if sq.len() != 2 {
-            return Err(SysinspectError::ProtoError("Unable to parse scheme".to_string()));
-        }
-
+        let q = q.trim().trim_matches('/');
         let mut instance = Self { ..Default::default() };
-        instance.scheme = sq[0].to_owned();
+        instance.scheme = SCHEME_MODEL.to_string(); // XXX: Drop "model://" scheme entirely
 
-        let precise = sq[1].contains('/');
-        let sq: Vec<&str> = sq[1].split(if precise { '/' } else { ':' }).filter(|s| !s.is_empty()).collect();
+        let precise = q.contains('/');
+        let sq: Vec<&str> = q.split(if precise { '/' } else { ':' }).filter(|s| !s.is_empty()).collect();
         match sq.len() {
             0 => {
                 return Err(SysinspectError::ProtoError("No model has been targeted".to_string()));

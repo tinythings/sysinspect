@@ -6,8 +6,13 @@ Model Description
 
 .. _model_description:
 
-The Model is essentially a configuration of a system. It is written in YAML format,
-and it is following a specific expression schema and logic.
+The Model is essentially a configuration of a system. It serves two purposes:
+
+- An assertion verification about system integrity (information only)
+- A state enforcement as a configuration management system does
+
+
+The Aodel is written in YAML format, and it is following a specific expression schema and logic.
 
 This document explains each part of the Model Description.
 

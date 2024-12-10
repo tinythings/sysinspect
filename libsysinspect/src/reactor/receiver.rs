@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 #[derive(Default, Debug)]
 pub struct Receiver {
     /// Storage of action results: string Id to response object.
-    actions: IndexMap<String, ActionResponse>,
+    actions: IndexMap<String, Vec<ActionResponse>>,
 }
 
 impl Receiver {
@@ -18,14 +18,13 @@ impl Receiver {
     ///   `eid` - Entity Id
     ///   `response` - ActionResponse object
     pub fn register(&mut self, eid: String, response: ActionResponse) {
-        log::debug!("Registered action response: {:#?}", response);
-        self.actions.insert(eid, response);
-
         // XXX: And process here as well!
+        log::debug!("Registered action response: {:#?}", response);
+        self.actions.entry(eid).or_default().push(response);
     }
 
     /// Get an action response by Entity Id
-    pub fn get_by_eid(&self, eid: String) -> Option<ActionResponse> {
+    pub fn get_by_eid(&self, eid: String) -> Option<Vec<ActionResponse>> {
         self.actions.get(&eid).cloned()
     }
 
@@ -34,7 +33,7 @@ impl Receiver {
     pub fn get_all(&self) -> Vec<ActionResponse> {
         let mut out: Vec<ActionResponse> = Vec::default();
         for ar in self.actions.values() {
-            out.push(ar.to_owned());
+            out.extend(ar.to_owned());
         }
         out
     }

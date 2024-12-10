@@ -97,7 +97,7 @@ fn main() {
         }
     };
 
-    if let Some(model) = params.get_one::<String>("scheme") {
+    if let Some(model) = params.get_one::<String>("path") {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
         if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, &cfg.socket()) {

@@ -54,4 +54,4 @@ is passed, then default state is selected:
 
 .. code-block:: text
 
-    syspect --model ./my_model --states=online,active
+    sysinspect --model ./my_model --states=online,active
