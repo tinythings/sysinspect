@@ -47,12 +47,12 @@ in the following format:
 .. code-block:: text
     :caption: Precise model query synopsis
 
-    "model://<model>/[entity]/[state] [traits query]"
+    "/<model>/[entity]/[state] [traits query]"
 
 .. code-block:: text
     :caption: Checkbook model query synopsis
 
-    "model://<model>/[entity]:[checkbook labels]"
+    "/<model>/[entity]:[checkbook labels]"
 
 Since there can be many models, it is essential to select one, therefore a model Id is
 always required. If ``entity`` and/or ``state`` are not specified, they are defaulted to
@@ -61,7 +61,7 @@ always required. If ``entity`` and/or ``state`` are not specified, they are defa
 .. code-block:: bash
     :caption: Example of Model targeting by precise query
 
-    sysinspect "model://router/network,devices/online"
+    sysinspect "/router/network,devices/online"
 
 In the example above, a network is verified in a router only when it supposed to be online.
 Under the hood, omitted parts are translated to "all" (``$``). E.g. ``router/network`` is
@@ -74,10 +74,15 @@ values and logical operations. See :ref:`query_targeting` for more details.
 .. code-block:: bash
     :caption: Example of Model targeting by checkbook labels
 
-    sysinspect "model://router:network,devices"
+    sysinspect "/router:network,devices"
 
 The example above is the same as the previous one, except it is using Checkbook. Entities
 in the Checkbook are basically the top-high groups of other entities.
+
+.. hint::
+
+  Trailing slash in model specification path can be omitted: ``router/network/online`` would also working
+  the same way.
 
 Using Traits
 ------------

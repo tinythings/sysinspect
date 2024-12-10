@@ -20,8 +20,8 @@ pub fn cli(version: &'static str) -> Command {
         // Sysinspect
         .next_help_heading("Main")
         .arg(
-            Arg::new("scheme")
-                .help("Specify scheme that needs to be requested (model:// or state://)")
+            Arg::new("path")
+                .help("Specify model path that needs to be requested")
                 .required(false)
                 .index(1)
         )
