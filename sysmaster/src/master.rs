@@ -103,15 +103,15 @@ impl SysMaster {
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
-        if let [scheme, query, traits] = query.as_slice() {
+        if let [querypath, query, traits] = query.as_slice() {
+            println!("Scheme: {querypath}, Query: {query}");
             let mut tgt = MinionTarget::default();
-            tgt.set_scheme(scheme);
+            tgt.set_scheme(querypath);
             tgt.set_traits_query(traits);
             for hostname in query.split(",") {
                 tgt.add_hostname(hostname);
             }
 
-            // Collect downloadable model(s) files
             let mut out: HashMap<String, String> = HashMap::default();
             for em in self.cfg.fileserver_models() {
                 for (n, cs) in scan_files_sha256(self.cfg.fileserver_mdl_root(false).join(em), Some(MODEL_FILE_EXT)) {
@@ -122,10 +122,15 @@ impl SysMaster {
                 }
             }
 
+            let mut payload = String::from("");
+            if tgt.scheme().eq(proto::query::SCHEME_COMMAND) {
+                payload = query.to_owned();
+            }
+
             let mut msg = MasterMessage::new(
                 RequestType::Command,
-                json!(ModStatePayload::new("12345".to_string())
-                    .set_uri(scheme.to_string())
+                json!(ModStatePayload::new(payload)
+                    .set_uri(querypath.to_string())
                     .add_files(out)
                     .set_models_root(self.cfg.fileserver_mdl_root(true).to_str().unwrap_or_default())), // TODO: SID part
             );
