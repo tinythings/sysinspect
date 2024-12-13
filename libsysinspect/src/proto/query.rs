@@ -1,9 +1,22 @@
-use std::sync::{Arc, Mutex};
-
 use crate::SysinspectError;
+use std::sync::{Arc, Mutex};
 
 /// Targeting schemes
 pub static SCHEME_MODEL: &str = "model://";
+pub static SCHEME_COMMAND: &str = "cmd://";
+
+pub mod commands {
+    // Stop the entire cluster
+    pub const CLUSTER_SHUTDOWN: &str = "cluster/shutdown";
+
+    // Restart the entire cluster
+    // TODO: Not implemented yet
+    pub const CLUSTER_REBOOT: &str = "cluster/reboot";
+
+    // Rotate RSA/AES on the entire cluster
+    // TODO: Not implemented yet
+    pub const CLUSTER_ROTATE: &str = "cluster/rotate";
+}
 
 ///
 /// Query parser (scheme).
