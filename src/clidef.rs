@@ -68,6 +68,12 @@ pub fn cli(version: &'static str) -> Command {
                 .long("state")
                 .help("Specify a state to be processed. If none specified, default is taken ($)")
         )
+        .arg(
+            Arg::new("shutdown")
+                .long("shutdown")
+                .action(ArgAction::SetTrue)
+                .help(format!("Notify the running master to shutdown the {}, be careful! :)", "entire cluster".bright_red()))
+        )
 
         .next_help_heading("Info")
         .arg(
