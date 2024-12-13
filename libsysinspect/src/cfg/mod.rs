@@ -60,5 +60,6 @@ static _MINION_CFG: OnceCell<MinionConfig> = OnceCell::new();
 
 /// Returns a copy of initialised traits.
 pub fn get_minion_config(p: Option<&str>) -> Result<MinionConfig, SysinspectError> {
+    log::debug!("Getting minion config");
     Ok(_MINION_CFG.get_or_try_init(|| MinionConfig::new(select_config_path(p)?))?.to_owned())
 }
