@@ -5,7 +5,7 @@ use libsysinspect::{
     proto::{
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
-        query::MinionQuery,
+        query::{MinionQuery, SCHEME_COMMAND},
         rqtypes::RequestType,
         MasterMessage, MinionMessage, ProtoConversion,
     },
@@ -371,6 +371,24 @@ impl SysMinion {
         log::debug!("Sysinspect model cycle finished");
     }
 
+    /// Calls internal command
+    fn call_internal_command(self: Arc<Self>, cmd: &str) {
+        let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
+        match cmd {
+            libsysinspect::proto::query::commands::CLUSTER_SHUTDOWN => {
+                log::info!("Shutting down minion");
+                std::process::exit(0);
+            }
+            libsysinspect::proto::query::commands::CLUSTER_REBOOT => {
+                log::warn!("Command \"reboot\" is not implemented yet");
+            }
+            libsysinspect::proto::query::commands::CLUSTER_ROTATE => {
+                log::warn!("Command \"rotate\" is not implemented yet");
+            }
+            _ => {}
+        }
+    }
+
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
         log::debug!("Dispatching message");
         let tgt = cmd.get_target();
@@ -424,9 +442,13 @@ impl SysMinion {
 
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
-                self.launch_sysinspect(cmd.get_target().scheme(), &pld).await;
-                log::debug!("Command dispatched");
-                log::trace!("Command payload: {:#?}", pld);
+                if cmd.get_target().scheme().starts_with(SCHEME_COMMAND) {
+                    self.as_ptr().call_internal_command(cmd.get_target().scheme());
+                } else {
+                    self.as_ptr().launch_sysinspect(cmd.get_target().scheme(), &pld).await;
+                    log::debug!("Command dispatched");
+                    log::trace!("Command payload: {:#?}", pld);
+                }
             }
             Ok(PayloadType::Undef(pld)) => {
                 log::error!("Unknown command: {:#?}", pld);
