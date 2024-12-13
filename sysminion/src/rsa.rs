@@ -55,6 +55,9 @@ impl MinionRSAKeyManager {
         }
 
         self.mn_pbk_pem = pbk_pem.to_owned().unwrap();
+
+        log::info!("Writing public keys to {:?}", pbk_pth.parent());
+
         fs::write(prk_pth, prk_pem.unwrap())?;
         fs::write(pbk_pth, pbk_pem.unwrap())?;
 

@@ -38,7 +38,12 @@ pub struct SysMinion {
 impl SysMinion {
     pub async fn new(cfp: &str, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
         let cfg = get_minion_config(Some(cfp))?;
+
+        log::debug!("Configuration: {:#?}", cfg);
+        log::debug!("Trying to connect at {}", cfg.master());
+
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
+        log::debug!("Network bound at {}", cfg.master());
         let instance = SysMinion {
             cfg: cfg.clone(),
             fingerprint,
@@ -47,7 +52,10 @@ impl SysMinion {
             wstm: Arc::new(Mutex::new(wstm)),
             filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
         };
+        log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
+
+        log::debug!("Initialisation done");
 
         Ok(Arc::new(instance))
     }
