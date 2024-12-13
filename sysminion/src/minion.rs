@@ -42,7 +42,7 @@ impl SysMinion {
         log::debug!("Configuration: {:#?}", cfg);
         log::debug!("Trying to connect at {}", cfg.master());
 
-        let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
+        let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
         log::debug!("Network bound at {}", cfg.master());
         let instance = SysMinion {
             cfg: cfg.clone(),
