@@ -86,4 +86,8 @@ impl SessionKeeper {
     pub(crate) fn get_id(&self, mid: &str) -> Option<String> {
         self.sessions.get(mid).map(|s| s.session_id())
     }
+
+    pub(crate) fn remove(&mut self, id: &str) {
+        self.sessions.remove(id);
+    }
 }

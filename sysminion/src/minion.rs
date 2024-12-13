@@ -15,7 +15,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::Lazy;
-use std::{fs, sync::Arc, vec};
+use std::{fs, sync::Arc, time::Duration, vec};
 use tokio::io::AsyncReadExt;
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
@@ -260,6 +260,18 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Send bye message
+    pub async fn send_bye(self: Arc<Self>) {
+        let r = MinionMessage::new(
+            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            RequestType::Bye,
+            MINION_SID.to_string(),
+        );
+
+        log::info!("Goodbye to {}", self.cfg.master());
+        self.request(r.sendable().unwrap()).await;
+    }
+
     /// Download a file from master
     async fn download_file(self: Arc<Self>, fname: &str) -> Result<Vec<u8>, SysinspectError> {
         async fn fetch_file(url: &str, filename: &str) -> Result<String, SysinspectError> {
@@ -372,11 +384,13 @@ impl SysMinion {
     }
 
     /// Calls internal command
-    fn call_internal_command(self: Arc<Self>, cmd: &str) {
+    async fn call_internal_command(self: Arc<Self>, cmd: &str) {
         let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
         match cmd {
             libsysinspect::proto::query::commands::CLUSTER_SHUTDOWN => {
                 log::info!("Shutting down minion");
+                self.as_ptr().send_bye().await;
+                tokio::time::sleep(Duration::from_secs(2)).await;
                 std::process::exit(0);
             }
             libsysinspect::proto::query::commands::CLUSTER_REBOOT => {
@@ -443,7 +457,7 @@ impl SysMinion {
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
                 if cmd.get_target().scheme().starts_with(SCHEME_COMMAND) {
-                    self.as_ptr().call_internal_command(cmd.get_target().scheme());
+                    self.as_ptr().call_internal_command(cmd.get_target().scheme()).await;
                 } else {
                     self.as_ptr().launch_sysinspect(cmd.get_target().scheme(), &pld).await;
                     log::debug!("Command dispatched");

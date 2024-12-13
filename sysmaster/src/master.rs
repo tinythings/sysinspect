@@ -104,7 +104,6 @@ impl SysMaster {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
         if let [querypath, query, traits] = query.as_slice() {
-            println!("Scheme: {querypath}, Query: {query}");
             let mut tgt = MinionTarget::default();
             tgt.set_scheme(querypath);
             tgt.set_traits_query(traits);
@@ -272,6 +271,10 @@ impl SysMaster {
                                     let mut guard = c_master.lock().await;
                                     guard.on_traits(c_id, c_payload).await;
                                 });
+                            }
+
+                            RequestType::Bye => {
+                                log::debug!("Minion at {} disconnects", req.id());
                             }
                             _ => {
                                 log::error!("Minion sends unknown request type");
