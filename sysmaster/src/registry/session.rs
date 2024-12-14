@@ -4,7 +4,10 @@ Keeps connected minions and updates their uptime via heartbeat.
 This prevents simultaenous connection of multiple minions on the same machine.
  */
 
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone)]
 struct Session {
@@ -32,6 +35,10 @@ impl Session {
 
     pub fn session_id(&self) -> String {
         self.sid.to_string()
+    }
+
+    pub fn expire(&mut self) {
+        self.last -= Duration::from_secs(90);
     }
 }
 
@@ -89,5 +96,11 @@ impl SessionKeeper {
 
     pub(crate) fn remove(&mut self, id: &str) {
         self.sessions.remove(id);
+    }
+
+    pub(crate) fn expire(&mut self, mid: &str) {
+        if let Some(session) = self.sessions.get_mut(mid) {
+            session.expire();
+        }
     }
 }
