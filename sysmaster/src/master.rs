@@ -16,6 +16,7 @@ use libsysinspect::{
     util::iofs::scan_files_sha256,
     SysinspectError,
 };
+use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -32,6 +33,9 @@ use tokio::{
     time,
 };
 
+// Session singleton
+static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
+
 #[derive(Debug)]
 pub struct SysMaster {
     cfg: MasterConfig,
@@ -39,7 +43,7 @@ pub struct SysMaster {
     mkr: MinionsKeyRegistry,
     mreg: MinionRegistry,
     to_drop: HashSet<String>,
-    session: session::SessionKeeper,
+    session: Arc<Mutex<session::SessionKeeper>>,
 }
 
 impl SysMaster {
@@ -47,7 +51,7 @@ impl SysMaster {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: SessionKeeper::new(30), mreg })
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg })
     }
 
     /// Open FIFO socket for command-line communication
@@ -180,6 +184,10 @@ impl SysMaster {
         m
     }
 
+    pub fn get_session(&self) -> Arc<Mutex<session::SessionKeeper>> {
+        Arc::clone(&self.session)
+    }
+
     /// Process incoming minion messages
     #[allow(clippy::while_let_loop)]
     pub async fn do_incoming(master: Arc<Mutex<Self>>, mut rx: tokio::sync::mpsc::Receiver<(Vec<u8>, String)>) {
@@ -230,7 +238,7 @@ impl SysMaster {
                                         log::info!("Minion at {minion_addr} ({}) is not registered", req.id());
                                         guard.to_drop.insert(minion_addr);
                                         _ = c_bcast.send(guard.msg_not_registered(req.id().to_string()).sendable().unwrap());
-                                    } else if guard.session.exists(&c_id) {
+                                    } else if guard.get_session().lock().await.exists(&c_id) {
                                         log::info!("Minion at {minion_addr} ({}) is already connected", req.id());
                                         guard.to_drop.insert(minion_addr);
                                         _ = c_bcast.send(
@@ -238,7 +246,7 @@ impl SysMaster {
                                         );
                                     } else {
                                         log::info!("{} connected successfully", c_id);
-                                        guard.session.ping(&c_id, &c_payload);
+                                        guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
                                         _ = c_bcast
                                             .send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
                                         log::info!("Syncing traits with minion at {}", c_id);
@@ -249,11 +257,10 @@ impl SysMaster {
                             RequestType::Pong => {
                                 let c_master = Arc::clone(&master);
                                 let c_id = req.id().to_string();
-                                let c_payload = req.payload().to_string();
                                 tokio::spawn(async move {
-                                    let mut guard = c_master.lock().await;
-                                    guard.session.ping(&c_id, &c_payload);
-                                    let uptime = guard.session.uptime(req.id()).unwrap_or_default();
+                                    let guard = c_master.lock().await;
+                                    guard.get_session().lock().await.ping(&c_id, None);
+                                    let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
                                     log::trace!(
                                         "Update last contacted for {} (alive for {:.2} min)",
                                         req.id().to_string(),
@@ -379,24 +386,26 @@ impl SysMaster {
                             loop {
                                 if let Ok(msg) = bcast_sub.recv().await {
                                     log::trace!("Sending message to minion at {} length of {}", local_addr.to_string(), msg.len());
+                                    let mut guard = c_master.lock().await;
                                     if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
                                         || writer.write_all(&msg).await.is_err()
                                         || writer.flush().await.is_err()
                                     {
                                         if let Err(err) = cancel_tx.send(true) {
-                                            log::error!("Sending cancel notification: {err}");
+                                            log::debug!("Error sending cancel notification: {err}");
                                         }
                                         break;
                                     }
 
-                                    if c_master.lock().await.to_drop.contains(&local_addr.to_string()) {
-                                        c_master.lock().await.to_drop.remove(&local_addr.to_string());
+                                    if guard.to_drop.contains(&local_addr.to_string()) {
+                                        guard.to_drop.remove(&local_addr.to_string());
                                         log::info!("Dropping minion: {}", &local_addr.to_string());
+                                        log::info!("");
                                         if let Err(err) = writer.shutdown().await {
                                             log::error!("Error shutting down outgoing: {err}");
                                         }
                                         if let Err(err) = cancel_tx.send(true) {
-                                            log::error!("Sending cancel notification: {err}");
+                                            log::debug!("Error sending cancel notification: {err}");
                                         }
 
                                         return;
