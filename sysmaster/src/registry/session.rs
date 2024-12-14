@@ -62,8 +62,13 @@ impl SessionKeeper {
     }
 
     /// Create a new session or update the existing
-    pub fn ping(&mut self, mid: &str, sid: &str) {
-        self.sessions.entry(mid.to_string()).or_insert_with(|| Session::new(sid)).update();
+    pub fn ping(&mut self, mid: &str, sid: Option<&str>) {
+        if let Some(sid) = sid {
+            self.sessions.entry(mid.to_string()).or_insert_with(|| Session::new(sid)).update();
+        } else if let Some(session) = self.sessions.get_mut(mid) {
+            session.update();
+        }
+
         self.gc();
     }
 
