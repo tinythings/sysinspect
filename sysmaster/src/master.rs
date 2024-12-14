@@ -184,6 +184,14 @@ impl SysMaster {
         m
     }
 
+    fn msg_bye_ack(&mut self, mid: String, sid: String) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::ByeAck, json!(sid));
+        m.set_target(MinionTarget::new(&mid, &sid));
+        m.set_retcode(ProtoErrorCode::Success);
+
+        m
+    }
+
     pub fn get_session(&self) -> Arc<Mutex<session::SessionKeeper>> {
         Arc::clone(&self.session)
     }
@@ -282,10 +290,13 @@ impl SysMaster {
 
                             RequestType::Bye => {
                                 let c_master = Arc::clone(&master);
+                                let c_bcast = bcast.clone();
                                 log::info!("Minion {} disconnects", req.id());
                                 tokio::spawn(async move {
-                                    let guard = c_master.lock().await;
+                                    let mut guard = c_master.lock().await;
                                     guard.get_session().lock().await.remove(req.id());
+                                    let m = guard.msg_bye_ack(req.id().to_string(), req.payload().to_string());
+                                    _ = c_bcast.send(m.sendable().unwrap());
                                 });
                             }
 

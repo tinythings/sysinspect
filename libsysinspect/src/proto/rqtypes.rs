@@ -30,6 +30,10 @@ pub enum RequestType {
     #[serde(rename = "b")]
     Bye,
 
+    /// Bye Ack
+    #[serde(rename = "ba")]
+    ByeAck,
+
     /// Retry connect (e.g. after the registration)
     #[serde(rename = "retry")]
     Reconnect,

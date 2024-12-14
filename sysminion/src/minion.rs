@@ -15,7 +15,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::Lazy;
-use std::{fs, sync::Arc, time::Duration, vec};
+use std::{fs, sync::Arc, vec};
 use tokio::io::AsyncReadExt;
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
@@ -219,6 +219,10 @@ impl SysMinion {
                     RequestType::Ping => {
                         self.request(proto::msg::get_pong()).await;
                     }
+                    RequestType::ByeAck => {
+                        log::info!("Master confirmed shutdown, terminating");
+                        std::process::exit(0);
+                    }
                     _ => {
                         log::error!("Unknown request type");
                     }
@@ -388,10 +392,8 @@ impl SysMinion {
         let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
         match cmd {
             libsysinspect::proto::query::commands::CLUSTER_SHUTDOWN => {
-                log::info!("Shutting down minion");
+                log::info!("Requesting minion shutdown from a master");
                 self.as_ptr().send_bye().await;
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                std::process::exit(0);
             }
             libsysinspect::proto::query::commands::CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
