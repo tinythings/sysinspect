@@ -4,6 +4,7 @@ use libsysinspect::{
     cfg::{mmconf::MasterConfig, select_config_path},
     inspector::SysInspectRunner,
     logger,
+    proto::query::{commands::CLUSTER_SHUTDOWN, SCHEME_COMMAND},
     reactor::handlers,
     traits::get_minion_traits,
     SysinspectError,
@@ -101,6 +102,10 @@ fn main() {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
         if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, &cfg.socket()) {
+            log::error!("Cannot reach master: {err}");
+        }
+    } else if params.get_flag("shutdown") {
+        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SHUTDOWN), "*", None, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {

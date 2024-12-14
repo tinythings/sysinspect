@@ -4211,6 +4211,7 @@ dependencies = [
  "libc",
  "libsysinspect",
  "log",
+ "once_cell",
  "rand",
  "rsa",
  "rustls",

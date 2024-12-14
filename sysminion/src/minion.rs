@@ -5,7 +5,7 @@ use libsysinspect::{
     proto::{
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
-        query::MinionQuery,
+        query::{MinionQuery, SCHEME_COMMAND},
         rqtypes::RequestType,
         MasterMessage, MinionMessage, ProtoConversion,
     },
@@ -42,7 +42,7 @@ impl SysMinion {
         log::debug!("Configuration: {:#?}", cfg);
         log::debug!("Trying to connect at {}", cfg.master());
 
-        let (rstm, wstm) = TcpStream::connect(cfg.master()).await.unwrap().into_split();
+        let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
         log::debug!("Network bound at {}", cfg.master());
         let instance = SysMinion {
             cfg: cfg.clone(),
@@ -219,6 +219,10 @@ impl SysMinion {
                     RequestType::Ping => {
                         self.request(proto::msg::get_pong()).await;
                     }
+                    RequestType::ByeAck => {
+                        log::info!("Master confirmed shutdown, terminating");
+                        std::process::exit(0);
+                    }
                     _ => {
                         log::error!("Unknown request type");
                     }
@@ -258,6 +262,18 @@ impl SysMinion {
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
         Ok(())
+    }
+
+    /// Send bye message
+    pub async fn send_bye(self: Arc<Self>) {
+        let r = MinionMessage::new(
+            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            RequestType::Bye,
+            MINION_SID.to_string(),
+        );
+
+        log::info!("Goodbye to {}", self.cfg.master());
+        self.request(r.sendable().unwrap()).await;
     }
 
     /// Download a file from master
@@ -371,6 +387,24 @@ impl SysMinion {
         log::debug!("Sysinspect model cycle finished");
     }
 
+    /// Calls internal command
+    async fn call_internal_command(self: Arc<Self>, cmd: &str) {
+        let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
+        match cmd {
+            libsysinspect::proto::query::commands::CLUSTER_SHUTDOWN => {
+                log::info!("Requesting minion shutdown from a master");
+                self.as_ptr().send_bye().await;
+            }
+            libsysinspect::proto::query::commands::CLUSTER_REBOOT => {
+                log::warn!("Command \"reboot\" is not implemented yet");
+            }
+            libsysinspect::proto::query::commands::CLUSTER_ROTATE => {
+                log::warn!("Command \"rotate\" is not implemented yet");
+            }
+            _ => {}
+        }
+    }
+
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
         log::debug!("Dispatching message");
         let tgt = cmd.get_target();
@@ -424,9 +458,13 @@ impl SysMinion {
 
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
-                self.launch_sysinspect(cmd.get_target().scheme(), &pld).await;
-                log::debug!("Command dispatched");
-                log::trace!("Command payload: {:#?}", pld);
+                if cmd.get_target().scheme().starts_with(SCHEME_COMMAND) {
+                    self.as_ptr().call_internal_command(cmd.get_target().scheme()).await;
+                } else {
+                    self.as_ptr().launch_sysinspect(cmd.get_target().scheme(), &pld).await;
+                    log::debug!("Command dispatched");
+                    log::trace!("Command payload: {:#?}", pld);
+                }
             }
             Ok(PayloadType::Undef(pld)) => {
                 log::error!("Unknown command: {:#?}", pld);

@@ -4,7 +4,10 @@ Keeps connected minions and updates their uptime via heartbeat.
 This prevents simultaenous connection of multiple minions on the same machine.
  */
 
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone)]
 struct Session {
@@ -33,6 +36,10 @@ impl Session {
     pub fn session_id(&self) -> String {
         self.sid.to_string()
     }
+
+    pub fn expire(&mut self) {
+        self.last -= Duration::from_secs(90);
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -55,8 +62,13 @@ impl SessionKeeper {
     }
 
     /// Create a new session or update the existing
-    pub fn ping(&mut self, mid: &str, sid: &str) {
-        self.sessions.entry(mid.to_string()).or_insert_with(|| Session::new(sid)).update();
+    pub fn ping(&mut self, mid: &str, sid: Option<&str>) {
+        if let Some(sid) = sid {
+            self.sessions.entry(mid.to_string()).or_insert_with(|| Session::new(sid)).update();
+        } else if let Some(session) = self.sessions.get_mut(mid) {
+            session.update();
+        }
+
         self.gc();
     }
 
@@ -85,5 +97,15 @@ impl SessionKeeper {
     /// Get session Id for the minion
     pub(crate) fn get_id(&self, mid: &str) -> Option<String> {
         self.sessions.get(mid).map(|s| s.session_id())
+    }
+
+    pub(crate) fn remove(&mut self, id: &str) {
+        self.sessions.remove(id);
+    }
+
+    pub(crate) fn expire(&mut self, mid: &str) {
+        if let Some(session) = self.sessions.get_mut(mid) {
+            session.expire();
+        }
     }
 }
