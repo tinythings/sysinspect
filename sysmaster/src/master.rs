@@ -281,8 +281,14 @@ impl SysMaster {
                             }
 
                             RequestType::Bye => {
-                                log::debug!("Minion at {} disconnects", req.id());
+                                let c_master = Arc::clone(&master);
+                                log::info!("Minion {} disconnects", req.id());
+                                tokio::spawn(async move {
+                                    let guard = c_master.lock().await;
+                                    guard.get_session().lock().await.remove(req.id());
+                                });
                             }
+
                             _ => {
                                 log::error!("Minion sends unknown request type");
                             }
