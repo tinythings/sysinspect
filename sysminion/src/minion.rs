@@ -1,4 +1,5 @@
 use crate::{filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
+use colored::Colorize;
 use libsysinspect::{
     cfg::{get_minion_config, mmconf::MinionConfig},
     inspector::SysInspectRunner,
@@ -401,7 +402,13 @@ impl SysMinion {
             libsysinspect::proto::query::commands::CLUSTER_ROTATE => {
                 log::warn!("Command \"rotate\" is not implemented yet");
             }
-            _ => {}
+            libsysinspect::proto::query::commands::CLUSTER_REMOVE_MINION => {
+                log::info!("{} from the master", "Unregistering".bright_red().bold());
+                self.as_ptr().send_bye().await;
+            }
+            _ => {
+                log::warn!("Unknown command: {cmd}");
+            }
         }
     }
 
@@ -455,6 +462,8 @@ impl SysMinion {
                 };
             }
         } // else: this minion is directly targeted by its Id.
+
+        log::debug!("Through. {:?}", cmd.payload());
 
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {

@@ -4,7 +4,10 @@ use libsysinspect::{
     cfg::{mmconf::MasterConfig, select_config_path},
     inspector::SysInspectRunner,
     logger,
-    proto::query::{commands::CLUSTER_SHUTDOWN, SCHEME_COMMAND},
+    proto::query::{
+        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
+        SCHEME_COMMAND,
+    },
     reactor::handlers,
     traits::get_minion_traits,
     SysinspectError,
@@ -28,8 +31,10 @@ fn print_event_handlers() {
 }
 
 /// Call master via FIFO
-fn call_master_fifo(model: &str, query: &str, traits: Option<&String>, fifo: &str) -> Result<(), SysinspectError> {
-    let payload = format!("{model};{query};{}\n", traits.unwrap_or(&"".to_string()));
+fn call_master_fifo(
+    model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, fifo: &str,
+) -> Result<(), SysinspectError> {
+    let payload = format!("{model};{query};{};{}\n", traits.unwrap_or(&"".to_string()), mid.unwrap_or_default());
     OpenOptions::new().write(true).open(fifo)?.write_all(payload.as_bytes())?;
 
     log::debug!("Message sent to the master via FIFO: {:?}", payload);
@@ -101,11 +106,17 @@ fn main() {
     if let Some(model) = params.get_one::<String>("path") {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
-        if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, &cfg.socket()) {
+        if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, None, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("shutdown") {
-        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SHUTDOWN), "*", None, &cfg.socket()) {
+        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SHUTDOWN), "*", None, None, &cfg.socket()) {
+            log::error!("Cannot reach master: {err}");
+        }
+    } else if let Some(mid) = params.get_one::<String>("unregister") {
+        if let Err(err) =
+            call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_REMOVE_MINION), "", None, Some(mid), &cfg.socket())
+        {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {

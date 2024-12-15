@@ -45,6 +45,7 @@ sections:
 .. toctree::
    :maxdepth: 2
 
+   cli
    distributed_model
    systraits
    targeting

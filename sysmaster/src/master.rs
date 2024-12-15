@@ -107,8 +107,8 @@ impl SysMaster {
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
-        if let [querypath, query, traits] = query.as_slice() {
-            let mut tgt = MinionTarget::default();
+        if let [querypath, query, traits, mid] = query.as_slice() {
+            let mut tgt = MinionTarget::new(mid, "");
             tgt.set_scheme(querypath);
             tgt.set_traits_query(traits);
             for hostname in query.split(",") {
@@ -323,6 +323,18 @@ impl SysMaster {
         }
     }
 
+    pub async fn on_fifo_commands(&mut self, msg: &MasterMessage) {
+        if msg.get_target().scheme().eq("cmd://cluster/minion/remove") && !msg.get_target().id().is_empty() {
+            log::info!("Removing minion {}", msg.get_target().id());
+            if let Err(err) = self.mreg.remove(msg.get_target().id()) {
+                log::error!("Unable to remove minion {}: {err}", msg.get_target().id());
+            }
+            if let Err(err) = self.mkr().remove_mn_key(msg.get_target().id()) {
+                log::error!("Unable to unregister minion: {err}");
+            }
+        }
+    }
+
     pub async fn do_fifo(master: Arc<Mutex<Self>>) {
         log::trace!("Init local command channel");
         tokio::spawn(async move {
@@ -341,6 +353,12 @@ impl SysMaster {
                                         Ok(Some(payload)) => {
                                             log::debug!("Querying minions: {}", payload);
                                             if let Some(msg) = master.lock().await.msg_query(&payload) {
+                                                // Fire internal checks
+                                                let c_master = Arc::clone(&master);
+                                                let c_msg = msg.clone();
+                                                tokio::spawn(async move {c_master.lock().await.on_fifo_commands(&c_msg).await;});
+
+                                                // Broadcast the message to everyone
                                                 let _ = bcast.send(msg.sendable().unwrap());
                                             }
                                         }
