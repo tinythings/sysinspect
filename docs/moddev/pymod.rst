@@ -78,6 +78,15 @@ the CPU brand of the Minion:
 
         return str(r)
 
+Hacking
+-------
+
+In order to call own Python module and work on it, the easiest way is to just define an
+action in an own model and start calling it locally, using ``sysinspect`` utility:
+
+.. code-block:: shell
+
+    sysinspect -m <path/to/the/model> -e <entity> -s <state>
 
 Ansible Integration
 ===================
