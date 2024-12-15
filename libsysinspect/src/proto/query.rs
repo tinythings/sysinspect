@@ -16,6 +16,9 @@ pub mod commands {
     // Rotate RSA/AES on the entire cluster
     // TODO: Not implemented yet
     pub const CLUSTER_ROTATE: &str = "cluster/rotate";
+
+    // Remove minion (unregister)
+    pub const CLUSTER_REMOVE_MINION: &str = "cluster/minion/remove";
 }
 
 ///
