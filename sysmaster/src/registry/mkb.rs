@@ -3,7 +3,7 @@ use libsysinspect::{
     cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB},
     rsa, SysinspectError,
 };
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, io, path::PathBuf};
 
 /// Registered minion base.
 /// Essentially this is just a directory,
@@ -127,7 +127,21 @@ impl MinionsKeyRegistry {
         None
     }
 
-    pub fn remove_mn_key(&self) {}
+    /// Remove minion public key from the store
+    pub fn remove_mn_key(&mut self, mid: &str) -> Result<(), SysinspectError> {
+        let k_pth = self.root.join(format!("{}.rsa.pub", mid));
+        if k_pth.exists() {
+            fs::remove_file(k_pth)?;
+            self.keys.remove(mid);
+        } else {
+            return Err(SysinspectError::IoErr(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("No RSA public key found for {mid}"),
+            )));
+        }
+
+        Ok(())
+    }
 
     pub fn encrypt_with_mn_key(&self) {}
 
