@@ -68,6 +68,14 @@ pub fn cli(version: &'static str) -> Command {
                 .long("state")
                 .help("Specify a state to be processed. If none specified, default is taken ($)")
         )
+
+        // Cluster
+        .next_help_heading("Cluster")
+        .arg(
+            Arg::new("unregister")
+                .long("unregister")
+                .help("Unregister a minion by its System Id. New registration will be required.")
+        )
         .arg(
             Arg::new("shutdown")
                 .long("shutdown")
@@ -75,7 +83,7 @@ pub fn cli(version: &'static str) -> Command {
                 .help(format!("Notify the running master to shutdown the {}, be careful! :)", "entire cluster".bright_red()))
         )
 
-        .next_help_heading("Info")
+        .next_help_heading("Model")
         .arg(
             Arg::new("list-handlers")
                 .long("list-handlers")
