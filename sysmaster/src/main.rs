@@ -5,21 +5,28 @@ mod registry;
 mod rmt;
 
 use clidef::cli;
+use daemonize::Daemonize;
 use libsysinspect::{
     cfg::{mmconf::MasterConfig, select_config_path},
     logger, SysinspectError,
 };
 use log::LevelFilter;
-use rmt::send_message;
-use std::env;
-use std::path::PathBuf;
+use std::{env, fs::File};
+use std::{path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysmaster";
 static VERSION: &str = "0.0.1";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
-#[tokio::main]
-async fn main() -> Result<(), SysinspectError> {
+fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {
+    tokio::runtime::Runtime::new()?.block_on(async {
+        master::master(cfg).await?;
+        Ok::<(), SysinspectError>(())
+    })?;
+    Ok(())
+}
+
+fn main() -> Result<(), SysinspectError> {
     let mut cli = cli(VERSION, APPNAME);
     let params = cli.to_owned().get_matches();
 
@@ -63,6 +70,28 @@ async fn main() -> Result<(), SysinspectError> {
     let cfg = MasterConfig::new(cfp)?;
 
     // Mode
+    if params.get_flag("start") {
+        if let Err(err) = start_master(cfg) {
+            log::error!("Error starting master: {err}");
+        }
+    } else if params.get_flag("daemon") {
+        log::info!("Starting daemon");
+        let pid = "/tmp/sysmaster.pid";
+        let sout = File::create("/tmp/sysmaster.out").unwrap();
+        let serr = File::create("/tmp/sysmaster.err").unwrap();
+
+        match Daemonize::new().pid_file(pid).stdout(sout).stderr(serr).start() {
+            Ok(_) => {
+                log::info!("Daemon started successfully.");
+                if let Err(err) = start_master(cfg) {
+                    log::error!("Error starting master: {err}");
+                }
+            }
+            Err(e) => {
+                log::error!("Error daemonizing: {}", e);
+                exit(1);
+            }
+        }
     }
 
     Ok(())
