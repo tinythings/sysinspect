@@ -22,10 +22,8 @@ pub fn kill_process(pidf: PathBuf, wait: Option<u64>) -> io::Result<()> {
 
     // Again! >:-[=]
     unsafe {
-        if libc::kill(pid, 0) == 0 {
-            if libc::kill(pid, libc::SIGKILL) != 0 {
-                return Err(io::Error::last_os_error());
-            }
+        if libc::kill(pid, 0) == 0 && libc::kill(pid, libc::SIGKILL) != 0 {
+            return Err(io::Error::last_os_error());
         }
     }
 
