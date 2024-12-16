@@ -76,13 +76,34 @@ fn main() -> Result<(), SysinspectError> {
         }
     } else if params.get_flag("daemon") {
         log::info!("Starting daemon");
-        let pid = "/tmp/sysmaster.pid";
-        let sout = File::create("/tmp/sysmaster.out").unwrap();
-        let serr = File::create("/tmp/sysmaster.err").unwrap();
+        let sout = match File::create(cfg.logfile_std()) {
+            Ok(sout) => {
+                log::info!("Opened main log file at {}", cfg.logfile_std().to_str().unwrap_or_default());
+                sout
+            }
+            Err(err) => {
+                log::error!(
+                    "Unable to create main log file at {}: {err}, terminating",
+                    cfg.logfile_std().to_str().unwrap_or_default()
+                );
+                exit(1);
+            }
+        };
+        let serr = match File::create(cfg.logfile_err()) {
+            Ok(serr) => {
+                log::info!("Opened error log file at {}", cfg.logfile_err().to_str().unwrap_or_default());
 
-        match Daemonize::new().pid_file(pid).stdout(sout).stderr(serr).start() {
+                serr
+            }
+            Err(err) => {
+                log::error!("Unable to create file at {}: {err}, terminating", cfg.logfile_err().to_str().unwrap_or_default());
+                exit(1);
+            }
+        };
+
+        match Daemonize::new().pid_file(cfg.pidfile()).stdout(sout).stderr(serr).start() {
             Ok(_) => {
-                log::info!("Daemon started successfully.");
+                log::info!("Daemon started successfully. Pid file: {}", cfg.pidfile().to_str().unwrap_or_default());
                 if let Err(err) = start_master(cfg) {
                     log::error!("Error starting master: {err}");
                 }
