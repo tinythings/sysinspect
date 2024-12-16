@@ -74,6 +74,12 @@ fn main() -> Result<(), SysinspectError> {
         if let Err(err) = start_master(cfg) {
             log::error!("Error starting master: {err}");
         }
+    } else if params.get_flag("stop") {
+        log::info!("Stopping daemon");
+        if let Err(err) = libsysinspect::util::sys::kill_process(cfg.pidfile(), Some(2)) {
+            log::error!("Unable to stop sysmaster: {err}");
+        }
+        log::info!("Sysmaster is stopped");
     } else if params.get_flag("daemon") {
         log::info!("Starting daemon");
         let sout = match File::create(cfg.logfile_std()) {
