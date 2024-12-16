@@ -63,12 +63,6 @@ async fn main() -> Result<(), SysinspectError> {
     let cfg = MasterConfig::new(cfp)?;
 
     // Mode
-    let query = params.get_one::<String>("query").unwrap_or(&"".to_string()).to_owned();
-    if *params.get_one::<bool>("start").unwrap() {
-        master::master(cfg).await?;
-    } else if !query.is_empty() {
-        log::info!("Query: {}", query);
-        send_message(&query, &cfg.socket()).await?
     }
 
     Ok(())

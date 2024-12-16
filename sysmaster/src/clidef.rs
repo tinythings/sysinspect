@@ -23,12 +23,6 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .help("Alternative path to the config")
         )
         .arg(
-            Arg::new("query")
-                .short('q')
-                .long("query")
-                .help("Target model for operations")
-        )
-        .arg(
             Arg::new("start")
                 .long("start")
                 .action(ArgAction::SetTrue)
