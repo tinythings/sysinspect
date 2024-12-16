@@ -26,7 +26,15 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
             Arg::new("start")
                 .long("start")
                 .action(ArgAction::SetTrue)
-                .help("Start master")
+                .conflicts_with("daemon")
+                .help("Start master in foreground mode")
+        )
+        .arg(
+            Arg::new("daemon")
+                .long("daemon")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("start")
+                .help("Start master in daemon mode")
         )
 
         .next_help_heading("Info")
