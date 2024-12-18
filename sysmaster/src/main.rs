@@ -15,7 +15,7 @@ use std::{env, fs::File};
 use std::{path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysmaster";
-static VERSION: &str = "0.0.1";
+static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {

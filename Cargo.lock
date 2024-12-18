@@ -4210,7 +4210,7 @@ dependencies = [
 
 [[package]]
 name = "sysmaster"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "actix-web",
  "clap 4.5.22",
@@ -4237,10 +4237,11 @@ dependencies = [
 
 [[package]]
 name = "sysminion"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "clap 4.5.22",
  "colored",
+ "daemonize",
  "ed25519-dalek",
  "glob",
  "indexmap",

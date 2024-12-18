@@ -10,7 +10,7 @@ use log::LevelFilter;
 use std::env;
 
 static APPNAME: &str = "sysminion";
-static VERSION: &str = "0.0.1";
+static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 #[tokio::main]
