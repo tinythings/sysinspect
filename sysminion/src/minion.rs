@@ -37,9 +37,7 @@ pub struct SysMinion {
 }
 
 impl SysMinion {
-    pub async fn new(cfp: &str, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
-        let cfg = get_minion_config(Some(cfp))?;
-
+    pub async fn new(cfg: MinionConfig, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
         log::debug!("Configuration: {:#?}", cfg);
         log::debug!("Trying to connect at {}", cfg.master());
 
@@ -485,8 +483,8 @@ impl SysMinion {
     }
 }
 
-pub async fn minion(cfp: &str, fingerprint: Option<String>) -> Result<(), SysinspectError> {
-    let minion = SysMinion::new(cfp, fingerprint).await?;
+pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<(), SysinspectError> {
+    let minion = SysMinion::new(cfg, fingerprint).await?;
     minion.as_ptr().do_proto().await?;
 
     // Messages

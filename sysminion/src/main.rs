@@ -6,7 +6,10 @@ mod rsa;
 
 use clidef::cli;
 use daemonize::Daemonize;
-use libsysinspect::{logger, SysinspectError};
+use libsysinspect::{
+    cfg::{get_minion_config, mmconf::MinionConfig},
+    logger, SysinspectError,
+};
 use log::LevelFilter;
 use std::{env, fs::File, path::PathBuf, process::exit};
 
@@ -14,9 +17,9 @@ static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
-fn start_minion(cfp: Option<&String>, fp: Option<String>) -> Result<(), SysinspectError> {
+fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
     tokio::runtime::Runtime::new()?.block_on(async {
-        minion::minion(cfp.map_or("", |v| v), fp).await?;
+        minion::minion(cfg, fp).await?;
         Ok::<(), SysinspectError>(())
     })?;
     Ok(())
@@ -53,10 +56,19 @@ fn main() -> std::io::Result<()> {
         println!("Error setting logger output: {}", err);
     }
 
+    // Config
+    let cfg = match get_minion_config(Some(params.get_one::<String>("config").map_or("", |v| v))) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::error!("Unable to find a Minion config: {err}");
+            exit(1);
+        }
+    };
+
     // Start
     let fp = params.get_one::<String>("register").cloned();
     if params.get_flag("start") || fp.is_some() {
-        if let Err(err) = start_minion(params.get_one::<String>("config"), fp) {
+        if let Err(err) = start_minion(cfg, fp) {
             log::error!("Error starting minion: {err}");
         }
     } else if params.get_flag("daemon") {
@@ -86,7 +98,7 @@ fn main() -> std::io::Result<()> {
         match Daemonize::new().pid_file("/tmp/sysminion.pid").stdout(sout).stderr(serr).start() {
             Ok(_) => {
                 log::info!("Daemon started with PID file at {}", "/tmp/sysminion.pid");
-                if let Err(err) = start_minion(params.get_one::<String>("config"), fp) {
+                if let Err(err) = start_minion(cfg, fp) {
                     log::error!("Error starting minion: {err}");
                 }
             }
