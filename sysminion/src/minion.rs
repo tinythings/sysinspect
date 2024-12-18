@@ -1,7 +1,7 @@
 use crate::{filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use colored::Colorize;
 use libsysinspect::{
-    cfg::{get_minion_config, mmconf::MinionConfig},
+    cfg::mmconf::MinionConfig,
     inspector::SysInspectRunner,
     proto::{
         errcodes::ProtoErrorCode,
