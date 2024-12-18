@@ -15,8 +15,10 @@ pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
 pub static DEFAULT_MODULES_DIR: &str = "modules";
 pub static DEFAULT_PYLIB_DIR: &str = "lib";
 pub static DEFAULT_SHARELIB: &str = "/usr/share/sysinspect";
-pub static DEFAULT_MASTER_LOG_STD: &str = "sysinspect.standard.log";
-pub static DEFAULT_MASTER_LOG_ERR: &str = "sysinspect.errors.log";
+pub static DEFAULT_MASTER_LOG_STD: &str = "sysmaster.standard.log";
+pub static DEFAULT_MASTER_LOG_ERR: &str = "sysmaster.errors.log";
+pub static DEFAULT_MINION_LOG_STD: &str = "sysminion.standard.log";
+pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
 
 // All directories are relative to the sysinspect root
 pub static CFG_MINION_KEYS: &str = "minion-keys";
@@ -85,6 +87,18 @@ pub struct MinionConfig {
     /// Port of Master's fileserver. Default: 4201
     #[serde(rename = "master.fileserver.port")]
     master_fileserver_port: Option<u32>,
+
+    // Standard log for daemon mode
+    #[serde(rename = "log.stream")]
+    log_main: Option<String>,
+
+    // Error log for daemon mode
+    #[serde(rename = "log.errors")]
+    log_err: Option<String>,
+
+    // Pidfile
+    #[serde(rename = "pidfile")]
+    pidfile: Option<String>,
 }
 
 impl MinionConfig {
@@ -146,6 +160,34 @@ impl MinionConfig {
     /// Return sharelib path
     pub fn sharelib_dir(&self) -> PathBuf {
         PathBuf::from(self.sharelib_path.clone().unwrap_or(DEFAULT_SHARELIB.to_string()))
+    }
+
+    /// Return a pidfile. Either from config or default.
+    /// The default pidfile conforms to POSIX at /run/user/<ID>/....
+    pub fn pidfile(&self) -> PathBuf {
+        if let Some(pidfile) = &self.pidfile {
+            return PathBuf::from(pidfile);
+        }
+
+        PathBuf::from(format!("/run/user/{}/sysminion.pid", unsafe { libc::getuid() }))
+    }
+
+    /// Return main logfile in daemon mode
+    pub fn logfile_std(&self) -> PathBuf {
+        if let Some(lfn) = &self.log_main {
+            return PathBuf::from(lfn);
+        }
+
+        _logfile_path().join(DEFAULT_MINION_LOG_STD)
+    }
+
+    /// Return errors logfile in daemon mode
+    pub fn logfile_err(&self) -> PathBuf {
+        if let Some(lfn) = &self.log_main {
+            return PathBuf::from(lfn);
+        }
+
+        _logfile_path().join(DEFAULT_MINION_LOG_ERR)
     }
 }
 
@@ -264,7 +306,7 @@ impl MasterConfig {
             return PathBuf::from(pidfile);
         }
 
-        PathBuf::from(format!("/run/user/{}/sysinspect.pid", unsafe { libc::getuid() }))
+        PathBuf::from(format!("/run/user/{}/sysmaster.pid", unsafe { libc::getuid() }))
     }
 
     /// Return main logfile in daemon mode
