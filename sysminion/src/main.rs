@@ -11,7 +11,7 @@ use libsysinspect::{
     logger, SysinspectError,
 };
 use log::LevelFilter;
-use std::{env, fs::File, path::PathBuf, process::exit};
+use std::{env, fs::File, process::exit};
 
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.3.0";
@@ -73,31 +73,34 @@ fn main() -> std::io::Result<()> {
         }
     } else if params.get_flag("daemon") {
         log::info!("Starting daemon");
-        let sout = match File::create("/tmp/sysminion.log") {
+        let sout = match File::create(cfg.logfile_std()) {
             Ok(sout) => {
-                log::info!("Opened main log file at {}", "sysminion.log");
+                log::info!("Opened main log file at {}", cfg.logfile_std().to_str().unwrap_or_default());
                 sout
             }
             Err(err) => {
-                log::error!("Unable to create main log file at {}: {err}, terminating", "sysminion.log");
+                log::error!(
+                    "Unable to create main log file at {}: {err}, terminating",
+                    cfg.logfile_std().to_str().unwrap_or_default()
+                );
                 exit(1);
             }
         };
-        let serr = match File::create("/tmp/sysminion.err") {
+        let serr = match File::create(cfg.logfile_err()) {
             Ok(serr) => {
-                log::info!("Opened error log file at {}", "sysminion.err");
+                log::info!("Opened error log file at {}", cfg.logfile_err().to_str().unwrap_or_default());
 
                 serr
             }
             Err(err) => {
-                log::error!("Unable to create file at {}: {err}, terminating", "sysminion.err");
+                log::error!("Unable to create file at {}: {err}, terminating", cfg.logfile_err().to_str().unwrap_or_default());
                 exit(1);
             }
         };
 
-        match Daemonize::new().pid_file("/tmp/sysminion.pid").stdout(sout).stderr(serr).start() {
+        match Daemonize::new().pid_file(cfg.pidfile()).stdout(sout).stderr(serr).start() {
             Ok(_) => {
-                log::info!("Daemon started with PID file at {}", "/tmp/sysminion.pid");
+                log::info!("Daemon started with PID file at {}", cfg.pidfile().to_str().unwrap_or_default());
                 if let Err(err) = start_minion(cfg, fp) {
                     log::error!("Error starting minion: {err}");
                 }
@@ -109,7 +112,7 @@ fn main() -> std::io::Result<()> {
         }
     } else if params.get_flag("stop") {
         log::info!("Stopping daemon");
-        if let Err(err) = libsysinspect::util::sys::kill_process(PathBuf::from("/tmp/sysminion.pid"), Some(2)) {
+        if let Err(err) = libsysinspect::util::sys::kill_process(cfg.pidfile(), Some(2)) {
             log::error!("Unable to stop sysminion: {err}");
         }
     }
