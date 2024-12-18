@@ -5,9 +5,10 @@ mod proto;
 mod rsa;
 
 use clidef::cli;
+use daemonize::Daemonize;
 use libsysinspect::{logger, SysinspectError};
 use log::LevelFilter;
-use std::env;
+use std::{env, fs::File, path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.3.0";
@@ -54,9 +55,50 @@ fn main() -> std::io::Result<()> {
 
     // Start
     let fp = params.get_one::<String>("register").cloned();
-    if *params.get_one::<bool>("start").unwrap_or(&false) || fp.is_some() {
+    if params.get_flag("start") || fp.is_some() {
         if let Err(err) = start_minion(params.get_one::<String>("config"), fp) {
             log::error!("Error starting minion: {err}");
+        }
+    } else if params.get_flag("daemon") {
+        log::info!("Starting daemon");
+        let sout = match File::create("/tmp/sysminion.log") {
+            Ok(sout) => {
+                log::info!("Opened main log file at {}", "sysminion.log");
+                sout
+            }
+            Err(err) => {
+                log::error!("Unable to create main log file at {}: {err}, terminating", "sysminion.log");
+                exit(1);
+            }
+        };
+        let serr = match File::create("/tmp/sysminion.err") {
+            Ok(serr) => {
+                log::info!("Opened error log file at {}", "sysminion.err");
+
+                serr
+            }
+            Err(err) => {
+                log::error!("Unable to create file at {}: {err}, terminating", "sysminion.err");
+                exit(1);
+            }
+        };
+
+        match Daemonize::new().pid_file("/tmp/sysminion.pid").stdout(sout).stderr(serr).start() {
+            Ok(_) => {
+                log::info!("Daemon started with PID file at {}", "/tmp/sysminion.pid");
+                if let Err(err) = start_minion(params.get_one::<String>("config"), fp) {
+                    log::error!("Error starting minion: {err}");
+                }
+            }
+            Err(err) => {
+                log::error!("Error starting minion in daemon mode: {err}");
+                exit(1)
+            }
+        }
+    } else if params.get_flag("stop") {
+        log::info!("Stopping daemon");
+        if let Err(err) = libsysinspect::util::sys::kill_process(PathBuf::from("/tmp/sysminion.pid"), Some(2)) {
+            log::error!("Unable to stop sysminion: {err}");
         }
     }
 
