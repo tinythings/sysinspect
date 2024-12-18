@@ -15,7 +15,7 @@ use std::{env, fs::File};
 use std::{path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysmaster";
-static VERSION: &str = "0.0.1";
+static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {
@@ -109,14 +109,14 @@ fn main() -> Result<(), SysinspectError> {
 
         match Daemonize::new().pid_file(cfg.pidfile()).stdout(sout).stderr(serr).start() {
             Ok(_) => {
-                log::info!("Daemon started successfully. Pid file: {}", cfg.pidfile().to_str().unwrap_or_default());
+                log::info!("Daemon started with PID file at {}", cfg.pidfile().to_str().unwrap_or_default());
                 if let Err(err) = start_master(cfg) {
                     log::error!("Error starting master: {err}");
                 }
             }
             Err(e) => {
-                log::error!("Error daemonizing: {}", e);
-                exit(1);
+                log::error!("Error starting master in daemon mode: {}", e);
+                exit(1)
             }
         }
     }

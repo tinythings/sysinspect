@@ -32,8 +32,22 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
         .arg(
             Arg::new("start")
                 .long("start")
+                .conflicts_with("daemon")
                 .action(ArgAction::SetTrue)
-                .help("Start minion")
+                .help("Start minion in foreground")
+        )
+        .arg(
+            Arg::new("daemon")
+                .long("daemon")
+                .conflicts_with("start")
+                .action(ArgAction::SetTrue)
+                .help("Start minion as a daemon")
+        )
+        .arg(
+            Arg::new("stop")
+                .long("stop")
+                .action(ArgAction::SetTrue)
+                .help("Stop minion if runs as a daemon")
         )
 
         .next_help_heading("Info")

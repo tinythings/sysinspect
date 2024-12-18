@@ -1,6 +1,6 @@
 [package]
 name = "sysminion"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -34,3 +34,4 @@ uuid = { version = "1.11.0", features = ["v4"] }
 reqwest = "0.12.9"
 regex = "1.11.1"
 glob = "0.3.1"
+daemonize = "0.5.0"

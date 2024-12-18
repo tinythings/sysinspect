@@ -17,7 +17,7 @@ use std::{env, fs::OpenOptions, io::Write};
 
 mod clidef;
 
-static VERSION: &str = "0.2.0";
+static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 /// Display event handlers
