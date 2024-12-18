@@ -23,16 +23,24 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .help("Alternative path to the config")
         )
         .arg(
-            Arg::new("query")
-                .short('q')
-                .long("query")
-                .help("Target model for operations")
-        )
-        .arg(
             Arg::new("start")
                 .long("start")
                 .action(ArgAction::SetTrue)
-                .help("Start master")
+                .conflicts_with("daemon")
+                .help("Start master in foreground mode")
+        )
+        .arg(
+            Arg::new("daemon")
+                .long("daemon")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("start")
+                .help("Start master in daemon mode")
+        )
+        .arg(
+            Arg::new("stop")
+                .long("stop")
+                .action(ArgAction::SetTrue)
+                .help("Stop master if it is in daemon mode")
         )
 
         .next_help_heading("Info")

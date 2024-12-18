@@ -1,7 +1,8 @@
 use crate::{intp::functions::get_by_namespace, SysinspectError};
+use nix::libc;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{from_str, from_value, Value};
-use std::{fs, path::PathBuf};
+use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
 // Network
 pub static DEFAULT_ADDR: &str = "0.0.0.0";
@@ -14,6 +15,8 @@ pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
 pub static DEFAULT_MODULES_DIR: &str = "modules";
 pub static DEFAULT_PYLIB_DIR: &str = "lib";
 pub static DEFAULT_SHARELIB: &str = "/usr/share/sysinspect";
+pub static DEFAULT_MASTER_LOG_STD: &str = "sysinspect.standard.log";
+pub static DEFAULT_MASTER_LOG_ERR: &str = "sysinspect.errors.log";
 
 // All directories are relative to the sysinspect root
 pub static CFG_MINION_KEYS: &str = "minion-keys";
@@ -29,6 +32,27 @@ pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
 pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
 pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
+
+/// Get a default location of a logfiles
+fn _logfile_path() -> PathBuf {
+    let mut home = String::from("");
+    unsafe {
+        let passwd = libc::getpwuid(libc::getuid());
+        if !passwd.is_null() {
+            home = std::ffi::CStr::from_ptr((*passwd).pw_dir).to_string_lossy().into_owned();
+        }
+    }
+
+    for p in [format!("{home}/.local/state"), "/var/log".to_string(), "/tmp".to_string()] {
+        let p = PathBuf::from(p);
+        if let Ok(m) = fs::metadata(p.clone()) {
+            if (m.permissions().mode() & 0o200) != 0 {
+                return p;
+            }
+        }
+    }
+    PathBuf::from("")
+}
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MinionConfig {
@@ -151,6 +175,18 @@ pub struct MasterConfig {
     // Exported models on the fileserver
     #[serde(rename = "fileserver.models")]
     fsr_models: Vec<String>,
+
+    // Standard log for daemon mode
+    #[serde(rename = "log.stream")]
+    log_main: Option<String>,
+
+    // Error log for daemon mode
+    #[serde(rename = "log.errors")]
+    log_err: Option<String>,
+
+    // Pidfile
+    #[serde(rename = "pidfile")]
+    pidfile: Option<String>,
 }
 
 impl MasterConfig {
@@ -219,5 +255,33 @@ impl MasterConfig {
     /// Get minion registry
     pub fn minion_registry_root(&self) -> PathBuf {
         self.root_dir().join(CFG_MINION_REGISTRY)
+    }
+
+    /// Return a pidfile. Either from config or default.
+    /// The default pidfile conforms to POSIX at /run/user/<ID>/....
+    pub fn pidfile(&self) -> PathBuf {
+        if let Some(pidfile) = &self.pidfile {
+            return PathBuf::from(pidfile);
+        }
+
+        PathBuf::from(format!("/run/user/{}/sysinspect.pid", unsafe { libc::getuid() }))
+    }
+
+    /// Return main logfile in daemon mode
+    pub fn logfile_std(&self) -> PathBuf {
+        if let Some(lfn) = &self.log_main {
+            return PathBuf::from(lfn);
+        }
+
+        _logfile_path().join(DEFAULT_MASTER_LOG_STD)
+    }
+
+    /// Return errors logfile in daemon mode
+    pub fn logfile_err(&self) -> PathBuf {
+        if let Some(lfn) = &self.log_main {
+            return PathBuf::from(lfn);
+        }
+
+        _logfile_path().join(DEFAULT_MASTER_LOG_ERR)
     }
 }

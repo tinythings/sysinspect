@@ -1,5 +1,6 @@
 pub mod dataconv;
 pub mod iofs;
+pub mod sys;
 
 use crate::SysinspectError;
 use std::{fs, io, path::PathBuf};

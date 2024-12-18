@@ -5,21 +5,28 @@ mod registry;
 mod rmt;
 
 use clidef::cli;
+use daemonize::Daemonize;
 use libsysinspect::{
     cfg::{mmconf::MasterConfig, select_config_path},
     logger, SysinspectError,
 };
 use log::LevelFilter;
-use rmt::send_message;
-use std::env;
-use std::path::PathBuf;
+use std::{env, fs::File};
+use std::{path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysmaster";
 static VERSION: &str = "0.0.1";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
-#[tokio::main]
-async fn main() -> Result<(), SysinspectError> {
+fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {
+    tokio::runtime::Runtime::new()?.block_on(async {
+        master::master(cfg).await?;
+        Ok::<(), SysinspectError>(())
+    })?;
+    Ok(())
+}
+
+fn main() -> Result<(), SysinspectError> {
     let mut cli = cli(VERSION, APPNAME);
     let params = cli.to_owned().get_matches();
 
@@ -63,12 +70,55 @@ async fn main() -> Result<(), SysinspectError> {
     let cfg = MasterConfig::new(cfp)?;
 
     // Mode
-    let query = params.get_one::<String>("query").unwrap_or(&"".to_string()).to_owned();
-    if *params.get_one::<bool>("start").unwrap() {
-        master::master(cfg).await?;
-    } else if !query.is_empty() {
-        log::info!("Query: {}", query);
-        send_message(&query, &cfg.socket()).await?
+    if params.get_flag("start") {
+        if let Err(err) = start_master(cfg) {
+            log::error!("Error starting master: {err}");
+        }
+    } else if params.get_flag("stop") {
+        log::info!("Stopping daemon");
+        if let Err(err) = libsysinspect::util::sys::kill_process(cfg.pidfile(), Some(2)) {
+            log::error!("Unable to stop sysmaster: {err}");
+        }
+        log::info!("Sysmaster is stopped");
+    } else if params.get_flag("daemon") {
+        log::info!("Starting daemon");
+        let sout = match File::create(cfg.logfile_std()) {
+            Ok(sout) => {
+                log::info!("Opened main log file at {}", cfg.logfile_std().to_str().unwrap_or_default());
+                sout
+            }
+            Err(err) => {
+                log::error!(
+                    "Unable to create main log file at {}: {err}, terminating",
+                    cfg.logfile_std().to_str().unwrap_or_default()
+                );
+                exit(1);
+            }
+        };
+        let serr = match File::create(cfg.logfile_err()) {
+            Ok(serr) => {
+                log::info!("Opened error log file at {}", cfg.logfile_err().to_str().unwrap_or_default());
+
+                serr
+            }
+            Err(err) => {
+                log::error!("Unable to create file at {}: {err}, terminating", cfg.logfile_err().to_str().unwrap_or_default());
+                exit(1);
+            }
+        };
+
+        match Daemonize::new().pid_file(cfg.pidfile()).stdout(sout).stderr(serr).start() {
+            Ok(_) => {
+                log::info!("Daemon started successfully. Pid file: {}", cfg.pidfile().to_str().unwrap_or_default());
+                if let Err(err) = start_master(cfg) {
+                    log::error!("Error starting master: {err}");
+                }
+            }
+            Err(e) => {
+                log::error!("Error daemonizing: {}", e);
+                exit(1);
+            }
+        }
     }
 
     Ok(())
