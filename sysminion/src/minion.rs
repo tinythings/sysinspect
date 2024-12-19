@@ -16,7 +16,12 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::Lazy;
-use std::{fs, sync::Arc, vec};
+use std::{
+    fs,
+    sync::Arc,
+    time::{Duration, Instant},
+    vec,
+};
 use tokio::io::AsyncReadExt;
 use tokio::net::{tcp::OwnedReadHalf, TcpStream};
 use tokio::sync::Mutex;
@@ -34,6 +39,9 @@ pub struct SysMinion {
     wstm: Arc<Mutex<OwnedWriteHalf>>,
 
     filedata: Mutex<MinionFiledata>,
+
+    last_ping: Mutex<Instant>,
+    ping_timeout: Duration,
 }
 
 impl SysMinion {
@@ -50,6 +58,8 @@ impl SysMinion {
             rstm: Arc::new(Mutex::new(rstm)),
             wstm: Arc::new(Mutex::new(wstm)),
             filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
+            last_ping: Mutex::new(Instant::now()),
+            ping_timeout: Duration::from_secs(10),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -108,6 +118,11 @@ impl SysMinion {
         Ok(())
     }
 
+    async fn update_ping(&self) {
+        let mut last_ping = self.last_ping.lock().await;
+        *last_ping = Instant::now();
+    }
+
     pub fn as_ptr(self: &Arc<Self>) -> Arc<Self> {
         Arc::clone(self)
     }
@@ -136,6 +151,22 @@ impl SysMinion {
         } else {
             log::trace!("To master: {}", String::from_utf8_lossy(&msg));
         }
+    }
+
+    /// A sub-process that checks if a ping is going through. On ping timeout
+    /// that would indicate that the Master is either dead or disconnected or not available.
+    /// That should kick Minion to start reconnecting.
+    pub async fn do_ping_update(self: Arc<Self>) -> Result<(), SysinspectError> {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                if self.as_ptr().last_ping.lock().await.elapsed() > self.as_ptr().ping_timeout {
+                    log::warn!("Master seems unresponsive, terminating.");
+                    std::process::exit(1);
+                }
+            }
+        });
+        Ok(())
     }
 
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
@@ -217,6 +248,7 @@ impl SysMinion {
                     }
                     RequestType::Ping => {
                         self.request(proto::msg::get_pong()).await;
+                        self.update_ping().await;
                     }
                     RequestType::ByeAck => {
                         log::info!("Master confirmed shutdown, terminating");
@@ -494,6 +526,8 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
         // ehlo
         minion.as_ptr().send_ehlo().await?;
     }
+
+    minion.as_ptr().do_ping_update().await?;
 
     // Keep the client alive until Ctrl+C is pressed
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
