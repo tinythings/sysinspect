@@ -12,16 +12,36 @@ use libsysinspect::{
 };
 use log::LevelFilter;
 use std::{env, fs::File, process::exit};
+use tokio::task::JoinHandle;
 
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
-    tokio::runtime::Runtime::new()?.block_on(async {
-        minion::minion(cfg, fp).await?;
-        Ok::<(), SysinspectError>(())
-    })?;
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| SysinspectError::DynError(Box::new(e)))?;
+    runtime.block_on(async {
+        loop {
+            let c_cfg = cfg.clone();
+            let c_fp = fp.clone();
+            let h: JoinHandle<()> = tokio::spawn(async move {
+                if let Err(err) = minion::minion(c_cfg, c_fp).await {
+                    log::error!("Minion error: {err}");
+                }
+            });
+
+            log::info!("Minion process started");
+
+            match h.await {
+                Ok(_) => println!("Minion task completed."),
+                Err(e) if e.is_cancelled() => println!("Minion task was aborted."),
+                Err(e) => println!("Minion task failed: {:?}", e),
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
+
     Ok(())
 }
 
