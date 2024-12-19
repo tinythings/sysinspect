@@ -21,7 +21,7 @@ pub enum RsaKey {
 }
 
 /// Generate RSA keys
-pub fn keygen(bits: usize) -> Result<(RsaPrivateKey, RsaPublicKey), Box<dyn Error>> {
+pub fn keygen(bits: usize) -> Result<(RsaPrivateKey, RsaPublicKey), Box<dyn Error + Send + Sync>> {
     let mut rng = OsRng;
     let prk = RsaPrivateKey::new(&mut rng, bits)?;
     let pbk = RsaPublicKey::from(&prk);
@@ -32,7 +32,7 @@ pub fn keygen(bits: usize) -> Result<(RsaPrivateKey, RsaPublicKey), Box<dyn Erro
 /// Serializes RSA private and public keys to PEM format.
 pub fn to_pem(
     prk: Option<&RsaPrivateKey>, pbk: Option<&RsaPublicKey>,
-) -> Result<(Option<String>, Option<String>), Box<dyn Error>> {
+) -> Result<(Option<String>, Option<String>), Box<dyn Error + Send + Sync>> {
     Ok((
         if prk.is_some() {
             Some(pem::encode(&pem::Pem::new("RSA PRIVATE KEY", prk.unwrap().to_pkcs1_der()?.as_bytes().to_vec())))
@@ -50,7 +50,7 @@ pub fn to_pem(
 /// Deserializes RSA private and public keys from PEM format.
 pub fn from_pem(
     prk_pem: Option<&str>, pbk_pem: Option<&str>,
-) -> Result<(Option<RsaPrivateKey>, Option<RsaPublicKey>), Box<dyn Error>> {
+) -> Result<(Option<RsaPrivateKey>, Option<RsaPublicKey>), Box<dyn Error + Send + Sync>> {
     Ok((
         if prk_pem.is_some() {
             Some(RsaPrivateKey::from_pkcs1_der(pem::parse(prk_pem.unwrap_or_default())?.contents())?)

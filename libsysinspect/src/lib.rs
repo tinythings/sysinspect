@@ -37,8 +37,7 @@ pub enum SysinspectError {
     SerdeYaml(serde_yaml::Error),
     SerdeJson(serde_json::Error),
     FFINullError(NulError),
-    DynError(Box<dyn Error>),
-    AsynDynError(Box<dyn Error + Send + Sync>),
+    DynError(Box<dyn Error + Send + Sync>),
     TemplateError(tera::Error),
 }
 
@@ -46,6 +45,7 @@ impl Error for SysinspectError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             SysinspectError::IoErr(err) => Some(err),
+            SysinspectError::DynError(err) => Some(&**err),
             _ => None,
         }
     }
@@ -68,7 +68,6 @@ impl Display for SysinspectError {
             SysinspectError::MinionGeneralError(err) => format!("(Minion) {err}"),
             SysinspectError::ProtoError(err) => format!("(Protocol) {err}"),
             SysinspectError::DynError(err) => format!("(General) {err}"),
-            SysinspectError::AsynDynError(err) => format!("(General part) {err}"),
             SysinspectError::TemplateError(err) => format!("(DSL) {err}"),
         };
 
@@ -106,12 +105,6 @@ impl From<NulError> for SysinspectError {
 }
 
 // Implement From<Box<dyn Error>> for SysinspectError
-impl From<Box<dyn Error>> for SysinspectError {
-    fn from(err: Box<dyn Error>) -> SysinspectError {
-        SysinspectError::DynError(err)
-    }
-}
-
 impl From<Box<dyn Error + Send + Sync>> for SysinspectError {
     fn from(err: Box<dyn Error + Send + Sync>) -> SysinspectError {
         SysinspectError::DynError(err)
