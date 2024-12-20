@@ -15,6 +15,7 @@ devel-musl:
 	mv target/x86_64-unknown-linux-musl/debug/proc target/x86_64-unknown-linux-musl/debug/sys/
 	mv target/x86_64-unknown-linux-musl/debug/net target/x86_64-unknown-linux-musl/debug/sys/
 	mv target/x86_64-unknown-linux-musl/debug/run target/x86_64-unknown-linux-musl/debug/sys/
+	mv target/x86_64-unknown-linux-musl/debug/ssrun target/x86_64-unknown-linux-musl/debug/sys/
 
 musl:
 	cargo build --release --workspace --target x86_64-unknown-linux-musl
@@ -24,6 +25,7 @@ musl:
 	mv target/x86_64-unknown-linux-musl/release/proc target/x86_64-unknown-linux-musl/release/sys/
 	mv target/x86_64-unknown-linux-musl/release/net target/x86_64-unknown-linux-musl/release/sys/
 	mv target/x86_64-unknown-linux-musl/release/run target/x86_64-unknown-linux-musl/release/sys/
+	mv target/x86_64-unknown-linux-musl/release/ssrun target/x86_64-unknown-linux-musl/release/sys/
 
 devel:
 	cargo build -v --workspace
@@ -32,6 +34,7 @@ devel:
 	mv target/debug/proc target/debug/sys/
 	mv target/debug/net target/debug/sys/
 	mv target/debug/run target/debug/sys/
+	mv target/debug/ssrun target/debug/sys/
 
 build:
 	cargo build --release --workspace
@@ -41,6 +44,7 @@ build:
 	mv target/release/proc target/release/sys/
 	mv target/release/net target/release/sys/
 	mv target/release/run target/release/sys/
+	mv target/release/ssrun target/release/sys/
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
 
