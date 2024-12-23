@@ -2,33 +2,17 @@ use core::str;
 use libsysinspect::{
     init_mod_doc,
     modlib::{
+        getenv,
         modinit::ModInterface,
         response::ModResponse,
         runtime::{self, get_arg, get_call_args, get_opt, send_call_response, ModRequest},
     },
 };
 use serde_json::json;
-use shlex::Shlex;
 use std::{
-    collections::HashMap,
     io::Write,
     process::{Command, Stdio},
 };
-
-/// Parse passed environment.
-/// Env is passed in the form of key=value. The following form is supported:
-///
-/// `VAR_ONE="value" VAR_TWO=value VAR_THREE="spaces are supported"`
-fn getenv(env: &str) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    for elm in Shlex::new(env) {
-        if let Some(pos) = elm.find('=') {
-            out.insert(elm[..pos].to_string(), elm[pos + 1..].to_string().trim_matches('"').to_string());
-        }
-    }
-
-    out
-}
 
 /// Call an external command.
 /// In a pretty ugly way...
