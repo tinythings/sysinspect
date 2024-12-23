@@ -70,7 +70,7 @@ fn call(mrg: ModArgs) -> ModResponse {
             return resp;
         }
     } else if let Err(err) =
-        sess.userauth_pubkey_file(&mrg.user, None, &mrg.rsa_prk.unwrap().as_path(), mrg.password.as_deref()).with_context(|| {
+        sess.userauth_pubkey_file(&mrg.user, None, mrg.rsa_prk.unwrap().as_path(), mrg.password.as_deref()).with_context(|| {
             if mrg.password.is_some() {
                 "SSH key authentication failed: Incorrect passphrase or key."
             } else {
