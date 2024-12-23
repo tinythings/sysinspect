@@ -1,0 +1,75 @@
+name: "sys.ssrun"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Plugin to run just a raw commands over SSH on remote hosts
+  and return generically structured output from them.
+
+# Options, flags, switches
+options:
+
+# Keyword arguments
+arguments:
+  - name: cmd
+    type: string
+    required: true
+    description: "Full command to run"
+
+  - name: env
+    type: string
+    required: false
+    description: "Modify the environment for the target running command"
+
+  - name: locale
+    type: string
+    required: false
+    description: "Set the locale for this command (default: LC_CTYPE=C)"
+
+  - name: host
+    type: string
+    required: true
+    description: "Host to run the commands on"
+
+  - name: port
+    type: int
+    required: false
+    description: "Alternative SSH port, if not 22"
+
+  - name: user
+    type: string
+    required: true
+    description: "User name to the remote host"
+
+  - name: rsakey
+    type: string
+    required: true
+    description: "Path to the private RSA key, like /home/johnsmith/.ssh/id_rsa"
+
+  - name: password
+    type: string
+    required: true
+    description: "SSH password for the remote host. NOTE: discouraged, use RSA keys instead!"
+
+examples:
+  - description: "Module usage example"
+    code: |
+      "arguments": {
+        "user": "sysinspect",
+        "host": "192.168.1.2",
+        "rsakey": "/etc/sysinspect/id_rsa",
+        "cmd": "spotify --headless",
+        "env": "PATH=$PATH:/opt/spotify/bin"
+      }
+
+# Description of additional data format
+returns:
+  # Output data structure as a sample
+  # Happens by default
+  $:
+    :description: |
+      Returns just a regular text of the command STDOUT.
+    retcode: 0
+    message: "'uname -p' finished"
+    data:
+      stdout: "x86_64"
+      cmd: "uname -p"
