@@ -122,7 +122,7 @@ impl ModInterface {
             if arg.eq("$") {
                 out.push(fill(&format!("{} {}", descr, "If no options or arguments specified:"), &f_opts).yellow().to_string());
             } else {
-                out.push(fill(&format!("{} If {} speified:", descr, arg.bright_magenta().bold()), &f_opts).yellow().to_string());
+                out.push(fill(&format!("{} If {} specified:", descr, arg.bright_magenta().bold()), &f_opts).yellow().to_string());
             }
 
             out.push(fill(
