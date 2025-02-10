@@ -1,0 +1,50 @@
+name: "fs.file"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: Plugin to create, delete and copy files.
+
+# Options, flags, switches
+options:
+  - name: fill
+    description: "Create an empty file with possible content (see args)"
+
+  - name: delete
+    description: "Delete a specified file"
+
+  - name: copy
+    description: "Copy a local file"
+
+# Keyword arguments
+arguments:
+  - name: name
+    type: string
+    required: true
+    description: "A target filename"
+
+  - name: pull
+    type: string
+    required: false
+    description: 'Filename on the fileserver to use as a content (applicable with "touch" option)'
+
+examples:
+  - description: "Module usage example"
+    code: |
+      {
+        "opts": ["fill"],
+        "arguments": {
+          "name": "/etc/groups",
+          "pull": "/standard/groups"
+        }
+      }
+
+# Description of additional data format
+returns:
+  # Output data structure as a sample
+  # Happens by default
+  fill:
+    :description: |
+      Returns just a regular text of the command STDOUT.
+    retcode: 0
+    message: "Content of /etc/groups updated"
+    data:
+      changed: true
