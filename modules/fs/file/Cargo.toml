@@ -1,0 +1,10 @@
+[package]
+name = "file"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libsysinspect = { path = "../../../libsysinspect" }
+serde = "1.0.213"
+serde_json = "1.0.132"
+serde_yaml = "0.9.34"
