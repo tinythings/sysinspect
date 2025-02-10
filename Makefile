@@ -12,39 +12,54 @@ devel-musl:
 	cargo build -v --workspace --target x86_64-unknown-linux-musl
 	rm -rf target/x86_64-unknown-linux-musl/debug/sys/
 	mkdir -p target/x86_64-unknown-linux-musl/debug/sys/
+	rm -rf target/x86_64-unknown-linux-musl/debug/fs/
+	mkdir -p target/x86_64-unknown-linux-musl/debug/fs/
 	mv target/x86_64-unknown-linux-musl/debug/proc target/x86_64-unknown-linux-musl/debug/sys/
 	mv target/x86_64-unknown-linux-musl/debug/net target/x86_64-unknown-linux-musl/debug/sys/
 	mv target/x86_64-unknown-linux-musl/debug/run target/x86_64-unknown-linux-musl/debug/sys/
 	mv target/x86_64-unknown-linux-musl/debug/ssrun target/x86_64-unknown-linux-musl/debug/sys/
+	mv target/x86_64-unknown-linux-musl/debug/file target/x86_64-unknown-linux-musl/debug/fs/
 
 musl:
 	cargo build --release --workspace --target x86_64-unknown-linux-musl
 	cargo build -p proc -p net -p run --release --target x86_64-unknown-linux-musl
 	rm -rf target/x86_64-unknown-linux-musl/release/sys
 	mkdir -p target/x86_64-unknown-linux-musl/release/sys
+	rm -rf target/x86_64-unknown-linux-musl/release/fs
+	mkdir -p target/x86_64-unknown-linux-musl/release/fs
 	mv target/x86_64-unknown-linux-musl/release/proc target/x86_64-unknown-linux-musl/release/sys/
 	mv target/x86_64-unknown-linux-musl/release/net target/x86_64-unknown-linux-musl/release/sys/
 	mv target/x86_64-unknown-linux-musl/release/run target/x86_64-unknown-linux-musl/release/sys/
 	mv target/x86_64-unknown-linux-musl/release/ssrun target/x86_64-unknown-linux-musl/release/sys/
+	mv target/x86_64-unknown-linux-musl/release/file target/x86_64-unknown-linux-musl/release/fs/
 
 devel:
 	cargo build -v --workspace
 	rm -rf target/debug/sys/
 	mkdir -p target/debug/sys/
+	rm -rf target/debug/fs/
+	mkdir -p target/debug/fs/
+
 	mv target/debug/proc target/debug/sys/
 	mv target/debug/net target/debug/sys/
 	mv target/debug/run target/debug/sys/
 	mv target/debug/ssrun target/debug/sys/
+	mv target/debug/file target/debug/fs/
 
 build:
 	cargo build --release --workspace
 	cargo build -p proc -p net -p run --release
 	rm -rf target/release/sys/
 	mkdir -p target/release/sys/
+	rm -rf target/release/fs/
+	mkdir -p target/release/fs/
+
 	mv target/release/proc target/release/sys/
 	mv target/release/net target/release/sys/
 	mv target/release/run target/release/sys/
 	mv target/release/ssrun target/release/sys/
+	mv target/release/file target/release/fs/
+
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
 

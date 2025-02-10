@@ -16,7 +16,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 
 [workspace]
 resolver = "2"
-members = ["modules/sys/*", "libsysinspect", "sysmaster", "sysminion"]
+members = ["modules/sys/*", "libsysinspect", "sysmaster", "sysminion", "modules/fs/file"]
 
 [profile.release]
 strip = true
