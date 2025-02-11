@@ -287,7 +287,10 @@ impl ModCall {
                                 r.clone(),
                                 self.eval_constraints(&r),
                             ))),
-                            Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
+                            Err(e) => {
+                                log::debug!("STDOUT: {}", out);
+                                return Err(SysinspectError::ModuleError(format!("JSON error: {e}")));
+                            }
                         },
                         Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
                     }
