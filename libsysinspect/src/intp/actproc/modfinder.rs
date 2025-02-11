@@ -267,6 +267,8 @@ impl ModCall {
     /// Runs native external module
     fn run_native_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         log::debug!("Calling native module: {}", self.module.as_os_str().to_str().unwrap_or_default());
+        log::debug!("Params: {}", self.params_json());
+
         match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
             Ok(mut p) => {
                 // Send options
