@@ -26,7 +26,7 @@ fn run_mod(rq: &ModRequest) -> ModResponse {
 
     let strict = rq.args().get("mode").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default().eq("strict");
 
-    match rq.options().iter().next().unwrap_or(&ArgValue::default()).as_string().unwrap_or_default().as_str() {
+    match rq.options().first().unwrap_or(&ArgValue::default()).as_string().unwrap_or_default().as_str() {
         "fill" => fill::do_fill(rq, &mut resp, strict),
         "delete" => fdel::do_delete(rq, &mut resp, strict),
         "copy" => fcp::do_copy(rq, &mut resp, strict),
