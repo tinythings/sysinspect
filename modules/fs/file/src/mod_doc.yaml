@@ -21,6 +21,14 @@ arguments:
     required: true
     description: "A target filename"
 
+  - name: mode
+    type: string
+    required: false
+    description: |
+      Can be one of "strict" or "easy". Default is "easy".
+      If "strict" is chosen, then the module will always return
+      non-zero error code if the state wasn't changed.
+
   - name: pull
     type: string
     required: false
