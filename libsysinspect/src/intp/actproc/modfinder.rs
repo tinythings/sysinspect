@@ -1,6 +1,7 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
     cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_PYLIB_DIR},
+    inspector::SysInspectRunner,
     intp::{
         actproc::response::ConstraintFailure,
         constraints::{Constraint, ConstraintKind, ExprRes},
@@ -87,6 +88,8 @@ impl ModCall {
         if !self.opts.is_empty() {
             out.insert("options".to_string(), json!(self.opts));
         }
+
+        out.insert("config".to_string(), SysInspectRunner::minion_cfg_json());
 
         let x = json!(out).to_string();
         log::trace!("Params: {}", x);
