@@ -60,6 +60,11 @@ pub struct ModRequest {
     #[serde(alias = "args")]
     arguments: Option<HashMap<String, ArgValue>>,
 
+    /// Passed-through MinionConfig (only defined parts)
+    /// If nothing defined at all, use default constants.
+    #[serde(default)]
+    config: Option<HashMap<String, ArgValue>>,
+
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
     ext: HashMap<String, serde_json::Value>,
@@ -79,6 +84,10 @@ impl ModRequest {
     /// Get param options
     pub fn options(&self) -> Vec<ArgValue> {
         self.options.to_owned().unwrap_or_default()
+    }
+
+    pub fn config(&self) -> HashMap<String, ArgValue> {
+        self.config.clone().unwrap_or_default()
     }
 
     /// Get all param args
