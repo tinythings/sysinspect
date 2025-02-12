@@ -1167,6 +1167,7 @@ name = "file"
 version = "0.1.0"
 dependencies = [
  "libsysinspect",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3223,6 +3224,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2 0.4.7",
