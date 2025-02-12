@@ -1,7 +1,5 @@
-use std::path::{Path, PathBuf};
-
 use crate::{
-    cfg::mmconf::{MinionConfig, DEFAULT_SHARELIB},
+    cfg::mmconf::MinionConfig,
     intp::{self, inspector::SysInspector},
     mdescr::mspec,
     reactor::evtproc::EventProcessor,
