@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     cfg::mmconf::MinionConfig,
     intp::{self, inspector::SysInspector},
@@ -6,6 +8,9 @@ use crate::{
     traits::systraits::SystemTraits,
 };
 use intp::actproc::response::ActionResponse;
+use once_cell::sync::OnceCell;
+
+static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
 
 #[derive(Debug, Default)]
 pub struct SysInspectRunner {
@@ -18,13 +23,17 @@ pub struct SysInspectRunner {
 
     // Minion traits, if running in distributed mode
     traits: Option<SystemTraits>,
-
-    cfg: MinionConfig,
 }
 
 impl SysInspectRunner {
     pub fn new(cfg: &MinionConfig) -> SysInspectRunner {
-        SysInspectRunner { cfg: cfg.to_owned(), ..Default::default() }
+        MINION_CONFIG.get_or_init(|| Arc::new(cfg.to_owned()));
+        SysInspectRunner { ..Default::default() }
+    }
+
+    /// Get Minion Config
+    pub fn minion_cfg() -> Arc<MinionConfig> {
+        MINION_CONFIG.get().unwrap_or(&Arc::new(MinionConfig::default())).clone()
     }
 
     /// Set model path
@@ -52,7 +61,7 @@ impl SysInspectRunner {
         match mspec::load(&self.model_pth, self.traits.clone()) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
-                match SysInspector::new(spec, Some(self.cfg.sharelib_dir().clone())) {
+                match SysInspector::new(spec, Some(Self::minion_cfg().sharelib_dir().clone())) {
                     Ok(isp) => {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg());

@@ -6,8 +6,11 @@ use rustpython_vm::pymodule;
 
 #[pymodule]
 pub mod syscore {
+    use std::sync::Arc;
+
     use crate::{
         cfg::{get_minion_config, mmconf::MinionConfig},
+        inspector::SysInspectRunner,
         traits::{self, systraits::SystemTraits},
         util::dataconv,
     };
@@ -26,6 +29,43 @@ pub mod syscore {
             let l = self.0.into_iter().map(|s| vm.new_pyobj(s)).collect();
             PyList::new_ref(l, vm.as_ref()).to_pyobject(vm)
         }
+    }
+
+    #[pyattr]
+    #[pyclass(module = "syscore", name = "__MinionConfig")]
+    #[derive(Debug, PyPayload, Default)]
+    pub struct PyMinionConfig {
+        inner: PyMutex<Arc<MinionConfig>>,
+    }
+
+    #[pyclass]
+    impl PyMinionConfig {
+        fn new(_vm: &VirtualMachine) -> PyMinionConfig {
+            PyMinionConfig { inner: PyMutex::new(SysInspectRunner::minion_cfg()) }
+        }
+
+        #[pymethod]
+        fn fileserver_addr(&self) -> String {
+            self.inner.lock().fileserver()
+        }
+
+        #[pymethod]
+        fn master_addr(&self) -> String {
+            self.inner.lock().master()
+        }
+
+        #[pymethod]
+        fn sharelib(&self) -> String {
+            self.inner.lock().sharelib_dir().to_str().unwrap_or_default().to_owned()
+        }
+    }
+
+    #[pyfunction]
+    #[allow(non_snake_case)]
+    /// This is a mimic of "MinionConfig" Python class,
+    /// which needs to be called for the init.
+    fn MinionConfig(_vm: &VirtualMachine) -> PyResult<PyMinionConfig> {
+        Ok(PyMinionConfig::new(_vm))
     }
 
     #[pyattr]
