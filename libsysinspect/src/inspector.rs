@@ -35,6 +35,11 @@ impl SysInspectRunner {
         MINION_CONFIG.get().unwrap_or(&Arc::new(MinionConfig::default())).clone()
     }
 
+    /// Return minion config as JSON
+    pub fn minion_cfg_json() -> serde_json::Value {
+        serde_json::to_value(&*Self::minion_cfg()).unwrap_or_default()
+    }
+
     /// Set model path
     pub fn set_model_path(&mut self, p: &str) {
         self.model_pth = p.to_string()
