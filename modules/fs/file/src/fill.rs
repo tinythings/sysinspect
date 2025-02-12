@@ -95,17 +95,15 @@ pub fn do_fill(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
 
             return;
         }
-    } else {
-        if let Err(err) = touch(PathBuf::from(&pn)) {
-            if strict {
-                rsp.set_retcode(1);
-            }
-
-            rsp.set_message(&format!("Touch error: {}", err));
-            _ = rsp.cm_set_changed(false);
-
-            return;
+    } else if let Err(err) = touch(PathBuf::from(&pn)) {
+        if strict {
+            rsp.set_retcode(1);
         }
+
+        rsp.set_message(&format!("Touch error: {}", err));
+        _ = rsp.cm_set_changed(false);
+
+        return;
     }
 
     rsp.set_message(&format!("File {} created", pn));
