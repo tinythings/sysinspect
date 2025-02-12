@@ -116,3 +116,27 @@ call only Ansible Modules (not Ansible Action Modules!) and is called quite stra
 
 In this case, an Action which is bound to an Entity ``addresses`` will start bridge module,
 which will call an Ansible built-in module ``copy`` with all the required args for it.
+
+Get Minion Configuration
+========================
+
+Sometimes the module needs to know current minion configuration. Of course, one can just
+read it all the time in ``/etc/sysinspect/sysinspect.conf`` and it could be mostly correct,
+unless the entire minion is not started from some other configuration.
+
+However, the minion already has configuration parsed, and it can be just reused inside the
+Python script like so:
+
+.. code-block:: python
+
+    from syscore import MinionConfig
+
+    def main(*args, **kw) -> str:
+        cfg = MinionConfig()
+        print("Master address:", cfg.master_addr())
+        print("Fileserver address:", cfg.fileserver_addr())
+
+        # More methods
+        print(dir(cfg))
+
+        return "{}"
