@@ -83,11 +83,7 @@ impl ModRequest {
 
     /// Get all param args
     pub fn args(&self) -> HashMap<String, ArgValue> {
-        if let Some(a) = &self.arguments {
-            return a.to_owned();
-        }
-
-        HashMap::default()
+        self.arguments.clone().unwrap_or_default()
     }
 
     /// Get arg
