@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     cfg::mmconf::MinionConfig,
     intp::{self, inspector::SysInspector},
@@ -9,6 +7,7 @@ use crate::{
 };
 use intp::actproc::response::ActionResponse;
 use once_cell::sync::OnceCell;
+use std::sync::Arc;
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
 
