@@ -33,6 +33,17 @@ impl ModResponse {
         ModResponse::default()
     }
 
+    /// New response with default negative/unsuccessful data for CM.
+    /// These params needs to be reset.
+    pub fn new_cm() -> Self {
+        let mut r = ModResponse::default();
+        r.set_retcode(1);
+        r.set_message("Response is empty");
+        _ = r.cm_set_changed(false);
+
+        r
+    }
+
     /// Set any payload
     pub fn set_data<T>(&mut self, data: T) -> Result<(), serde_json::Error>
     where
