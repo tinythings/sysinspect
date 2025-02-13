@@ -15,7 +15,7 @@ use users::{get_group_by_gid, get_user_by_uid};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct FileMetadata {
-    #[serde(rename = "file")]
+    #[serde(rename = "path")]
     name: String,
 
     #[serde(rename = "type")]
