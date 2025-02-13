@@ -40,7 +40,7 @@ examples:
   - description: "Pull a file from a master"
     code: |
       {
-        "opts": ["fill"],
+        "opts": ["create"],
         "arguments": {
           "name": "/etc/group",
           "pull": "/standard/group"
@@ -50,7 +50,7 @@ examples:
   - description: "Copy a local file"
     code: |
       {
-        "opts": ["fill"],
+        "opts": ["create"],
         "arguments": {
           "name": "/backup/etc/group",
           "pull": "file:///etc/group"
@@ -65,6 +65,6 @@ returns:
     :description: |
       Returns just a regular text of the command STDOUT.
     retcode: 0
-    message: "Content of /etc/groups updated"
+    message: "Content of /etc/group updated"
     data:
       changed: true
