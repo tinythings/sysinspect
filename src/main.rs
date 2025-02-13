@@ -1,7 +1,10 @@
 use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
-    cfg::{mmconf::MasterConfig, select_config_path},
+    cfg::{
+        mmconf::{MasterConfig, MinionConfig},
+        select_config_path,
+    },
     inspector::SysInspectRunner,
     logger,
     proto::query::{
@@ -120,7 +123,7 @@ fn main() {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
-        let mut sr = SysInspectRunner::new(None);
+        let mut sr = SysInspectRunner::new(&MinionConfig::default());
         sr.set_model_path(mpath);
         sr.set_state(params.get_one::<String>("state").cloned());
         sr.set_entities(clidef::split_by(&params, "entities", None));

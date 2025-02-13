@@ -14,6 +14,7 @@ Welcome to the Project Sysinspect!
    moddev/overview
    moddescr/overview
    evthandlers/overview
+   tutorial/cfgmgmt_tutor
 
 Welcome to Sysinspect: an engine of Anomaly Detection and Root Cause Analysis.
 The name consists of two words "system" and "inspection", resulting in "suspicion".

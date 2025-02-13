@@ -1,6 +1,7 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
     cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_PYLIB_DIR},
+    inspector::SysInspectRunner,
     intp::{
         actproc::response::ConstraintFailure,
         constraints::{Constraint, ConstraintKind, ExprRes},
@@ -87,6 +88,8 @@ impl ModCall {
         if !self.opts.is_empty() {
             out.insert("options".to_string(), json!(self.opts));
         }
+
+        out.insert("config".to_string(), SysInspectRunner::minion_cfg_json());
 
         let x = json!(out).to_string();
         log::trace!("Params: {}", x);
@@ -267,6 +270,8 @@ impl ModCall {
     /// Runs native external module
     fn run_native_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         log::debug!("Calling native module: {}", self.module.as_os_str().to_str().unwrap_or_default());
+        log::debug!("Params: {}", self.params_json());
+
         match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
             Ok(mut p) => {
                 // Send options
@@ -287,7 +292,10 @@ impl ModCall {
                                 r.clone(),
                                 self.eval_constraints(&r),
                             ))),
-                            Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
+                            Err(e) => {
+                                log::debug!("STDOUT: {}", out);
+                                Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
+                            }
                         },
                         Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
                     }

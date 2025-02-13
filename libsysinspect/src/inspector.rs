@@ -1,13 +1,15 @@
-use std::path::PathBuf;
-
 use crate::{
-    cfg::mmconf::DEFAULT_SHARELIB,
+    cfg::mmconf::MinionConfig,
     intp::{self, inspector::SysInspector},
     mdescr::mspec,
     reactor::evtproc::EventProcessor,
     traits::systraits::SystemTraits,
 };
 use intp::actproc::response::ActionResponse;
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
+
+static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
 
 #[derive(Debug, Default)]
 pub struct SysInspectRunner {
@@ -20,14 +22,22 @@ pub struct SysInspectRunner {
 
     // Minion traits, if running in distributed mode
     traits: Option<SystemTraits>,
-
-    // Sharelib
-    sharelib: PathBuf,
 }
 
 impl SysInspectRunner {
-    pub fn new(sharelib: Option<PathBuf>) -> SysInspectRunner {
-        SysInspectRunner { sharelib: sharelib.unwrap_or(PathBuf::from(DEFAULT_SHARELIB)), ..Default::default() }
+    pub fn new(cfg: &MinionConfig) -> SysInspectRunner {
+        MINION_CONFIG.get_or_init(|| Arc::new(cfg.to_owned()));
+        SysInspectRunner { ..Default::default() }
+    }
+
+    /// Get Minion Config
+    pub fn minion_cfg() -> Arc<MinionConfig> {
+        MINION_CONFIG.get().unwrap_or(&Arc::new(MinionConfig::default())).clone()
+    }
+
+    /// Return minion config as JSON
+    pub fn minion_cfg_json() -> serde_json::Value {
+        serde_json::to_value(&*Self::minion_cfg()).unwrap_or_default()
     }
 
     /// Set model path
@@ -55,7 +65,7 @@ impl SysInspectRunner {
         match mspec::load(&self.model_pth, self.traits.clone()) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
-                match SysInspector::new(spec, Some(self.sharelib.clone())) {
+                match SysInspector::new(spec, Some(Self::minion_cfg().sharelib_dir().clone())) {
                     Ok(isp) => {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg());

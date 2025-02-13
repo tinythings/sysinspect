@@ -61,6 +61,7 @@ pub struct MinionConfig {
     /// Root directory where minion keeps all data.
     /// Default: /etc/sysinspect — same as for master
     #[serde(rename = "path.root")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     root: Option<String>,
 
     /// Path to alternative /etc/machine-id
@@ -70,34 +71,42 @@ pub struct MinionConfig {
     ///
     /// Relative keyword links to $ROOT/machine-id
     #[serde(rename = "path.id")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     machine_id: Option<String>,
 
     /// Path to the sharelib, other than /usr/share/sysinspect
     #[serde(rename = "path.sharelib")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     sharelib_path: Option<String>,
 
     /// IP address of Master
     #[serde(rename = "master.ip")]
+    #[serde(skip_serializing_if = "String::is_empty")]
     master_ip: String,
 
     /// Port of Master. Default: 4200
     #[serde(rename = "master.port")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     master_port: Option<u32>,
 
     /// Port of Master's fileserver. Default: 4201
     #[serde(rename = "master.fileserver.port")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     master_fileserver_port: Option<u32>,
 
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     log_main: Option<String>,
 
     // Error log for daemon mode
     #[serde(rename = "log.errors")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     log_err: Option<String>,
 
     // Pidfile
     #[serde(rename = "pidfile")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pidfile: Option<String>,
 }
 
