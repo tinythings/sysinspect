@@ -2,10 +2,10 @@ use crate::{
     util::dataconv::{self, as_bool_opt, as_int_opt, as_str_opt},
     SysinspectError,
 };
+use indexmap::IndexMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ExprRes {
@@ -112,7 +112,7 @@ impl Expression {
 
     /// Get active operator
     fn op(&self) -> Option<(OpType, Value)> {
-        for (k, v) in HashMap::from([
+        for (k, v) in IndexMap::from([
             (OpType::Equals, &self.equals),
             (OpType::Less, &self.less),
             (OpType::More, &self.more),
@@ -287,13 +287,13 @@ pub struct Constraint {
     entities: Option<Vec<String>>,
 
     // All of the expressions should match for positive outcome
-    all: Option<HashMap<String, Vec<Expression>>>,
+    all: Option<IndexMap<String, Vec<Expression>>>,
 
     // Any of the defined expressions should match for positive outcome
-    any: Option<HashMap<String, Vec<Expression>>>,
+    any: Option<IndexMap<String, Vec<Expression>>>,
 
     // None of the defined expressions must match for positive outcome
-    none: Option<HashMap<String, Vec<Expression>>>,
+    none: Option<IndexMap<String, Vec<Expression>>>,
 }
 
 impl Constraint {
@@ -362,7 +362,7 @@ impl Constraint {
         (entities.len() == 1 && has_glob) || (entities.len() > 1 && has_glob && !has_entity) || (!has_glob && has_entity)
     }
 
-    fn get_expr(&self, state: String, expr: &Option<HashMap<String, Vec<Expression>>>) -> Vec<Expression> {
+    fn get_expr(&self, state: String, expr: &Option<IndexMap<String, Vec<Expression>>>) -> Vec<Expression> {
         let mut out: Vec<Expression> = Vec::default();
         if let Some(expr) = expr {
             if let Some(exprset) = expr.get(&state) {
@@ -394,9 +394,9 @@ impl Constraint {
     /// real values, so the expression is ready for the evaluation.
     pub fn set_expr_for(&mut self, state: String, expr: Vec<Expression>, kind: ConstraintKind) {
         match kind {
-            ConstraintKind::All => self.all.get_or_insert_with(HashMap::new).insert(state, expr),
-            ConstraintKind::Any => self.any.get_or_insert_with(HashMap::new).insert(state, expr),
-            ConstraintKind::None => self.none.get_or_insert_with(HashMap::new).insert(state, expr),
+            ConstraintKind::All => self.all.get_or_insert_with(IndexMap::new).insert(state, expr),
+            ConstraintKind::Any => self.any.get_or_insert_with(IndexMap::new).insert(state, expr),
+            ConstraintKind::None => self.none.get_or_insert_with(IndexMap::new).insert(state, expr),
         };
     }
 }

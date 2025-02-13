@@ -4,9 +4,9 @@
 Payload types and their deserialisation.
 */
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
-use std::collections::HashMap;
 
 /// Payload types
 pub enum PayloadType {
@@ -29,7 +29,7 @@ impl TryFrom<Value> for PayloadType {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModStatePayload {
     // Each file has a SHA1 checksum to prevent huge bogus traffic
-    files: HashMap<String, String>,
+    files: IndexMap<String, String>,
 
     // Root where models starts. It corresponds to "fileserver.models.root" conf of Master.
     // It will be substracted from each file path when saving
@@ -54,7 +54,7 @@ impl ModStatePayload {
     }
 
     /// Add files
-    pub fn add_files(mut self, files: HashMap<String, String>) -> Self {
+    pub fn add_files(mut self, files: IndexMap<String, String>) -> Self {
         self.files.extend(files);
         self
     }
@@ -66,7 +66,7 @@ impl ModStatePayload {
     }
 
     /// Get list of files to download
-    pub fn files(&self) -> &HashMap<String, String> {
+    pub fn files(&self) -> &IndexMap<String, String> {
         &self.files
     }
 

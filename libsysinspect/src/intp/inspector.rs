@@ -18,12 +18,10 @@ use crate::{
     SysinspectError,
 };
 use colored::Colorize;
+use indexmap::IndexMap;
 use once_cell::sync::OnceCell;
 use serde_yaml::Value;
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+use std::{collections::HashSet, path::PathBuf};
 
 static _SHARELIB: OnceCell<PathBuf> = OnceCell::new();
 
@@ -44,10 +42,10 @@ pub fn get_cfg_sharelib() -> PathBuf {
 }
 
 pub struct SysInspector {
-    entities: HashMap<String, Entity>,
-    relations: HashMap<String, Relation>,
-    actions: HashMap<String, Action>,
-    constraints: HashMap<String, Constraint>,
+    entities: IndexMap<String, Entity>,
+    relations: IndexMap<String, Relation>,
+    actions: IndexMap<String, Action>,
+    constraints: IndexMap<String, Constraint>,
     checkbook: Vec<CheckbookSection>,
     config: Config,
     spec: ModelSpec,
@@ -60,10 +58,10 @@ impl SysInspector {
 
         // Create inspector
         let mut sr = SysInspector {
-            entities: HashMap::new(),
-            relations: HashMap::new(),
-            actions: HashMap::new(),
-            constraints: HashMap::new(),
+            entities: IndexMap::new(),
+            relations: IndexMap::new(),
+            actions: IndexMap::new(),
+            constraints: IndexMap::new(),
             checkbook: Vec::default(),
             config: Config::default(),
             spec,

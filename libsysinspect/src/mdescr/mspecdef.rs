@@ -1,6 +1,7 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
 /// Model Specification
 /// ===================
@@ -29,7 +30,7 @@ pub struct ModelSpec {
 
     // The rest of the system structure
     #[serde(flatten)]
-    system: HashMap<String, Value>,
+    system: IndexMap<String, Value>,
 }
 
 impl ModelSpec {

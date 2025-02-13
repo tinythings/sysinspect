@@ -10,7 +10,6 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
     fs::{self},
     os::unix::fs::PermissionsExt,
     process::Command,
@@ -191,7 +190,7 @@ impl SystemTraits {
 
                 let content = content.as_ref().and_then(|v| {
                     Self::proxy_log_error(
-                        serde_json::from_value::<HashMap<String, serde_json::Value>>(v.clone()),
+                        serde_json::from_value::<IndexMap<String, serde_json::Value>>(v.clone()),
                         "Unable to parse JSON",
                     )
                 });
@@ -240,7 +239,7 @@ impl SystemTraits {
                     }
                     let data = data.unwrap_or_default();
                     let data = Self::proxy_log_error(
-                        serde_json::from_str::<HashMap<String, serde_json::Value>>(&data),
+                        serde_json::from_str::<IndexMap<String, serde_json::Value>>(&data),
                         format!("Unable to parse JSON output from trait function at {fname}").as_str(),
                     );
                     if let Some(data) = data {

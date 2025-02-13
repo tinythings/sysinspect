@@ -13,25 +13,22 @@ use lazy_static::lazy_static;
 /// 1. Implement eventhandler::EventHandler trait
 /// 2. Add into registry variable in init_handlers() function
 pub mod registry {
-    use crate::intp::conf::EventConfig;
-
     use super::*;
+    use crate::intp::conf::EventConfig;
     use cstr_stdhdl::ConstraintHandler;
     use evthandler::EventHandler;
+    use indexmap::IndexMap;
     use pipescript::PipeScriptHandler;
-    use std::{
-        collections::HashMap,
-        sync::{Mutex, MutexGuard},
-    };
+    use std::sync::{Mutex, MutexGuard};
     use stdhdl::StdoutEventHandler;
 
     lazy_static! {
-        pub static ref REGISTRY_MAP: Mutex<HashMap<String, fn(String, EventConfig) -> Box<dyn EventHandler>>> =
-            Mutex::new(HashMap::new());
+        pub static ref REGISTRY_MAP: Mutex<IndexMap<String, fn(String, EventConfig) -> Box<dyn EventHandler>>> =
+            Mutex::new(IndexMap::new());
     }
 
     pub fn init_handler(label: String, event_id: String, cfg: EventConfig) -> Option<Box<dyn EventHandler>> {
-        let registry: MutexGuard<'_, HashMap<String, fn(String, EventConfig) -> Box<dyn EventHandler>>> =
+        let registry: MutexGuard<'_, IndexMap<String, fn(String, EventConfig) -> Box<dyn EventHandler>>> =
             REGISTRY_MAP.lock().unwrap();
         if let Some(eh) = registry.get(&label) {
             return Some(eh(event_id, cfg));

@@ -1,18 +1,18 @@
 use crate::SysinspectError;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Relation {
     id: Option<String>,
     #[serde(flatten)]
-    states: HashMap<String, HashMap<String, Vec<String>>>,
+    states: IndexMap<String, IndexMap<String, Vec<String>>>,
 }
 
 impl Relation {
     pub fn new(id: &Value, states: &Value) -> Result<Self, SysinspectError> {
-        let mut instance = Relation { id: None, states: HashMap::default() };
+        let mut instance = Relation { id: None, states: IndexMap::default() };
 
         if let Some(id) = id.as_str() {
             instance = serde_yaml::from_value::<Relation>(states.to_owned()).unwrap_or(instance);
@@ -35,7 +35,7 @@ impl Relation {
     }
 
     /// Get states to relations
-    pub fn states(&self) -> &HashMap<String, HashMap<String, Vec<String>>> {
+    pub fn states(&self) -> &IndexMap<String, IndexMap<String, Vec<String>>> {
         &self.states
     }
 

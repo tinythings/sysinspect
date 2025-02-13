@@ -1,8 +1,8 @@
 use super::{datapatch, mspecdef::ModelSpec};
 use crate::{cfg::select_config_path, tmpl::render::ModelTplRender, traits::systraits::SystemTraits, SysinspectError};
+use indexmap::IndexMap;
 use serde_yaml::Value;
 use std::{
-    collections::HashMap,
     fs::{self},
     path::{Path, PathBuf},
 };
@@ -19,15 +19,15 @@ struct SpecLoader {
     init: bool,
 
     // System traits if running in distributed mode
-    traits: Option<HashMap<String, serde_json::Value>>,
+    traits: Option<IndexMap<String, serde_json::Value>>,
 }
 
 impl SpecLoader {
     // Constructor
     fn new(pth: PathBuf, traits: Option<SystemTraits>) -> Self {
-        let mut ext: Option<HashMap<String, serde_json::Value>> = None;
+        let mut ext: Option<IndexMap<String, serde_json::Value>> = None;
         if let Some(traits) = traits {
-            let mut et: HashMap<String, serde_json::Value> = HashMap::new();
+            let mut et: IndexMap<String, serde_json::Value> = IndexMap::new();
             for k in traits.items() {
                 if let Some(v) = traits.get(&k) {
                     et.insert(k, v);

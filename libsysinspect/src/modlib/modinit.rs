@@ -1,10 +1,11 @@
 use crate::util::dataconv;
 use colored::Colorize;
+use indexmap::IndexMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_yaml::Value;
-use std::{collections::HashMap, env::args};
+use std::env::args;
 use textwrap::{fill, Options};
 
 static H_WIDTH: usize = 80;
@@ -86,7 +87,7 @@ pub struct ModInterface {
     examples: Vec<ModExample>,
 
     // Map of flags/args to output data structure
-    returns: HashMap<String, Value>,
+    returns: IndexMap<String, Value>,
 }
 
 impl ModInterface {
@@ -104,7 +105,7 @@ impl ModInterface {
     fn fmt_returns(&self) -> String {
         let mut out: Vec<String> = Vec::new();
         for (arg, data) in &self.returns {
-            let mut stct: HashMap<String, serde_json::Value> = HashMap::new();
+            let mut stct: IndexMap<String, serde_json::Value> = IndexMap::new();
             let mut descr = String::new();
 
             if let Value::Mapping(out_data) = data {

@@ -1,3 +1,4 @@
+use crate::SysinspectError;
 use rand::rngs::OsRng;
 use rsa::{
     pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey, EncodeRsaPrivateKey, EncodeRsaPublicKey},
@@ -8,8 +9,6 @@ use rsa::{
     Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey,
 };
 use std::{error::Error, fs, io, path::PathBuf};
-
-use crate::SysinspectError;
 
 /// Default key size.
 pub static DEFAULT_KEY_SIZE: usize = 1048;
