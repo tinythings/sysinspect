@@ -25,9 +25,11 @@ arguments:
     type: string
     required: false
     description: |
-      Can be one of "strict" or "easy". Default is "easy".
-      If "strict" is chosen, then the module will always return
-      non-zero error code if the state wasn't changed.
+      Can be one of "strict", "easy". Default is "easy".
+
+      strict: the module will always return non-zero error
+              code if the state wasn't changed.
+      easy:   the module will return error code zero
 
   - name: pull
     type: string
