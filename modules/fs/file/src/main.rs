@@ -1,5 +1,6 @@
 mod fdel;
 mod fill;
+mod info;
 
 use libsysinspect::{
     init_mod_doc,
@@ -37,6 +38,7 @@ fn run_mod(rq: &ModRequest) -> ModResponse {
     match rq.options().first().unwrap_or(&ArgValue::default()).as_string().unwrap_or_default().as_str() {
         "create" => fill::do_create(rq, &mut resp, strict),
         "delete" => fdel::do_delete(rq, &mut resp, strict),
+        "info" => info::info(rq, &mut resp),
         opt => {
             resp.set_message(&format!("Unknown option: {}", opt));
             return resp;
