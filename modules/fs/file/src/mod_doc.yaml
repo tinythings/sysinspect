@@ -5,14 +5,11 @@ description: Plugin to create, delete and copy files.
 
 # Options, flags, switches
 options:
-  - name: fill
+  - name: create
     description: "Create an empty file with possible content (see args)"
 
   - name: delete
     description: "Delete a specified file"
-
-  - name: copy
-    description: "Copy a local file"
 
 # Keyword arguments
 arguments:
@@ -34,16 +31,29 @@ arguments:
   - name: pull
     type: string
     required: false
-    description: 'Filename on the fileserver to use as a content (applicable with "touch" option)'
+    description: |
+      If starts with "file://" scheme, then it is a local file.
+      Otherwise it is a filename, served on the master's data
+      fileserver to use as a content.
 
 examples:
-  - description: "Module usage example"
+  - description: "Pull a file from a master"
     code: |
       {
         "opts": ["fill"],
         "arguments": {
-          "name": "/etc/groups",
-          "pull": "/standard/groups"
+          "name": "/etc/group",
+          "pull": "/standard/group"
+        }
+      }
+
+  - description: "Copy a local file"
+    code: |
+      {
+        "opts": ["fill"],
+        "arguments": {
+          "name": "/backup/etc/group",
+          "pull": "file:///etc/group"
         }
       }
 
