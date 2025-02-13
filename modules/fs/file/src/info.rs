@@ -8,9 +8,10 @@ use libsysinspect::modlib::{
     runtime::{ArgValue, ModRequest},
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::time::SystemTime;
+use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::MetadataExt};
+use std::{fs::File, path::PathBuf};
+use std::{io::BufReader, time::SystemTime};
 use users::{get_group_by_gid, get_user_by_uid};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -44,6 +45,10 @@ struct FileMetadata {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     group: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "sha256")]
+    checksum: Option<String>,
 }
 
 /// Convert system time to ISO format
@@ -54,6 +59,13 @@ fn time2iso(time: SystemTime) -> Option<String> {
 
 fn mode_to_octal(mode: u32) -> String {
     format!("{:04o}", mode & 0o7777)
+}
+
+/// Calculate SHA256 checksum
+fn get_sha256(p: &PathBuf) -> Option<String> {
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut BufReader::new(File::open(p).ok()?), &mut hasher).ok()?;
+    Some(format!("{:x}", hasher.finalize()))
 }
 
 /// Collect file information
@@ -91,6 +103,7 @@ pub(crate) fn info(rq: &ModRequest, rsp: &mut ModResponse) {
         gid: meta.gid(),
         user: get_user_by_uid(meta.uid()).map(|i| i.name().to_string_lossy().into_owned()),
         group: get_group_by_gid(meta.gid()).map(|i| i.name().to_string_lossy().into_owned()),
+        checksum: get_sha256(&p),
     }) {
         Ok(j) => {
             if let Err(err) = rsp.set_data(j) {
