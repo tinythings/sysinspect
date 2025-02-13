@@ -4274,6 +4274,7 @@ dependencies = [
  "daemonize",
  "ed25519-dalek",
  "futures",
+ "indexmap",
  "libc",
  "libsysinspect",
  "log",
