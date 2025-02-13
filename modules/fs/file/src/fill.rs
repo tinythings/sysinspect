@@ -6,7 +6,11 @@ use libsysinspect::{
     },
 };
 use reqwest::blocking::get;
-use std::{fs::File, io::Error, path::PathBuf};
+use std::{
+    fs::{self, File},
+    io::Error,
+    path::PathBuf,
+};
 
 /// Create an empty file
 fn touch(p: PathBuf) -> Result<(), Error> {
@@ -23,7 +27,7 @@ fn touch(p: PathBuf) -> Result<(), Error> {
 }
 
 /// Fill-in the file with the content from the fileserver
-fn pull(p: PathBuf, fileserver: String, src: String) -> Result<(), Error> {
+fn download(p: PathBuf, fileserver: String, src: String) -> Result<(), Error> {
     if p.exists() {
         return Err(Error::new(
             std::io::ErrorKind::AlreadyExists,
@@ -50,8 +54,28 @@ fn pull(p: PathBuf, fileserver: String, src: String) -> Result<(), Error> {
     Ok(())
 }
 
+fn copy(src: PathBuf, dst: PathBuf) -> Result<(), Error> {
+    if !src.exists() {
+        return Err(Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Error copying file: source file {} was not found", src.to_str().unwrap_or_default()),
+        ));
+    } else if dst.exists() {
+        return Err(Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("Error copying file: destination file {} already exists", dst.to_str().unwrap_or_default()),
+        ));
+    }
+
+    fs::copy(src, dst)?;
+
+    Ok(())
+}
+
 /// Do file filling
-pub fn do_fill(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
+pub fn do_create(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
+    rsp.set_retcode(0);
+
     if let Err(error) = rsp.cm_set_changed(true) {
         rsp.set_message(&format!("Data error: {}", error));
         rsp.set_retcode(255);
@@ -59,6 +83,7 @@ pub fn do_fill(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
     }
 
     let pn = rq.args().get("name").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default();
+    rsp.set_message(&format!("File {} created", pn));
 
     let fsr_addr = format!(
         "http://{}:{}",
@@ -71,30 +96,35 @@ pub fn do_fill(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
     );
 
     if rq.args().contains_key("pull") {
-        if let Err(err) = pull(
-            PathBuf::from(&pn),
-            fsr_addr,
-            rq.args().get("pull").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default(),
-        ) {
-            if strict {
-                rsp.set_retcode(1);
+        let pull_src = rq.args().get("pull").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default();
+        match &pull_src {
+            s if s.starts_with("file://") => {
+                if let Err(err) = copy(PathBuf::from(pull_src.strip_prefix("file://").unwrap_or_default()), PathBuf::from(&pn)) {
+                    if strict {
+                        rsp.set_retcode(1);
+                    }
+                    rsp.set_message(&format!("Error copying the file \"{}\": {}", pull_src, err));
+                    return;
+                }
             }
-            rsp.set_message(&format!("Error pulling the file: {}", err));
-            _ = rsp.cm_set_changed(false);
-
-            return;
-        }
+            _ => {
+                if let Err(err) = download(PathBuf::from(&pn), fsr_addr, pull_src) {
+                    if strict {
+                        rsp.set_retcode(1);
+                    }
+                    rsp.set_message(&format!("Error pulling the file: {}", err));
+                    return;
+                }
+            }
+        };
     } else if let Err(err) = touch(PathBuf::from(&pn)) {
         if strict {
             rsp.set_retcode(1);
         }
-
         rsp.set_message(&format!("Touch error: {}", err));
-        _ = rsp.cm_set_changed(false);
 
         return;
     }
 
-    rsp.set_message(&format!("File {} created", pn));
     _ = rsp.cm_set_changed(true);
 }
