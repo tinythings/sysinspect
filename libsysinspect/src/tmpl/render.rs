@@ -1,7 +1,8 @@
 use crate::SysinspectError;
 use colored::Colorize;
+use indexmap::IndexMap;
 use serde_json::Value;
-use std::{collections::HashMap, error::Error};
+use std::error::Error;
 use tera::{Context, Tera};
 
 /// Renderer for the model templates.
@@ -26,7 +27,7 @@ impl ModelTplRender {
     /// Normalise namespace. No namespace can be a part of other namespace.
     /// For example if there is "system.os.name", then "system.os" is offending namespace.
     /// All namespaces must be completely unique.
-    fn normalise_ns(&self, m: &HashMap<String, Value>) -> Vec<String> {
+    fn normalise_ns(&self, m: &IndexMap<String, Value>) -> Vec<String> {
         let mut keys = m.keys().map(|s| s.to_string()).collect::<Vec<String>>();
         keys.sort();
 
@@ -41,7 +42,7 @@ impl ModelTplRender {
         bogus
     }
 
-    fn namespace_exposer(&self, input: HashMap<String, Value>) -> Value {
+    fn namespace_exposer(&self, input: IndexMap<String, Value>) -> Value {
         let bogus = self.normalise_ns(&input);
         let mut root = serde_json::Map::new();
 
@@ -91,16 +92,16 @@ impl ModelTplRender {
     ///     {% if mystuff.somebody.name == "Toto" %}
     /// ```
     ///
-    /// Namespaces are created from key of a hashmap and the value
+    /// Namespaces are created from key of a IndexMap and the value
     /// is just a JSON. Example:
     ///
     /// ```rust
-    ///     let mut data = HashMap::new();
+    ///     let mut data = IndexMap::new();
     ///     data.insert("somebody.name", json!("Toto"));
     /// ```
     ///
-    /// Then register this HashMap as `mystuff`, passed to the `objname` arg.
-    pub fn set_ns_values(&mut self, objname: &str, v: HashMap<String, Value>) {
+    /// Then register this IndexMap as `mystuff`, passed to the `objname` arg.
+    pub fn set_ns_values(&mut self, objname: &str, v: IndexMap<String, Value>) {
         self.ctx.insert(objname, &self.namespace_exposer(v));
     }
 

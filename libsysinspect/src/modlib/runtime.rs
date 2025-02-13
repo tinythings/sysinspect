@@ -1,11 +1,9 @@
 use super::response::ModResponse;
 use crate::util;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::io::Error;
-use std::{
-    collections::HashMap,
-    io::{self, Read},
-};
+use std::io::{self, Read};
 
 /// ArgValue is a type converter from input JSON to the internal types
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -58,16 +56,16 @@ pub struct ModRequest {
     /// different types: list, integers, strings etc.
     #[serde(default)]
     #[serde(alias = "args")]
-    arguments: Option<HashMap<String, ArgValue>>,
+    arguments: Option<IndexMap<String, ArgValue>>,
 
     /// Passed-through MinionConfig (only defined parts)
     /// If nothing defined at all, use default constants.
     #[serde(default)]
-    config: Option<HashMap<String, ArgValue>>,
+    config: Option<IndexMap<String, ArgValue>>,
 
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
-    ext: HashMap<String, serde_json::Value>,
+    ext: IndexMap<String, serde_json::Value>,
 }
 
 impl ModRequest {
@@ -86,12 +84,12 @@ impl ModRequest {
         self.options.to_owned().unwrap_or_default()
     }
 
-    pub fn config(&self) -> HashMap<String, ArgValue> {
+    pub fn config(&self) -> IndexMap<String, ArgValue> {
         self.config.clone().unwrap_or_default()
     }
 
     /// Get all param args
-    pub fn args(&self) -> HashMap<String, ArgValue> {
+    pub fn args(&self) -> IndexMap<String, ArgValue> {
         self.arguments.clone().unwrap_or_default()
     }
 
@@ -107,7 +105,7 @@ impl ModRequest {
     }
 
     /// Get optional extra data payload
-    pub fn ext(&self) -> &HashMap<String, serde_json::Value> {
+    pub fn ext(&self) -> &IndexMap<String, serde_json::Value> {
         &self.ext
     }
 }

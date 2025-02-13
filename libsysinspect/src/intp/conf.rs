@@ -1,14 +1,15 @@
 use crate::{cfg::mmconf::DEFAULT_MODULES_DIR, util, SysinspectError};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
 use super::inspector::get_cfg_sharelib;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct EventConfigOption {
     #[serde(flatten)]
-    data: HashMap<String, Value>,
+    data: IndexMap<String, Value>,
 }
 
 impl EventConfigOption {
@@ -39,7 +40,7 @@ impl EventConfigOption {
 pub struct EventConfig {
     handler: Vec<String>,
     #[serde(flatten)]
-    cfg: Option<HashMap<String, EventConfigOption>>,
+    cfg: Option<IndexMap<String, EventConfigOption>>,
 }
 
 impl EventConfig {
@@ -74,7 +75,7 @@ pub struct Config {
     modules: Option<PathBuf>,
 
     // EventId to config, added later
-    events: Option<HashMap<String, EventConfig>>,
+    events: Option<IndexMap<String, EventConfig>>,
 }
 
 impl Config {
@@ -130,7 +131,7 @@ impl Config {
 
     /// Set events config
     pub(crate) fn set_events(&mut self, obj: &Value) -> Result<(), SysinspectError> {
-        if let Ok(cfg) = serde_yaml::from_value::<HashMap<String, EventConfig>>(obj.to_owned()) {
+        if let Ok(cfg) = serde_yaml::from_value::<IndexMap<String, EventConfig>>(obj.to_owned()) {
             self.events = Some(cfg);
         } else {
             return Err(SysinspectError::ModelDSLError("Events configuration error".to_string()));

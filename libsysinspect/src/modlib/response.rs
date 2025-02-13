@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_value, Value};
 
@@ -84,7 +83,7 @@ impl ModResponse {
     /// Set changed: <bool> to the data section.
     /// Used for configuration management
     pub fn cm_set_changed(&mut self, changed: bool) -> Result<(), serde_json::Error> {
-        let mut out = HashMap::<String, bool>::new();
+        let mut out = IndexMap::<String, bool>::new();
         out.insert("changed".to_string(), changed);
         self.set_data(json!(out))?;
 
@@ -95,7 +94,7 @@ impl ModResponse {
     ///
     /// Set STDOUT of the process
     pub fn cm_set_stdout(&mut self, data: String) -> Result<(), serde_json::Error> {
-        let mut out = HashMap::<String, String>::new();
+        let mut out = IndexMap::<String, String>::new();
         out.insert("stdout".to_string(), data);
         self.set_data(json!(out))?;
 

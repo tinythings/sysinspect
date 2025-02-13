@@ -6,9 +6,10 @@ use super::{
 };
 use crate::{util::dataconv, SysinspectError};
 use colored::Colorize;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ModArgs {
@@ -16,16 +17,16 @@ pub struct ModArgs {
     options: Option<Vec<String>>,
 
     #[serde(alias = "args")]
-    arguments: Option<HashMap<String, String>>,
+    arguments: Option<IndexMap<String, String>>,
 }
 
 impl ModArgs {
     /// Return args
-    pub fn args(&self) -> HashMap<String, String> {
+    pub fn args(&self) -> IndexMap<String, String> {
         if let Some(args) = &self.arguments {
             return args.to_owned();
         }
-        HashMap::default()
+        IndexMap::default()
     }
 
     /// Get options
@@ -46,7 +47,7 @@ pub struct Action {
     description: Option<String>,
     module: String,
     bind: Vec<String>,
-    state: HashMap<String, ModArgs>,
+    state: IndexMap<String, ModArgs>,
     call: Option<ModCall>,
 }
 

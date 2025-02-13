@@ -1,8 +1,7 @@
 pub mod systraits;
 
-use std::collections::HashMap;
-
 use crate::{cfg::mmconf::MinionConfig, SysinspectError};
+use indexmap::IndexMap;
 use once_cell::sync::OnceCell;
 use pest::Parser;
 use pest_derive::Parser;
@@ -65,13 +64,13 @@ pub fn parse_traits_query(input: &str) -> Result<Vec<Vec<String>>, SysinspectErr
 }
 
 /// Parse trait query to trait typed (JSON) query
-pub fn to_typed_query(qt: Vec<Vec<String>>) -> Result<Vec<Vec<HashMap<String, Value>>>, SysinspectError> {
-    let mut out: Vec<Vec<HashMap<String, Value>>> = Vec::default();
+pub fn to_typed_query(qt: Vec<Vec<String>>) -> Result<Vec<Vec<IndexMap<String, Value>>>, SysinspectError> {
+    let mut out: Vec<Vec<IndexMap<String, Value>>> = Vec::default();
     for and_op in qt {
-        let mut out_op: Vec<HashMap<String, Value>> = Vec::default();
+        let mut out_op: Vec<IndexMap<String, Value>> = Vec::default();
         for op in and_op {
             let x = op.replace(":", ": ");
-            match serde_yaml::from_str::<HashMap<String, Value>>(&x) {
+            match serde_yaml::from_str::<IndexMap<String, Value>>(&x) {
                 Ok(v) => out_op.push(v),
                 Err(e) => return Err(SysinspectError::MinionGeneralError(format!("Broken traits query: {e}"))),
             };
@@ -81,12 +80,12 @@ pub fn to_typed_query(qt: Vec<Vec<String>>) -> Result<Vec<Vec<HashMap<String, Va
     Ok(out)
 }
 
-pub fn matches_traits(qt: Vec<Vec<HashMap<String, Value>>>, traits: SystemTraits) -> bool {
+pub fn matches_traits(qt: Vec<Vec<IndexMap<String, Value>>>, traits: SystemTraits) -> bool {
     let mut or_op_c: Vec<bool> = Vec::default();
     for and_op in qt {
         let mut and_op_c: Vec<bool> = Vec::default();
         for ophm in and_op {
-            // op hashmap has always just one key and one value
+            // op IndexMap has always just one key and one value
             for (opk, opv) in ophm {
                 and_op_c.push(traits.get(&opk).map(|x| x.eq(&opv)).unwrap_or(false));
             }

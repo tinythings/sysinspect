@@ -13,10 +13,10 @@ use crate::{
     SysinspectError,
 };
 use core::str;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::HashMap,
     fmt::Display,
     io::Write,
     path::PathBuf,
@@ -42,7 +42,7 @@ pub struct ModCall {
     constraints: Vec<Constraint>,
 
     // Module params
-    args: HashMap<String, String>, // XXX: Should be String/Value, not String/String!
+    args: IndexMap<String, String>, // XXX: Should be String/Value, not String/String!
     opts: Vec<String>,
 }
 
@@ -80,7 +80,7 @@ impl ModCall {
 
     /// Serialise args and opts to a JSON string for the call.
     fn params_json(&self) -> String {
-        let mut out: HashMap<String, serde_json::Value> = HashMap::default();
+        let mut out: IndexMap<String, serde_json::Value> = IndexMap::default();
         if !self.args.is_empty() {
             out.insert("arguments".to_string(), json!(self.args));
         }
@@ -246,7 +246,7 @@ impl ModCall {
         log::debug!("Calling Python module: {}", self.module.as_os_str().to_str().unwrap_or_default());
 
         let opts = self.opts.iter().map(|v| json!(v)).collect::<Vec<serde_json::Value>>();
-        let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<HashMap<String, serde_json::Value>>();
+        let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<IndexMap<String, serde_json::Value>>();
 
         // TODO: Add libpath and modpath here! Must come from MinionConfig
         match pylang::pvm::PyVm::new(get_cfg_sharelib().join(DEFAULT_PYLIB_DIR), get_cfg_sharelib().join(DEFAULT_MODULES_DIR))
@@ -335,7 +335,7 @@ impl Default for ModCall {
             aid: "".to_string(),
             eid: "".to_string(),
             module: PathBuf::default(),
-            args: HashMap::default(),
+            args: IndexMap::default(),
             opts: Vec::default(),
             constraints: Vec::default(),
         }

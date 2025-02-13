@@ -1,12 +1,12 @@
 use crate::SysinspectError;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Claim {
     #[serde(flatten)]
-    data: HashMap<String, Value>,
+    data: IndexMap<String, Value>,
 }
 
 impl Claim {
@@ -22,7 +22,7 @@ impl Claim {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Entity {
     descr: Option<String>,
-    claims: Option<HashMap<String, Vec<Claim>>>,
+    claims: Option<IndexMap<String, Vec<Claim>>>,
     inherits: Option<Vec<String>>,
     depends: Option<Vec<String>>,
 
@@ -68,7 +68,7 @@ impl Entity {
     }
 
     /// Return claims
-    pub fn claims(&self) -> Option<&HashMap<String, Vec<Claim>>> {
+    pub fn claims(&self) -> Option<&IndexMap<String, Vec<Claim>>> {
         self.claims.as_ref()
     }
 }

@@ -4,6 +4,7 @@ Python virtual machine
 
 use crate::{pylang::PY_MAIN_FUNC, SysinspectError};
 use colored::Colorize;
+use indexmap::IndexMap;
 use rustpython_vm::{
     compiler::Mode::Exec,
     function::{FuncArgs, KwArgs},
@@ -13,7 +14,6 @@ use rustpython_vm::{Interpreter, Settings};
 use rustpython_vm::{PyObjectRef, VirtualMachine};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -117,7 +117,7 @@ impl PyVm {
 
     /// Call a light Python module
     pub fn call<T: AsRef<Path>>(
-        self: Arc<&Self>, namespace: T, opts: Option<Vec<Value>>, args: Option<HashMap<String, Value>>,
+        self: Arc<&Self>, namespace: T, opts: Option<Vec<Value>>, args: Option<IndexMap<String, Value>>,
     ) -> Result<String, SysinspectError> {
         self.itp.enter(|vm| {
             let lpth = Path::new(&self.libpath);

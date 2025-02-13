@@ -1,6 +1,7 @@
 use super::relations::Relation;
+use indexmap::IndexMap;
 use serde_yaml::Value;
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
 #[derive(Debug, Default)]
 pub struct CheckbookSection {
@@ -11,7 +12,7 @@ pub struct CheckbookSection {
 impl CheckbookSection {
     /// Initialise a checkbook.
     /// Entry is a list of relations needs to be examined.
-    pub fn new(label: &Value, rel_ids: &Value, relations: &HashMap<String, Relation>) -> Option<Self> {
+    pub fn new(label: &Value, rel_ids: &Value, relations: &IndexMap<String, Relation>) -> Option<Self> {
         let mut instance = CheckbookSection::default();
 
         // No relations defined anyway

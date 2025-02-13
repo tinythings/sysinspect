@@ -6,6 +6,7 @@ use crate::{
         session::{self, SessionKeeper},
     },
 };
+use indexmap::IndexMap;
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
     mdescr::mspec::MODEL_FILE_EXT,
@@ -115,7 +116,7 @@ impl SysMaster {
                 tgt.add_hostname(hostname);
             }
 
-            let mut out: HashMap<String, String> = HashMap::default();
+            let mut out: IndexMap<String, String> = IndexMap::default();
             for em in self.cfg.fileserver_models() {
                 for (n, cs) in scan_files_sha256(self.cfg.fileserver_mdl_root(false).join(em), Some(MODEL_FILE_EXT)) {
                     out.insert(
