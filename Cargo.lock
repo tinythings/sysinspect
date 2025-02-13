@@ -1160,11 +1160,13 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 name = "file"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "libsysinspect",
  "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
+ "users",
 ]
 
 [[package]]
@@ -4954,6 +4956,16 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
+]
+
+[[package]]
+name = "users"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24cc0f6d6f267b73e5a2cadf007ba8f9bc39c6a6f9666f8cf25ea809a153b032"
+dependencies = [
+ "libc",
+ "log",
 ]
 
 [[package]]
