@@ -17,6 +17,12 @@ pub fn do_delete(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
 
             return;
         }
+    } else {
+        if strict {
+            rsp.set_retcode(1);
+        }
+        rsp.set_message(&format!("File \"{}\" does not exists", pn.to_str().unwrap_or_default()));
+        return;
     }
 
     rsp.set_message(&format!("File \"{}\" was deleted", pn.to_str().unwrap_or_default()));
