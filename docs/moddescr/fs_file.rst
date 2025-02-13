@@ -24,6 +24,9 @@ The following options are available:
   ``delete``
     Delete a specified file
 
+  ``info``
+    Get file information
+
 
 The following arguments to the options are available:
 
@@ -90,3 +93,25 @@ Returns just a regular text of the command STDOUT. If fill specified:
           "changed": true
         }
       }
+
+File information has extensive additional fields in ``data`` section. Example:
+
+.. code-block:: json
+
+  "data": {
+    "changed": true,
+    "path": "/etc/passwd",
+    "type": "file",
+    "is_file": true,
+    "is_dir": false,
+    "size": 3442,
+    "created": "2023-11-14T15:59:13.966561943+00:00",
+    "modified": "2023-11-14T15:59:13.966561943+00:00",
+    "accessed": "2025-02-13T15:17:01.315542012+00:00",
+    "mode": "0644",
+    "uid": 0,
+    "gid": 0,
+    "user": "root",
+    "group": "root",
+    "sha256": "ee0582f813ee1b6f7623f01ce8fb7223d712d1847a0a46fb657f6f56620c64fa"
+  }
