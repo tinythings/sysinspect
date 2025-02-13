@@ -26,6 +26,18 @@ fn run_mod(rq: &ModRequest) -> ModResponse {
 
     let strict = rq.args().get("mode").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default().eq("strict");
 
+    if !rq.args().contains_key("name") {
+        resp.set_message("Argument \"name\" is required");
+        resp.set_retcode(1);
+        return resp;
+    }
+
+    if rq.args().get("name").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default().is_empty() {
+        resp.set_message("Argument \"name\" is empty");
+        resp.set_retcode(1);
+        return resp;
+    }
+
     match rq.options().first().unwrap_or(&ArgValue::default()).as_string().unwrap_or_default().as_str() {
         "fill" => fill::do_fill(rq, &mut resp, strict),
         "delete" => fdel::do_delete(rq, &mut resp, strict),

@@ -58,18 +58,7 @@ pub fn do_fill(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
         return;
     }
 
-    if !rq.args().contains_key("name") {
-        rsp.set_message("Argument \"name\" is required");
-        rsp.set_retcode(1);
-        return;
-    }
-
     let pn = rq.args().get("name").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default();
-    if pn.is_empty() {
-        rsp.set_message("Argument \"name\" is empty");
-        rsp.set_retcode(1);
-        return;
-    }
 
     let fsr_addr = format!(
         "http://{}:{}",
