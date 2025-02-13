@@ -11,6 +11,9 @@ options:
   - name: delete
     description: "Delete a specified file"
 
+  - name: info
+    description: "Get file information"
+
 # Keyword arguments
 arguments:
   - name: name
