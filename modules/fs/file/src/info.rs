@@ -101,6 +101,6 @@ pub(crate) fn info(rq: &ModRequest, rsp: &mut ModResponse) {
         }
     };
 
-    rsp.set_message("Data is obtained");
+    rsp.set_message(&format!("Data has been obtained"));
     _ = rsp.cm_set_changed(true);
 }
