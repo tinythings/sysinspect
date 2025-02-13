@@ -15,6 +15,10 @@ use users::{get_group_by_gid, get_user_by_uid};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct FileMetadata {
+    #[serde(rename = "file")]
+    name: String,
+
+    #[serde(rename = "type")]
     ftype: String,
     is_file: bool,
     is_dir: bool,
@@ -58,7 +62,7 @@ pub(crate) fn info(rq: &ModRequest, rsp: &mut ModResponse) {
 
     let p = PathBuf::from(rq.args().get("name").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default());
 
-    let meta = match fs::metadata(p) {
+    let meta = match fs::metadata(&p) {
         Ok(m) => m,
         Err(err) => {
             rsp.set_retcode(1);
@@ -68,6 +72,7 @@ pub(crate) fn info(rq: &ModRequest, rsp: &mut ModResponse) {
     };
 
     match serde_json::to_value(&FileMetadata {
+        name: p.to_str().unwrap_or_default().to_string(),
         ftype: if meta.is_file() {
             "file".to_string()
         } else if meta.is_dir() {
