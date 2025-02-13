@@ -1,3 +1,21 @@
+.. raw:: html
+
+   <style type="text/css">
+     span.underlined {
+       text-decoration: underline;
+     }
+     span.bolditalic {
+       font-weight: bold;
+       font-style: italic;
+     }
+   </style>
+
+.. role:: u
+   :class: underlined
+
+.. role:: bi
+   :class: bolditalic
+
 Actions
 =======
 
@@ -242,3 +260,58 @@ Another example, showing static data references. Consider the following configur
               - free-mem: "static(entities.systemconf.claims.mem.free)"
 
 In the example above, function ``static(....)`` can statically reach any defined value of a claim.
+
+
+Chain Conditions
+----------------
+
+Typically, and mostly for the configuration management, not all actions should fire one after another.
+Sometimes it is needed to call an action :bi:`only if` something is ``true`` or ``false``.
+
+The **Sysinspect** has a concept of "Chain Conditions". Unlike in other Configuration Management Systems,
+where actions can require some other actions, **Sysinspect** is executing each statement in its precise
+order. This restriction is on purpose: to avoid chaotic undebuggable mess, once your model grows really
+big.
+
+.. important::
+
+  The restriction of executing each action in its order is by design on purpose: each required action
+  just has to be placed prior to the action that requires them.
+
+  It is that simple!
+
+Action, however, has two flags that prevents it from running:
+
+  ``if-true: <sibling-action>``
+    In this case an Action will run only if a sibling action will **succeed**.
+
+  ``if-false: <sibling-action>``
+    Inverted to the ``if-true``, an Action will run only if a sibling action will **fail**.
+
+In this example it is shown that the action ``delete-file`` will run only if ``create-file``
+will succeed.
+
+.. code-block:: yaml
+
+    actions:
+      create-file:
+        ...
+
+      delete-file:
+        if-true: create-file
+
+However, ``if-true`` can be only known if a corresponding constraint is defined to that action,
+because the module itself does not define any kind of truth: it merely says if its state has been
+changed or not. For example, the file can already exist there, made by someone prior, so it has
+to be deleted. But we want to fire that action :bi:`if and only if` the file is really there.
+We can run ``fs.file::info`` on it and get ``changed: true``. But that will then require more
+coding and more constraints. We can, however, run ``fs.file::create`` and then have a constraint
+that checks if the file is really there.
+
+.. warning::
+
+  Since actions can run in "blind mode" (no assertions), clauses ``if-[true|false]``
+  require a valid constraints attached to the corresponding action!
+
+Likewise chain conditions can be used for consistency check: if a specific device is working
+as expected, no additional checks are needed (as an example).
