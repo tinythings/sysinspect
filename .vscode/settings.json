@@ -3,5 +3,8 @@
         "libsysinspect",
         "Sysinspect"
     ],
+    "files.associations": {
+        "*.cfg": "yaml"
+    },
     "makefile.configureOnOpen": false
 }
