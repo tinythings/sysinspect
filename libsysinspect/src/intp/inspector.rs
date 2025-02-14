@@ -334,9 +334,6 @@ impl SysInspector {
 
         Ok(None)
     }
-
-    /// Static function
-    pub fn function_static(&self) {}
 }
 
 /// Parse state or return a default one
