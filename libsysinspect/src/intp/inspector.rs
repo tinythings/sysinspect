@@ -102,6 +102,7 @@ impl SysInspector {
                         }
                         d if d == DSL_DIR_ACTIONS => {
                             let obj = Action::new(obj_id, obj_data)?;
+                            log::trace!("{:#?}", obj);
                             self.actions.insert(obj.id(), obj);
                             amt += 1;
                         }
