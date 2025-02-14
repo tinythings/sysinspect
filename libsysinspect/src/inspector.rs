@@ -1,13 +1,14 @@
 use crate::{
     cfg::mmconf::MinionConfig,
-    intp::{self, inspector::SysInspector},
+    intp::{self, actions::Action, inspector::SysInspector},
     mdescr::mspec,
     reactor::evtproc::EventProcessor,
     traits::systraits::SystemTraits,
+    SysinspectError,
 };
 use intp::actproc::response::ActionResponse;
 use once_cell::sync::OnceCell;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
 
@@ -22,6 +23,9 @@ pub struct SysInspectRunner {
 
     // Minion traits, if running in distributed mode
     traits: Option<SystemTraits>,
+
+    // Constraints evaluation results ID/outcome.
+    cstr_eval: HashMap<String, bool>,
 }
 
 impl SysInspectRunner {
@@ -60,7 +64,25 @@ impl SysInspectRunner {
         self.cb_labels = labels;
     }
 
-    pub fn start(&self) {
+    /// Verify if an action can proceed
+    fn action_allowed(&self, a: &Action) -> Result<bool, SysinspectError> {
+        // XXX: Check actions if they are allowed to proceed
+
+        Ok(true)
+    }
+
+    /// Update action response
+    fn update_cstr_eval(&mut self, r: &ActionResponse) {
+        // Record the action
+        for r in r.constraints.failures() {
+            self.cstr_eval.insert(r.id.to_owned(), false);
+        }
+        for r in r.constraints.passes() {
+            self.cstr_eval.insert(r.id.to_owned(), true);
+        }
+    }
+
+    pub fn start(&mut self) {
         log::info!("Starting sysinspect runner");
         match mspec::load(&self.model_pth, self.traits.clone()) {
             Ok(spec) => {
@@ -79,15 +101,25 @@ impl SysInspectRunner {
                         match actions {
                             Ok(actions) => {
                                 for ac in actions {
-                                    match ac.run() {
-                                        Ok(response) => {
-                                            let response = response.unwrap_or(ActionResponse::default());
-                                            evtproc.receiver().register(response.eid().to_owned(), response);
+                                    match self.action_allowed(&ac) {
+                                        Ok(is_allowed) => {
+                                            if is_allowed {
+                                                match ac.run() {
+                                                    Ok(response) => {
+                                                        let response = response.unwrap_or(ActionResponse::default());
+                                                        self.update_cstr_eval(&response);
+                                                        evtproc.receiver().register(response.eid().to_owned(), response);
+                                                    }
+                                                    Err(err) => {
+                                                        log::error!("{err}")
+                                                    }
+                                                }
+                                            } else {
+                                                log::warn!("Action {} skipped due to dependencies results mismatch", ac.id())
+                                            }
                                         }
-                                        Err(err) => {
-                                            log::error!("{err}")
-                                        }
-                                    }
+                                        Err(err) => log::error!("{err}"),
+                                    };
                                 }
                             }
                             Err(err) => {
