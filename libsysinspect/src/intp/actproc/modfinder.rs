@@ -146,7 +146,7 @@ impl ModCall {
             }
         }
 
-        (None, Some(vec![]), er)
+        (Some(true), Some(vec![]), er)
     }
 
     /// At least one of the expressions must be true
@@ -173,7 +173,7 @@ impl ModCall {
             traces.extend(res.traces().to_owned());
         }
 
-        (None, Some(traces), er)
+        (Some(true), Some(traces), er)
     }
 
     /// None of expressions should be true. It is basically !all.
@@ -202,7 +202,7 @@ impl ModCall {
             }
         }
 
-        (None, None, er)
+        (Some(true), None, er)
     }
 
     /// Evaluate constraints
