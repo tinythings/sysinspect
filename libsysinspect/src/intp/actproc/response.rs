@@ -6,14 +6,28 @@ use serde_json::Value;
 /// Currently only a single string log message.
 #[derive(Debug, Clone)]
 pub struct ConstraintFailure {
+    pub id: String,
     pub kind: ConstraintKind,
     pub msg: String,
     pub title: String,
 }
 
 impl ConstraintFailure {
-    pub fn new(title: String, msg: String, kind: ConstraintKind) -> Self {
-        ConstraintFailure { title, msg, kind }
+    pub fn new(id: String, title: String, msg: String, kind: ConstraintKind) -> Self {
+        ConstraintFailure { id, title, msg, kind }
+    }
+}
+
+/// This struct us a future carrier of tracability.
+/// It describes a constraint that successfully passed.
+#[derive(Debug, Clone)]
+pub struct ConstraintPass {
+    pub id: String,
+}
+
+impl ConstraintPass {
+    pub fn new(id: String) -> Self {
+        ConstraintPass { id }
     }
 }
 
@@ -21,16 +35,21 @@ impl ConstraintFailure {
 pub struct ConstraintResponse {
     descr: String,
     failures: Vec<ConstraintFailure>,
+    passes: Vec<ConstraintPass>,
     expr: Vec<ExprRes>,
 }
 
 impl ConstraintResponse {
     pub fn new(descr: String) -> Self {
-        ConstraintResponse { descr, failures: vec![], expr: vec![] }
+        ConstraintResponse { descr, passes: vec![], failures: vec![], expr: vec![] }
     }
 
     pub fn add_failure(&mut self, fl: ConstraintFailure) {
         self.failures.push(fl);
+    }
+
+    pub fn add_pass(&mut self, c: ConstraintPass) {
+        self.passes.push(c);
     }
 
     /// Returns `true` if the response has failures
@@ -46,6 +65,11 @@ impl ConstraintResponse {
     /// Get list of failures
     pub fn failures(&self) -> &[ConstraintFailure] {
         &self.failures
+    }
+
+    /// Get a list of passes
+    pub fn passes(&self) -> &[ConstraintPass] {
+        &self.passes
     }
 
     /// Set list of evaluated expressions

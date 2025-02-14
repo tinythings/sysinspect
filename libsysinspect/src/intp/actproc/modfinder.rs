@@ -3,7 +3,7 @@ use crate::{
     cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_PYLIB_DIR},
     inspector::SysInspectRunner,
     intp::{
-        actproc::response::ConstraintFailure,
+        actproc::response::{ConstraintFailure, ConstraintPass},
         constraints::{Constraint, ConstraintKind, ExprRes},
         functions,
         inspector::get_cfg_sharelib,
@@ -216,7 +216,9 @@ impl ModCall {
             cret.set_eval_results(expr);
             if let Some(res) = res {
                 if !res {
-                    cret.add_failure(ConstraintFailure::new(c.descr(), msgs.unwrap_or(vec![]).join(" - "), kind.clone()));
+                    cret.add_failure(ConstraintFailure::new(c.id(), c.descr(), msgs.unwrap_or(vec![]).join(" - "), kind.clone()));
+                } else {
+                    cret.add_pass(ConstraintPass::new(c.id()));
                 }
             }
         }
