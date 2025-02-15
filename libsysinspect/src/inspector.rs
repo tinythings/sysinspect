@@ -9,7 +9,7 @@ use crate::{
 use colored::Colorize;
 use intp::actproc::response::ActionResponse;
 use once_cell::sync::OnceCell;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
 
