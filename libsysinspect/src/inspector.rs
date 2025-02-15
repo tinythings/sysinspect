@@ -6,6 +6,7 @@ use crate::{
     traits::systraits::SystemTraits,
     SysinspectError,
 };
+use colored::Colorize;
 use intp::actproc::response::ActionResponse;
 use once_cell::sync::OnceCell;
 use std::{collections::HashMap, sync::Arc};
@@ -25,7 +26,8 @@ pub struct SysInspectRunner {
     traits: Option<SystemTraits>,
 
     // Constraints evaluation results ID/outcome.
-    cstr_eval: HashMap<String, bool>,
+    cstr_f: Vec<String>, // constraints that failed
+    cstr_s: Vec<String>, // constraints that succeeded
 }
 
 impl SysInspectRunner {
@@ -66,7 +68,33 @@ impl SysInspectRunner {
 
     /// Verify if an action can proceed
     fn action_allowed(&self, a: &Action) -> Result<bool, SysinspectError> {
-        // XXX: Check actions if they are allowed to proceed
+        log::info!("Running {}", a.id().yellow());
+
+        for c in a.if_false() {
+            if !self.cstr_s.contains(&c) && !self.cstr_f.contains(&c) {
+                return Err(SysinspectError::ModelDSLError(format!(
+                    "Constraint {} expected to be already failed. Please fix your model.",
+                    c
+                )));
+            }
+
+            if !self.cstr_f.contains(&c) {
+                return Ok(false);
+            }
+        }
+
+        for c in a.if_true() {
+            if !self.cstr_s.contains(&c) && !self.cstr_f.contains(&c) {
+                return Err(SysinspectError::ModelDSLError(format!(
+                    "Constraint {} expected to be already succeeded. Please fix your model.",
+                    c
+                )));
+            }
+
+            if !self.cstr_s.contains(&c) {
+                return Ok(false);
+            }
+        }
 
         Ok(true)
     }
@@ -75,10 +103,10 @@ impl SysInspectRunner {
     fn update_cstr_eval(&mut self, r: &ActionResponse) {
         // Record the action
         for r in r.constraints.failures() {
-            self.cstr_eval.insert(r.id.to_owned(), false);
+            self.cstr_f.push(r.id.to_owned());
         }
         for r in r.constraints.passes() {
-            self.cstr_eval.insert(r.id.to_owned(), true);
+            self.cstr_s.push(r.id.to_owned());
         }
     }
 
@@ -118,7 +146,10 @@ impl SysInspectRunner {
                                                 log::warn!("Action {} skipped due to dependencies results mismatch", ac.id())
                                             }
                                         }
-                                        Err(err) => log::error!("{err}"),
+                                        Err(err) => {
+                                            log::error!("{err}");
+                                            return; // halt immediately
+                                        }
                                     };
                                 }
                             }
