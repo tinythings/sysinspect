@@ -21,7 +21,7 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use once_cell::sync::OnceCell;
 use serde_yaml::Value;
-use std::{collections::HashSet, default, path::PathBuf};
+use std::{collections::HashSet, path::PathBuf};
 
 static _SHARELIB: OnceCell<PathBuf> = OnceCell::new();
 

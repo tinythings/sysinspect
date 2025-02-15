@@ -7,7 +7,6 @@ use super::{
 use crate::{util::dataconv, SysinspectError};
 use colored::Colorize;
 use indexmap::IndexMap;
-use nix::libc::rename;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::fmt::Display;
