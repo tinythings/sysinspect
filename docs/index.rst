@@ -7,6 +7,7 @@ Welcome to the Project Sysinspect!
 
 .. toctree::
    :maxdepth: 1
+   :caption: Documentation
 
    global_config
    genusage/overview
@@ -14,7 +15,14 @@ Welcome to the Project Sysinspect!
    moddev/overview
    moddescr/overview
    evthandlers/overview
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Tutorials
+
    tutorial/cfgmgmt_tutor
+   tutorial/action_chain_tutor
+
 
 Welcome to Sysinspect: an engine of Anomaly Detection and Root Cause Analysis.
 The name consists of two words "system" and "inspection", resulting in "suspicion".

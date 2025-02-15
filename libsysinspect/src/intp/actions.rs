@@ -49,6 +49,12 @@ pub struct Action {
     bind: Vec<String>,
     state: IndexMap<String, ModArgs>,
     call: Option<ModCall>,
+
+    #[serde(rename = "if-true")]
+    if_true: Option<Vec<String>>,
+
+    #[serde(rename = "if-false")]
+    if_false: Option<Vec<String>>,
 }
 
 impl Action {
@@ -67,6 +73,16 @@ impl Action {
         } else {
             Err(SysinspectError::ModelDSLError(format!("Action {i_id} is misconfigured")))
         }
+    }
+
+    /// Get a list of constraints those should be true
+    pub fn if_true(&self) -> Vec<String> {
+        self.if_true.clone().unwrap_or_default()
+    }
+
+    /// Get a list of constraints those should be false
+    pub fn if_false(&self) -> Vec<String> {
+        self.if_false.clone().unwrap_or_default()
     }
 
     /// Get action's `id` field

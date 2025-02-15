@@ -3,7 +3,7 @@ use crate::{
     cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_PYLIB_DIR},
     inspector::SysInspectRunner,
     intp::{
-        actproc::response::ConstraintFailure,
+        actproc::response::{ConstraintFailure, ConstraintPass},
         constraints::{Constraint, ConstraintKind, ExprRes},
         functions,
         inspector::get_cfg_sharelib,
@@ -146,7 +146,7 @@ impl ModCall {
             }
         }
 
-        (None, Some(vec![]), er)
+        (Some(true), Some(vec![]), er)
     }
 
     /// At least one of the expressions must be true
@@ -173,7 +173,7 @@ impl ModCall {
             traces.extend(res.traces().to_owned());
         }
 
-        (None, Some(traces), er)
+        (Some(true), Some(traces), er)
     }
 
     /// None of expressions should be true. It is basically !all.
@@ -202,7 +202,7 @@ impl ModCall {
             }
         }
 
-        (None, None, er)
+        (Some(true), None, er)
     }
 
     /// Evaluate constraints
@@ -216,7 +216,9 @@ impl ModCall {
             cret.set_eval_results(expr);
             if let Some(res) = res {
                 if !res {
-                    cret.add_failure(ConstraintFailure::new(c.descr(), msgs.unwrap_or(vec![]).join(" - "), kind.clone()));
+                    cret.add_failure(ConstraintFailure::new(c.id(), c.descr(), msgs.unwrap_or(vec![]).join(" - "), kind.clone()));
+                } else {
+                    cret.add_pass(ConstraintPass::new(c.id()));
                 }
             }
         }

@@ -586,9 +586,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.13"
+version = "1.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7777341816418c02e033934a09f20dc0ccaf65a5201ef8a450ae0105a573fda"
+checksum = "0c3d1b2e905a3a7b00a6141adb0e4c0bb941d11caf55349d863942a1cc44e3c9"
 dependencies = [
  "jobserver",
  "libc",
@@ -1107,9 +1107,9 @@ dependencies = [
 
 [[package]]
 name = "equivalent"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
+checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "errno"
@@ -3083,7 +3083,7 @@ checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.0",
- "zerocopy 0.8.17",
+ "zerocopy 0.8.18",
 ]
 
 [[package]]
@@ -3122,7 +3122,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b08f3c9802962f7e1b25113931d94f43ed9725bebc59db9d0c3e9a23b67e15ff"
 dependencies = [
  "getrandom 0.3.1",
- "zerocopy 0.8.17",
+ "zerocopy 0.8.18",
 ]
 
 [[package]]
@@ -3277,15 +3277,14 @@ dependencies = [
 
 [[package]]
 name = "ring"
-version = "0.17.8"
+version = "0.17.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c17fa4cb658e3583423e915b9f3acc01cceaee1860e33d59ebae66adc3a2dc0d"
+checksum = "e75ec5e92c4d8aede845126adc388046234541629e76029599ed35a003c7ed24"
 dependencies = [
  "cc",
  "cfg-if",
  "getrandom 0.2.15",
  "libc",
- "spin",
  "untrusted",
  "windows-sys 0.52.0",
 ]
@@ -3415,7 +3414,7 @@ dependencies = [
 [[package]]
 name = "rustpython"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "cfg-if",
  "clap 2.34.0",
@@ -3446,7 +3445,7 @@ dependencies = [
 [[package]]
 name = "rustpython-codegen"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "ahash",
  "bitflags 2.8.0",
@@ -3464,7 +3463,7 @@ dependencies = [
 [[package]]
 name = "rustpython-common"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "ascii",
  "bitflags 2.8.0",
@@ -3491,7 +3490,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "rustpython-codegen",
  "rustpython-compiler-core",
@@ -3501,7 +3500,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "bitflags 2.8.0",
  "itertools 0.12.1",
@@ -3514,7 +3513,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
@@ -3524,7 +3523,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive-impl"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "itertools 0.12.1",
  "maplit",
@@ -3616,7 +3615,7 @@ dependencies = [
 [[package]]
 name = "rustpython-pylib"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "glob",
  "rustpython-compiler-core",
@@ -3626,7 +3625,7 @@ dependencies = [
 [[package]]
 name = "rustpython-sre_engine"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "bitflags 2.8.0",
  "num_enum",
@@ -3636,7 +3635,7 @@ dependencies = [
 [[package]]
 name = "rustpython-stdlib"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "adler32",
  "ahash",
@@ -3707,7 +3706,7 @@ dependencies = [
 [[package]]
 name = "rustpython-vm"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#a46ce8ec3a9ab954d38f861ea43d0844b9976ddb"
+source = "git+https://github.com/RustPython/RustPython.git#fde87a340caff2a7cea3d6805ec38cc0f0a49495"
 dependencies = [
  "ahash",
  "ascii",
@@ -3717,6 +3716,7 @@ dependencies = [
  "cfg-if",
  "chrono",
  "crossbeam-utils",
+ "errno",
  "exitcode",
  "getrandom 0.2.15",
  "glob",
@@ -4070,9 +4070,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.13.2"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
+checksum = "7fcf8323ef1faaee30a44a340193b1ac6814fd9b7b4e88e9d4519a3e4abe1cfd"
 
 [[package]]
 name = "smawk"
@@ -5527,11 +5527,11 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.17"
+version = "0.8.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa91407dacce3a68c56de03abe2760159582b846c6a4acd2f456618087f12713"
+checksum = "79386d31a42a4996e3336b0919ddb90f81112af416270cff95b5f5af22b839c2"
 dependencies = [
- "zerocopy-derive 0.8.17",
+ "zerocopy-derive 0.8.18",
 ]
 
 [[package]]
@@ -5547,9 +5547,9 @@ dependencies = [
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.17"
+version = "0.8.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06718a168365cad3d5ff0bb133aad346959a2074bd4a85c121255a11304a8626"
+checksum = "76331675d372f91bf8d17e13afbd5fe639200b73d01f0fc748bb059f9cca2db7"
 dependencies = [
  "proc-macro2",
  "quote",

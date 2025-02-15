@@ -18,25 +18,19 @@
 
 .. _cfgmgmt_tutorial:
 
-Configuration Management Tutorial
-=================================
+General Configuration Management
+================================
 
 .. note::
    This documentation walks you through a minimal Configuration Management
    routine to use Sysinspect as a traditional Configuration Management system.
 
-   **In just just 10 crazy steps you can write your "Hello, World". Oh boy...**
+   **In just just eight (8) crazy steps you can write your "Hello, World"!**
 
-
-Model Definition
-----------------
-
-.. warning::
-    This tutorial is written in a bit different form than any other tutorials and
-    may contain puns that a soft romantic soul might find weird. You've been warned.
+   Should be fun...
 
 Before You Start
-^^^^^^^^^^^^^^^^
+----------------
 
 A traditional Configuration Management operations is an :bi:`optional` feature
 in Sysinspect. Therefore, do not expect it as super-easy as in Ansible or SaltStack. 😊
@@ -48,6 +42,14 @@ Follow this tutorial to understand how it works.
 
     Don't expect it to begin with as super-easy as in Ansible or SaltStack.
     You would still need a model for all that!
+
+
+Model Definition
+----------------
+
+.. warning::
+    This tutorial is written in a bit different form than any other tutorials and
+    may contain puns that a soft romantic soul might find weird. You've been warned.
 
 Step 1: Initialise Your Model
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -229,8 +231,8 @@ where ``model.cfg`` is placed with all that content we've just made:
     fileserver.models:
       - cfgmgmt
 
-Step 9: Call It!
-^^^^^^^^^^^^^^^^
+Applying State
+--------------
 
 OK, so now start master and minion and see what happens *(assuming the installation is correct and the
 modules are all there)*:
@@ -265,8 +267,8 @@ Call it again, why not? Now it should complain at your irresponsible actions:
 
 See? It worked, so don't try to turn it OFF and ON again, even though you can...
 
-Step 10: Finalise Your Tutorial
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Final Notes
+------------
 
 I usually refer to a bottle of beer. 😊 You can keep entertaining yourself removing that
 new file in your ``/tmp`` directory and keep repeating calling your minimal Configuration Management
@@ -275,7 +277,7 @@ model.
 **Congratulations, this tutorial is over!**
 
 If You Are Still Curious
-^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------
 
 But you are curious how to avoid those hardcodings and what it is all about it, right?
 So let's expand our lonely and empty ``entities:`` to a bit more information as it is in
@@ -308,5 +310,5 @@ some *other* state, then you could use another claim value, and therefore re-rou
 results to a different events as well as use even different options to the same module.
 I know what you are thinking, but don't do it right now.
 
-Yes, that's complicated. Just like our life. But that's all for now, go finish your beer
-and have a nice evening.
+Yes, that looks a bit complicated. But that's all for now! Go finish your beer
+and have a nice evening. 😊

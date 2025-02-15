@@ -68,6 +68,7 @@ impl SysInspector {
         };
 
         sr.load()?;
+        sr.validate()?;
 
         // Load all handlers into factory
         handlers::registry::init_handlers();
@@ -102,6 +103,7 @@ impl SysInspector {
                         }
                         d if d == DSL_DIR_ACTIONS => {
                             let obj = Action::new(obj_id, obj_data)?;
+                            log::trace!("{:#?}", obj);
                             self.actions.insert(obj.id(), obj);
                             amt += 1;
                         }
@@ -144,6 +146,27 @@ impl SysInspector {
         }
 
         Ok(self)
+    }
+
+    /// Perform various model validations.
+    fn validate(&self) -> Result<(), SysinspectError> {
+        // Validate action chain: all constraints mentioned must be defined
+        let csr_ids = self.constraints.iter().map(|(k, v)| k.to_owned()).collect::<Vec<String>>();
+        let mut ref_csr: Vec<String> = Vec::new();
+        for a in self.actions.clone().values() {
+            ref_csr.append(&mut a.if_true());
+            ref_csr.append(&mut a.if_false());
+        }
+        ref_csr.retain(|item| !csr_ids.contains(item));
+
+        if !ref_csr.is_empty() {
+            return Err(SysinspectError::ModelDSLError(format!(
+                "Action chain requires definition of the following constraints: {}",
+                ref_csr.join(", ")
+            )));
+        }
+
+        Ok(())
     }
 
     /// Get actions by relations
@@ -311,9 +334,6 @@ impl SysInspector {
 
         Ok(None)
     }
-
-    /// Static function
-    pub fn function_static(&self) {}
 }
 
 /// Parse state or return a default one
