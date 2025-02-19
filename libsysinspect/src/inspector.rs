@@ -2,7 +2,7 @@ use crate::{
     cfg::mmconf::MinionConfig,
     intp::{self, actions::Action, inspector::SysInspector},
     mdescr::mspec,
-    reactor::{callback::EventProcessorCallback, evtproc::EventProcessor},
+    reactor::{callback::AsyncEventProcessorCallback, evtproc::EventProcessor},
     traits::systraits::SystemTraits,
     SysinspectError,
 };
