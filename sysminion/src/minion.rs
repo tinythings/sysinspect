@@ -300,6 +300,7 @@ impl SysMinion {
     /// Send callback to the master on the results
     pub fn send_callback(self: Arc<Self>, ar: ActionResponse) {
         log::info!("Sending callback on {}", ar.aid());
+        log::info!("Sending sync callback on {}", ar.aid());
     }
 
     /// Send bye message

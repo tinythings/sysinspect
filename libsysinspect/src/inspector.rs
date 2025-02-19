@@ -167,7 +167,9 @@ impl SysInspectRunner {
                                 log::error!("{}", err);
                             }
                         }
-                        evtproc.process();
+                        log::info!("Starting event processor cycle");
+                        evtproc.process().await;
+                        log::info!("Event processing cycle finished");
                     }
                     Err(err) => log::error!("{err}"),
                 }
