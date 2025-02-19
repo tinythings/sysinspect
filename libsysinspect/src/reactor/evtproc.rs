@@ -65,7 +65,7 @@ impl<'a> EventProcessor<'a> {
             }
             // Each action response sent via callback
             for ac in &mut self.async_callbacks {
-                ac.on_action_response(ar.clone()).await;
+                _ = ac.on_action_response(ar.clone()).await;
             }
         }
     }
