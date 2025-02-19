@@ -1,4 +1,4 @@
-use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
+use crate::{arcb::AsyncActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use colored::Colorize;
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
@@ -298,9 +298,11 @@ impl SysMinion {
     }
 
     /// Send callback to the master on the results
-    pub fn send_callback(self: Arc<Self>, ar: ActionResponse) {
-        log::info!("Sending callback on {}", ar.aid());
+    pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::info!("Sending sync callback on {}", ar.aid());
+        let r = MinionMessage::new(self.get_minion_id(), RequestType::Callback, format!("Action Response: {}", ar.aid()));
+        self.request(r.sendable()?).await;
+        Ok(())
     }
 
     /// Send bye message
@@ -413,7 +415,7 @@ impl SysMinion {
 
         // Run the model
         log::debug!("Launching model for sysinspect for: {scheme}");
-        let mqr_l = mqr.lock().unwrap();
+        let mqr_l = mqr.lock().await;
 
         let mut sr = SysInspectRunner::new(&self.cfg);
         sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_l.target()).to_str().unwrap_or_default());
@@ -421,10 +423,10 @@ impl SysMinion {
         sr.set_entities(mqr_l.entities());
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
-        sr.add_callback(Box::new(ActionResponseCallback::new(self.as_ptr())));
 
-        let x = self.as_ptr();
-        sr.start();
+        sr.add_async_callback(Box::new(AsyncActionResponseCallback::new(self.as_ptr())));
+
+        sr.start().await;
 
         log::debug!("Sysinspect model cycle finished");
     }

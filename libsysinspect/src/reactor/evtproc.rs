@@ -1,4 +1,4 @@
-use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
+use super::{callback::AsyncEventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
     intp::conf::Config,
     reactor::handlers::{self},
@@ -8,12 +8,12 @@ pub struct EventProcessor<'a> {
     receiver: Receiver,
     cfg: Option<&'a Config>,
     handlers: Vec<Box<dyn EventHandler>>,
-    callbacks: Vec<Box<dyn EventProcessorCallback>>,
+    async_callbacks: Vec<Box<dyn AsyncEventProcessorCallback>>,
 }
 
 impl<'a> EventProcessor<'a> {
     pub fn new() -> Self {
-        EventProcessor { receiver: Receiver::default(), cfg: None, handlers: Vec::default(), callbacks: Vec::default() }
+        EventProcessor { receiver: Receiver::default(), cfg: None, handlers: Vec::default(), async_callbacks: Vec::default() }
     }
 
     /// Setup event processor from the given configuration
@@ -41,8 +41,8 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Add a callback
-    pub fn add_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
-        self.callbacks.push(c);
+    pub fn add_async_callback(&mut self, c: Box<dyn AsyncEventProcessorCallback>) {
+        self.async_callbacks.push(c);
     }
 
     /// Get actions receiver
@@ -57,14 +57,15 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Process all handlers
-    pub fn process(&mut self) {
+    pub async fn process(&mut self) {
         for ar in self.receiver.get_all() {
             // For each action handle events
             for h in &self.handlers {
                 h.handle(&ar);
-                for c in &mut self.callbacks {
-                    c.on_action_response(ar.clone());
-                }
+            }
+            // Each action response sent via callback
+            for ac in &mut self.async_callbacks {
+                ac.on_action_response(ar.clone()).await;
             }
         }
     }
