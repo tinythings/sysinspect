@@ -49,4 +49,8 @@ pub enum RequestType {
     /// Pong
     #[serde(rename = "po")]
     Pong,
+
+    /// Callback notice
+    #[serde(rename = "cbk")]
+    Callback,
 }
