@@ -4292,6 +4292,7 @@ dependencies = [
  "log",
  "openssl",
  "sysinfo",
+ "tokio",
 ]
 
 [[package]]

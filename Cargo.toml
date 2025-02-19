@@ -13,6 +13,7 @@ libsysinspect = { path = "./libsysinspect" }
 log = "0.4.22"
 sysinfo = { version = "0.32.0", features = ["linux-tmpfs"] }
 openssl = { version = "0.10", features = ["vendored"] }
+tokio = { version = "1.43.0", features = ["full"] }
 
 [workspace]
 resolver = "2"
