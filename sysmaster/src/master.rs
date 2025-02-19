@@ -301,6 +301,10 @@ impl SysMaster {
                                 });
                             }
 
+                            RequestType::Callback => {
+                                log::info!("Callback for {}: {}", req.id(), req.payload());
+                            }
+
                             _ => {
                                 log::error!("Minion sends unknown request type");
                             }
