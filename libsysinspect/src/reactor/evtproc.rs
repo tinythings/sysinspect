@@ -1,4 +1,4 @@
-use super::{handlers::evthandler::EventHandler, receiver::Receiver};
+use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
     intp::conf::Config,
     reactor::handlers::{self},
@@ -8,11 +8,12 @@ pub struct EventProcessor<'a> {
     receiver: Receiver,
     cfg: Option<&'a Config>,
     handlers: Vec<Box<dyn EventHandler>>,
+    callbacks: Vec<Box<dyn EventProcessorCallback>>,
 }
 
 impl<'a> EventProcessor<'a> {
     pub fn new() -> Self {
-        EventProcessor { receiver: Receiver::default(), cfg: None, handlers: Vec::default() }
+        EventProcessor { receiver: Receiver::default(), cfg: None, handlers: Vec::default(), callbacks: Vec::default() }
     }
 
     /// Setup event processor from the given configuration
@@ -39,6 +40,11 @@ impl<'a> EventProcessor<'a> {
         self
     }
 
+    /// Add a callback
+    pub fn add_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+        self.callbacks.push(c);
+    }
+
     /// Get actions receiver
     pub fn receiver(&mut self) -> &mut Receiver {
         &mut self.receiver
@@ -51,11 +57,14 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Process all handlers
-    pub fn process(&self) {
+    pub fn process(&mut self) {
         for ar in self.receiver.get_all() {
             // For each action handle events
             for h in &self.handlers {
                 h.handle(&ar);
+                for c in &mut self.callbacks {
+                    c.on_action_response(ar.clone());
+                }
             }
         }
     }

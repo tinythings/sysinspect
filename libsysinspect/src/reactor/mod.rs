@@ -1,3 +1,4 @@
+pub mod callback;
 pub mod evtproc;
 pub mod fmt;
 pub mod handlers;

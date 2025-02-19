@@ -1,8 +1,9 @@
-use crate::{filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
+use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use colored::Colorize;
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     inspector::SysInspectRunner,
+    intp::actproc::response::ActionResponse,
     proto::{
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
@@ -30,6 +31,7 @@ use uuid::Uuid;
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
+#[derive(Debug)]
 pub struct SysMinion {
     cfg: MinionConfig,
     fingerprint: Option<String>,
@@ -295,6 +297,11 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Send callback to the master on the results
+    pub fn send_callback(self: Arc<Self>, ar: ActionResponse) {
+        log::info!("Sending callback on {}", ar.aid());
+    }
+
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
         let r = MinionMessage::new(
@@ -413,7 +420,9 @@ impl SysMinion {
         sr.set_entities(mqr_l.entities());
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
+        sr.add_callback(Box::new(ActionResponseCallback::new(self.as_ptr())));
 
+        let x = self.as_ptr();
         sr.start();
 
         log::debug!("Sysinspect model cycle finished");
