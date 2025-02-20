@@ -2,7 +2,7 @@ use crate::{
     cfg::mmconf::MinionConfig,
     intp::{self, actions::Action, inspector::SysInspector},
     mdescr::mspec,
-    reactor::evtproc::EventProcessor,
+    reactor::{callback::EventProcessorCallback, evtproc::EventProcessor},
     traits::systraits::SystemTraits,
     SysinspectError,
 };
@@ -28,6 +28,8 @@ pub struct SysInspectRunner {
     // Constraints evaluation results ID/outcome.
     cstr_f: Vec<String>, // constraints that failed
     cstr_s: Vec<String>, // constraints that succeeded
+
+    async_callbacks: Vec<Box<dyn EventProcessorCallback>>,
 }
 
 impl SysInspectRunner {
@@ -39,6 +41,10 @@ impl SysInspectRunner {
     /// Get Minion Config
     pub fn minion_cfg() -> Arc<MinionConfig> {
         MINION_CONFIG.get().unwrap_or(&Arc::new(MinionConfig::default())).clone()
+    }
+
+    pub fn add_async_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+        self.async_callbacks.push(c);
     }
 
     /// Return minion config as JSON
@@ -110,7 +116,7 @@ impl SysInspectRunner {
         }
     }
 
-    pub fn start(&mut self) {
+    pub async fn start(&mut self) {
         log::info!("Starting sysinspect runner");
         match mspec::load(&self.model_pth, self.traits.clone()) {
             Ok(spec) => {
@@ -119,6 +125,9 @@ impl SysInspectRunner {
                     Ok(isp) => {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg());
+                        for c in std::mem::take(&mut self.async_callbacks) {
+                            evtproc.add_async_callback(c);
+                        }
 
                         let actions = if !self.cb_labels.is_empty() {
                             isp.actions_by_relations(self.cb_labels.to_owned(), self.state.to_owned())
@@ -157,7 +166,9 @@ impl SysInspectRunner {
                                 log::error!("{}", err);
                             }
                         }
-                        evtproc.process();
+                        log::info!("Starting event processor cycle");
+                        evtproc.process().await;
+                        log::info!("Event processing cycle finished");
                     }
                     Err(err) => log::error!("{err}"),
                 }

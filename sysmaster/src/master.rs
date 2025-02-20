@@ -301,6 +301,11 @@ impl SysMaster {
                                 });
                             }
 
+                            RequestType::Event => {
+                                log::info!("Event for {}: {}", req.id(), req.payload());
+                                // XXX: Add event handling on the master side
+                            }
+
                             _ => {
                                 log::error!("Minion sends unknown request type");
                             }
