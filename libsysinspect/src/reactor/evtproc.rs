@@ -1,4 +1,4 @@
-use super::{callback::AsyncEventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
+use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
     intp::conf::Config,
     reactor::handlers::{self},
@@ -8,7 +8,7 @@ pub struct EventProcessor<'a> {
     receiver: Receiver,
     cfg: Option<&'a Config>,
     handlers: Vec<Box<dyn EventHandler>>,
-    async_callbacks: Vec<Box<dyn AsyncEventProcessorCallback>>,
+    async_callbacks: Vec<Box<dyn EventProcessorCallback>>,
 }
 
 impl<'a> EventProcessor<'a> {
@@ -41,7 +41,7 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Add a callback
-    pub fn add_async_callback(&mut self, c: Box<dyn AsyncEventProcessorCallback>) {
+    pub fn add_async_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
         self.async_callbacks.push(c);
     }
 

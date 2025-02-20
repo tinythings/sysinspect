@@ -1,4 +1,4 @@
-use crate::{arcb::AsyncActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
+use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use colored::Colorize;
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
@@ -424,7 +424,7 @@ impl SysMinion {
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
 
-        sr.add_async_callback(Box::new(AsyncActionResponseCallback::new(self.as_ptr())));
+        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr())));
 
         sr.start().await;
 
