@@ -300,7 +300,7 @@ impl SysMinion {
     /// Send callback to the master on the results
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::info!("Sending sync callback on {}", ar.aid());
-        let r = MinionMessage::new(self.get_minion_id(), RequestType::Callback, format!("Action Response: {}", ar.aid()));
+        let r = MinionMessage::new(self.get_minion_id(), RequestType::Event, format!("Action Response: {}", ar.aid()));
         self.request(r.sendable()?).await;
         Ok(())
     }

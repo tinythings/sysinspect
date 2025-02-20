@@ -50,7 +50,7 @@ pub enum RequestType {
     #[serde(rename = "po")]
     Pong,
 
-    /// Callback notice
-    #[serde(rename = "cbk")]
-    Callback,
+    /// Event notice
+    #[serde(rename = "evt")]
+    Event,
 }

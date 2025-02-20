@@ -301,8 +301,9 @@ impl SysMaster {
                                 });
                             }
 
-                            RequestType::Callback => {
-                                log::info!("Callback for {}: {}", req.id(), req.payload());
+                            RequestType::Event => {
+                                log::info!("Event for {}: {}", req.id(), req.payload());
+                                // XXX: Add event handling on the master side
                             }
 
                             _ => {
