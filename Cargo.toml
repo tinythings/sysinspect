@@ -17,7 +17,13 @@ tokio = { version = "1.43.0", features = ["full"] }
 
 [workspace]
 resolver = "2"
-members = ["modules/sys/*", "libsysinspect", "sysmaster", "sysminion", "modules/fs/file"]
+members = [
+    "modules/sys/*",
+    "libsysinspect",
+    "sysmaster",
+    "sysminion",
+    "modules/fs/file",
+]
 
 [profile.release]
 strip = true
