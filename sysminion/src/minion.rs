@@ -17,6 +17,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::Lazy;
+use serde_json::json;
 use std::{
     fs,
     sync::Arc,
@@ -300,8 +301,7 @@ impl SysMinion {
     /// Send callback to the master on the results
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::info!("Sending sync callback on {}", ar.aid());
-        let r = MinionMessage::new(self.get_minion_id(), RequestType::Event, format!("Action Response: {}", ar.aid()));
-        self.request(r.sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar).to_string()).sendable()?).await;
         Ok(())
     }
 
