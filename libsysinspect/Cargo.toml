@@ -1,7 +1,7 @@
 [package]
 name = "libsysinspect"
-version = "0.2.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 
 [dependencies]
 base64 = "0.22.1"
@@ -21,9 +21,15 @@ rand = "0.8.5"
 regex = "1.10.6"
 rsa = { version = "0.9.6", features = ["pkcs5", "sha1", "sha2"] }
 #rustpython = { path = "../../RustPython", features = ["freeze-stdlib"] }
-rustpython-pylib = { git="https://github.com/RustPython/RustPython.git", features = ["freeze-stdlib"] }
-rustpython = { git="https://github.com/RustPython/RustPython.git", features = ["freeze-stdlib"] }
-rustpython-vm = { git = "https://github.com/RustPython/RustPython.git", features = ["freeze-stdlib"] }
+rustpython-pylib = { git = "https://github.com/RustPython/RustPython.git", features = [
+    "freeze-stdlib",
+] }
+rustpython = { git = "https://github.com/RustPython/RustPython.git", features = [
+    "freeze-stdlib",
+] }
+rustpython-vm = { git = "https://github.com/RustPython/RustPython.git", features = [
+    "freeze-stdlib",
+] }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
 serde_yaml = "0.9.34"
