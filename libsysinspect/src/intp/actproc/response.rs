@@ -4,7 +4,7 @@ use serde_json::Value;
 
 /// This struct is a future carrier of tracability.
 /// Currently only a single string log message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstraintFailure {
     pub id: String,
     pub kind: ConstraintKind,
@@ -20,7 +20,7 @@ impl ConstraintFailure {
 
 /// This struct us a future carrier of tracability.
 /// It describes a constraint that successfully passed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstraintPass {
     pub id: String,
 }
@@ -31,7 +31,7 @@ impl ConstraintPass {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ConstraintResponse {
     descr: String,
     failures: Vec<ConstraintFailure>,
@@ -148,7 +148,7 @@ impl ActionModResponse {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 /// This is identical to modlib::response::ModResponse but
 /// can accept partially serialised data. Module does *not*
 /// sends empty properties over the protocol to save the bandwidth.

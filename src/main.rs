@@ -129,6 +129,7 @@ fn main() {
         sr.set_entities(clidef::split_by(&params, "entities", None));
         sr.set_checkbook_labels(clidef::split_by(&params, "labels", None));
         sr.set_traits(get_minion_traits(None));
-        sr.start();
+
+        tokio::runtime::Runtime::new().unwrap().block_on(sr.start())
     }
 }
