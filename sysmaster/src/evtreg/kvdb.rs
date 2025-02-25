@@ -18,6 +18,27 @@ impl EventData {
     fn new(payload: HashMap<String, Value>) -> Self {
         Self { data: payload }
     }
+
+    pub fn get_entity_id(&self) -> String {
+        util::dataconv::as_str(self.data.get("eid").cloned())
+    }
+
+    pub fn get_action_id(&self) -> String {
+        util::dataconv::as_str(self.data.get("aid").cloned())
+    }
+
+    pub fn get_status_id(&self) -> String {
+        util::dataconv::as_str(self.data.get("sid").cloned())
+    }
+
+    pub fn get_event_id(&self) -> String {
+        format!("{}/{}/{}", self.get_entity_id(), self.get_status_id(), self.get_action_id())
+    }
+
+    pub fn get_response(&self) -> HashMap<String, Value> {
+        // Should work... :-)
+        serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
+    }
 }
 pub struct EventMinion {
     mid: String,

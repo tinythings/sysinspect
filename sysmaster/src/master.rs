@@ -113,7 +113,9 @@ impl SysMaster {
             log::warn!(">> SESSION: {} - {}", s.query(), s.get_ts_rfc3339());
             for m in self.evtreg.get_minions(&s).unwrap() {
                 log::warn!(">> ... {} - {}", m.id(), util::dataconv::as_str(m.get_trait(SYS_NET_HOSTNAME).cloned()));
-                for e in self.evtreg.get_events(&s, &m).unwrap() {}
+                for e in self.evtreg.get_events(&s, &m).unwrap() {
+                    log::warn!(">> ... ... {}: {:#?}", e.get_event_id(), e.get_response());
+                }
             }
         }
     }
