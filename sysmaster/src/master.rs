@@ -1,5 +1,6 @@
 use crate::{
     dataserv::fls,
+    evtreg::kvdb::{EventMinion, EventsRegistry},
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
@@ -8,26 +9,27 @@ use crate::{
 };
 use indexmap::IndexMap;
 use libsysinspect::{
+    SysinspectError,
     cfg::mmconf::MasterConfig,
     mdescr::mspec::MODEL_FILE_EXT,
     proto::{
-        self, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType, MasterMessage, MinionMessage,
-        MinionTarget, ProtoConversion,
+        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
+        rqtypes::RequestType,
     },
-    util::iofs::scan_files_sha256,
-    SysinspectError,
+    traits::SYS_NET_HOSTNAME,
+    util::{self, iofs::scan_files_sha256},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tokio::{fs::OpenOptions, sync::Mutex};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader},
@@ -43,6 +45,7 @@ pub struct SysMaster {
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
     mreg: MinionRegistry,
+    evtreg: EventsRegistry,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
 }
@@ -52,7 +55,8 @@ impl SysMaster {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg })
+        let evtreg = EventsRegistry::new(PathBuf::from("logs.db"))?;
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtreg })
     }
 
     /// Open FIFO socket for command-line communication
@@ -104,8 +108,20 @@ impl SysMaster {
         &mut self.mkr
     }
 
+    fn dumb_lister(&self) {
+        for s in self.evtreg.get_sessions().unwrap() {
+            log::warn!(">> SESSION: {} - {}", s.query(), s.get_ts_rfc3339());
+            for m in self.evtreg.get_minions(&s).unwrap() {
+                log::warn!(">> ... {} - {}", m.id(), util::dataconv::as_str(m.get_trait(SYS_NET_HOSTNAME).cloned()));
+                for e in self.evtreg.get_events(&s, &m).unwrap() {}
+            }
+        }
+    }
+
     /// Construct a Command message to the minion
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+        self.dumb_lister();
+
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
         if let [querypath, query, traits, mid] = query.as_slice() {
@@ -133,10 +149,12 @@ impl SysMaster {
 
             let mut msg = MasterMessage::new(
                 RequestType::Command,
-                json!(ModStatePayload::new(payload)
-                    .set_uri(querypath.to_string())
-                    .add_files(out)
-                    .set_models_root(self.cfg.fileserver_mdl_root(true).to_str().unwrap_or_default())), // TODO: SID part
+                json!(
+                    ModStatePayload::new(payload)
+                        .set_uri(querypath.to_string())
+                        .add_files(out)
+                        .set_models_root(self.cfg.fileserver_mdl_root(true).to_str().unwrap_or_default())
+                ), // TODO: SID part
             );
             msg.set_target(tgt);
             msg.set_retcode(ProtoErrorCode::Success);
@@ -303,7 +321,17 @@ impl SysMaster {
 
                             RequestType::Event => {
                                 log::info!("Event for {}: {}", req.id(), req.payload());
-                                // XXX: Add event handling on the master side
+                                let c_master = Arc::clone(&master);
+                                tokio::spawn(async move {
+                                    let mut m = c_master.lock().await;
+                                    let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
+                                    let x = mrec.get_traits().keys().into_iter().map(|s| s.to_string()).collect::<Vec<String>>();
+
+                                    let sid = m.evtreg.open_session("test model".to_string(), "blabla".to_string()).unwrap();
+                                    let mid =
+                                        m.evtreg.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).unwrap();
+                                    m.evtreg.add_event(sid, EventMinion::new(mid), req.payload().to_string()).unwrap();
+                                });
                             }
 
                             _ => {
