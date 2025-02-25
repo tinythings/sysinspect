@@ -327,7 +327,7 @@ impl SysMaster {
                                 tokio::spawn(async move {
                                     let mut m = c_master.lock().await;
                                     let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
-                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(&req.payload()) {
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
                                         Ok(pl) => pl,
                                         Err(err) => {
                                             log::error!("An event message with the bogus payload: {err}");
