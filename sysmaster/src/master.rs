@@ -325,7 +325,7 @@ impl SysMaster {
                                 tokio::spawn(async move {
                                     let mut m = c_master.lock().await;
                                     let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
-                                    let x = mrec.get_traits().keys().into_iter().map(|s| s.to_string()).collect::<Vec<String>>();
+                                    let x = mrec.get_traits().keys().map(|s| s.to_string()).collect::<Vec<String>>();
 
                                     let sid = m.evtreg.open_session("test model".to_string(), "blabla".to_string()).unwrap();
                                     let mid =

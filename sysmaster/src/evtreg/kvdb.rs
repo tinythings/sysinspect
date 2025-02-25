@@ -57,7 +57,7 @@ impl EventSession {
     pub fn from_bytes(b: Vec<u8>) -> Result<Self, SysinspectError> {
         match String::from_utf8(b) {
             Ok(data) => Ok(serde_json::from_str::<Self>(&data)?),
-            Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Unable to recover event session: {err}"))),
+            Err(err) => Err(SysinspectError::MasterGeneralError(format!("Unable to recover event session: {err}"))),
         }
     }
 
@@ -141,14 +141,12 @@ impl EventsRegistry {
                 return Err(SysinspectError::MasterGeneralError(format!("Error opening events session: {err}")));
             }
             return Ok(es);
-        } else {
-            if let Some(sb) = sessions.get(&sid)? {
-                log::debug!("Returning an existing session: {sid}");
-                return EventSession::from_bytes(sb.to_vec());
-            }
+        } else if let Some(sb) = sessions.get(&sid)? {
+            log::debug!("Returning an existing session: {sid}");
+            return EventSession::from_bytes(sb.to_vec());
         }
 
-        Err(SysinspectError::MasterGeneralError(format!("Session not found")))
+        Err(SysinspectError::MasterGeneralError("Session not found".to_string()))
     }
 
     /// Ensure that the minion data is there.
@@ -196,7 +194,7 @@ impl EventsRegistry {
     }
 
     pub(crate) fn get_events(&self, s: &EventSession, m: &EventMinion) -> Result<Vec<EventData>, SysinspectError> {
-        let tid = Self::to_tree_id(&s, &m);
+        let tid = Self::to_tree_id(s, m);
         let mut es = Vec::<EventData>::new();
         let events = self.get_tree(&tid)?;
         for evt in events.iter().values() {
