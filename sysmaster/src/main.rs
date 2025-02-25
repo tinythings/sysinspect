@@ -1,5 +1,6 @@
 mod clidef;
 mod dataserv;
+mod evtreg;
 mod master;
 mod registry;
 mod rmt;
