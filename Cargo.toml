@@ -1,7 +1,7 @@
 [package]
 name = "sysinspect"
-version = "0.2.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,10 +13,17 @@ libsysinspect = { path = "./libsysinspect" }
 log = "0.4.22"
 sysinfo = { version = "0.32.0", features = ["linux-tmpfs"] }
 openssl = { version = "0.10", features = ["vendored"] }
+tokio = { version = "1.43.0", features = ["full"] }
 
 [workspace]
 resolver = "2"
-members = ["modules/sys/*", "libsysinspect", "sysmaster", "sysminion", "modules/fs/file"]
+members = [
+    "modules/sys/*",
+    "libsysinspect",
+    "sysmaster",
+    "sysminion",
+    "modules/fs/file",
+]
 
 [profile.release]
 strip = true

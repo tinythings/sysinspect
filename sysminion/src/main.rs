@@ -1,3 +1,4 @@
+mod arcb;
 mod clidef;
 mod filedata;
 mod minion;

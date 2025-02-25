@@ -1,5 +1,5 @@
 use super::{datapatch, mspecdef::ModelSpec};
-use crate::{cfg::select_config_path, tmpl::render::ModelTplRender, traits::systraits::SystemTraits, SysinspectError};
+use crate::{SysinspectError, cfg::select_config_path, tmpl::render::ModelTplRender, traits::systraits::SystemTraits};
 use indexmap::IndexMap;
 use serde_yaml::Value;
 use std::{
@@ -92,7 +92,7 @@ impl SpecLoader {
 
         for chunk in chunks {
             match (&mut base, chunk) {
-                (Value::Mapping(ref mut amp), Value::Mapping(bmp)) => {
+                (Value::Mapping(amp), Value::Mapping(bmp)) => {
                     for (k, v) in bmp {
                         if let Some(av) = amp.get_mut(k) {
                             if let (Some(av_map), Some(v_map)) = (av.as_mapping_mut(), v.as_mapping_mut()) {
