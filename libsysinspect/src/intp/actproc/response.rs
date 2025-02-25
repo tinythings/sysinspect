@@ -162,6 +162,9 @@ pub struct ActionResponse {
     // State Id
     sid: String,
 
+    // Cycle Id
+    cid: String,
+
     // Module response
     pub response: ActionModResponse,
     pub constraints: ConstraintResponse,
@@ -171,7 +174,7 @@ impl ActionResponse {
     pub(crate) fn new(
         eid: String, aid: String, sid: String, response: ActionModResponse, constraints: ConstraintResponse,
     ) -> Self {
-        Self { eid, aid, sid, response, constraints }
+        Self { eid, aid, sid, response, constraints, cid: "".to_string() }
     }
 
     /// Return an Entity Id to which this action was bound to
@@ -186,10 +189,20 @@ impl ActionResponse {
 
     /// Return state Id of the action
     pub fn sid(&self) -> &str {
-        if self.sid.is_empty() {
-            "$"
-        } else {
-            &self.sid
+        if self.sid.is_empty() { "$" } else { &self.sid }
+    }
+
+    /// Return cycle id. This one is set later by the callback.
+    pub fn cid(&self) -> &str {
+        &self.cid
+    }
+
+    /// Sets cycle id.
+    ///
+    /// **NOTE: Does only once!**
+    pub fn set_cid(&mut self, cid: String) {
+        if self.cid.is_empty() {
+            self.cid = cid;
         }
     }
 

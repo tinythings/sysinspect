@@ -35,6 +35,10 @@ impl EventData {
         format!("{}/{}/{}", self.get_entity_id(), self.get_status_id(), self.get_action_id())
     }
 
+    pub fn get_cycle_id(&self) -> String {
+        util::dataconv::as_str(self.data.get("cid").cloned())
+    }
+
     pub fn get_response(&self) -> HashMap<String, Value> {
         // Should work... :-)
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
@@ -132,17 +136,18 @@ impl EventsRegistry {
     }
 
     /// Add an event
-    pub fn add_event(&mut self, sid: EventSession, mid: EventMinion, payload: String) -> Result<(), SysinspectError> {
+    pub fn add_event(
+        &mut self, sid: EventSession, mid: EventMinion, payload: HashMap<String, Value>,
+    ) -> Result<(), SysinspectError> {
         let events = self.get_tree(&Self::to_tree_id(&sid, &mid))?;
-        let pl = serde_json::from_str::<HashMap<String, Value>>(&payload)?;
         if let Err(err) = events.insert(
             format!(
                 "{}/{}/{}",
-                util::dataconv::as_str(pl.get("eid").cloned()),
-                util::dataconv::as_str(pl.get("sid").cloned()),
-                util::dataconv::as_str(pl.get("aid").cloned())
+                util::dataconv::as_str(payload.get("eid").cloned()),
+                util::dataconv::as_str(payload.get("sid").cloned()),
+                util::dataconv::as_str(payload.get("aid").cloned())
             ),
-            payload.as_bytes().to_vec(),
+            serde_json::to_string(&payload)?.as_bytes(),
         ) {
             Err(SysinspectError::MasterGeneralError(format!("{err}")))
         } else {

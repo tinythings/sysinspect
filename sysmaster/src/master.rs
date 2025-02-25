@@ -114,7 +114,7 @@ impl SysMaster {
             for m in self.evtreg.get_minions(&s).unwrap() {
                 log::warn!(">> ... {} - {}", m.id(), util::dataconv::as_str(m.get_trait(SYS_NET_HOSTNAME).cloned()));
                 for e in self.evtreg.get_events(&s, &m).unwrap() {
-                    log::warn!(">> ... ... {}: {:#?}", e.get_event_id(), e.get_response());
+                    log::warn!(">> ... ... ({}) - {}: {:#?}", e.get_cycle_id(), e.get_event_id(), e.get_response());
                 }
             }
         }
@@ -327,12 +327,24 @@ impl SysMaster {
                                 tokio::spawn(async move {
                                     let mut m = c_master.lock().await;
                                     let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
-                                    let x = mrec.get_traits().keys().map(|s| s.to_string()).collect::<Vec<String>>();
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(&req.payload()) {
+                                        Ok(pl) => pl,
+                                        Err(err) => {
+                                            log::error!("An event message with the bogus payload: {err}");
+                                            return;
+                                        }
+                                    };
 
-                                    let sid = m.evtreg.open_session("test model".to_string(), "blabla".to_string()).unwrap();
+                                    let sid = m
+                                        .evtreg
+                                        .open_session(
+                                            util::dataconv::as_str(pl.get("eid").cloned()), // TODO: Should be an actual model name!
+                                            util::dataconv::as_str(pl.get("cid").cloned()),
+                                        )
+                                        .unwrap();
                                     let mid =
                                         m.evtreg.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).unwrap();
-                                    m.evtreg.add_event(sid, EventMinion::new(mid), req.payload().to_string()).unwrap();
+                                    m.evtreg.add_event(sid, EventMinion::new(mid), pl).unwrap();
                                 });
                             }
 
