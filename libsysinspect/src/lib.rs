@@ -39,6 +39,7 @@ pub enum SysinspectError {
     FFINullError(NulError),
     DynError(Box<dyn Error + Send + Sync>),
     TemplateError(tera::Error),
+    SledError(sled::Error),
 }
 
 impl Error for SysinspectError {
@@ -69,6 +70,7 @@ impl Display for SysinspectError {
             SysinspectError::ProtoError(err) => format!("(Protocol) {err}"),
             SysinspectError::DynError(err) => format!("(General) {err}"),
             SysinspectError::TemplateError(err) => format!("(DSL) {err}"),
+            SysinspectError::SledError(err) => format!("(DB) {err}"),
         };
 
         write!(f, "{msg}")?;
@@ -114,5 +116,12 @@ impl From<Box<dyn Error + Send + Sync>> for SysinspectError {
 impl From<tera::Error> for SysinspectError {
     fn from(err: tera::Error) -> Self {
         SysinspectError::TemplateError(err)
+    }
+}
+
+/// Sled errors
+impl From<sled::Error> for SysinspectError {
+    fn from(err: sled::Error) -> Self {
+        SysinspectError::SledError(err)
     }
 }
