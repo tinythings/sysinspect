@@ -19,6 +19,7 @@ use log::LevelFilter;
 use std::{env, fs::OpenOptions, io::Write};
 
 mod clidef;
+mod ui;
 
 static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
@@ -94,6 +95,9 @@ fn main() {
 
     if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
         print_event_handlers();
+        return;
+    } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
+        ui::run();
         return;
     }
 
