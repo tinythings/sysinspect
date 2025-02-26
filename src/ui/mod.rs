@@ -54,13 +54,10 @@ impl App {
     }
 
     fn on_events(&mut self) -> io::Result<()> {
-        match event::read()? {
-            Event::Key(e) => {
-                if e.kind == KeyEventKind::Press {
-                    self.on_key(e);
-                }
+        if let Event::Key(e) = event::read()? {
+            if e.kind == KeyEventKind::Press {
+                self.on_key(e);
             }
-            _ => {}
         }
         Ok(())
     }
@@ -72,10 +69,8 @@ impl App {
                     if self.selected_cycle > 0 {
                         self.selected_cycle -= 1;
                     }
-                } else {
-                    if self.selected_minion > 0 {
-                        self.selected_minion -= 1;
-                    }
+                } else if self.selected_minion > 0 {
+                    self.selected_minion -= 1;
                 }
             }
             KeyCode::Down => {
@@ -84,10 +79,8 @@ impl App {
                     if self.selected_cycle < cycles.len().saturating_sub(1) {
                         self.selected_cycle += 1;
                     }
-                } else {
-                    if self.selected_minion < self.minions.len().saturating_sub(1) {
-                        self.selected_minion += 1;
-                    }
+                } else if self.selected_minion < self.minions.len().saturating_sub(1) {
+                    self.selected_minion += 1;
                 }
             }
             KeyCode::Right => {

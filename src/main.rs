@@ -97,7 +97,7 @@ fn main() {
         print_event_handlers();
         return;
     } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
-        ui::run();
+        _ = ui::run();
         return;
     }
 
