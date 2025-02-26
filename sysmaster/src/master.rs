@@ -325,6 +325,7 @@ impl SysMaster {
                                         .open_session(
                                             util::dataconv::as_str(pl.get("eid").cloned()), // TODO: Should be an actual model name!
                                             util::dataconv::as_str(pl.get("cid").cloned()),
+                                            util::dataconv::as_str(pl.get("timestamp").cloned()),
                                         )
                                         .unwrap();
                                     let mid =

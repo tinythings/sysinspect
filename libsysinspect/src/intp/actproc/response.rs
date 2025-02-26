@@ -1,4 +1,5 @@
 use crate::intp::constraints::{ConstraintKind, ExprRes};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -165,6 +166,12 @@ pub struct ActionResponse {
     // Cycle Id
     cid: String,
 
+    /// Action timestamp.
+    ///
+    /// Set on the event when the action response is complete
+    /// and is ready to be sent back.
+    timestamp: DateTime<Utc>,
+
     // Module response
     pub response: ActionModResponse,
     pub constraints: ConstraintResponse,
@@ -174,7 +181,7 @@ impl ActionResponse {
     pub(crate) fn new(
         eid: String, aid: String, sid: String, response: ActionModResponse, constraints: ConstraintResponse,
     ) -> Self {
-        Self { eid, aid, sid, response, constraints, cid: "".to_string() }
+        Self { eid, aid, sid, response, constraints, cid: "".to_string(), timestamp: Utc::now() }
     }
 
     /// Return an Entity Id to which this action was bound to
@@ -195,6 +202,11 @@ impl ActionResponse {
     /// Return cycle id. This one is set later by the callback.
     pub fn cid(&self) -> &str {
         &self.cid
+    }
+
+    /// Return timestamp in RFC3339
+    pub fn ts_rfc_3339(&self) -> String {
+        self.timestamp.to_rfc3339()
     }
 
     /// Sets cycle id.

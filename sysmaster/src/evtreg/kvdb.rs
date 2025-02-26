@@ -72,8 +72,8 @@ pub struct EventSession {
 }
 
 impl EventSession {
-    pub fn new(query: String, sid: String, ts: Option<DateTime<Utc>>) -> Self {
-        EventSession { query, sid, ts: ts.unwrap_or(Utc::now()) }
+    pub fn new(query: String, sid: String, ts: DateTime<Utc>) -> Self {
+        EventSession { query, sid, ts }
     }
 
     pub fn as_bytes(&self) -> Result<Vec<u8>, SysinspectError> {
@@ -157,11 +157,10 @@ impl EventsRegistry {
     }
 
     /// This either creates a new session or returns the existing one
-    pub fn open_session(&self, model: String, sid: String) -> Result<EventSession, SysinspectError> {
+    pub fn open_session(&self, model: String, sid: String, ts: String) -> Result<EventSession, SysinspectError> {
         let sessions = self.get_tree(TR_SESSIONS)?;
         if !sessions.contains_key(&sid)? {
-            // TODO: Timestamp must be original from the beginning of the cycle
-            let es = EventSession::new(model.to_owned(), sid.to_owned(), None);
+            let es = EventSession::new(model.to_owned(), sid.to_owned(), ts.parse().unwrap_or(Utc::now()));
             if let Err(err) = sessions.insert(&sid, es.as_bytes()?) {
                 return Err(SysinspectError::MasterGeneralError(format!("Error opening events session: {err}")));
             }
