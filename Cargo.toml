@@ -14,6 +14,10 @@ log = "0.4.22"
 sysinfo = { version = "0.32.0", features = ["linux-tmpfs"] }
 openssl = { version = "0.10", features = ["vendored"] }
 tokio = { version = "1.43.0", features = ["full"] }
+ratatui = { version = "0.29.0", features = ["all-widgets", "serde", "unstable"] }
+color-eyre = "0.6.3"
+crossterm = "0.28.1"
+rand = "0.9.0"
 
 [workspace]
 resolver = "2"
