@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use colored::Colorize;
 use libsysinspect::{
     SysinspectError,
     util::{self},
@@ -151,7 +152,6 @@ impl EventsRegistry {
         ) {
             Err(SysinspectError::MasterGeneralError(format!("{err}")))
         } else {
-            log::info!("Added event to {}", mid.id());
             Ok(())
         }
     }
@@ -160,12 +160,12 @@ impl EventsRegistry {
     pub fn open_session(&self, model: String, sid: String) -> Result<EventSession, SysinspectError> {
         let sessions = self.get_tree(TR_SESSIONS)?;
         if !sessions.contains_key(&sid)? {
-            log::debug!("Creating a new session: {sid}");
             // TODO: Timestamp must be original from the beginning of the cycle
-            let es = EventSession::new(model, sid.to_owned(), None);
+            let es = EventSession::new(model.to_owned(), sid.to_owned(), None);
             if let Err(err) = sessions.insert(&sid, es.as_bytes()?) {
                 return Err(SysinspectError::MasterGeneralError(format!("Error opening events session: {err}")));
             }
+            log::info!("Session {} for {} registered", sid.yellow(), model.bright_yellow());
             return Ok(es);
         } else if let Some(sb) = sessions.get(&sid)? {
             log::debug!("Returning an existing session: {sid}");

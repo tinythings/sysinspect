@@ -16,7 +16,6 @@ use libsysinspect::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
         rqtypes::RequestType,
     },
-    traits::SYS_NET_HOSTNAME,
     util::{self, iofs::scan_files_sha256},
 };
 use once_cell::sync::Lazy;
@@ -108,22 +107,8 @@ impl SysMaster {
         &mut self.mkr
     }
 
-    fn dumb_lister(&self) {
-        for s in self.evtreg.get_sessions().unwrap() {
-            log::warn!(">> SESSION: {} - {}", s.query(), s.get_ts_rfc3339());
-            for m in self.evtreg.get_minions(&s).unwrap() {
-                log::warn!(">> ... {} - {}", m.id(), util::dataconv::as_str(m.get_trait(SYS_NET_HOSTNAME).cloned()));
-                for e in self.evtreg.get_events(&s, &m).unwrap() {
-                    log::warn!(">> ... ... ({}) - {}: {:#?}", e.get_cycle_id(), e.get_event_id(), e.get_response());
-                }
-            }
-        }
-    }
-
     /// Construct a Command message to the minion
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
-        self.dumb_lister();
-
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
         if let [querypath, query, traits, mid] = query.as_slice() {
@@ -322,7 +307,7 @@ impl SysMaster {
                             }
 
                             RequestType::Event => {
-                                log::info!("Event for {}: {}", req.id(), req.payload());
+                                log::debug!("Event for {}: {}", req.id(), req.payload());
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
                                     let mut m = c_master.lock().await;
