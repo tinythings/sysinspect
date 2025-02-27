@@ -263,7 +263,7 @@ impl SysInspector {
                 return Err(SysinspectError::ModelDSLError(format!(
                     "Unknown claim function: {}",
                     format!("{}(...)", func.fid()).bright_red()
-                )))
+                )));
             }
         };
 
@@ -327,7 +327,7 @@ impl SysInspector {
                 _ => {
                     return Err(SysinspectError::ModelDSLError(
                         "Static functions currently can take data only from entities".to_string(),
-                    ))
+                    ));
                 }
             }
         }
