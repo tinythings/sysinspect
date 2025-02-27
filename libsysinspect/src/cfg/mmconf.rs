@@ -273,6 +273,10 @@ pub struct MasterConfig {
     // Pidfile
     #[serde(rename = "pidfile")]
     pidfile: Option<String>,
+
+    // Telemetry database location
+    #[serde(rename = "telemetry.location")]
+    telemetry_location: Option<String>,
 }
 
 impl MasterConfig {
@@ -365,5 +369,10 @@ impl MasterConfig {
         }
 
         _logfile_path().join(DEFAULT_MASTER_LOG_ERR)
+    }
+
+    /// Return the path of the telemetry location
+    pub fn telemetry_location(&self) -> PathBuf {
+        PathBuf::from(self.telemetry_location.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_DB.to_string()))
     }
 }
