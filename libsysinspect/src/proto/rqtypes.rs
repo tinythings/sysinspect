@@ -49,4 +49,8 @@ pub enum RequestType {
     /// Pong
     #[serde(rename = "po")]
     Pong,
+
+    /// Event notice
+    #[serde(rename = "evt")]
+    Event,
 }

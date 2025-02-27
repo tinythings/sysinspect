@@ -1,5 +1,6 @@
 use crate::{
     dataserv::fls,
+    evtreg::kvdb::{EventMinion, EventsRegistry},
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
@@ -8,14 +9,14 @@ use crate::{
 };
 use indexmap::IndexMap;
 use libsysinspect::{
+    SysinspectError,
     cfg::mmconf::MasterConfig,
     mdescr::mspec::MODEL_FILE_EXT,
     proto::{
-        self, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType, MasterMessage, MinionMessage,
-        MinionTarget, ProtoConversion,
+        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
+        rqtypes::RequestType,
     },
-    util::iofs::scan_files_sha256,
-    SysinspectError,
+    util::{self, iofs::scan_files_sha256},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -27,7 +28,7 @@ use std::{
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tokio::{fs::OpenOptions, sync::Mutex};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader},
@@ -43,6 +44,7 @@ pub struct SysMaster {
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
     mreg: MinionRegistry,
+    evtreg: EventsRegistry,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
 }
@@ -52,7 +54,8 @@ impl SysMaster {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg })
+        let evtreg = EventsRegistry::new(cfg.telemetry_location())?;
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtreg })
     }
 
     /// Open FIFO socket for command-line communication
@@ -133,10 +136,12 @@ impl SysMaster {
 
             let mut msg = MasterMessage::new(
                 RequestType::Command,
-                json!(ModStatePayload::new(payload)
-                    .set_uri(querypath.to_string())
-                    .add_files(out)
-                    .set_models_root(self.cfg.fileserver_mdl_root(true).to_str().unwrap_or_default())), // TODO: SID part
+                json!(
+                    ModStatePayload::new(payload)
+                        .set_uri(querypath.to_string())
+                        .add_files(out)
+                        .set_models_root(self.cfg.fileserver_mdl_root(true).to_str().unwrap_or_default())
+                ), // TODO: SID part
             );
             msg.set_target(tgt);
             msg.set_retcode(ProtoErrorCode::Success);
@@ -298,6 +303,34 @@ impl SysMaster {
                                     guard.get_session().lock().await.remove(req.id());
                                     let m = guard.msg_bye_ack(req.id().to_string(), req.payload().to_string());
                                     _ = c_bcast.send(m.sendable().unwrap());
+                                });
+                            }
+
+                            RequestType::Event => {
+                                log::debug!("Event for {}: {}", req.id(), req.payload());
+                                let c_master = Arc::clone(&master);
+                                tokio::spawn(async move {
+                                    let mut m = c_master.lock().await;
+                                    let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
+                                        Ok(pl) => pl,
+                                        Err(err) => {
+                                            log::error!("An event message with the bogus payload: {err}");
+                                            return;
+                                        }
+                                    };
+
+                                    let sid = m
+                                        .evtreg
+                                        .open_session(
+                                            util::dataconv::as_str(pl.get("eid").cloned()), // TODO: Should be an actual model name!
+                                            util::dataconv::as_str(pl.get("cid").cloned()),
+                                            util::dataconv::as_str(pl.get("timestamp").cloned()),
+                                        )
+                                        .unwrap();
+                                    let mid =
+                                        m.evtreg.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).unwrap();
+                                    m.evtreg.add_event(sid, EventMinion::new(mid), pl).unwrap();
                                 });
                             }
 

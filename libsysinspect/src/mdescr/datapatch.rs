@@ -38,7 +38,7 @@ fn modbase(base: &mut Value, mods: IndexMap<Vec<String>, Value>) {
             };
 
             let next = {
-                if let Value::Mapping(ref mut m) = cv {
+                if let Value::Mapping(m) = cv {
                     if rm {
                         m.remove(Value::String(clr_k.clone()));
                         None

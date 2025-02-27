@@ -4,7 +4,7 @@ use crate::intp::{
 };
 use std::fmt::Debug;
 
-pub trait EventHandler: Debug {
+pub trait EventHandler: Debug + Send + Sync {
     /// Constructor
     fn new(eid: String, cfg: EventConfig) -> Self
     where

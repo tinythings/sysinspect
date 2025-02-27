@@ -1,5 +1,6 @@
 use crate::SysinspectError;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Targeting schemes
 pub static SCHEME_MODEL: &str = "model://";

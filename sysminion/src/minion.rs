@@ -1,8 +1,9 @@
-use crate::{filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
+use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use colored::Colorize;
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     inspector::SysInspectRunner,
+    intp::actproc::response::ActionResponse,
     proto::{
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
@@ -16,6 +17,7 @@ use libsysinspect::{
     SysinspectError,
 };
 use once_cell::sync::Lazy;
+use serde_json::json;
 use std::{
     fs,
     sync::Arc,
@@ -30,6 +32,7 @@ use uuid::Uuid;
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
+#[derive(Debug)]
 pub struct SysMinion {
     cfg: MinionConfig,
     fingerprint: Option<String>,
@@ -295,6 +298,13 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Send callback to the master on the results
+    pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
+        log::info!("Sending sync callback on {}", ar.aid());
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar).to_string()).sendable()?).await;
+        Ok(())
+    }
+
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
         let r = MinionMessage::new(
@@ -405,7 +415,7 @@ impl SysMinion {
 
         // Run the model
         log::debug!("Launching model for sysinspect for: {scheme}");
-        let mqr_l = mqr.lock().unwrap();
+        let mqr_l = mqr.lock().await;
 
         let mut sr = SysInspectRunner::new(&self.cfg);
         sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_l.target()).to_str().unwrap_or_default());
@@ -414,7 +424,9 @@ impl SysMinion {
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
 
-        sr.start();
+        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr())));
+
+        sr.start().await;
 
         log::debug!("Sysinspect model cycle finished");
     }

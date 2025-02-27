@@ -8,14 +8,14 @@ use super::{
     relations::Relation,
 };
 use crate::{
-    cfg::mmconf::DEFAULT_SHARELIB,
+    SysinspectError,
+    cfg::mmconf::DEFAULT_MODULES_SHARELIB,
     intp::functions,
     mdescr::{
-        mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
-        DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
+        DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG, DSL_IDX_CHECKBOOK,
+        DSL_IDX_EVENTS_CFG, mspecdef::ModelSpec,
     },
     reactor::handlers,
-    SysinspectError,
 };
 use colored::Colorize;
 use indexmap::IndexMap;
@@ -27,7 +27,7 @@ static _SHARELIB: OnceCell<PathBuf> = OnceCell::new();
 
 /// Set sharelib for further work
 fn set_sharelib(sharelib: Option<PathBuf>) {
-    _ = _SHARELIB.set(sharelib.unwrap_or(PathBuf::from(DEFAULT_SHARELIB)));
+    _ = _SHARELIB.set(sharelib.unwrap_or(PathBuf::from(DEFAULT_MODULES_SHARELIB)));
 }
 
 /// Get sharelib
@@ -263,7 +263,7 @@ impl SysInspector {
                 return Err(SysinspectError::ModelDSLError(format!(
                     "Unknown claim function: {}",
                     format!("{}(...)", func.fid()).bright_red()
-                )))
+                )));
             }
         };
 
@@ -327,7 +327,7 @@ impl SysInspector {
                 _ => {
                     return Err(SysinspectError::ModelDSLError(
                         "Static functions currently can take data only from entities".to_string(),
-                    ))
+                    ));
                 }
             }
         }

@@ -1,6 +1,7 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
-    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_PYLIB_DIR},
+    SysinspectError,
+    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_MODULES_PYLIB_DIR},
     inspector::SysInspectRunner,
     intp::{
         actproc::response::{ConstraintFailure, ConstraintPass},
@@ -10,7 +11,6 @@ use crate::{
     },
     pylang,
     util::dataconv,
-    SysinspectError,
 };
 use core::str;
 use indexmap::IndexMap;
@@ -251,9 +251,12 @@ impl ModCall {
         let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<IndexMap<String, serde_json::Value>>();
 
         // TODO: Add libpath and modpath here! Must come from MinionConfig
-        match pylang::pvm::PyVm::new(get_cfg_sharelib().join(DEFAULT_PYLIB_DIR), get_cfg_sharelib().join(DEFAULT_MODULES_DIR))
-            .as_ptr()
-            .call(&self.module, Some(opts), Some(args))
+        match pylang::pvm::PyVm::new(
+            get_cfg_sharelib().join(DEFAULT_MODULES_PYLIB_DIR),
+            get_cfg_sharelib().join(DEFAULT_MODULES_DIR),
+        )
+        .as_ptr()
+        .call(&self.module, Some(opts), Some(args))
         {
             Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
                 Ok(r) => Ok(Some(ActionResponse::new(

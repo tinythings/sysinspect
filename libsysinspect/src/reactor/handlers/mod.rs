@@ -16,21 +16,17 @@ pub mod registry {
     use super::*;
     use crate::intp::conf::EventConfig;
     use cstr_stdhdl::ConstraintHandler;
+    use dashmap::DashMap;
     use evthandler::EventHandler;
-    use indexmap::IndexMap;
     use pipescript::PipeScriptHandler;
-    use std::sync::{Mutex, MutexGuard};
     use stdhdl::StdoutEventHandler;
 
     lazy_static! {
-        pub static ref REGISTRY_MAP: Mutex<IndexMap<String, fn(String, EventConfig) -> Box<dyn EventHandler>>> =
-            Mutex::new(IndexMap::new());
+        pub static ref REGISTRY_MAP: DashMap<String, fn(String, EventConfig) -> Box<dyn EventHandler>> = DashMap::new();
     }
 
     pub fn init_handler(label: String, event_id: String, cfg: EventConfig) -> Option<Box<dyn EventHandler>> {
-        let registry: MutexGuard<'_, IndexMap<String, fn(String, EventConfig) -> Box<dyn EventHandler>>> =
-            REGISTRY_MAP.lock().unwrap();
-        if let Some(eh) = registry.get(&label) {
+        if let Some(eh) = REGISTRY_MAP.get(&label) {
             return Some(eh(event_id, cfg));
         }
 
@@ -38,23 +34,22 @@ pub mod registry {
     }
 
     pub fn init_handlers() {
-        let mut registry = REGISTRY_MAP.lock().unwrap();
-        if !registry.is_empty() {
+        if !REGISTRY_MAP.is_empty() {
             return;
         }
 
         // Handler registration
         log::debug!("Intialising handlers");
-        registry.insert(StdoutEventHandler::id(), |eid, cfg| Box::new(StdoutEventHandler::new(eid, cfg)));
-        registry.insert(ConstraintHandler::id(), |eid, cfg| Box::new(ConstraintHandler::new(eid, cfg)));
-        registry.insert(PipeScriptHandler::id(), |eid, cfg| Box::new(PipeScriptHandler::new(eid, cfg)));
+        REGISTRY_MAP.insert(StdoutEventHandler::id(), |eid, cfg| Box::new(StdoutEventHandler::new(eid, cfg)));
+        REGISTRY_MAP.insert(ConstraintHandler::id(), |eid, cfg| Box::new(ConstraintHandler::new(eid, cfg)));
+        REGISTRY_MAP.insert(PipeScriptHandler::id(), |eid, cfg| Box::new(PipeScriptHandler::new(eid, cfg)));
     }
 
     /// Get all registered handlers.
     /// NOTE: [`init_handlers`] must be called.
     ///
     pub fn get_handler_names() -> Vec<String> {
-        let mut out = REGISTRY_MAP.lock().unwrap().keys().cloned().map(|s| s.to_string()).collect::<Vec<String>>();
+        let mut out = REGISTRY_MAP.iter().map(|entry| entry.key().clone()).collect::<Vec<String>>();
         out.sort();
 
         out

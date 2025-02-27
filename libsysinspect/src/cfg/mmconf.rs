@@ -1,26 +1,60 @@
-use crate::{intp::functions::get_by_namespace, SysinspectError};
+use crate::{SysinspectError, intp::functions::get_by_namespace};
 use nix::libc;
 use serde::{Deserialize, Serialize};
-use serde_yaml::{from_str, from_value, Value};
+use serde_yaml::{Value, from_str, from_value};
 use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
 // Network
+// -------
+
+/// Default listener address (to the world)
 pub static DEFAULT_ADDR: &str = "0.0.0.0";
+
+/// Default listener port communication protocol for the master
 pub static DEFAULT_PORT: u32 = 4200;
+
+/// Default fileserver port on the master
 pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
 
 // Default directories
+// --------------------
+
+/// Location of the communication socket between **sysinspect controller**
+/// and the running **master daemon**.
 pub static DEFAULT_SOCKET: &str = "/var/run/sysinspect-master.socket";
+
+/// The main root of the sysinspect data, both for **master** and **minion**,
+/// also for the command controller.
 pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
+
+/// Default location of all modules and libraries for them,
+/// including Python stack as well. Refer to other variables with
+/// `DEFAULT_MODULES_*` prefix.
+pub static DEFAULT_MODULES_SHARELIB: &str = "/usr/share/sysinspect";
+
+/// Directory within the `DEFAULT_MODULES_SHARELIB` for modules
 pub static DEFAULT_MODULES_DIR: &str = "modules";
-pub static DEFAULT_PYLIB_DIR: &str = "lib";
-pub static DEFAULT_SHARELIB: &str = "/usr/share/sysinspect";
+
+/// Directory within the `DEFAULT_MODULES_SHARELIB` for python libraries
+pub static DEFAULT_MODULES_PYLIB_DIR: &str = "lib";
+
+/// Default filename for the master log
 pub static DEFAULT_MASTER_LOG_STD: &str = "sysmaster.standard.log";
+
+/// Default filename for the master failures log
 pub static DEFAULT_MASTER_LOG_ERR: &str = "sysmaster.errors.log";
+
+/// Default path for the telemetry database
+pub static DEFAULT_MASTER_TELEMETRY_DB: &str = "/var/tmp/sysinspect/telemetry";
+
+/// Default filename for the minion log
 pub static DEFAULT_MINION_LOG_STD: &str = "sysminion.standard.log";
+
+/// Default filename for the minion failures log
 pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
 
 // All directories are relative to the sysinspect root
+// ---------------------------------------------------
 pub static CFG_MINION_KEYS: &str = "minion-keys";
 pub static CFG_MINION_REGISTRY: &str = "minion-registry";
 pub static CFG_FILESERVER_ROOT: &str = "data";
@@ -30,6 +64,7 @@ pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 pub static CFG_DB: &str = "registry";
 
 // Key names
+// ---------
 pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
 pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
@@ -168,7 +203,7 @@ impl MinionConfig {
 
     /// Return sharelib path
     pub fn sharelib_dir(&self) -> PathBuf {
-        PathBuf::from(self.sharelib_path.clone().unwrap_or(DEFAULT_SHARELIB.to_string()))
+        PathBuf::from(self.sharelib_path.clone().unwrap_or(DEFAULT_MODULES_SHARELIB.to_string()))
     }
 
     /// Return a pidfile. Either from config or default.
@@ -238,6 +273,10 @@ pub struct MasterConfig {
     // Pidfile
     #[serde(rename = "pidfile")]
     pidfile: Option<String>,
+
+    // Telemetry database location
+    #[serde(rename = "telemetry.location")]
+    telemetry_location: Option<String>,
 }
 
 impl MasterConfig {
@@ -286,11 +325,7 @@ impl MasterConfig {
     /// Get models root on the fileserver
     pub fn fileserver_mdl_root(&self, alone: bool) -> PathBuf {
         let mr = PathBuf::from(&self.fsr_models_root.strip_prefix("/").unwrap_or_default());
-        if alone {
-            mr
-        } else {
-            self.fileserver_root().join(mr)
-        }
+        if alone { mr } else { self.fileserver_root().join(mr) }
     }
 
     /// Get default sysinspect root. For master it is always /etc/sysinspect
@@ -334,5 +369,10 @@ impl MasterConfig {
         }
 
         _logfile_path().join(DEFAULT_MASTER_LOG_ERR)
+    }
+
+    /// Return the path of the telemetry location
+    pub fn telemetry_location(&self) -> PathBuf {
+        PathBuf::from(self.telemetry_location.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_DB.to_string()))
     }
 }
