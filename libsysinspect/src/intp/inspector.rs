@@ -27,7 +27,7 @@ static _SHARELIB: OnceCell<PathBuf> = OnceCell::new();
 
 /// Set sharelib for further work
 fn set_sharelib(sharelib: Option<PathBuf>) {
-    _ = _SHARELIB.set(sharelib.unwrap_or(PathBuf::from(DEFAULT_SHARELIB)));
+    _ = _SHARELIB.set(sharelib.unwrap_or(PathBuf::from(DEFAULT_MODULES_SHARELIB)));
 }
 
 /// Get sharelib

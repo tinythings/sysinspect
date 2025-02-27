@@ -251,9 +251,12 @@ impl ModCall {
         let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<IndexMap<String, serde_json::Value>>();
 
         // TODO: Add libpath and modpath here! Must come from MinionConfig
-        match pylang::pvm::PyVm::new(get_cfg_sharelib().join(DEFAULT_PYLIB_DIR), get_cfg_sharelib().join(DEFAULT_MODULES_DIR))
-            .as_ptr()
-            .call(&self.module, Some(opts), Some(args))
+        match pylang::pvm::PyVm::new(
+            get_cfg_sharelib().join(DEFAULT_MODULES_PYLIB_DIR),
+            get_cfg_sharelib().join(DEFAULT_MODULES_DIR),
+        )
+        .as_ptr()
+        .call(&self.module, Some(opts), Some(args))
         {
             Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
                 Ok(r) => Ok(Some(ActionResponse::new(

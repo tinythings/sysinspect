@@ -203,7 +203,7 @@ impl MinionConfig {
 
     /// Return sharelib path
     pub fn sharelib_dir(&self) -> PathBuf {
-        PathBuf::from(self.sharelib_path.clone().unwrap_or(DEFAULT_SHARELIB.to_string()))
+        PathBuf::from(self.sharelib_path.clone().unwrap_or(DEFAULT_MODULES_SHARELIB.to_string()))
     }
 
     /// Return a pidfile. Either from config or default.
@@ -321,11 +321,7 @@ impl MasterConfig {
     /// Get models root on the fileserver
     pub fn fileserver_mdl_root(&self, alone: bool) -> PathBuf {
         let mr = PathBuf::from(&self.fsr_models_root.strip_prefix("/").unwrap_or_default());
-        if alone {
-            mr
-        } else {
-            self.fileserver_root().join(mr)
-        }
+        if alone { mr } else { self.fileserver_root().join(mr) }
     }
 
     /// Get default sysinspect root. For master it is always /etc/sysinspect
