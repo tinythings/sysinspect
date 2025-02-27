@@ -1,6 +1,7 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
-    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_PYLIB_DIR},
+    SysinspectError,
+    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_MODULES_PYLIB_DIR},
     inspector::SysInspectRunner,
     intp::{
         actproc::response::{ConstraintFailure, ConstraintPass},
@@ -10,7 +11,6 @@ use crate::{
     },
     pylang,
     util::dataconv,
-    SysinspectError,
 };
 use core::str;
 use indexmap::IndexMap;

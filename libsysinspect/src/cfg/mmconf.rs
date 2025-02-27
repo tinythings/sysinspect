@@ -1,7 +1,7 @@
-use crate::{intp::functions::get_by_namespace, SysinspectError};
+use crate::{SysinspectError, intp::functions::get_by_namespace};
 use nix::libc;
 use serde::{Deserialize, Serialize};
-use serde_yaml::{from_str, from_value, Value};
+use serde_yaml::{Value, from_str, from_value};
 use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
 // Network

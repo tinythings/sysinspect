@@ -22,7 +22,7 @@ use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
 };
 use tokio::net::TcpListener;

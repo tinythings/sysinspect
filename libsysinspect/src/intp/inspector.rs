@@ -8,14 +8,14 @@ use super::{
     relations::Relation,
 };
 use crate::{
-    cfg::mmconf::DEFAULT_SHARELIB,
+    SysinspectError,
+    cfg::mmconf::DEFAULT_MODULES_SHARELIB,
     intp::functions,
     mdescr::{
-        mspecdef::ModelSpec, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG,
-        DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
+        DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG, DSL_IDX_CHECKBOOK,
+        DSL_IDX_EVENTS_CFG, mspecdef::ModelSpec,
     },
     reactor::handlers,
-    SysinspectError,
 };
 use colored::Colorize;
 use indexmap::IndexMap;
