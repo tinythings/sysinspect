@@ -54,7 +54,7 @@ impl SysMaster {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
-        let evtreg = EventsRegistry::new(PathBuf::from("logs.db"))?;
+        let evtreg = EventsRegistry::new(cfg.telemetry_location())?;
         Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtreg })
     }
 
