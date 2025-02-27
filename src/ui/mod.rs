@@ -1,13 +1,13 @@
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use rand::Rng;
 use ratatui::{
+    DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
     widgets::{
         Block, BorderType, Borders, List, ListItem, ListState, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget,
     },
-    DefaultTerminal, Frame,
 };
 use std::io;
 
@@ -22,6 +22,7 @@ pub fn run() -> io::Result<()> {
 pub enum ActiveBox {
     Cycles,
     Minions,
+    Events,
 }
 
 #[derive(Debug)]
@@ -29,14 +30,24 @@ pub struct App {
     exit: bool,
     pub selected_cycle: usize,
     pub selected_minion: usize,
+    pub selected_event: usize,
 
     pub minions: Vec<String>,
+    pub events: Vec<String>,
     pub active_box: ActiveBox,
 }
 
 impl Default for App {
     fn default() -> Self {
-        Self { exit: false, selected_cycle: 0, selected_minion: 0, minions: Vec::new(), active_box: ActiveBox::Cycles }
+        Self {
+            exit: false,
+            selected_cycle: 0,
+            selected_minion: 0,
+            selected_event: 0,
+            minions: Vec::new(),
+            events: Vec::new(),
+            active_box: ActiveBox::Cycles,
+        }
     }
 }
 
@@ -65,29 +76,57 @@ impl App {
     fn on_key(&mut self, e: event::KeyEvent) {
         match e.code {
             KeyCode::Up => {
-                if self.active_box == ActiveBox::Cycles {
-                    if self.selected_cycle > 0 {
-                        self.selected_cycle -= 1;
+                match self.active_box {
+                    ActiveBox::Cycles => {
+                        if self.selected_cycle > 0 {
+                            self.selected_cycle -= 1;
+                        }
                     }
-                } else if self.selected_minion > 0 {
-                    self.selected_minion -= 1;
-                }
+                    ActiveBox::Minions => {
+                        if self.selected_minion > 0 {
+                            self.selected_minion -= 1;
+                        }
+                    }
+                    ActiveBox::Events => {
+                        if self.selected_event > 0 {
+                            self.selected_event -= 1;
+                        }
+                    }
+                };
             }
             KeyCode::Down => {
-                if self.active_box == ActiveBox::Cycles {
-                    let cycles = self.get_cycles();
-                    if self.selected_cycle < cycles.len().saturating_sub(1) {
-                        self.selected_cycle += 1;
+                match self.active_box {
+                    ActiveBox::Cycles => {
+                        let cycles = self.get_cycles();
+                        if self.selected_cycle < cycles.len().saturating_sub(1) {
+                            self.selected_cycle += 1;
+                        }
                     }
-                } else if self.selected_minion < self.minions.len().saturating_sub(1) {
-                    self.selected_minion += 1;
-                }
+                    ActiveBox::Minions => {
+                        if self.selected_minion < self.minions.len().saturating_sub(1) {
+                            self.selected_minion += 1;
+                        }
+                    }
+                    ActiveBox::Events => {
+                        if self.selected_event < self.events.len().saturating_sub(1) {
+                            self.selected_event += 1;
+                        }
+                    }
+                };
             }
             KeyCode::Right => {
-                self.active_box = ActiveBox::Minions;
+                match self.active_box {
+                    ActiveBox::Cycles => self.active_box = ActiveBox::Minions,
+                    ActiveBox::Minions => self.active_box = ActiveBox::Events,
+                    ActiveBox::Events => self.active_box = ActiveBox::Cycles,
+                };
             }
             KeyCode::Left => {
-                self.active_box = ActiveBox::Cycles;
+                match self.active_box {
+                    ActiveBox::Cycles => self.active_box = ActiveBox::Events,
+                    ActiveBox::Minions => self.active_box = ActiveBox::Cycles,
+                    ActiveBox::Events => self.active_box = ActiveBox::Minions,
+                };
             }
             KeyCode::Enter => {
                 if self.active_box == ActiveBox::Cycles {
@@ -114,6 +153,11 @@ impl App {
     /// Returns a vector of minion names (random IDs).
     pub fn get_minions(&self) -> Vec<String> {
         (0..100).map(|x| format!("minion-{}-{}", x, rand::rng().random_range(0..100))).collect()
+    }
+
+    /// Returns a vector of events (random IDs)
+    pub fn get_events(&self) -> Vec<String> {
+        (0..100).map(|x| format!("event-{}-{}", x, rand::rng().random_range(0..100))).collect()
     }
 }
 
@@ -193,15 +237,30 @@ impl Widget for &App {
         //----------------------------------
         // Right column: Some table
         //----------------------------------
-        let right_block = Block::default().borders(Borders::ALL).title("Right Box");
+        let [model_events, event_data]: [Rect; 2] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+            .split(events_a)
+            .as_ref()
+            .try_into()
+            .unwrap();
+
+        let right_block = if self.active_box == ActiveBox::Events {
+            Block::default().borders(Borders::ALL).title("Events").border_type(BorderType::Double)
+        } else {
+            Block::default().borders(Borders::ALL).title("Right Block")
+        };
+
+        Widget::render(right_block, model_events, buf);
+
+        let bottom_block = Block::default().borders(Borders::ALL).title("Bottom Right");
+
         let header = Row::new(vec!["Key", "Value"]).style(Style::default().fg(Color::Yellow)).bottom_margin(1);
         let row1 = Row::new(vec!["foo", "bar"]);
         let row2 = Row::new(vec!["baz", "toto"]);
-
         let table = Table::new(vec![header, row1, row2], &[Constraint::Length(10), Constraint::Length(10)])
-            .block(right_block)
+            .block(bottom_block)
             .column_spacing(1);
-
-        Widget::render(table, events_a, buf);
+        Widget::render(table, event_data, buf);
     }
 }
