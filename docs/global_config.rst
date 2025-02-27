@@ -136,6 +136,12 @@ Below are directives for the configuration of the File Server service:
     List of subdirectories within ``fileserver.models.root``, exporting models. If a model is not
     in the list, it will not be available for the minions.
 
+``telemetry.location``
+
+    Location of the telemetry local database. This is a directory, where the
+    key/value database is located and records all results, coming from the minion
+    when processing a given query. Default is set to ``/var/tmp/sysinspect/telemetry``.
+
 Example configuration for the Sysinspect Master:
 
 .. code-block:: yaml
