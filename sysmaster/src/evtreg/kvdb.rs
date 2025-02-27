@@ -111,6 +111,7 @@ pub struct EventsRegistry {
 
 impl EventsRegistry {
     pub fn new(p: PathBuf) -> Result<EventsRegistry, SysinspectError> {
+        log::info!("Opening database registry at {}", p.to_str().unwrap_or_default());
         if !p.exists() {
             fs::create_dir_all(&p)?;
         }
