@@ -73,6 +73,14 @@ impl App {
         Ok(())
     }
 
+    fn shift_next(&mut self) {
+        match self.active_box {
+            ActiveBox::Cycles => self.active_box = ActiveBox::Minions,
+            ActiveBox::Minions => self.active_box = ActiveBox::Events,
+            ActiveBox::Events => self.active_box = ActiveBox::Cycles,
+        };
+    }
+
     fn on_key(&mut self, e: event::KeyEvent) {
         match e.code {
             KeyCode::Up => {
@@ -115,11 +123,7 @@ impl App {
                 };
             }
             KeyCode::Right => {
-                match self.active_box {
-                    ActiveBox::Cycles => self.active_box = ActiveBox::Minions,
-                    ActiveBox::Minions => self.active_box = ActiveBox::Events,
-                    ActiveBox::Events => self.active_box = ActiveBox::Cycles,
-                };
+                self.shift_next();
             }
             KeyCode::Left => {
                 match self.active_box {
@@ -135,6 +139,13 @@ impl App {
                         self.minions = self.get_minions();
                         self.selected_minion = 0;
                     }
+                    self.shift_next();
+                } else if self.active_box == ActiveBox::Minions {
+                    if !self.minions.is_empty() {
+                        self.events = self.get_events();
+                        self.selected_event = 0;
+                    }
+                    self.shift_next();
                 }
             }
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
@@ -214,6 +225,7 @@ impl Widget for &App {
             Block::default().borders(Borders::ALL).title("Minions")
         };
         Widget::render(&minions_block, minions_a, buf);
+
         let minions_inner = minions_block.inner(minions_a);
         let minion_items: Vec<ListItem> = self.minions.iter().map(|m| ListItem::new(m.as_str())).collect();
         let mut minions_state = ListState::default();
@@ -250,8 +262,27 @@ impl Widget for &App {
         } else {
             Block::default().borders(Borders::ALL).title("Right Block")
         };
+        Widget::render(&right_block, model_events, buf);
 
-        Widget::render(right_block, model_events, buf);
+        let events_inner = right_block.inner(model_events);
+        let events_items: Vec<ListItem> = self.events.iter().map(|m| ListItem::new(m.as_str())).collect();
+        let mut events_state = ListState::default();
+        if !self.events.is_empty() {
+            events_state.select(Some(self.selected_event));
+        }
+        let events_list = List::new(events_items)
+            .highlight_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD))
+            .highlight_symbol(">> ");
+        StatefulWidget::render(events_list, events_inner, buf, &mut events_state);
+
+        let mut events_scroll_state = ScrollbarState::default()
+            .content_length(self.events.len())
+            .position(if self.active_box == ActiveBox::Events { self.selected_event } else { 0 });
+        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
+            events_inner,
+            buf,
+            &mut events_scroll_state,
+        );
 
         let bottom_block = Block::default().borders(Borders::ALL).title("Bottom Right");
 
