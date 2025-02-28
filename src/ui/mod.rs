@@ -4,9 +4,11 @@ use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
+    text::{Line, Span},
     widgets::{
-        Block, BorderType, Borders, List, ListItem, ListState, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget,
+        Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table,
+        Widget,
     },
 };
 use std::io;
@@ -16,6 +18,17 @@ pub fn run() -> io::Result<()> {
     let r = App::default().run(&mut terminal);
     ratatui::restore();
     r
+}
+
+#[derive(Debug, Clone)]
+pub struct Cycle {
+    pub id: u32,
+}
+
+impl Cycle {
+    pub fn get_title(&self) -> String {
+        format!("cycle {}", self.id)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -35,6 +48,8 @@ pub struct App {
     pub minions: Vec<String>,
     pub events: Vec<String>,
     pub active_box: ActiveBox,
+
+    pub status_text: String,
 }
 
 impl Default for App {
@@ -47,6 +62,8 @@ impl Default for App {
             minions: Vec::new(),
             events: Vec::new(),
             active_box: ActiveBox::Cycles,
+
+            status_text: "Init".to_string(),
         }
     }
 }
@@ -61,7 +78,23 @@ impl App {
     }
 
     fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
+        //frame.render_widget(self, frame.area());
+
+        // Split the entire area into main UI and a one-line status bar.
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
+            .split(frame.area());
+        let main_area = chunks[0];
+        let status_area = chunks[1];
+
+        // Render the main widget (your left/middle/right boxes) in main_area.
+        frame.render_widget(self, main_area);
+
+        // NEW: Create a status bar with custom text, color, and attributes.
+        let status_paragraph = Paragraph::new(self.status_text.as_str())
+            .style(Style::default().fg(Color::Yellow).bg(Color::Blue).add_modifier(Modifier::BOLD));
+        frame.render_widget(status_paragraph, status_area);
     }
 
     fn on_events(&mut self) -> io::Result<()> {
@@ -157,8 +190,8 @@ impl App {
         self.exit = true;
     }
     /// Returns a vector of cycle names.
-    pub fn get_cycles(&self) -> Vec<String> {
-        (0..100).map(|x| format!("cycle {}", x)).collect()
+    pub fn get_cycles(&self) -> Vec<Cycle> {
+        (0..100).map(|id| Cycle { id }).collect()
     }
 
     /// Returns a vector of minion names (random IDs).
@@ -189,23 +222,41 @@ impl Widget for &App {
         // Left column: Cycles
         //----------------------------------
         let cycles_block = if self.active_box == ActiveBox::Cycles {
-            Block::default().borders(Borders::ALL).title("Cycles").border_type(BorderType::Double)
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Cycles")
+                .title_style(Style::default().fg(Color::LightYellow))
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::White))
         } else {
-            Block::default().borders(Borders::ALL).title("Cycles")
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Cycles")
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::DarkGray))
         };
         Widget::render(&cycles_block, cycles_a, buf);
 
         let cycles_inner = cycles_block.inner(cycles_a);
         let cycles = self.get_cycles();
-        let items: Vec<ListItem> = cycles.iter().map(|cycle| ListItem::new(cycle.as_str())).collect();
+        let items: Vec<ListItem> = cycles
+            .iter()
+            .map(|cycle| {
+                let line = Line::from(vec![
+                    Span::styled(">", Style::default().fg(Color::White)),
+                    Span::raw(" "),
+                    Span::styled(cycle.get_title(), Style::default().fg(Color::LightYellow)), // title in light yellow
+                ]);
+                ListItem::new(line)
+            })
+            .collect();
         let mut list_state = ListState::default();
         if !cycles.is_empty() {
             list_state.select(Some(self.selected_cycle));
         }
 
-        let cycles_list = List::new(items)
-            .highlight_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD))
-            .highlight_symbol(">> ");
+        let cycles_list =
+            List::new(items).highlight_style(Style::default().fg(Color::White).bg(Color::Green).add_modifier(Modifier::BOLD));
 
         StatefulWidget::render(cycles_list, cycles_inner, buf, &mut list_state);
 
