@@ -7,8 +7,8 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table,
-        Widget,
+        Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget,
+        Table, Widget,
     },
 };
 use std::io;
@@ -50,6 +50,9 @@ pub struct App {
     pub active_box: ActiveBox,
 
     pub status_text: String,
+
+    pub dialog_active: bool,
+    pub dialog_selected: usize,
 }
 
 impl Default for App {
@@ -62,8 +65,9 @@ impl Default for App {
             minions: Vec::new(),
             events: Vec::new(),
             active_box: ActiveBox::Cycles,
-
             status_text: "Init".to_string(),
+            dialog_active: false,
+            dialog_selected: 0,
         }
     }
 }
@@ -115,6 +119,29 @@ impl App {
     }
 
     fn on_key(&mut self, e: event::KeyEvent) {
+        if self.dialog_active {
+            match e.code {
+                KeyCode::Tab => {
+                    self.dialog_selected = (self.dialog_selected + 1) % 2;
+                }
+                KeyCode::Enter => {
+                    if self.dialog_selected == 0 {
+                        self.status_text = "Purge confirmed".to_string();
+                        // XXX: call DB here
+                    } else {
+                        self.status_text = "Purge cancelled".to_string();
+                    }
+                    self.dialog_active = false;
+                }
+                KeyCode::Esc => {
+                    self.status_text = "Purge cancelled".to_string();
+                    self.dialog_active = false;
+                }
+                _ => {}
+            }
+            return; // Skip the rest if dialog is active.
+        }
+
         match e.code {
             KeyCode::Up => {
                 match self.active_box {
@@ -182,6 +209,10 @@ impl App {
                 }
             }
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
+            KeyCode::Char('p') => {
+                self.dialog_active = true;
+                self.dialog_selected = 0;
+            }
             _ => {}
         }
     }
@@ -202,6 +233,64 @@ impl App {
     /// Returns a vector of events (random IDs)
     pub fn get_events(&self) -> Vec<String> {
         (0..100).map(|x| format!("event-{}-{}", x, rand::rng().random_range(0..100))).collect()
+    }
+
+    pub fn dialog_purge(&self, area: Rect, buf: &mut Buffer) {
+        if self.dialog_active {
+            let popup_area = {
+                let vert = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(40), Constraint::Percentage(20), Constraint::Percentage(40)])
+                    .split(area);
+                let horiz = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(35), Constraint::Percentage(30), Constraint::Percentage(35)])
+                    .split(vert[1]);
+                horiz[1]
+            };
+
+            Clear.render(popup_area, buf);
+
+            let popup_block = Block::default()
+                .title("Delete everything?")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::White))
+                .style(Style::default().bg(Color::Red));
+            let popup_inner = popup_block.inner(popup_area);
+            popup_block.render(popup_area, buf);
+
+            let popup_splits = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(2), Constraint::Length(1)])
+                .split(popup_inner);
+            let question_area = popup_splits[0];
+            let button_area = popup_splits[1];
+
+            Paragraph::new("Are you sure you want to delete everything?")
+                .style(Style::default().fg(Color::White).bg(Color::Red))
+                .render(question_area, buf);
+
+            let button_splits = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(6), Constraint::Length(6)])
+                .split(button_area);
+            let yes_area = button_splits[0];
+            let no_area = button_splits[1];
+
+            let yes_style = if self.dialog_selected == 0 {
+                Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White).bg(Color::Red)
+            };
+            let no_style = if self.dialog_selected == 1 {
+                Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White).bg(Color::Red)
+            };
+
+            Paragraph::new(" YES ").style(yes_style).render(yes_area, buf);
+            Paragraph::new(" NO ").style(no_style).render(no_area, buf);
+        }
     }
 }
 
@@ -344,5 +433,8 @@ impl Widget for &App {
             .block(bottom_block)
             .column_spacing(1);
         Widget::render(table, event_data, buf);
+
+        // Catch purge dialog
+        self.dialog_purge(area, buf);
     }
 }
