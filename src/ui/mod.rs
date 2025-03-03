@@ -118,8 +118,11 @@ impl SysInspectUX {
         };
     }
 
-    fn on_key(&mut self, e: event::KeyEvent) {
+    /// Process purge alert key events
+    fn on_purge_alert(&mut self, e: event::KeyEvent) -> bool {
+        let mut stat = false;
         if self.purge_alert_visible {
+            stat = true;
             match e.code {
                 KeyCode::Tab => {
                     if self.purge_alert_choice == AlertResult::Default {
@@ -143,10 +146,16 @@ impl SysInspectUX {
                 }
                 _ => {}
             }
-            return; // Skip the rest if dialog is active.
         }
 
+        stat
+    }
+
+    /// Process exit alert
+    fn on_exit_alert(&mut self, e: event::KeyEvent) -> bool {
+        let mut stat = false;
         if self.exit_alert_visible {
+            stat = true;
             match e.code {
                 KeyCode::Tab => {
                     if self.exit_alert_choice == AlertResult::Default {
@@ -160,15 +169,25 @@ impl SysInspectUX {
                         self.exit();
                     } else {
                         self.exit_alert_visible = false;
-                        return;
                     }
                 }
                 KeyCode::Esc => {
                     self.exit_alert_visible = false;
-                    return;
                 }
                 _ => {}
             }
+        }
+
+        stat
+    }
+
+    fn on_key(&mut self, e: event::KeyEvent) {
+        if self.on_purge_alert(e) {
+            return;
+        }
+
+        if self.on_exit_alert(e) {
+            return;
         }
 
         match e.code {
