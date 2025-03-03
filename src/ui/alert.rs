@@ -18,7 +18,7 @@ impl SysInspectUX {
         Self::yesno_popup(
             parent,
             buf,
-            "Delete everything?",
+            Some("Delete everything?"),
             "Are you sure you want\nto delete everything?\n\nThis operation is irreversible.",
             None,
             self.purge_alert_choice.clone(),
@@ -30,7 +30,7 @@ impl SysInspectUX {
             return;
         }
 
-        Self::yesno_popup(parent, buf, "Quit?", "Quit the UI?", Some(Color::Blue), self.exit_alert_choice.clone());
+        Self::yesno_popup(parent, buf, None, "Quit the UI?", Some(Color::Blue), self.exit_alert_choice.clone());
     }
 
     /// Draws a button in MS-DOS style (no shadow)
@@ -42,7 +42,9 @@ impl SysInspectUX {
     }
 
     /// Draws yes/no popup area
-    fn yesno_popup(parent: Rect, buf: &mut Buffer, title: &str, text: &str, background: Option<Color>, choice: AlertResult) {
+    fn yesno_popup(
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
+    ) {
         let background = background.unwrap_or(Color::Red);
 
         let text = format!("\n{}", text);
@@ -56,7 +58,7 @@ impl SysInspectUX {
         Clear.render(canvas, buf);
 
         let popup_block = Block::default()
-            .title(format!(" {title} "))
+            .title(if let Some(t) = title { format!(" {t} ") } else { "".to_string() })
             .title_alignment(Alignment::Center)
             .title_style(Style::default().fg(Color::Black).bg(Color::Gray))
             .borders(Borders::ALL)
