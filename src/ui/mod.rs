@@ -1,5 +1,5 @@
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use elements::{ActiveBox, AlertResult, Cycle};
+use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use rand::Rng;
 use ratatui::{
     DefaultTerminal, Frame,
@@ -27,8 +27,8 @@ pub struct SysInspectUX {
     pub selected_minion: usize,
     pub selected_event: usize,
 
-    pub minions: Vec<String>,
-    pub events: Vec<String>,
+    pub minions: Vec<MinionListItem>,
+    pub events: Vec<EventListItem>,
     pub active_box: ActiveBox,
 
     pub status_text: String,
@@ -268,18 +268,18 @@ impl SysInspectUX {
         self.exit = true;
     }
     /// Returns a vector of cycle names.
-    pub fn get_cycles(&self) -> Vec<Cycle> {
-        (0..100).map(|id| Cycle { id }).collect()
+    pub fn get_cycles(&self) -> Vec<CycleListItem> {
+        (0..100).map(|id| CycleListItem::new("Cycle", id)).collect()
     }
 
     /// Returns a vector of minion names (random IDs).
-    pub fn get_minions(&self) -> Vec<String> {
-        (0..100).map(|x| format!("minion-{}-{}", x, rand::rng().random_range(0..100))).collect()
+    pub fn get_minions(&self) -> Vec<MinionListItem> {
+        (0..100).map(|x| MinionListItem::new(&format!("minion - {x}"), rand::rng().random_range(0..100))).collect()
     }
 
     /// Returns a vector of events (random IDs)
-    pub fn get_events(&self) -> Vec<String> {
-        (0..100).map(|x| format!("event-{}-{}", x, rand::rng().random_range(0..100))).collect()
+    pub fn get_events(&self) -> Vec<EventListItem> {
+        (0..100).map(|x| EventListItem::new(&format!("event - {x}"), rand::rng().random_range(0..100))).collect()
     }
 
     /// Count the vertical space for the alert display, plus three empty lines
