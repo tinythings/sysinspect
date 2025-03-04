@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sled::{Db, Tree};
 use std::{collections::HashMap, fs, path::PathBuf};
-use tempfile::{Builder, TempDir};
+use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
 
