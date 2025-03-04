@@ -1,5 +1,6 @@
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
+use indexmap::IndexMap;
 use rand::Rng;
 use ratatui::{
     DefaultTerminal, Frame,
@@ -29,6 +30,7 @@ pub struct SysInspectUX {
 
     pub minions: Vec<MinionListItem>,
     pub events: Vec<EventListItem>,
+    pub event_data: IndexMap<String, String>,
     pub active_box: ActiveBox,
 
     pub status_text: String,
@@ -51,6 +53,7 @@ impl Default for SysInspectUX {
             selected_event: 0,
             minions: Vec::new(),
             events: Vec::new(),
+            event_data: IndexMap::new(),
             active_box: ActiveBox::Cycles,
             status_text: "Init".to_string(),
 
@@ -105,7 +108,7 @@ impl SysInspectUX {
         match self.active_box {
             ActiveBox::Cycles => self.active_box = ActiveBox::Minions,
             ActiveBox::Minions => self.active_box = ActiveBox::Events,
-            ActiveBox::Events => self.active_box = ActiveBox::Cycles,
+            ActiveBox::Events | ActiveBox::Info => self.active_box = ActiveBox::Cycles,
         };
     }
 
@@ -114,7 +117,7 @@ impl SysInspectUX {
         match self.active_box {
             ActiveBox::Cycles => self.active_box = ActiveBox::Events,
             ActiveBox::Minions => self.active_box = ActiveBox::Cycles,
-            ActiveBox::Events => self.active_box = ActiveBox::Minions,
+            ActiveBox::Events | ActiveBox::Info => self.active_box = ActiveBox::Minions,
         };
     }
 
@@ -208,6 +211,7 @@ impl SysInspectUX {
                             self.selected_event -= 1;
                         }
                     }
+                    ActiveBox::Info => self.active_box = ActiveBox::Events,
                 };
             }
             KeyCode::Down => {
@@ -228,6 +232,7 @@ impl SysInspectUX {
                             self.selected_event += 1;
                         }
                     }
+                    _ => {}
                 };
             }
             KeyCode::Right => {
@@ -237,20 +242,30 @@ impl SysInspectUX {
                 self.shift_prev();
             }
             KeyCode::Enter => {
-                if self.active_box == ActiveBox::Cycles {
-                    let cycles = self.get_cycles();
-                    if !cycles.is_empty() {
-                        self.minions = self.get_minions();
-                        self.selected_minion = 0;
+                match self.active_box {
+                    ActiveBox::Cycles => {
+                        let cycles = self.get_cycles();
+                        if !cycles.is_empty() {
+                            self.minions = self.get_minions();
+                            self.selected_minion = 0;
+                        }
+                        self.shift_next();
                     }
-                    self.shift_next();
-                } else if self.active_box == ActiveBox::Minions {
-                    if !self.minions.is_empty() {
-                        self.events = self.get_events();
-                        self.selected_event = 0;
+                    ActiveBox::Minions => {
+                        if !self.minions.is_empty() {
+                            self.events = self.get_events();
+                            self.selected_event = 0;
+                        }
+                        self.shift_next();
                     }
-                    self.shift_next();
-                }
+                    ActiveBox::Events => {
+                        if !self.events.is_empty() {
+                            self.active_box = ActiveBox::Info;
+                            self.event_data = self.get_event_data();
+                        }
+                    }
+                    _ => {}
+                };
             }
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.exit_alert_visible = true;
@@ -285,5 +300,13 @@ impl SysInspectUX {
     /// Count the vertical space for the alert display, plus three empty lines
     fn get_text_lines(s: &str) -> u16 {
         s.matches('\n').count() as u16 + 3
+    }
+
+    /// Get event data
+    fn get_event_data(&self) -> IndexMap<String, String> {
+        let mut m = IndexMap::new();
+        m.insert("Foo".to_string(), "Bar".to_string());
+        m.insert("Baz".to_string(), "Toto".to_string());
+        m
     }
 }

@@ -16,13 +16,13 @@ impl SysInspectUX {
     /// Render information box where data from the selected event is displayed
     fn _render_info_box(&self, rect: Rect, buf: &mut Buffer) {
         let title = "Action Data";
-        let bottom_block = Block::default().borders(Borders::ALL).title(format!(" {title} "));
+        let block = self._get_box_block(title, ActiveBox::Info);
 
         let header = Row::new(vec!["Key", "Value"]).style(Style::default().fg(Color::Yellow)).bottom_margin(1);
         let row1 = Row::new(vec!["foo", "bar"]);
         let row2 = Row::new(vec!["baz", "toto"]);
         let table = Table::new(vec![header, row1, row2], &[Constraint::Length(10), Constraint::Length(10)])
-            .block(bottom_block)
+            .block(block)
             .column_spacing(1);
         Widget::render(table, rect, buf);
     }
@@ -30,7 +30,7 @@ impl SysInspectUX {
     /// Render list of events
     fn _render_events_box(&self, rect: Rect, buf: &mut Buffer) {
         let title = "Action Results";
-        let block = self._get_active_block(title, ActiveBox::Events);
+        let block = self._get_box_block(title, ActiveBox::Events);
         Widget::render(&block, rect, buf);
 
         let events_inner = block.inner(rect);
@@ -73,7 +73,7 @@ impl SysInspectUX {
     /// Render minions block in the middle of the main screen
     fn _render_minions_block(&self, rect: Rect, buf: &mut Buffer) {
         let title = "Minions";
-        let block = self._get_active_block(title, ActiveBox::Minions);
+        let block = self._get_box_block(title, ActiveBox::Minions);
         Widget::render(&block, rect, buf);
 
         let minions_inner = block.inner(rect);
@@ -100,7 +100,7 @@ impl SysInspectUX {
     }
 
     /// Prepares an active block with the border and title
-    fn _get_active_block(&self, title: &str, hl: ActiveBox) -> Block {
+    fn _get_box_block(&self, title: &str, hl: ActiveBox) -> Block {
         if self.active_box == hl {
             Block::default()
                 .borders(Borders::ALL)
@@ -121,7 +121,7 @@ impl SysInspectUX {
     /// Render cycles block in the middle of the main screen
     fn _render_cycles_block(&self, rect: Rect, buf: &mut Buffer) {
         let title = "Query Calls";
-        let block = self._get_active_block(title, ActiveBox::Cycles);
+        let block = self._get_box_block(title, ActiveBox::Cycles);
         Widget::render(&block, rect, buf);
 
         let cycles_inner = block.inner(rect);

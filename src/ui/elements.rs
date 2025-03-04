@@ -4,6 +4,7 @@ pub enum ActiveBox {
     Cycles,
     Minions,
     Events,
+    Info,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
