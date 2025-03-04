@@ -1,4 +1,7 @@
-use super::{SysInspectUX, elements::ActiveBox};
+use super::{
+    SysInspectUX,
+    elements::{ActiveBox, DbListItem},
+};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
@@ -12,7 +15,8 @@ use ratatui::{
 impl SysInspectUX {
     /// Render information box where data from the selected event is displayed
     fn _render_info_box(&self, rect: Rect, buf: &mut Buffer) {
-        let bottom_block = Block::default().borders(Borders::ALL).title("Bottom Right");
+        let title = "Action Data";
+        let bottom_block = Block::default().borders(Borders::ALL).title(format!(" {title} "));
 
         let header = Row::new(vec!["Key", "Value"]).style(Style::default().fg(Color::Yellow)).bottom_margin(1);
         let row1 = Row::new(vec!["foo", "bar"]);
@@ -25,23 +29,22 @@ impl SysInspectUX {
 
     /// Render list of events
     fn _render_events_box(&self, rect: Rect, buf: &mut Buffer) {
-        let right_block = if self.active_box == ActiveBox::Events {
-            Block::default().borders(Borders::ALL).title("Events").border_type(BorderType::Double)
-        } else {
-            Block::default().borders(Borders::ALL).title("Right Block")
-        };
-        Widget::render(&right_block, rect, buf);
+        let title = "Action Results";
+        let block = self._get_active_block(title, ActiveBox::Events);
+        Widget::render(&block, rect, buf);
 
-        let events_inner = right_block.inner(rect);
-        let events_items: Vec<ListItem> = self.events.iter().map(|m| ListItem::new(m.as_str())).collect();
+        let events_inner = block.inner(rect);
         let mut events_state = ListState::default();
         if !self.events.is_empty() {
             events_state.select(Some(self.selected_event));
         }
-        let events_list = List::new(events_items)
-            .highlight_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD))
-            .highlight_symbol(">> ");
-        StatefulWidget::render(events_list, events_inner, buf, &mut events_state);
+
+        StatefulWidget::render(
+            self._wrap_list_items(self._get_list_items(&self.events, ActiveBox::Events), ActiveBox::Events),
+            events_inner,
+            buf,
+            &mut events_state,
+        );
 
         let mut events_scroll_state = ScrollbarState::default()
             .content_length(self.events.len())
@@ -69,23 +72,22 @@ impl SysInspectUX {
 
     /// Render minions block in the middle of the main screen
     fn _render_minions_block(&self, rect: Rect, buf: &mut Buffer) {
-        let minions_block = if self.active_box == ActiveBox::Minions {
-            Block::default().borders(Borders::ALL).title("Minions").border_type(BorderType::Double)
-        } else {
-            Block::default().borders(Borders::ALL).title("Minions")
-        };
-        Widget::render(&minions_block, rect, buf);
+        let title = "Minions";
+        let block = self._get_active_block(title, ActiveBox::Minions);
+        Widget::render(&block, rect, buf);
 
-        let minions_inner = minions_block.inner(rect);
-        let minion_items: Vec<ListItem> = self.minions.iter().map(|m| ListItem::new(m.as_str())).collect();
+        let minions_inner = block.inner(rect);
         let mut minions_state = ListState::default();
         if !self.minions.is_empty() {
             minions_state.select(Some(self.selected_minion));
         }
-        let minions_list = List::new(minion_items)
-            .highlight_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD))
-            .highlight_symbol(">> ");
-        StatefulWidget::render(minions_list, minions_inner, buf, &mut minions_state);
+
+        StatefulWidget::render(
+            self._wrap_list_items(self._get_list_items(&self.minions, ActiveBox::Minions), ActiveBox::Minions),
+            minions_inner,
+            buf,
+            &mut minions_state,
+        );
 
         let mut minions_scroll_state = ScrollbarState::default()
             .content_length(self.minions.len())
@@ -97,53 +99,68 @@ impl SysInspectUX {
         );
     }
 
-    /// Render cycles block in the middle of the main screen
-    fn _render_cycles_block(&self, rect: Rect, buf: &mut Buffer) {
-        let cycles_block = if self.active_box == ActiveBox::Cycles {
+    /// Prepares an active block with the border and title
+    fn _get_active_block(&self, title: &str, hl: ActiveBox) -> Block {
+        if self.active_box == hl {
             Block::default()
                 .borders(Borders::ALL)
-                .title("Cyclez")
-                .title_style(Style::default().fg(Color::LightYellow))
+                .title(format!(" {title} "))
+                .title_style(Style::default().fg(Color::Black).bg(Color::LightGreen).add_modifier(Modifier::BOLD))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::White))
+                .border_style(Style::default().fg(Color::LightGreen).bg(Color::Reset))
         } else {
             Block::default()
                 .borders(Borders::ALL)
-                .title("Cyclez")
+                .title(format!(" {title} "))
+                .title_style(Style::default().fg(Color::Gray).bg(Color::Reset))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::DarkGray))
-        };
-        Widget::render(&cycles_block, rect, buf);
+                .border_style(Style::default().fg(Color::Gray).bg(Color::Reset))
+        }
+    }
 
-        let cycles_inner = cycles_block.inner(rect);
+    /// Render cycles block in the middle of the main screen
+    fn _render_cycles_block(&self, rect: Rect, buf: &mut Buffer) {
+        let title = "Query Calls";
+        let block = self._get_active_block(title, ActiveBox::Cycles);
+        Widget::render(&block, rect, buf);
+
+        let cycles_inner = block.inner(rect);
         let cycles = self.get_cycles();
-        let items: Vec<ListItem> = cycles
-            .iter()
-            .map(|cycle| {
-                let line = Line::from(vec![
-                    Span::styled(">", Style::default().fg(Color::White)),
-                    Span::raw(" "),
-                    Span::styled(cycle.get_title(), Style::default().fg(Color::LightYellow)), // title in light yellow
-                ]);
-                ListItem::new(line)
-            })
-            .collect();
         let mut list_state = ListState::default();
         if !cycles.is_empty() {
             list_state.select(Some(self.selected_cycle));
         }
 
-        let cycles_list =
-            List::new(items).highlight_style(Style::default().fg(Color::White).bg(Color::Green).add_modifier(Modifier::BOLD));
+        let items: Vec<ListItem> = self._get_list_items(&cycles, ActiveBox::Cycles);
+        StatefulWidget::render(self._wrap_list_items(items, ActiveBox::Cycles), cycles_inner, buf, &mut list_state);
 
-        StatefulWidget::render(cycles_list, cycles_inner, buf, &mut list_state);
-
-        let mut cycles_scroll_state = ScrollbarState::default().content_length(cycles.len()).position(self.selected_cycle);
+        let mut scroll_state = ScrollbarState::default().content_length(cycles.len()).position(self.selected_cycle);
         Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
             cycles_inner,
             buf,
-            &mut cycles_scroll_state,
+            &mut scroll_state,
         );
+    }
+
+    fn _get_list_items<T: DbListItem>(&self, items: &Vec<T>, hl: ActiveBox) -> Vec<ListItem<'static>> {
+        let fg = if self.active_box == hl { Color::White } else { Color::Gray };
+        items
+            .iter()
+            .map(|item| {
+                let line = Line::from(vec![Span::raw(" "), Span::styled(item.title(), Style::default().fg(fg))]);
+                ListItem::new(line)
+            })
+            .collect()
+    }
+
+    fn _wrap_list_items<'a>(&self, items: Vec<ListItem<'a>>, hl: ActiveBox) -> List<'a> {
+        let hl_style = if self.active_box == hl {
+            Style::default().fg(Color::White).bg(Color::Green).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray).bg(Color::DarkGray)
+        };
+        let hl_symbol = if self.active_box == hl { "▶ " } else { "▷ " };
+        List::new(items).highlight_style(hl_style).highlight_symbol(hl_symbol)
     }
 }
 
