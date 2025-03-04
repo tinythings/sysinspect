@@ -1,18 +1,24 @@
 /// Active box selector
 #[derive(Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ActiveBox {
+    #[default]
     Cycles,
     Minions,
     Events,
     Info,
 }
 
+
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Default)]
 pub enum AlertResult {
+    #[default]
     Default,
     Purge,
     Quit,
 }
+
 
 pub trait DbListItem {
     fn title(&self) -> String;

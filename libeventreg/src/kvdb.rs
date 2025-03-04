@@ -109,6 +109,12 @@ pub struct EventsRegistry {
     conn: Db,
 }
 
+impl Default for EventsRegistry {
+    fn default() -> Self {
+        Self { conn: sled::Config::new().temporary(true).open().unwrap() } // open in memory
+    }
+}
+
 impl EventsRegistry {
     pub fn new(p: PathBuf) -> Result<EventsRegistry, SysinspectError> {
         log::info!("Opening database registry at {}", p.to_str().unwrap_or_default());

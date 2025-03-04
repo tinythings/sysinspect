@@ -1,6 +1,7 @@
 use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
+    SysinspectError,
     cfg::{
         mmconf::{MasterConfig, MinionConfig},
         select_config_path,
@@ -8,12 +9,11 @@ use libsysinspect::{
     inspector::SysInspectRunner,
     logger,
     proto::query::{
-        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
         SCHEME_COMMAND,
+        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
     },
     reactor::handlers,
     traits::get_minion_traits,
-    SysinspectError,
 };
 use log::LevelFilter;
 use std::{env, fs::OpenOptions, io::Write};
@@ -93,14 +93,6 @@ fn main() {
         };
     }
 
-    if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
-        print_event_handlers();
-        return;
-    } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
-        _ = ui::run();
-        return;
-    }
-
     // Get master config
     let cfg = match get_cfg(&params) {
         Ok(cfg) => cfg,
@@ -109,6 +101,14 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
+        print_event_handlers();
+        return;
+    } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
+        _ = ui::run(cfg);
+        return;
+    }
 
     if let Some(model) = params.get_one::<String>("path") {
         let query = params.get_one::<String>("query");

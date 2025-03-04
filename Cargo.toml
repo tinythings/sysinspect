@@ -10,6 +10,7 @@ chrono = "0.4.38"
 clap = { version = "4.5.21", features = ["unstable-styles"] }
 colored = "2.1.0"
 libsysinspect = { path = "./libsysinspect" }
+libeventreg = { path = "./libeventreg" }
 log = "0.4.22"
 sysinfo = { version = "0.32.0", features = ["linux-tmpfs"] }
 openssl = { version = "0.10", features = ["vendored"] }

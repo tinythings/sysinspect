@@ -1,6 +1,8 @@
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
+use libeventreg::kvdb::EventsRegistry;
+use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use rand::Rng;
 use ratatui::{
     DefaultTerminal, Frame,
@@ -8,20 +10,28 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Paragraph,
 };
-use std::io;
+use std::{
+    io::{self, Error},
+    path::PathBuf,
+};
 
 mod alert;
 mod elements;
 mod wgt;
 
-pub fn run() -> io::Result<()> {
-    let mut terminal = ratatui::init();
-    let r = SysInspectUX::default().run(&mut terminal);
-    ratatui::restore();
-    r
+pub fn run(cfg: MasterConfig) -> io::Result<()> {
+    match SysInspectUX::new(cfg.telemetry_location()) {
+        Ok(mut app) => {
+            let mut terminal = ratatui::init();
+            let r = app.run(&mut terminal);
+            ratatui::restore();
+            r
+        }
+        Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SysInspectUX {
     exit: bool,
     pub selected_cycle: usize,
@@ -42,34 +52,16 @@ pub struct SysInspectUX {
     /// Exit alert
     pub exit_alert_visible: bool,
     pub exit_alert_choice: AlertResult,
+
     // DB
-}
-
-impl Default for SysInspectUX {
-    fn default() -> Self {
-        Self {
-            exit: false,
-            selected_cycle: 0,
-            selected_minion: 0,
-            selected_event: 0,
-            minions: Vec::new(),
-            events: Vec::new(),
-            event_data: IndexMap::new(),
-            active_box: ActiveBox::Cycles,
-            status_text: "Init".to_string(),
-
-            // Purge alert
-            purge_alert_visible: false,
-            purge_alert_choice: AlertResult::Default,
-
-            // Exit alert
-            exit_alert_visible: false,
-            exit_alert_choice: AlertResult::Default,
-        }
-    }
+    evtdb: EventsRegistry,
 }
 
 impl SysInspectUX {
+    pub fn new(p: PathBuf) -> Result<Self, SysinspectError> {
+        Ok(SysInspectUX { evtdb: EventsRegistry::new(p)?, ..Default::default() })
+    }
+
     pub fn run(&mut self, term: &mut DefaultTerminal) -> io::Result<()> {
         while !self.exit {
             term.draw(|frame| self.draw(frame))?;

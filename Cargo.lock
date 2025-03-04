@@ -4675,6 +4675,7 @@ dependencies = [
  "colored 2.2.0",
  "crossterm",
  "indexmap",
+ "libeventreg",
  "libsysinspect",
  "log",
  "openssl",
