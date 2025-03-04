@@ -1,6 +1,5 @@
 use crate::{
     dataserv::fls,
-    evtreg::kvdb::{EventMinion, EventsRegistry},
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
@@ -8,6 +7,7 @@ use crate::{
     },
 };
 use indexmap::IndexMap;
+use libeventreg::kvdb::{EventMinion, EventsRegistry};
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::MasterConfig,

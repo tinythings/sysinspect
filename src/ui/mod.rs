@@ -42,6 +42,7 @@ pub struct SysInspectUX {
     /// Exit alert
     pub exit_alert_visible: bool,
     pub exit_alert_choice: AlertResult,
+    // DB
 }
 
 impl Default for SysInspectUX {

@@ -1,6 +1,5 @@
 mod clidef;
 mod dataserv;
-mod evtreg;
 mod master;
 mod registry;
 mod rmt;
@@ -8,8 +7,9 @@ mod rmt;
 use clidef::cli;
 use daemonize::Daemonize;
 use libsysinspect::{
+    SysinspectError,
     cfg::{mmconf::MasterConfig, select_config_path},
-    logger, SysinspectError,
+    logger,
 };
 use log::LevelFilter;
 use std::{env, fs::File};

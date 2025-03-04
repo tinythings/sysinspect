@@ -820,6 +820,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "colored"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
+dependencies = [
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2343,6 +2352,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "875b3680cb2f8f71bdcf9a30f38d48282f5d3c95cbf9b3fa57269bb5d5c06828"
 
 [[package]]
+name = "libeventreg"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "colored 3.0.0",
+ "libsysinspect",
+ "log",
+ "serde",
+ "serde_json",
+ "sled",
+]
+
+[[package]]
 name = "libloading"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2400,7 +2422,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
- "colored",
+ "colored 2.2.0",
  "dashmap",
  "hex",
  "indexmap",
@@ -4250,9 +4272,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.139"
+version = "1.0.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44f86c3acccc9c65b153fe1b85a3be07fe5515274ec9f0653b4a0875731c72a6"
+checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
 dependencies = [
  "indexmap",
  "itoa",
@@ -4650,7 +4672,7 @@ dependencies = [
  "chrono",
  "clap 4.5.31",
  "color-eyre",
- "colored",
+ "colored 2.2.0",
  "crossterm",
  "indexmap",
  "libsysinspect",
@@ -4669,12 +4691,13 @@ dependencies = [
  "actix-web",
  "chrono",
  "clap 4.5.31",
- "colored",
+ "colored 2.2.0",
  "daemonize",
  "ed25519-dalek",
  "futures",
  "indexmap",
  "libc",
+ "libeventreg",
  "libsysinspect",
  "log",
  "once_cell",
@@ -4698,7 +4721,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "clap 4.5.31",
- "colored",
+ "colored 2.2.0",
  "daemonize",
  "ed25519-dalek",
  "glob",
