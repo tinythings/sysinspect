@@ -15,6 +15,8 @@ use std::{
     path::PathBuf,
 };
 
+use crate::MEM_LOGGER;
+
 mod alert;
 mod elements;
 mod wgt;
@@ -25,6 +27,7 @@ pub fn run(cfg: MasterConfig) -> io::Result<()> {
             let mut terminal = ratatui::init();
             let r = app.run(&mut terminal);
             ratatui::restore();
+            println!("{:#?}", MEM_LOGGER.get_messages());
             r
         }
         Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
@@ -54,12 +57,12 @@ pub struct SysInspectUX {
     pub exit_alert_choice: AlertResult,
 
     // DB
-    evtdb: EventsRegistry,
+    pub evtdb: EventsRegistry,
 }
 
 impl SysInspectUX {
     pub fn new(p: PathBuf) -> Result<Self, SysinspectError> {
-        Ok(SysInspectUX { evtdb: EventsRegistry::new(p)?, ..Default::default() })
+        Ok(SysInspectUX { evtdb: EventsRegistry::clone(p)?, ..Default::default() })
     }
 
     pub fn run(&mut self, term: &mut DefaultTerminal) -> io::Result<()> {
@@ -67,6 +70,7 @@ impl SysInspectUX {
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
         }
+        self.evtdb.cleanup().unwrap(); // XXX: not nice
         Ok(())
     }
 

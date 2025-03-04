@@ -2357,11 +2357,14 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "colored 3.0.0",
+ "fs_extra",
+ "glob",
  "libsysinspect",
  "log",
  "serde",
  "serde_json",
  "sled",
+ "tempfile",
 ]
 
 [[package]]

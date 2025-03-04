@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use fs_extra::dir::{CopyOptions, copy};
 use libsysinspect::{
     SysinspectError,
     util::{self},
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sled::{Db, Tree};
 use std::{collections::HashMap, fs, path::PathBuf};
+use tempfile::{Builder, TempDir};
 
 const TR_SESSIONS: &str = "sessions";
 
@@ -107,11 +109,12 @@ impl EventSession {
 #[derive(Debug)]
 pub struct EventsRegistry {
     conn: Db,
+    cloned: Option<PathBuf>,
 }
 
 impl Default for EventsRegistry {
     fn default() -> Self {
-        Self { conn: sled::Config::new().temporary(true).open().unwrap() } // open in memory
+        Self { conn: sled::Config::new().temporary(true).open().unwrap(), cloned: None } // open in memory
     }
 }
 
@@ -127,6 +130,49 @@ impl EventsRegistry {
                 Ok(db) => db,
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
             },
+            cloned: None,
+        })
+    }
+
+    /// Should be explicitly called on exit
+    pub fn cleanup(&self) -> Result<(), SysinspectError> {
+        if let Some(cloned) = self.cloned.clone() {
+            return Ok(fs::remove_dir_all(cloned)?);
+        }
+
+        Ok(())
+    }
+
+    /// This is a brute-force copy of the database, because sled doesn't allow open database
+    /// in read-only mode from the other processes if it is already opened.
+    pub fn clone(p: PathBuf) -> Result<EventsRegistry, SysinspectError> {
+        let mut options = CopyOptions::new();
+        options.overwrite = true;
+        options.copy_inside = true;
+
+        let prefix = "sysinspect-db-clone-";
+        let pattern = format!("/tmp/{}*", prefix);
+        for entry in glob::glob(&pattern).unwrap() {
+            match entry {
+                Ok(path) if path.is_dir() => {
+                    log::info!("Cleanup stale clone: {:?}", path);
+                    fs::remove_dir_all(path)?;
+                }
+                Ok(_) => {} // Not a directory, skip it.
+                Err(e) => eprintln!("Error matching path: {:?}", e),
+            }
+        }
+
+        let tmpdir = Builder::new().prefix(prefix).tempdir()?.into_path();
+        log::info!("Cloned database to {}", tmpdir.to_str().unwrap_or_default());
+        copy(p, &tmpdir, &options).map(|_| ()).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        Ok(EventsRegistry {
+            conn: match sled::open(&tmpdir) {
+                Ok(db) => db,
+                Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
+            },
+            cloned: Some(tmpdir),
         })
     }
 
