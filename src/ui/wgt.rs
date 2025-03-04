@@ -142,7 +142,7 @@ impl SysInspectUX {
         );
     }
 
-    fn _get_list_items<T: DbListItem>(&self, items: &Vec<T>, hl: ActiveBox) -> Vec<ListItem<'static>> {
+    fn _get_list_items<T: DbListItem>(&self, items: &[T], hl: ActiveBox) -> Vec<ListItem<'static>> {
         let fg = if self.active_box == hl { Color::White } else { Color::Gray };
         items
             .iter()
