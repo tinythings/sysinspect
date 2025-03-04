@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use chrono::Local;
 use colored::{self, Colorize};
 use log::{Level, Metadata, Record};
@@ -20,6 +22,37 @@ impl log::Log for STDOUTLogger {
             };
 
             println!("[{}] - {}: {}", Local::now().format("%d/%m/%Y %H:%M:%S"), s_level, msg.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+pub struct MemoryLogger {
+    pub messages: Mutex<Vec<String>>,
+}
+
+impl MemoryLogger {
+    fn new() -> Self {
+        Self { messages: Mutex::new(Vec::new()) }
+    }
+
+    // Retrieve the stored messages
+    pub fn get_messages(&self) -> Vec<String> {
+        self.messages.lock().unwrap().clone()
+    }
+}
+
+// Implement the Log trait for MemoryLogger
+impl log::Log for MemoryLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= Level::Info
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            let mut messages = self.messages.lock().unwrap();
+            messages.push(format!("{} - {}", record.level(), record.args()));
         }
     }
 

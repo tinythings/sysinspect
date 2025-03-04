@@ -7,7 +7,7 @@ use libsysinspect::{
         select_config_path,
     },
     inspector::SysInspectRunner,
-    logger,
+    logger::{self, MemoryLogger},
     proto::query::{
         SCHEME_COMMAND,
         commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
@@ -16,13 +16,14 @@ use libsysinspect::{
     traits::get_minion_traits,
 };
 use log::LevelFilter;
-use std::{env, fs::OpenOptions, io::Write};
+use std::{env, fs::OpenOptions, io::Write, sync::Mutex};
 
 mod clidef;
 mod ui;
 
 static VERSION: &str = "0.3.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
 
 /// Display event handlers
 fn print_event_handlers() {
@@ -47,7 +48,13 @@ fn call_master_fifo(
 
 /// Set logger
 fn set_logger(p: &ArgMatches) {
-    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+    let log: &'static dyn log::Log = if *p.get_one::<bool>("ui").unwrap_or(&false) {
+        &MEM_LOGGER as &'static dyn log::Log
+    } else {
+        &LOGGER as &'static dyn log::Log
+    };
+
+    if let Err(err) = log::set_logger(log).map(|()| {
         log::set_max_level(match p.get_count("debug") {
             0 => LevelFilter::Info,
             1 => LevelFilter::Debug,
@@ -106,7 +113,9 @@ fn main() {
         print_event_handlers();
         return;
     } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
-        _ = ui::run(cfg);
+        if let Err(err) = ui::run(cfg) {
+            println!("Error: {err}");
+        }
         return;
     }
 
