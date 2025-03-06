@@ -31,7 +31,7 @@ pub async fn run(cfg: MasterConfig) -> io::Result<()> {
             println!("{:#?}", MEM_LOGGER.get_messages());
 
             if let Some(ipc) = app.evtipc {
-                ipc.lock().await.run().await;
+                _ = ipc.lock().await.run().await;
             }
 
             r
@@ -88,6 +88,7 @@ impl Default for SysInspectUX {
 }
 
 impl SysInspectUX {
+    #[allow(clippy::field_reassign_with_default)]
     pub async fn new(ipc_socket: &str) -> Result<Self, SysinspectError> {
         let mut ux = SysInspectUX::default();
 
