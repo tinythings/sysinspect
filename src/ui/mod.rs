@@ -13,7 +13,6 @@ use ratatui::{
 };
 use std::{
     io::{self, Error},
-    path::PathBuf,
     sync::Arc,
 };
 use tokio::sync::Mutex;
