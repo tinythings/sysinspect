@@ -1,7 +1,8 @@
+use crate::MEM_LOGGER;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
-use libeventreg::kvdb::EventsRegistry;
+use libeventreg::ipcc::DbIPCClient;
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use rand::Rng;
 use ratatui::{
@@ -13,28 +14,34 @@ use ratatui::{
 use std::{
     io::{self, Error},
     path::PathBuf,
+    sync::Arc,
 };
-
-use crate::MEM_LOGGER;
+use tokio::sync::Mutex;
 
 mod alert;
 mod elements;
 mod wgt;
 
-pub fn run(cfg: MasterConfig) -> io::Result<()> {
-    match SysInspectUX::new(cfg.telemetry_location()) {
+pub async fn run(cfg: MasterConfig) -> io::Result<()> {
+    match SysInspectUX::new("/tmp/db-sled-ipc.socket").await {
         Ok(mut app) => {
             let mut terminal = ratatui::init();
             let r = app.run(&mut terminal);
             ratatui::restore();
+
             println!("{:#?}", MEM_LOGGER.get_messages());
+
+            if let Some(ipc) = app.evtipc {
+                ipc.lock().await.run().await;
+            }
+
             r
         }
         Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SysInspectUX {
     exit: bool,
     pub selected_cycle: usize,
@@ -57,12 +64,37 @@ pub struct SysInspectUX {
     pub exit_alert_choice: AlertResult,
 
     // DB
-    pub evtdb: EventsRegistry,
+    pub evtipc: Option<Arc<Mutex<DbIPCClient>>>,
+}
+
+impl Default for SysInspectUX {
+    fn default() -> Self {
+        Self {
+            exit: false,
+            selected_cycle: 0,
+            selected_minion: 0,
+            selected_event: 0,
+            minions: Vec::new(),
+            events: Vec::new(),
+            event_data: IndexMap::new(),
+            active_box: ActiveBox::default(),
+            status_text: String::new(),
+            purge_alert_visible: false,
+            purge_alert_choice: AlertResult::default(),
+            exit_alert_visible: false,
+            exit_alert_choice: AlertResult::default(),
+            evtipc: None,
+        }
+    }
 }
 
 impl SysInspectUX {
-    pub fn new(p: PathBuf) -> Result<Self, SysinspectError> {
-        Ok(SysInspectUX { evtdb: EventsRegistry::clone(p)?, ..Default::default() })
+    pub async fn new(ipc_socket: &str) -> Result<Self, SysinspectError> {
+        let mut ux = SysInspectUX::default();
+
+        ux.evtipc = Some(Arc::new(Mutex::new(DbIPCClient::new(ipc_socket).await?)));
+
+        Ok(ux)
     }
 
     pub fn run(&mut self, term: &mut DefaultTerminal) -> io::Result<()> {
@@ -70,7 +102,6 @@ impl SysInspectUX {
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
         }
-        self.evtdb.cleanup().unwrap(); // XXX: not nice
         Ok(())
     }
 

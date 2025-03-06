@@ -70,7 +70,8 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
     MasterConfig::new(select_config_path(p.get_one::<&str>("config").cloned())?)
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     let mut cli = clidef::cli(VERSION);
 
@@ -113,7 +114,7 @@ fn main() {
         print_event_handlers();
         return;
     } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
-        if let Err(err) = ui::run(cfg) {
+        if let Err(err) = ui::run(cfg).await {
             println!("Error: {err}");
         }
         return;
@@ -143,6 +144,6 @@ fn main() {
         sr.set_checkbook_labels(clidef::split_by(&params, "labels", None));
         sr.set_traits(get_minion_traits(None));
 
-        tokio::runtime::Runtime::new().unwrap().block_on(sr.start())
+        sr.start().await;
     }
 }
