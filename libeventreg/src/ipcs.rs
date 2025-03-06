@@ -24,14 +24,12 @@ impl IpcService for Arc<DbIPCService> {
         for tree_name in self.db.tree_names() {
             let tree = self.db.open_tree(&tree_name).map_err(|e| Status::internal(e.to_string()))?;
 
-            for item in tree.iter() {
-                if let Ok((key, value)) = item {
-                    records.push(Record {
-                        key: String::from_utf8_lossy(&key).to_string(),
-                        value: value.to_vec(),
-                        tree: String::from_utf8_lossy(&tree_name).to_string(),
-                    });
-                }
+            for (key, value) in tree.iter().flatten() {
+                records.push(Record {
+                    key: String::from_utf8_lossy(&key).to_string(),
+                    value: value.to_vec(),
+                    tree: String::from_utf8_lossy(&tree_name).to_string(),
+                });
             }
         }
 
