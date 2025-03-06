@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package ipc;
+
+service IPCService {
+  rpc GetRecords (EmptyRequest) returns (RecordsResponse);
+  rpc Query (QueryRequest) returns (QueryResponse);
+}
+
+message EmptyRequest {}
+
+message Record {
+  string key = 1;
+  bytes value = 2;
+  string tree = 3;
+}
+
+message RecordsResponse {
+  repeated Record records = 1;
+}
+
+message QueryRequest {
+  string key = 1;
+  bytes value = 2;
+  string tree = 3;
+  string command = 4;
+}
+
+message QueryResponse {
+  bool success = 1;
+}
