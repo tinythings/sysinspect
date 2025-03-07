@@ -193,7 +193,7 @@ impl EventsRegistry {
     pub fn add_event(
         &mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>,
     ) -> Result<(), SysinspectError> {
-        let events = self.get_tree(&Self::to_tree_id(&sid, &mid))?;
+        let events = self.get_tree(&Self::to_tree_id(sid, &mid))?;
         if let Err(err) = events.insert(
             format!(
                 "{}/{}/{}",

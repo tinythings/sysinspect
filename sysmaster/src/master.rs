@@ -47,7 +47,6 @@ pub struct SysMaster {
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
     mreg: MinionRegistry,
-    evtreg: Arc<Mutex<EventsRegistry>>,
     evtipc: Arc<DbIPCService>,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
@@ -59,17 +58,8 @@ impl SysMaster {
         let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location())?));
-        let evtipc = Arc::new(DbIPCService::new("/tmp/sled-database", Arc::clone(&evtreg))?);
-        Ok(SysMaster {
-            cfg,
-            broadcast: tx,
-            mkr,
-            to_drop: HashSet::default(),
-            session: Arc::clone(&SHARED_SESSION),
-            mreg,
-            evtreg,
-            evtipc,
-        })
+        let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtipc })
     }
 
     /// Open FIFO socket for command-line communication
@@ -334,19 +324,42 @@ impl SysMaster {
                                         }
                                     };
 
-                                    let evtreg = m.evtreg.clone();
-                                    let mut evtreg = evtreg.lock().await;
-
-                                    let sid = evtreg
+                                    let sid = match m
+                                        .evtipc
                                         .open_session(
-                                            util::dataconv::as_str(pl.get("eid").cloned()), // TODO: Should be an actual model name!
+                                            util::dataconv::as_str(pl.get("eid").cloned()),
                                             util::dataconv::as_str(pl.get("cid").cloned()),
                                             util::dataconv::as_str(pl.get("timestamp").cloned()),
                                         )
-                                        .unwrap();
-                                    let mid =
-                                        evtreg.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).unwrap();
-                                    evtreg.add_event(sid, EventMinion::new(mid), pl).unwrap();
+                                        .await
+                                    {
+                                        Ok(sid) => sid,
+                                        Err(err) => {
+                                            log::error!("Unable to acquire session for this iteration: {err}");
+                                            return;
+                                        }
+                                    };
+
+                                    let mid = match m
+                                        .evtipc
+                                        .ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned())
+                                        .await
+                                    {
+                                        Ok(mid) => mid,
+                                        Err(err) => {
+                                            log::error!("Unable to record a minion {}: {err}", req.id().to_string());
+                                            return;
+                                        }
+                                    };
+
+                                    match m.evtipc.add_event(&sid, EventMinion::new(mid), pl).await {
+                                        Ok(_) => {
+                                            log::info!("Event added for {} in {:#?}", req.id(), sid);
+                                        }
+                                        Err(err) => {
+                                            log::error!("Unable to add event: {err}");
+                                        }
+                                    };
                                 });
                             }
 
@@ -550,8 +563,8 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let ipc = {
         let master_clone = Arc::clone(&master);
         tokio::spawn(async move {
-            let evtipc = Arc::clone(&master_clone.lock().await.evtipc.clone()); // ✅ Wrap in Arc
-            if let Err(e) = evtipc.run("/tmp/db-sled-ipc.socket").await {
+            let evtipc = Arc::clone(&master_clone.lock().await.evtipc.clone());
+            if let Err(e) = evtipc.run().await {
                 log::error!("IPC server error: {:?}", e);
             }
         })

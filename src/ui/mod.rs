@@ -22,7 +22,7 @@ mod elements;
 mod wgt;
 
 pub async fn run(cfg: MasterConfig) -> io::Result<()> {
-    match SysInspectUX::new("/tmp/db-sled-ipc.socket").await {
+    match SysInspectUX::new(cfg.telemetry_socket().to_str().unwrap_or_default()).await {
         Ok(mut app) => {
             let mut terminal = ratatui::init();
             let r = app.run(&mut terminal);
@@ -312,6 +312,11 @@ impl SysInspectUX {
     }
     /// Returns a vector of cycle names.
     pub fn get_cycles(&self) -> Vec<CycleListItem> {
+        if let Some(ipc) = self.evtipc.as_ref() {
+            //let mut ipc = ipc.lock().await;
+            //ipc.fetch_records().await.unwrap();
+        }
+
         (0..100).map(|id| CycleListItem::new("Cycle", id)).collect()
     }
 
