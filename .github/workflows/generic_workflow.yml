@@ -16,14 +16,23 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
     - name: Setup Rust Env
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
         toolchain: stable
+
+    - name: Install Protobuf Compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
     - name: Install nextest
       uses: taiki-e/install-action@nextest
+
     - name: Build
       run: make devel
+
     - name: Run tests
       run: make test
