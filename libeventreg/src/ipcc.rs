@@ -20,29 +20,9 @@ impl QueryRequest {
 #[derive(Debug)]
 pub struct DbIPCClient {
     client: IpcServiceClient<Channel>,
-    uds_path: Arc<String>, // ✅ Store as owned String inside an Arc
 }
 
 impl DbIPCClient {
-    pub async fn xnew(uds_path: impl Into<String>) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let uds_path = Arc::new(uds_path.into()); // ✅ Convert &str into owned String
-
-        let channel = Endpoint::try_from("http://[::]:50051")?
-            .connect_with_connector({
-                let uds_path = Arc::clone(&uds_path); // ✅ Clone Arc so it moves safely
-                service_fn(move |_| {
-                    let uds_path = Arc::clone(&uds_path);
-                    async move {
-                        let stream = UnixStream::connect(&*uds_path).await?;
-                        Ok::<_, std::io::Error>(TokioIo::new(stream))
-                    }
-                })
-            })
-            .await?;
-
-        Ok(Self { client: IpcServiceClient::new(channel), uds_path })
-    }
-
     pub async fn new(uds_path: impl Into<String>) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let uds_path = Arc::new(uds_path.into());
 
@@ -59,7 +39,7 @@ impl DbIPCClient {
             })
             .await?;
 
-        Ok(Self { client: IpcServiceClient::new(channel), uds_path })
+        Ok(Self { client: IpcServiceClient::new(channel) })
     }
 
     /// **Insert a record into the database**
@@ -84,10 +64,6 @@ impl DbIPCClient {
     /// **Run test operations (insert & fetch)**
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
         println!("Inserting sample records...");
-
-        for x in 0..100 {
-            self.insert(x).await?;
-        }
 
         println!("Fetching records...");
         self.fetch_records().await?;
