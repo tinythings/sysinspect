@@ -93,6 +93,10 @@ impl EventSession {
         self.ts.to_rfc3339()
     }
 
+    pub fn get_ts_mask(&self, m: Option<&str>) -> String {
+        self.ts.format(m.unwrap_or("%Y.%m.%d %H:%M")).to_string()
+    }
+
     pub fn get_ts_unix(&self) -> i64 {
         self.ts.timestamp()
     }
