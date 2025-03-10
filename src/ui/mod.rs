@@ -307,7 +307,6 @@ impl SysInspectUX {
     }
     /// Returns a vector of cycle names.
     pub fn get_cycles(&self) -> Vec<CycleListItem> {
-        log::info!("Getting cycles");
         if let Some(ipc) = self.evtipc.as_ref() {
             let c_ipc = ipc.clone();
             return tokio::task::block_in_place(|| {
@@ -317,12 +316,11 @@ impl SysInspectUX {
                         .into_inner()
                         .records
                         .into_iter()
-                        .enumerate()
-                        .map(|(i, rec)| {
+                        .map(|rec| {
                             let s =
                                 EventSession::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec())
                                     .unwrap();
-                            CycleListItem::new(s.get_ts_mask(None).as_str(), i as u32)
+                            CycleListItem::new(s.get_ts_mask(None).as_str(), s)
                         })
                         .collect();
                     cycles
