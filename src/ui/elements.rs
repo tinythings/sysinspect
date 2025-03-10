@@ -1,6 +1,5 @@
 /// Active box selector
-#[derive(Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum ActiveBox {
     #[default]
     Cycles,
@@ -9,16 +8,13 @@ pub enum ActiveBox {
     Info,
 }
 
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[derive(Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub enum AlertResult {
     #[default]
     Default,
     Purge,
     Quit,
 }
-
 
 pub trait DbListItem {
     fn title(&self) -> String;
@@ -43,7 +39,7 @@ impl CycleListItem {
 
 impl DbListItem for CycleListItem {
     fn title(&self) -> String {
-        format!("{} {}", self.title, self.id())
+        self.title.clone()
     }
 
     fn id(&self) -> u32 {
@@ -67,7 +63,7 @@ impl EventListItem {
 
 impl DbListItem for EventListItem {
     fn title(&self) -> String {
-        format!("{}: {}", self.title, self.id())
+        self.title.clone()
     }
 
     fn id(&self) -> u32 {
@@ -91,7 +87,7 @@ impl MinionListItem {
 
 impl DbListItem for MinionListItem {
     fn title(&self) -> String {
-        format!("{}: {}", self.title, self.id())
+        self.title.clone()
     }
 
     fn id(&self) -> u32 {
