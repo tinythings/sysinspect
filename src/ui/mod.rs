@@ -4,7 +4,6 @@ use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListI
 use indexmap::IndexMap;
 use libeventreg::{ipcc::DbIPCClient, kvdb::EventSession};
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
-use rand::Rng;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout},

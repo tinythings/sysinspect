@@ -6,7 +6,6 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, List, ListItem, ListState, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget,
     },
