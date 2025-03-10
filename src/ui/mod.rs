@@ -29,12 +29,6 @@ pub async fn run(cfg: MasterConfig) -> io::Result<()> {
 
             println!("{:#?}", MEM_LOGGER.get_messages());
 
-            /*
-            if let Some(ipc) = app.evtipc {
-                _ = ipc.lock().await.run().await;
-            }
-            */
-
             r
         }
         Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
@@ -340,12 +334,12 @@ impl SysInspectUX {
 
     /// Returns a vector of minion names (random IDs).
     pub fn get_minions(&self) -> Vec<MinionListItem> {
-        (0..100).map(|x| MinionListItem::new(&format!("minion - {x}"), rand::rng().random_range(0..100))).collect()
+        (0..100).map(|x| MinionListItem::new(&format!("minion - {x}"))).collect()
     }
 
     /// Returns a vector of events (random IDs)
     pub fn get_events(&self) -> Vec<EventListItem> {
-        (0..100).map(|x| EventListItem::new(&format!("event - {x}"), rand::rng().random_range(0..100))).collect()
+        (0..100).map(|x| EventListItem::new(&format!("event - {x}"))).collect()
     }
 
     /// Count the vertical space for the alert display, plus three empty lines
