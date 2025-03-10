@@ -38,14 +38,22 @@ impl IpcService for Arc<DbIPCService> {
 
     async fn query(&self, request: Request<QueryRequest>) -> Result<Response<QueryResponse>, Status> {
         let req = request.into_inner();
-        //log::info!("Got request: {:#?}", req);
-        /*
-        let tree = self.db.open_tree(&req.tree).map_err(|e| Status::internal(e.to_string()))?;
+        log::info!("Got request: {:#?}", req);
+        let mut records = Vec::new();
+        match req.command.as_str() {
+            "cycles" => {
+                for s in self.get_sessions().await.map_err(|e| Status::internal(e.to_string()))? {
+                    records.push(Record {
+                        key: s.sid().to_string(),
+                        value: serde_json::to_vec(&s).map_err(|e| Status::internal(e.to_string()))?,
+                        tree: "sessions".to_string(),
+                    });
+                }
+            }
+            _ => log::info!("Got unknown command: {:#?}", req.command),
+        };
 
-        tree.insert(req.key.as_bytes(), req.value).map_err(|e| Status::internal(e.to_string()))?;
-         */
-
-        Ok(Response::new(QueryResponse { success: true }))
+        Ok(Response::new(QueryResponse { success: true, records }))
     }
 }
 
