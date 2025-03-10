@@ -5027,6 +5027,7 @@ dependencies = [
  "openssl",
  "rand 0.9.0",
  "ratatui",
+ "serde_json",
  "sysinfo",
  "tokio",
 ]
