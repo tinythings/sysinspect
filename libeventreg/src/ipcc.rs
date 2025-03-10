@@ -1,9 +1,10 @@
 use hyper_util::rt::tokio::TokioIo;
 use ipc::ipc_service_client::IpcServiceClient;
-use ipc::{EmptyRequest, QueryRequest};
+use ipc::{EmptyRequest, QueryRequest, QueryResponse};
 use std::error::Error;
 use std::sync::Arc;
 use tokio::net::UnixStream;
+use tonic::Response;
 use tonic::transport::{Channel, Endpoint};
 use tower::service_fn;
 
@@ -12,6 +13,11 @@ pub mod ipc {
 }
 
 impl QueryRequest {
+    /// Query params:
+    /// - `k`: Key to look for
+    /// - `v`: Value value
+    /// - `t`: Tree where to look for the key
+    /// - `c`: Command (arbitrary)
     pub fn new(k: &str, v: &str, t: &str, c: &str) -> Self {
         QueryRequest { key: k.to_string(), value: v.as_bytes().to_vec(), tree: t.to_string(), command: c.to_string() }
     }
@@ -48,20 +54,26 @@ impl DbIPCClient {
         Ok(())
     }
 
-    /// **Fetch all records from the IPC service**
+    /// Query the IPC service
+    pub async fn query(&mut self, k: &str, v: &str, t: &str, c: &str) -> Result<Response<QueryResponse>, Box<dyn Error>> {
+        let r = QueryRequest::new(k, v, t, c);
+        Ok(self.client.query(r).await?)
+    }
+
+    /// Fetch all records from the IPC service
     pub async fn fetch_records(&mut self) -> Result<(), Box<dyn Error>> {
         let response = self.client.get_records(EmptyRequest {}).await?;
         let records = response.into_inner().records;
 
-        println!("Received {} records:", records.len());
+        log::info!("Received {} records:", records.len());
         for record in records {
-            println!("Key: {}, Tree: {}, Value ({} bytes)", record.key, record.tree, record.value.len());
+            log::info!("Key: {}, Tree: {}, Value: {}", record.key, record.tree, String::from_utf8(record.value).unwrap());
         }
 
         Ok(())
     }
 
-    /// **Run test operations (insert & fetch)**
+    /// Run test operations (insert & fetch)
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
         println!("Inserting sample records...");
 
