@@ -142,14 +142,7 @@ impl SysInspectUX {
     }
 
     fn _get_list_items<T: DbListItem>(&self, items: &[T], hl: ActiveBox) -> Vec<ListItem<'static>> {
-        let fg = if self.active_box == hl { Color::White } else { Color::Gray };
-        items
-            .iter()
-            .map(|item| {
-                let line = Line::from(vec![Span::raw(" "), Span::styled(item.title(), Style::default().fg(fg))]);
-                ListItem::new(line)
-            })
-            .collect()
+        items.iter().map(|item| ListItem::new(item.get_list_line(self.active_box != hl))).collect()
     }
 
     fn _wrap_list_items<'a>(&self, items: Vec<ListItem<'a>>, hl: ActiveBox) -> List<'a> {
@@ -158,8 +151,7 @@ impl SysInspectUX {
         } else {
             Style::default().fg(Color::Gray).bg(Color::DarkGray)
         };
-        let hl_symbol = if self.active_box == hl { "▶ " } else { "▷ " };
-        List::new(items).highlight_style(hl_style).highlight_symbol(hl_symbol)
+        List::new(items).highlight_style(hl_style)
     }
 }
 
@@ -170,7 +162,7 @@ impl Widget for &SysInspectUX {
     {
         let [cycles_a, minions_a, events_a]: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(30), Constraint::Length(30), Constraint::Min(0)])
+            .constraints([Constraint::Percentage(40), Constraint::Percentage(30), Constraint::Min(0)])
             .split(area)
             .as_ref()
             .try_into()
