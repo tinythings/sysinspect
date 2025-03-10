@@ -2,7 +2,7 @@ use crate::MEM_LOGGER;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
-use libeventreg::ipcc::DbIPCClient;
+use libeventreg::{ipcc::DbIPCClient, kvdb::EventSession};
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use rand::Rng;
 use ratatui::{
@@ -11,6 +11,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Paragraph,
 };
+use serde_json::Value;
 use std::{
     io::{self, Error},
     sync::Arc,
@@ -30,9 +31,11 @@ pub async fn run(cfg: MasterConfig) -> io::Result<()> {
 
             println!("{:#?}", MEM_LOGGER.get_messages());
 
+            /*
             if let Some(ipc) = app.evtipc {
                 _ = ipc.lock().await.run().await;
             }
+            */
 
             r
         }
@@ -47,8 +50,8 @@ pub struct SysInspectUX {
     pub selected_minion: usize,
     pub selected_event: usize,
 
-    pub minions: Vec<MinionListItem>,
-    pub events: Vec<EventListItem>,
+    pub li_minions: Vec<MinionListItem>,
+    pub li_events: Vec<EventListItem>,
     pub event_data: IndexMap<String, String>,
     pub active_box: ActiveBox,
 
@@ -73,8 +76,8 @@ impl Default for SysInspectUX {
             selected_cycle: 0,
             selected_minion: 0,
             selected_event: 0,
-            minions: Vec::new(),
-            events: Vec::new(),
+            li_minions: Vec::new(),
+            li_events: Vec::new(),
             event_data: IndexMap::new(),
             active_box: ActiveBox::default(),
             status_text: String::new(),
@@ -251,12 +254,12 @@ impl SysInspectUX {
                         }
                     }
                     ActiveBox::Minions => {
-                        if self.selected_minion < self.minions.len().saturating_sub(1) {
+                        if self.selected_minion < self.li_minions.len().saturating_sub(1) {
                             self.selected_minion += 1;
                         }
                     }
                     ActiveBox::Events => {
-                        if self.selected_event < self.events.len().saturating_sub(1) {
+                        if self.selected_event < self.li_events.len().saturating_sub(1) {
                             self.selected_event += 1;
                         }
                     }
@@ -274,20 +277,20 @@ impl SysInspectUX {
                     ActiveBox::Cycles => {
                         let cycles = self.get_cycles();
                         if !cycles.is_empty() {
-                            self.minions = self.get_minions();
+                            self.li_minions = self.get_minions();
                             self.selected_minion = 0;
                         }
                         self.shift_next();
                     }
                     ActiveBox::Minions => {
-                        if !self.minions.is_empty() {
-                            self.events = self.get_events();
+                        if !self.li_minions.is_empty() {
+                            self.li_events = self.get_events();
                             self.selected_event = 0;
                         }
                         self.shift_next();
                     }
                     ActiveBox::Events => {
-                        if !self.events.is_empty() {
+                        if !self.li_events.is_empty() {
                             self.active_box = ActiveBox::Info;
                             self.event_data = self.get_event_data();
                         }

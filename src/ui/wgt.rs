@@ -35,19 +35,19 @@ impl SysInspectUX {
 
         let events_inner = block.inner(rect);
         let mut events_state = ListState::default();
-        if !self.events.is_empty() {
+        if !self.li_events.is_empty() {
             events_state.select(Some(self.selected_event));
         }
 
         StatefulWidget::render(
-            self._wrap_list_items(self._get_list_items(&self.events, ActiveBox::Events), ActiveBox::Events),
+            self._wrap_list_items(self._get_list_items(&self.li_events, ActiveBox::Events), ActiveBox::Events),
             events_inner,
             buf,
             &mut events_state,
         );
 
         let mut events_scroll_state = ScrollbarState::default()
-            .content_length(self.events.len())
+            .content_length(self.li_events.len())
             .position(if self.active_box == ActiveBox::Events { self.selected_event } else { 0 });
         Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
             events_inner,
@@ -78,19 +78,19 @@ impl SysInspectUX {
 
         let minions_inner = block.inner(rect);
         let mut minions_state = ListState::default();
-        if !self.minions.is_empty() {
+        if !self.li_minions.is_empty() {
             minions_state.select(Some(self.selected_minion));
         }
 
         StatefulWidget::render(
-            self._wrap_list_items(self._get_list_items(&self.minions, ActiveBox::Minions), ActiveBox::Minions),
+            self._wrap_list_items(self._get_list_items(&self.li_minions, ActiveBox::Minions), ActiveBox::Minions),
             minions_inner,
             buf,
             &mut minions_state,
         );
 
         let mut minions_scroll_state = ScrollbarState::default()
-            .content_length(self.minions.len())
+            .content_length(self.li_minions.len())
             .position(if self.active_box == ActiveBox::Minions { self.selected_minion } else { 0 });
         Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
             minions_inner,
