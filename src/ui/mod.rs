@@ -11,7 +11,6 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Paragraph,
 };
-use serde_json::Value;
 use std::{
     io::{self, Error},
     sync::Arc,
