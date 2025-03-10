@@ -28,4 +28,5 @@ message QueryRequest {
 
 message QueryResponse {
   bool success = 1;
+  repeated Record records = 2;
 }
