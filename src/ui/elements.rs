@@ -1,3 +1,9 @@
+use libeventreg::kvdb::EventSession;
+use ratatui::{
+    style::{Color, Style},
+    text::{Line, Span},
+};
+
 /// Active box selector
 #[derive(Debug, PartialEq, Eq, Default)]
 pub enum ActiveBox {
@@ -18,7 +24,8 @@ pub enum AlertResult {
 
 pub trait DbListItem {
     fn title(&self) -> String;
-    fn id(&self) -> u32;
+    fn event(&self) -> EventSession;
+    fn get_list_line(&self, hl: bool) -> Line<'static>;
 }
 
 /// Cycle
@@ -27,23 +34,35 @@ pub trait DbListItem {
 /// Cycle is the pointer in the list to the record in the database
 #[derive(Debug, Clone)]
 pub struct CycleListItem {
-    id: u32,
+    event: EventSession,
     title: String,
 }
 
 impl CycleListItem {
-    pub fn new(title: &str, id: u32) -> Self {
-        CycleListItem { id, title: title.to_string() }
+    pub fn new(title: &str, event: EventSession) -> Self {
+        CycleListItem { event, title: title.to_string() }
     }
 }
 
 impl DbListItem for CycleListItem {
     fn title(&self) -> String {
-        self.title.clone()
+        format!("{} {}", self.event.query(), self.title)
     }
 
-    fn id(&self) -> u32 {
-        self.id
+    /// Return event
+    fn event(&self) -> EventSession {
+        self.event.clone()
+    }
+
+    /// Return list line
+    fn get_list_line(&self, hl: bool) -> Line<'static> {
+        let ttl_fg = if hl { Color::Cyan } else { Color::LightCyan };
+        let ts_fg = if hl { Color::Blue } else { Color::LightBlue };
+        Line::from(vec![
+            Span::styled(self.event().query().to_string(), Style::default().fg(ttl_fg)),
+            Span::raw(" "),
+            Span::styled(self.event().get_ts_mask(None), Style::default().fg(ts_fg)),
+        ])
     }
 }
 
@@ -51,13 +70,12 @@ impl DbListItem for CycleListItem {
 /// -----
 #[derive(Debug, Clone)]
 pub struct EventListItem {
-    id: u32,
     title: String,
 }
 
 impl EventListItem {
-    pub fn new(title: &str, id: u32) -> Self {
-        EventListItem { id, title: title.to_string() }
+    pub fn new(title: &str) -> Self {
+        EventListItem { title: title.to_string() }
     }
 }
 
@@ -66,8 +84,14 @@ impl DbListItem for EventListItem {
         self.title.clone()
     }
 
-    fn id(&self) -> u32 {
-        self.id
+    /// Stub
+    fn event(&self) -> EventSession {
+        EventSession::new("".to_string(), "".to_string(), chrono::Utc::now())
+    }
+
+    fn get_list_line(&self, hl: bool) -> Line<'static> {
+        let fg = if hl { Color::White } else { Color::Gray };
+        Line::from(vec![Span::styled(self.title(), Style::default().fg(fg))])
     }
 }
 
@@ -75,13 +99,12 @@ impl DbListItem for EventListItem {
 /// ------
 #[derive(Debug, Clone)]
 pub struct MinionListItem {
-    id: u32,
     title: String,
 }
 
 impl MinionListItem {
-    pub fn new(title: &str, id: u32) -> Self {
-        MinionListItem { id, title: title.to_string() }
+    pub fn new(title: &str) -> Self {
+        MinionListItem { title: title.to_string() }
     }
 }
 
@@ -90,7 +113,13 @@ impl DbListItem for MinionListItem {
         self.title.clone()
     }
 
-    fn id(&self) -> u32 {
-        self.id
+    /// Stub
+    fn event(&self) -> EventSession {
+        EventSession::new("".to_string(), "".to_string(), chrono::Utc::now())
+    }
+
+    fn get_list_line(&self, hl: bool) -> Line<'static> {
+        let fg = if hl { Color::White } else { Color::Gray };
+        Line::from(vec![Span::styled(self.title(), Style::default().fg(fg))])
     }
 }
