@@ -312,12 +312,29 @@ impl SysInspectUX {
     }
     /// Returns a vector of cycle names.
     pub fn get_cycles(&self) -> Vec<CycleListItem> {
+        log::info!("Getting cycles");
         if let Some(ipc) = self.evtipc.as_ref() {
-            //let mut ipc = ipc.lock().await;
-            //ipc.fetch_records().await.unwrap();
+            let c_ipc = ipc.clone();
+            return tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    let r = c_ipc.lock().await.query("", "", "", "cycles").await.unwrap();
+                    let cycles: Vec<CycleListItem> = r
+                        .into_inner()
+                        .records
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, rec)| {
+                            let s =
+                                EventSession::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec())
+                                    .unwrap();
+                            CycleListItem::new(s.get_ts_mask(None).as_str(), i as u32)
+                        })
+                        .collect();
+                    cycles
+                })
+            });
         }
-
-        (0..100).map(|id| CycleListItem::new("Cycle", id)).collect()
+        vec![]
     }
 
     /// Returns a vector of minion names (random IDs).
