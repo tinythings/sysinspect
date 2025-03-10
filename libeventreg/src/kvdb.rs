@@ -66,10 +66,15 @@ impl EventMinion {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventSession {
+    /// sysinspect query
     query: String,
+
+    /// Timestamp
     ts: DateTime<Utc>,
+
+    /// Session ID
     sid: String,
 }
 
