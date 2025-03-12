@@ -341,7 +341,7 @@ impl SysInspectUX {
             return tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
                     let r = c_ipc.lock().await.query("", "", "", QUERY_CYCLES).await.unwrap();
-                    let cycles: Vec<CycleListItem> = r
+                    let mut cycles: Vec<CycleListItem> = r
                         .into_inner()
                         .records
                         .into_iter()
@@ -352,6 +352,7 @@ impl SysInspectUX {
                             CycleListItem::new(s.get_ts_mask(None).as_str(), s)
                         })
                         .collect();
+                    cycles.sort_by_key(|ts| ts.event().get_ts_unix());
                     cycles
                 })
             });
