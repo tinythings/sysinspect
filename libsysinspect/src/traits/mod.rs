@@ -16,6 +16,7 @@ pub static SYS_OS_NAME: &str = "system.os.name";
 pub static SYS_OS_DISTRO: &str = "system.os.distribution";
 
 pub static SYS_NET_HOSTNAME: &str = "system.hostname";
+pub static SYS_NET_HOSTNAME_FQDN: &str = "system.hostname.fqdn";
 pub static HW_MEM: &str = "hardware.memory";
 pub static HW_SWAP: &str = "hardware.swap";
 pub static HW_CPU_TOTAL: &str = "hardware.cpu.total";
