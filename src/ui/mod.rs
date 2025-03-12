@@ -1,6 +1,5 @@
 use crate::MEM_LOGGER;
 use crate::ui::elements::DbListItem;
-use chrono::Utc;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;

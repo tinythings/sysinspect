@@ -232,7 +232,7 @@ impl EventsRegistry {
     pub fn add_event(
         &mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>,
     ) -> Result<(), SysinspectError> {
-        let events = self.get_tree(&Self::to_tree_id(sid.sid(), &mid.id()))?;
+        let events = self.get_tree(&Self::to_tree_id(sid.sid(), mid.id()))?;
         if let Err(err) = events.insert(
             format!(
                 "{}/{}/{}",
