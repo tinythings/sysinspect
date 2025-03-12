@@ -3,9 +3,9 @@ use crate::{
     cfg::mmconf::MinionConfig,
     traits::{
         HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME,
-        SYS_NET_HOSTNAME_FQDN, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+        SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
     },
-    util::sys::to_fqdn,
+    util::sys::to_fqdn_ip,
 };
 use indexmap::IndexMap;
 use serde_json::{Value, json};
@@ -109,10 +109,10 @@ impl SystemTraits {
             self.put(SYS_NET_HOSTNAME.to_string(), json!(v));
         }
 
-        self.put(
-            SYS_NET_HOSTNAME_FQDN.to_string(),
-            json!(to_fqdn(&sysinfo::System::host_name().unwrap_or_default()).unwrap_or_default()),
-        );
+        if let Some((fqdn, ipaddr)) = to_fqdn_ip(&sysinfo::System::host_name().unwrap_or_default()) {
+            self.put(SYS_NET_HOSTNAME_FQDN.to_string(), json!(fqdn));
+            self.put(SYS_NET_HOSTNAME_IP.to_string(), json!(ipaddr.to_string()));
+        }
 
         if let Some(v) = sysinfo::System::kernel_version() {
             self.put(SYS_OS_KERNEL.to_string(), json!(v));
