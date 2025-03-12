@@ -1,3 +1,5 @@
+use crate::kvdb::{EventData, EventMinion, EventSession, EventsRegistry};
+use crate::{QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS};
 use ipc::ipc_service_server::{IpcService, IpcServiceServer};
 use ipc::{EmptyRequest, QueryRequest, QueryResponse, Record, RecordsResponse};
 use libsysinspect::SysinspectError;
@@ -6,9 +8,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::{net::UnixListener, sync::Mutex};
 use tonic::{Request, Response, Status, transport::Server};
-
-use crate::kvdb::{EventData, EventMinion, EventSession, EventsRegistry};
-use crate::{QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS};
 
 pub mod ipc {
     tonic::include_proto!("ipc");
@@ -60,7 +59,16 @@ impl IpcService for Arc<DbIPCService> {
                 }
             }
 
-            QUERY_EVENTS => {}
+            QUERY_EVENTS => {
+                for e in self.get_events(&req.tree, &req.key).await.map_err(|e| Status::internal(e.to_string()))? {
+                    records.push(Record {
+                        key: req.key.clone(),
+                        value: serde_json::to_vec(&e).map_err(|e| Status::internal(e.to_string()))?,
+                        tree: req.tree.clone(),
+                    });
+                }
+            }
+
             _ => log::info!("Got unknown command: {:#?}", req.command),
         };
 
@@ -103,7 +111,7 @@ impl DbIPCService {
     }
 
     /// Get events
-    pub async fn get_events(&self, sid: &EventSession, mid: &EventMinion) -> Result<Vec<EventData>, SysinspectError> {
+    pub async fn get_events(&self, sid: &str, mid: &str) -> Result<Vec<EventData>, SysinspectError> {
         self.evtreg.lock().await.get_events(sid, mid)
     }
 

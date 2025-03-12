@@ -5,9 +5,9 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
 use libeventreg::{
-    QUERY_CYCLES, QUERY_MINIONS,
+    QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS,
     ipcc::DbIPCClient,
-    kvdb::{EventMinion, EventSession},
+    kvdb::{EventData, EventMinion, EventSession},
 };
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use ratatui::{
@@ -290,7 +290,9 @@ impl SysInspectUX {
                     }
                     ActiveBox::Minions => {
                         if !self.li_minions.is_empty() {
-                            self.li_events = self.get_events();
+                            if let Some(mli) = self.get_selected_minion() {
+                                self.li_events = self.get_events(self.get_selected_cycle().event().sid(), mli.event().id());
+                            }
                             self.selected_event = 0;
                         }
                         self.shift_next();
@@ -316,8 +318,18 @@ impl SysInspectUX {
         }
     }
 
+    /// Get selected cycle from the menu
     fn get_selected_cycle(&self) -> &CycleListItem {
         &self.cycles_buf[self.selected_cycle]
+    }
+
+    /// Get selected minion from the menu
+    fn get_selected_minion(&self) -> Option<&MinionListItem> {
+        if self.li_minions.is_empty() || self.li_minions.len() <= self.selected_minion {
+            return None;
+        }
+
+        Some(&self.li_minions[self.selected_minion])
     }
 
     fn exit(&mut self) {
@@ -349,12 +361,14 @@ impl SysInspectUX {
     }
 
     /// Returns a vector of minion names (random IDs).
-    pub fn get_minions(&self, cycle_id: &str) -> Vec<MinionListItem> {
+    /// Params:
+    /// - `sid`: Session ID (cycle)
+    pub fn get_minions(&self, sid: &str) -> Vec<MinionListItem> {
         if let Some(ipc) = self.evtipc.as_ref() {
             let c_ipc = ipc.clone();
             return tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
-                    let r = c_ipc.lock().await.query("", "", cycle_id, QUERY_MINIONS).await.unwrap();
+                    let r = c_ipc.lock().await.query("", "", sid, QUERY_MINIONS).await.unwrap();
                     let minions: Vec<MinionListItem> = r
                         .into_inner()
                         .records
@@ -375,13 +389,32 @@ impl SysInspectUX {
         vec![]
     }
 
-    /// Returns a vector of events (random IDs)
-    pub fn get_events(&self) -> Vec<EventListItem> {
-        (0..100)
-            .map(|x| {
-                EventListItem::new(&format!("event - {x}"), EventSession::new("foo".to_string(), "bar".to_string(), Utc::now()))
-            })
-            .collect()
+    /// Returns a vector of events for a particular minion.
+    /// Params:
+    /// - `sid`: Session ID (cycle)
+    /// - `mid`: Minion ID
+    pub fn get_events(&self, sid: &str, mid: &str) -> Vec<EventListItem> {
+        if let Some(ipc) = self.evtipc.as_ref() {
+            let c_ipc = ipc.clone();
+            return tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    let r = c_ipc.lock().await.query(mid, "", sid, QUERY_EVENTS).await.unwrap();
+                    let events: Vec<EventListItem> = r
+                        .into_inner()
+                        .records
+                        .into_iter()
+                        .map(|rec| {
+                            EventListItem::new(
+                                EventData::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec())
+                                    .unwrap(),
+                            )
+                        })
+                        .collect();
+                    events
+                })
+            });
+        }
+        vec![]
     }
 
     /// Count the vertical space for the alert display, plus three empty lines

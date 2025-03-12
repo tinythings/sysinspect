@@ -13,7 +13,7 @@ use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct EventData {
     data: HashMap<String, Value>,
 }
@@ -42,9 +42,20 @@ impl EventData {
         util::dataconv::as_str(self.data.get("cid").cloned())
     }
 
+    pub fn get_constraints(&self) -> HashMap<String, Value> {
+        serde_json::from_value(self.data.get("constraints").unwrap().clone()).unwrap()
+    }
+
     pub fn get_response(&self) -> HashMap<String, Value> {
         // Should work... :-)
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
+    }
+
+    pub fn from_bytes(b: Vec<u8>) -> Result<Self, SysinspectError> {
+        match String::from_utf8(b) {
+            Ok(data) => Ok(serde_json::from_str::<Self>(&data)?),
+            Err(err) => Err(SysinspectError::MasterGeneralError(format!("Unable to recover event minion: {err}"))),
+        }
     }
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -213,15 +224,15 @@ impl EventsRegistry {
     }
 
     /// Return a tree Id out of sid and mid
-    fn to_tree_id(sid: &EventSession, mid: &EventMinion) -> String {
-        format!("{}@{}", sid.sid(), mid.id())
+    fn to_tree_id(sid: &str, mid: &str) -> String {
+        format!("{}@{}", sid, mid)
     }
 
     /// Add an event
     pub fn add_event(
         &mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>,
     ) -> Result<(), SysinspectError> {
-        let events = self.get_tree(&Self::to_tree_id(sid, &mid))?;
+        let events = self.get_tree(&Self::to_tree_id(sid.sid(), &mid.id()))?;
         if let Err(err) = events.insert(
             format!(
                 "{}/{}/{}",
@@ -303,8 +314,8 @@ impl EventsRegistry {
         Ok(ms)
     }
 
-    pub(crate) fn get_events(&self, s: &EventSession, m: &EventMinion) -> Result<Vec<EventData>, SysinspectError> {
-        let tid = Self::to_tree_id(s, m);
+    pub(crate) fn get_events(&self, sid: &str, mid: &str) -> Result<Vec<EventData>, SysinspectError> {
+        let tid = Self::to_tree_id(sid, mid);
         let mut es = Vec::<EventData>::new();
         let events = self.get_tree(&tid)?;
         for evt in events.iter().values() {

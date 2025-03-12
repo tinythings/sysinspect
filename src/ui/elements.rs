@@ -1,4 +1,4 @@
-use libeventreg::kvdb::{EventMinion, EventSession};
+use libeventreg::kvdb::{EventData, EventMinion, EventSession};
 use libsysinspect::{
     traits::{SYS_NET_HOSTNAME, SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP},
     util::dataconv::as_str,
@@ -78,25 +78,24 @@ impl DbListItem for CycleListItem {
 /// -----
 #[derive(Debug, Clone)]
 pub struct EventListItem {
-    event: EventSession,
-    title: String,
+    event: EventData,
 }
 
 impl EventListItem {
-    pub fn new(title: &str, event: EventSession) -> Self {
-        EventListItem { event, title: title.to_string() }
+    pub fn new(event: EventData) -> Self {
+        EventListItem { event }
     }
 }
 
 impl DbListItem for EventListItem {
-    type EventType = EventSession;
+    type EventType = EventData;
 
     fn title(&self) -> String {
-        self.title.clone()
+        as_str(self.event.get_constraints().get("descr").cloned())
     }
 
     /// Stub
-    fn event(&self) -> EventSession {
+    fn event(&self) -> EventData {
         self.event.clone()
     }
 
