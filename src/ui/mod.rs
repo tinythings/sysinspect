@@ -332,6 +332,15 @@ impl SysInspectUX {
         Some(&self.li_minions[self.selected_minion])
     }
 
+    /// Get selected event from the menu
+    fn get_selected_event(&self) -> Option<&EventListItem> {
+        if self.li_events.is_empty() || self.li_events.len() <= self.selected_event {
+            return None;
+        }
+
+        Some(&self.li_events[self.selected_event])
+    }
+
     fn exit(&mut self) {
         self.exit = true;
     }

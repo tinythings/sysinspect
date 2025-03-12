@@ -1,11 +1,12 @@
 use libeventreg::kvdb::{EventData, EventMinion, EventSession};
 use libsysinspect::{
     traits::{SYS_NET_HOSTNAME, SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP},
-    util::dataconv::as_str,
+    util::dataconv::{as_int, as_str},
 };
 use ratatui::{
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
+    widgets::{Cell, Row},
 };
 
 /// Active box selector
@@ -84,6 +85,46 @@ pub struct EventListItem {
 impl EventListItem {
     pub fn new(event: EventData) -> Self {
         EventListItem { event }
+    }
+
+    /// Get events data table
+    pub fn get_event_table(&self, keywidth: usize) -> Vec<Row> {
+        fn alg(s: &str, width: usize) -> String {
+            let len = s.chars().count();
+            if len >= width { s.to_string() } else { format!("{:>width$}", s, width = width) }
+        }
+        fn yc(v: String, keywidth: usize) -> Cell<'static> {
+            Cell::from(alg(&v, keywidth)).style(Style::default().fg(Color::LightYellow))
+        }
+
+        fn gc(v: String) -> Cell<'static> {
+            Cell::from(v).style(Style::default().fg(Color::Gray))
+        }
+
+        fn grc(v: String) -> Cell<'static> {
+            Cell::from(v).style(Style::default().fg(Color::LightGreen))
+        }
+
+        fn rc(v: String) -> Cell<'static> {
+            Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
+        }
+
+        vec![
+            Row::new(vec![yc("Info:".to_string(), keywidth), gc(as_str(self.event.get_response().get("message").cloned()))]),
+            Row::new(vec![
+                yc("Return code:".to_string(), keywidth),
+                if as_int(self.event.get_response().get("retcode").cloned()) == 0 {
+                    grc("Success".to_string())
+                } else {
+                    rc(format!("Error - {}", as_int(self.event.get_response().get("retcode").cloned())))
+                },
+            ]),
+            Row::new(vec![yc("Occurred:".to_string(), keywidth), gc(self.event.get_timestamp())]),
+            Row::new(vec![
+                yc("Scope:".to_string(), keywidth),
+                gc(if self.event.get_status_id() == "$" { "Global".to_string() } else { self.event.get_status_id() }),
+            ]),
+        ]
     }
 }
 

@@ -17,13 +17,24 @@ impl SysInspectUX {
         let title = "Action Data";
         let block = self._get_box_block(title, ActiveBox::Info);
 
-        let header = Row::new(vec!["Key", "Value"]).style(Style::default().fg(Color::Yellow)).bottom_margin(1);
-        let row1 = Row::new(vec!["foo", "bar"]);
-        let row2 = Row::new(vec!["baz", "toto"]);
-        let table = Table::new(vec![header, row1, row2], &[Constraint::Length(10), Constraint::Length(10)])
-            .block(block)
-            .column_spacing(1);
-        Widget::render(table, rect, buf);
+        if let Some(e) = self.get_selected_event() {
+            Widget::render(
+                Table::new(e.get_event_table(15), &[Constraint::Length(15), Constraint::Min(0)]).block(block).column_spacing(1),
+                rect,
+                buf,
+            );
+        } else {
+            Widget::render(
+                Table::new(
+                    vec![Row::new(vec!["N/A"]).style(Style::default().fg(Color::LightRed)).bottom_margin(0)],
+                    &[Constraint::Min(0)],
+                )
+                .block(block)
+                .column_spacing(1),
+                rect,
+                buf,
+            );
+        }
     }
 
     /// Render list of events

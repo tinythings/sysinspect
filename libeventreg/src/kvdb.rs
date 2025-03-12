@@ -51,6 +51,11 @@ impl EventData {
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
     }
 
+    /// Get the timestamp
+    pub fn get_timestamp(&self) -> String {
+        util::dataconv::as_str(self.data.get("timestamp").cloned())
+    }
+
     pub fn from_bytes(b: Vec<u8>) -> Result<Self, SysinspectError> {
         match String::from_utf8(b) {
             Ok(data) => Ok(serde_json::from_str::<Self>(&data)?),
