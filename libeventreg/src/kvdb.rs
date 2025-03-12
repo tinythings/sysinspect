@@ -13,7 +13,7 @@ use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct EventData {
     data: HashMap<String, Value>,
 }
@@ -47,22 +47,41 @@ impl EventData {
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
     }
 }
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventMinion {
     mid: String,
+    cycles_id: Option<String>, // Is set later
     traits: HashMap<String, Value>,
 }
 
 impl EventMinion {
     pub fn new(mid: String) -> Self {
-        Self { mid, traits: HashMap::new() }
+        EventMinion { mid, cycles_id: None, traits: HashMap::new() }
     }
 
+    /// Minion Id
     pub fn id(&self) -> &str {
         &self.mid
     }
 
+    /// Cycles Id
+    pub fn cid(&self) -> String {
+        self.cycles_id.clone().unwrap_or_default()
+    }
+
     pub fn get_trait(&self, id: &str) -> Option<&Value> {
         self.traits.get(id)
+    }
+
+    pub fn from_bytes(b: Vec<u8>) -> Result<Self, SysinspectError> {
+        match String::from_utf8(b) {
+            Ok(data) => Ok(serde_json::from_str::<Self>(&data)?),
+            Err(err) => Err(SysinspectError::MasterGeneralError(format!("Unable to recover event minion: {err}"))),
+        }
+    }
+
+    pub fn set_cid(&mut self, cid: String) {
+        self.cycles_id = Some(cid);
     }
 }
 
@@ -267,15 +286,19 @@ impl EventsRegistry {
     }
 
     /// Return all minions within the session
-    pub fn get_minions(&self, sid: &EventSession) -> Result<Vec<EventMinion>, SysinspectError> {
+    pub fn get_minions(&self, sid: &str) -> Result<Vec<EventMinion>, SysinspectError> {
         let mut ms = Vec::<EventMinion>::new();
-        let minions = self.get_tree(sid.sid())?;
+        let minions = self.get_tree(sid)?;
         for data in minions.iter().values() {
             let traits = match data {
                 Ok(m) => serde_json::from_str::<HashMap<String, Value>>(&String::from_utf8(m.to_vec()).unwrap_or_default())?,
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Error getting minions: {err}"))),
             };
-            ms.push(EventMinion { mid: util::dataconv::as_str(traits.get("system.id").cloned()), traits });
+            ms.push(EventMinion {
+                mid: util::dataconv::as_str(traits.get("system.id").cloned()),
+                cycles_id: Some(sid.to_string()),
+                traits,
+            });
         }
         Ok(ms)
     }
