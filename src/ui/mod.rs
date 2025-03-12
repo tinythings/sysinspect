@@ -283,6 +283,7 @@ impl SysInspectUX {
                         self.cycles_buf = self.get_cycles();
                         if !self.cycles_buf.is_empty() {
                             self.li_minions = self.get_minions(self.get_selected_cycle().event().sid());
+                            self.li_events = Vec::new();
                             self.selected_minion = 0;
                         }
                         self.shift_next();

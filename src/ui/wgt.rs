@@ -162,7 +162,7 @@ impl Widget for &SysInspectUX {
     {
         let [cycles_a, minions_a, events_a]: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(40), Constraint::Percentage(30), Constraint::Min(0)])
+            .constraints([Constraint::Percentage(30), Constraint::Percentage(30), Constraint::Min(0)])
             .split(area)
             .as_ref()
             .try_into()
