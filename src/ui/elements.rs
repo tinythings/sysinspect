@@ -1,4 +1,8 @@
-use libeventreg::kvdb::EventSession;
+use libeventreg::kvdb::{EventMinion, EventSession};
+use libsysinspect::{
+    traits::{SYS_NET_HOSTNAME, SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP},
+    util::dataconv::as_str,
+};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
@@ -23,8 +27,10 @@ pub enum AlertResult {
 }
 
 pub trait DbListItem {
+    type EventType;
+
     fn title(&self) -> String;
-    fn event(&self) -> EventSession;
+    fn event(&self) -> Self::EventType;
     fn get_list_line(&self, hl: bool) -> Line<'static>;
 }
 
@@ -45,6 +51,8 @@ impl CycleListItem {
 }
 
 impl DbListItem for CycleListItem {
+    type EventType = EventSession;
+
     fn title(&self) -> String {
         format!("{} {}", self.event.query(), self.title)
     }
@@ -70,23 +78,26 @@ impl DbListItem for CycleListItem {
 /// -----
 #[derive(Debug, Clone)]
 pub struct EventListItem {
+    event: EventSession,
     title: String,
 }
 
 impl EventListItem {
-    pub fn new(title: &str) -> Self {
-        EventListItem { title: title.to_string() }
+    pub fn new(title: &str, event: EventSession) -> Self {
+        EventListItem { event, title: title.to_string() }
     }
 }
 
 impl DbListItem for EventListItem {
+    type EventType = EventSession;
+
     fn title(&self) -> String {
         self.title.clone()
     }
 
     /// Stub
     fn event(&self) -> EventSession {
-        EventSession::new("".to_string(), "".to_string(), chrono::Utc::now())
+        self.event.clone()
     }
 
     fn get_list_line(&self, hl: bool) -> Line<'static> {
@@ -99,25 +110,34 @@ impl DbListItem for EventListItem {
 /// ------
 #[derive(Debug, Clone)]
 pub struct MinionListItem {
-    title: String,
+    event: EventMinion,
 }
 
 impl MinionListItem {
-    pub fn new(title: &str) -> Self {
-        MinionListItem { title: title.to_string() }
+    pub fn new(event: EventMinion) -> Self {
+        MinionListItem { event }
     }
 }
 
 impl DbListItem for MinionListItem {
+    type EventType = EventMinion;
+
+    /// Return title
     fn title(&self) -> String {
-        self.title.clone()
+        let ipaddr = as_str(self.event.get_trait(SYS_NET_HOSTNAME_IP).cloned());
+        let mut hostname = as_str(self.event.get_trait(SYS_NET_HOSTNAME_FQDN).cloned());
+        if hostname.is_empty() {
+            hostname = as_str(self.event.get_trait(SYS_NET_HOSTNAME).cloned());
+        }
+        format!("{} - {}", hostname, if !ipaddr.is_empty() { ipaddr } else { "127.0.0.1".to_string() })
     }
 
-    /// Stub
-    fn event(&self) -> EventSession {
-        EventSession::new("".to_string(), "".to_string(), chrono::Utc::now())
+    /// Return event object
+    fn event(&self) -> EventMinion {
+        self.event.clone()
     }
 
+    /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
         let fg = if hl { Color::White } else { Color::Gray };
         Line::from(vec![Span::styled(self.title(), Style::default().fg(fg))])

@@ -1,8 +1,14 @@
 use crate::MEM_LOGGER;
+use crate::ui::elements::DbListItem;
+use chrono::Utc;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
-use libeventreg::{ipcc::DbIPCClient, kvdb::EventSession};
+use libeventreg::{
+    QUERY_CYCLES, QUERY_MINIONS,
+    ipcc::DbIPCClient,
+    kvdb::{EventMinion, EventSession},
+};
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use ratatui::{
     DefaultTerminal, Frame,
@@ -59,6 +65,11 @@ pub struct SysInspectUX {
 
     // DB
     pub evtipc: Option<Arc<Mutex<DbIPCClient>>>,
+
+    // Buffers
+    pub cycles_buf: Vec<CycleListItem>,
+    pub minions_buf: Vec<MinionListItem>,
+    pub events_buf: Vec<EventListItem>,
 }
 
 impl Default for SysInspectUX {
@@ -78,6 +89,9 @@ impl Default for SysInspectUX {
             exit_alert_visible: false,
             exit_alert_choice: AlertResult::default(),
             evtipc: None,
+            cycles_buf: Vec::new(),
+            minions_buf: Vec::new(),
+            events_buf: Vec::new(),
         }
     }
 }
@@ -267,9 +281,9 @@ impl SysInspectUX {
             KeyCode::Enter => {
                 match self.active_box {
                     ActiveBox::Cycles => {
-                        let cycles = self.get_cycles();
-                        if !cycles.is_empty() {
-                            self.li_minions = self.get_minions();
+                        self.cycles_buf = self.get_cycles();
+                        if !self.cycles_buf.is_empty() {
+                            self.li_minions = self.get_minions(self.get_selected_cycle().event().sid());
                             self.selected_minion = 0;
                         }
                         self.shift_next();
@@ -302,6 +316,10 @@ impl SysInspectUX {
         }
     }
 
+    fn get_selected_cycle(&self) -> &CycleListItem {
+        &self.cycles_buf[self.selected_cycle]
+    }
+
     fn exit(&mut self) {
         self.exit = true;
     }
@@ -311,7 +329,7 @@ impl SysInspectUX {
             let c_ipc = ipc.clone();
             return tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
-                    let r = c_ipc.lock().await.query("", "", "", "cycles").await.unwrap();
+                    let r = c_ipc.lock().await.query("", "", "", QUERY_CYCLES).await.unwrap();
                     let cycles: Vec<CycleListItem> = r
                         .into_inner()
                         .records
@@ -331,13 +349,39 @@ impl SysInspectUX {
     }
 
     /// Returns a vector of minion names (random IDs).
-    pub fn get_minions(&self) -> Vec<MinionListItem> {
-        (0..100).map(|x| MinionListItem::new(&format!("minion - {x}"))).collect()
+    pub fn get_minions(&self, cycle_id: &str) -> Vec<MinionListItem> {
+        if let Some(ipc) = self.evtipc.as_ref() {
+            let c_ipc = ipc.clone();
+            return tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    let r = c_ipc.lock().await.query("", "", cycle_id, QUERY_MINIONS).await.unwrap();
+                    let minions: Vec<MinionListItem> = r
+                        .into_inner()
+                        .records
+                        .into_iter()
+                        .map(|rec| {
+                            let mut s =
+                                EventMinion::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec())
+                                    .unwrap();
+                            s.set_cid(rec.tree);
+                            MinionListItem::new(s)
+                        })
+                        .collect();
+                    minions
+                })
+            });
+        }
+
+        vec![]
     }
 
     /// Returns a vector of events (random IDs)
     pub fn get_events(&self) -> Vec<EventListItem> {
-        (0..100).map(|x| EventListItem::new(&format!("event - {x}"))).collect()
+        (0..100)
+            .map(|x| {
+                EventListItem::new(&format!("event - {x}"), EventSession::new("foo".to_string(), "bar".to_string(), Utc::now()))
+            })
+            .collect()
     }
 
     /// Count the vertical space for the alert display, plus three empty lines

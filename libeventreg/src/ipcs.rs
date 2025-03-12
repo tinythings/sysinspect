@@ -8,6 +8,7 @@ use tokio::{net::UnixListener, sync::Mutex};
 use tonic::{Request, Response, Status, transport::Server};
 
 use crate::kvdb::{EventData, EventMinion, EventSession, EventsRegistry};
+use crate::{QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS};
 
 pub mod ipc {
     tonic::include_proto!("ipc");
@@ -31,25 +32,35 @@ impl IpcService for Arc<DbIPCService> {
                 tree: "sessions".to_string(),
             });
         }
-        log::info!("Got sessions: {:#?}", records.len());
 
         Ok(Response::new(RecordsResponse { records }))
     }
 
     async fn query(&self, request: Request<QueryRequest>) -> Result<Response<QueryResponse>, Status> {
         let req = request.into_inner();
-        log::info!("Got request: {:#?}", req);
         let mut records = Vec::new();
         match req.command.as_str() {
-            "cycles" => {
+            QUERY_CYCLES => {
                 for s in self.get_sessions().await.map_err(|e| Status::internal(e.to_string()))? {
                     records.push(Record {
                         key: s.sid().to_string(),
                         value: serde_json::to_vec(&s).map_err(|e| Status::internal(e.to_string()))?,
-                        tree: "sessions".to_string(),
+                        tree: "".to_string(),
                     });
                 }
             }
+
+            QUERY_MINIONS => {
+                for m in self.get_minions(req.tree.as_str()).await.map_err(|e| Status::internal(e.to_string()))? {
+                    records.push(Record {
+                        key: m.id().to_string(),
+                        value: serde_json::to_vec(&m).map_err(|e| Status::internal(e.to_string()))?,
+                        tree: req.tree.clone(),
+                    });
+                }
+            }
+
+            QUERY_EVENTS => {}
             _ => log::info!("Got unknown command: {:#?}", req.command),
         };
 
@@ -87,7 +98,7 @@ impl DbIPCService {
     }
 
     /// Get minions
-    pub async fn get_minions(&self, sid: &EventSession) -> Result<Vec<EventMinion>, SysinspectError> {
+    pub async fn get_minions(&self, sid: &str) -> Result<Vec<EventMinion>, SysinspectError> {
         self.evtreg.lock().await.get_minions(sid)
     }
 
