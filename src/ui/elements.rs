@@ -87,42 +87,55 @@ impl EventListItem {
         EventListItem { event }
     }
 
+    // Right-alight a string within the width
+    fn right_align(s: &str, width: usize) -> String {
+        let len = s.chars().count();
+        if len >= width { s.to_string() } else { format!("{:>width$}", s, width = width) }
+    }
+
+    // Yellow cell
+    fn yc(v: String, keywidth: usize) -> Cell<'static> {
+        Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(Color::LightYellow))
+    }
+
+    // Grey cell
+    fn gc(v: String) -> Cell<'static> {
+        Cell::from(v).style(Style::default().fg(Color::Gray))
+    }
+
+    // Green cell
+    fn grc(v: String) -> Cell<'static> {
+        Cell::from(v).style(Style::default().fg(Color::LightGreen))
+    }
+
+    // Red cell
+    fn rc(v: String) -> Cell<'static> {
+        Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
+    }
+
+    pub fn get_additional_table(&self, keywidth: usize) -> Vec<Row> {
+        vec![]
+    }
+
     /// Get events data table
     pub fn get_event_table(&self, keywidth: usize) -> Vec<Row> {
-        fn alg(s: &str, width: usize) -> String {
-            let len = s.chars().count();
-            if len >= width { s.to_string() } else { format!("{:>width$}", s, width = width) }
-        }
-        fn yc(v: String, keywidth: usize) -> Cell<'static> {
-            Cell::from(alg(&v, keywidth)).style(Style::default().fg(Color::LightYellow))
-        }
-
-        fn gc(v: String) -> Cell<'static> {
-            Cell::from(v).style(Style::default().fg(Color::Gray))
-        }
-
-        fn grc(v: String) -> Cell<'static> {
-            Cell::from(v).style(Style::default().fg(Color::LightGreen))
-        }
-
-        fn rc(v: String) -> Cell<'static> {
-            Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
-        }
-
         vec![
-            Row::new(vec![yc("Info:".to_string(), keywidth), gc(as_str(self.event.get_response().get("message").cloned()))]),
             Row::new(vec![
-                yc("Return code:".to_string(), keywidth),
+                Self::yc("Info:".to_string(), keywidth),
+                Self::gc(as_str(self.event.get_response().get("message").cloned())),
+            ]),
+            Row::new(vec![
+                Self::yc("Return code:".to_string(), keywidth),
                 if as_int(self.event.get_response().get("retcode").cloned()) == 0 {
-                    grc("Success".to_string())
+                    Self::grc("Success".to_string())
                 } else {
-                    rc(format!("Error - {}", as_int(self.event.get_response().get("retcode").cloned())))
+                    Self::rc(format!("Error - {}", as_int(self.event.get_response().get("retcode").cloned())))
                 },
             ]),
-            Row::new(vec![yc("Occurred:".to_string(), keywidth), gc(self.event.get_timestamp())]),
+            Row::new(vec![Self::yc("Occurred:".to_string(), keywidth), Self::gc(self.event.get_timestamp())]),
             Row::new(vec![
-                yc("Scope:".to_string(), keywidth),
-                gc(if self.event.get_status_id() == "$" { "Global".to_string() } else { self.event.get_status_id() }),
+                Self::yc("Scope:".to_string(), keywidth),
+                Self::gc(if self.event.get_status_id() == "$" { "Global".to_string() } else { self.event.get_status_id() }),
             ]),
         ]
     }
