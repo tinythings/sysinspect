@@ -2548,6 +2548,7 @@ dependencies = [
  "fs_extra",
  "glob",
  "hyper-util",
+ "indexmap 2.8.0",
  "interprocess",
  "ipc-channel",
  "libsysinspect",

@@ -25,6 +25,7 @@ tokio = { version = "1.43.0", features = ["full"] }
 tonic = "0.12.3"
 tonic-build = "0.12.3"
 tower = "0.5.2"
+indexmap = { version = "2.8.0", features = ["serde"] }
 
 [build-dependencies]
 tonic-build = "0.12"
