@@ -7,7 +7,8 @@ use ratatui::{
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
     widgets::{
-        Block, BorderType, Borders, List, ListItem, ListState, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget,
+        Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table,
+        Widget,
     },
 };
 
@@ -17,24 +18,73 @@ impl SysInspectUX {
         let title = "Action Data";
         let block = self._get_box_block(title, ActiveBox::Info);
 
-        if let Some(e) = self.get_selected_event() {
-            Widget::render(
-                Table::new(e.get_event_table(15), &[Constraint::Length(15), Constraint::Min(0)]).block(block).column_spacing(1),
-                rect,
-                buf,
-            );
-        } else {
-            Widget::render(
-                Table::new(
-                    vec![Row::new(vec!["N/A"]).style(Style::default().fg(Color::LightRed)).bottom_margin(0)],
-                    &[Constraint::Min(0)],
-                )
-                .block(block)
-                .column_spacing(1),
-                rect,
-                buf,
-            );
-        }
+        Widget::render(&block, rect, buf);
+        let inner = block.inner(rect);
+
+        // Get event
+        let evt = match self.get_selected_event() {
+            Some(eli) => eli,
+            None => {
+                Widget::render(
+                    Table::new(
+                        vec![Row::new(vec!["N/A"]).style(Style::default().fg(Color::LightRed)).bottom_margin(0)],
+                        &[Constraint::Min(0)],
+                    )
+                    .block(block)
+                    .column_spacing(1),
+                    rect,
+                    buf,
+                );
+                return;
+            }
+        };
+        let info_rows = evt.get_event_table(15);
+
+        // Inner layout
+        let inner_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(info_rows.len() as u16 + 1), Constraint::Length(1), Constraint::Min(0)])
+            .split(inner);
+
+        let info_table_area = inner_layout[0];
+        let splitter_label_area = inner_layout[1];
+        let extra_table_area = inner_layout[2];
+
+        // Static table
+        Widget::render(
+            Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1),
+            info_table_area,
+            buf,
+        );
+
+        // Splitter label
+        Widget::render(
+            Paragraph::new("Additional Information").style(Style::default().fg(Color::Yellow)),
+            splitter_label_area,
+            buf,
+        );
+
+        let ex_nfo_parts = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
+            .split(extra_table_area);
+        let ex_nfo_area = ex_nfo_parts[0];
+        let ex_nfo_scroller = ex_nfo_parts[1];
+
+        let displayed = &self.info_rows[self.actdt_info_offset
+            ..(self.actdt_info_offset + extra_table_area.height.saturating_sub(2) as usize).min(self.info_rows.len())];
+        Widget::render(
+            Table::new(displayed.to_vec(), &[Constraint::Length(10), Constraint::Min(0)]).column_spacing(1),
+            ex_nfo_area,
+            buf,
+        );
+
+        let mut scroller_state = ScrollbarState::default().content_length(self.info_rows.len()).position(self.actdt_info_offset);
+        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
+            ex_nfo_scroller,
+            buf,
+            &mut scroller_state,
+        );
     }
 
     /// Render list of events

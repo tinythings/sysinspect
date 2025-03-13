@@ -13,7 +13,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    widgets::Paragraph,
+    widgets::{Paragraph, Row},
 };
 use std::{
     io::{self, Error},
@@ -69,6 +69,9 @@ pub struct SysInspectUX {
     pub cycles_buf: Vec<CycleListItem>,
     pub minions_buf: Vec<MinionListItem>,
     pub events_buf: Vec<EventListItem>,
+
+    actdt_info_offset: usize,
+    info_rows: Vec<Row<'static>>,
 }
 
 impl Default for SysInspectUX {
@@ -91,6 +94,9 @@ impl Default for SysInspectUX {
             cycles_buf: Vec::new(),
             minions_buf: Vec::new(),
             events_buf: Vec::new(),
+
+            actdt_info_offset: 0,
+            info_rows: (0..100).map(|i| Row::new(vec![format!("Key {}", i), format!("Value {}", i + i)])).collect(),
         }
     }
 }
@@ -247,7 +253,12 @@ impl SysInspectUX {
                             self.selected_event -= 1;
                         }
                     }
-                    ActiveBox::Info => self.active_box = ActiveBox::Events,
+                    ActiveBox::Info => {
+                        //self.active_box = ActiveBox::Events;
+                        if self.actdt_info_offset > 0 {
+                            self.actdt_info_offset -= 1;
+                        }
+                    }
                 };
             }
             KeyCode::Down => {
@@ -268,7 +279,12 @@ impl SysInspectUX {
                             self.selected_event += 1;
                         }
                     }
-                    _ => {}
+                    ActiveBox::Info => {
+                        let total = self.info_rows.len();
+                        if self.actdt_info_offset < total.saturating_sub(1) {
+                            self.actdt_info_offset += 1;
+                        }
+                    }
                 };
             }
             KeyCode::Right => {
@@ -314,6 +330,7 @@ impl SysInspectUX {
                 self.purge_alert_visible = true;
                 self.purge_alert_choice = AlertResult::Default;
             }
+
             _ => {}
         }
     }
