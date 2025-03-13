@@ -16,7 +16,12 @@ use libsysinspect::{
     traits::get_minion_traits,
 };
 use log::LevelFilter;
-use std::{env, fs::OpenOptions, io::Write, sync::Mutex};
+use std::{
+    env,
+    fs::OpenOptions,
+    io::{ErrorKind, Write},
+    sync::Mutex,
+};
 
 mod clidef;
 mod ui;
@@ -115,7 +120,16 @@ async fn main() {
         return;
     } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
         if let Err(err) = ui::run(cfg).await {
-            println!("Error: {err}");
+            let x = err.kind();
+            if x == ErrorKind::InvalidData {
+                println!(
+                    "Can't start the UI: {}.\nIs {} running and reachable?\n",
+                    err.to_string().bright_red(),
+                    "SysInspect Master".bright_yellow()
+                );
+            } else {
+                println!("Unexpected error: {}", err.to_string().bright_red())
+            }
         }
         return;
     }
