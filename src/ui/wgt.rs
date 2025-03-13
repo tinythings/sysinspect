@@ -1,6 +1,6 @@
 use super::{
     SysInspectUX,
-    elements::{ActiveBox, DbListItem},
+    elements::{ActiveBox, DbListItem, EventListItem},
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -64,6 +64,19 @@ impl SysInspectUX {
             buf,
         );
 
+        // Fill-in info rows from the event data. At this point it supposed to be fetched.
+        let mut info_rows_ref = self.info_rows.borrow_mut();
+        info_rows_ref.clear();
+        for (k, v) in &self.event_data {
+            if k.starts_with("data.") {
+                let k = k.strip_prefix("data.").unwrap_or_default().to_string();
+                info_rows_ref.push(Row::new(vec![
+                    EventListItem::yc(format!("{k}:"), 15),
+                    EventListItem::gc(v.strip_prefix('"').unwrap_or(v).strip_suffix('"').unwrap_or(v).to_string()),
+                ]));
+            }
+        }
+
         let ex_nfo_parts = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
@@ -71,15 +84,15 @@ impl SysInspectUX {
         let ex_nfo_area = ex_nfo_parts[0];
         let ex_nfo_scroller = ex_nfo_parts[1];
 
-        let displayed = &self.info_rows[self.actdt_info_offset
-            ..(self.actdt_info_offset + extra_table_area.height.saturating_sub(2) as usize).min(self.info_rows.len())];
+        let end = (2 + self.actdt_info_offset + extra_table_area.height.saturating_sub(2) as usize).min(info_rows_ref.len());
+        let displayed = &info_rows_ref[self.actdt_info_offset..end]; // XXX: Can crash tho :-)
         Widget::render(
-            Table::new(displayed.to_vec(), &[Constraint::Length(10), Constraint::Min(0)]).column_spacing(1),
+            Table::new(displayed.to_vec(), &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1),
             ex_nfo_area,
             buf,
         );
 
-        let mut scroller_state = ScrollbarState::default().content_length(self.info_rows.len()).position(self.actdt_info_offset);
+        let mut scroller_state = ScrollbarState::default().content_length(info_rows_ref.len()).position(self.actdt_info_offset);
         Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
             ex_nfo_scroller,
             buf,

@@ -16,6 +16,7 @@ use ratatui::{
     widgets::{Paragraph, Row},
 };
 use std::{
+    cell::RefCell,
     io::{self, Error},
     sync::Arc,
 };
@@ -71,7 +72,7 @@ pub struct SysInspectUX {
     pub events_buf: Vec<EventListItem>,
 
     actdt_info_offset: usize,
-    info_rows: Vec<Row<'static>>,
+    info_rows: RefCell<Vec<Row<'static>>>,
 }
 
 impl Default for SysInspectUX {
@@ -96,7 +97,7 @@ impl Default for SysInspectUX {
             events_buf: Vec::new(),
 
             actdt_info_offset: 0,
-            info_rows: (0..100).map(|i| Row::new(vec![format!("Key {}", i), format!("Value {}", i + i)])).collect(),
+            info_rows: RefCell::new(vec![]),
         }
     }
 }
@@ -280,7 +281,7 @@ impl SysInspectUX {
                         }
                     }
                     ActiveBox::Info => {
-                        let total = self.info_rows.len();
+                        let total = self.info_rows.borrow().len();
                         if self.actdt_info_offset < total.saturating_sub(1) {
                             self.actdt_info_offset += 1;
                         }
@@ -314,9 +315,9 @@ impl SysInspectUX {
                         self.shift_next();
                     }
                     ActiveBox::Events => {
-                        if !self.li_events.is_empty() {
+                        if !self.li_events.is_empty() && self.get_selected_event().is_some() {
                             self.active_box = ActiveBox::Info;
-                            self.event_data = self.get_event_data();
+                            self.event_data = self.get_selected_event().unwrap().event().flatten();
                         }
                     }
                     _ => {}

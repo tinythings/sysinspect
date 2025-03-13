@@ -94,25 +94,27 @@ impl EventListItem {
     }
 
     // Yellow cell
-    fn yc(v: String, keywidth: usize) -> Cell<'static> {
+    pub fn yc(v: String, keywidth: usize) -> Cell<'static> {
         Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(Color::LightYellow))
     }
 
     // Grey cell
-    fn gc(v: String) -> Cell<'static> {
+    pub fn gc(v: String) -> Cell<'static> {
         Cell::from(v).style(Style::default().fg(Color::Gray))
     }
 
     // Green cell
-    fn grc(v: String) -> Cell<'static> {
+    pub fn grc(v: String) -> Cell<'static> {
         Cell::from(v).style(Style::default().fg(Color::LightGreen))
     }
 
     // Red cell
-    fn rc(v: String) -> Cell<'static> {
+    pub fn rc(v: String) -> Cell<'static> {
         Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
     }
 
+    /// Get events additional table.
+    /// This method basically flattens everything into a key/value turning into strings.
     pub fn get_additional_table(&self, keywidth: usize) -> Vec<Row> {
         vec![]
     }
