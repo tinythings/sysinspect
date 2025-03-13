@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use fs_extra::dir::{CopyOptions, copy};
+use indexmap::IndexMap;
 use libsysinspect::{
     SysinspectError,
     util::{self},
@@ -60,6 +61,33 @@ impl EventData {
         match String::from_utf8(b) {
             Ok(data) => Ok(serde_json::from_str::<Self>(&data)?),
             Err(err) => Err(SysinspectError::MasterGeneralError(format!("Unable to recover event minion: {err}"))),
+        }
+    }
+
+    /// Flattens the entire data into IndexMap<String, String>
+    pub fn flatten(&self) -> IndexMap<String, String> {
+        let mut out = IndexMap::new();
+        Self::_flatten(self.data.get("response").unwrap(), "", &mut out);
+        out
+    }
+
+    fn _flatten(value: &Value, prefix: &str, result: &mut IndexMap<String, String>) {
+        match value {
+            Value::Object(map) => {
+                for (k, v) in map {
+                    let new_prefix = if prefix.is_empty() { k.clone() } else { format!("{}.{}", prefix, k) };
+                    Self::_flatten(v, &new_prefix, result);
+                }
+            }
+            Value::Array(arr) => {
+                for (i, v) in arr.iter().enumerate() {
+                    let new_prefix = format!("{}[{}]", prefix, i);
+                    Self::_flatten(v, &new_prefix, result);
+                }
+            }
+            _ => {
+                result.insert(prefix.to_string(), value.to_string());
+            }
         }
     }
 }
