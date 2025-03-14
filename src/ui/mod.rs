@@ -59,6 +59,11 @@ pub struct SysInspectUX {
     pub purge_alert_visible: bool,
     pub purge_alert_choice: AlertResult,
 
+    /// Error alert
+    pub error_alert_visible: bool,
+    pub error_alert_message: String,
+    pub error_alert_choice: AlertResult,
+
     /// Exit alert
     pub exit_alert_visible: bool,
     pub exit_alert_choice: AlertResult,
@@ -87,10 +92,16 @@ impl Default for SysInspectUX {
             event_data: IndexMap::new(),
             active_box: ActiveBox::default(),
             status_text: String::new(),
+
+            // Alerts
             purge_alert_visible: false,
             purge_alert_choice: AlertResult::default(),
             exit_alert_visible: false,
             exit_alert_choice: AlertResult::default(),
+            error_alert_visible: false,
+            error_alert_choice: AlertResult::default(),
+            error_alert_message: String::new(),
+
             evtipc: None,
             cycles_buf: Vec::new(),
             minions_buf: Vec::new(),
@@ -113,6 +124,8 @@ impl SysInspectUX {
     }
 
     pub fn run(&mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.cycles_buf = self.get_cycles().unwrap();
+
         while !self.exit {
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
@@ -227,6 +240,52 @@ impl SysInspectUX {
         stat
     }
 
+    fn on_error_alert(&mut self, e: event::KeyEvent) -> bool {
+        let mut stat = false;
+        if self.error_alert_visible {
+            stat = true;
+            match e.code {
+                KeyCode::Enter | KeyCode::Esc => {
+                    self.error_alert_visible = false;
+                    self.exit();
+                }
+                _ => {}
+            }
+        }
+
+        stat
+    }
+
+    /// Update cycles on up/down keystrokes
+    fn on_update_cycles(&mut self, down: bool) {
+        match self.get_cycles() {
+            Ok(cycles) => {
+                self.cycles_buf = cycles;
+                self.minions_buf = Vec::new();
+                self.events_buf = Vec::new();
+                self.event_data = IndexMap::new();
+
+                if down {
+                    if self.selected_cycle < self.cycles_buf.len().saturating_sub(1) {
+                        self.selected_cycle += 1;
+                    }
+                } else if self.selected_cycle > 0 {
+                    self.selected_cycle -= 1;
+                }
+            }
+            Err(err) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = err.to_string();
+            }
+        }
+    }
+
+    /// Update minions on up/down keystrokes
+    fn on_update_minions(&mut self, down: bool) {}
+
+    /// Update events on up/down keystrokes
+    fn on_update_events(&mut self, down: bool) {}
+
     fn on_key(&mut self, e: event::KeyEvent) {
         if self.on_purge_alert(e) {
             return;
@@ -236,14 +295,14 @@ impl SysInspectUX {
             return;
         }
 
+        if self.on_error_alert(e) {
+            return;
+        }
+
         match e.code {
             KeyCode::Up => {
                 match self.active_box {
-                    ActiveBox::Cycles => {
-                        if self.selected_cycle > 0 {
-                            self.selected_cycle -= 1;
-                        }
-                    }
+                    ActiveBox::Cycles => self.on_update_cycles(false),
                     ActiveBox::Minions => {
                         if self.selected_minion > 0 {
                             self.selected_minion -= 1;
@@ -253,9 +312,9 @@ impl SysInspectUX {
                         if self.selected_event > 0 {
                             self.selected_event -= 1;
                         }
+                        self.event_data = self.get_selected_event().unwrap().event().flatten();
                     }
                     ActiveBox::Info => {
-                        //self.active_box = ActiveBox::Events;
                         if self.actdt_info_offset > 0 {
                             self.actdt_info_offset -= 1;
                         }
@@ -264,12 +323,7 @@ impl SysInspectUX {
             }
             KeyCode::Down => {
                 match self.active_box {
-                    ActiveBox::Cycles => {
-                        let cycles = self.get_cycles();
-                        if self.selected_cycle < cycles.len().saturating_sub(1) {
-                            self.selected_cycle += 1;
-                        }
-                    }
+                    ActiveBox::Cycles => self.on_update_cycles(true),
                     ActiveBox::Minions => {
                         if self.selected_minion < self.li_minions.len().saturating_sub(1) {
                             self.selected_minion += 1;
@@ -279,6 +333,7 @@ impl SysInspectUX {
                         if self.selected_event < self.li_events.len().saturating_sub(1) {
                             self.selected_event += 1;
                         }
+                        self.event_data = self.get_selected_event().unwrap().event().flatten();
                     }
                     ActiveBox::Info => {
                         let total = self.info_rows.borrow().len();
@@ -297,15 +352,24 @@ impl SysInspectUX {
             KeyCode::Enter => {
                 match self.active_box {
                     ActiveBox::Cycles => {
-                        self.cycles_buf = self.get_cycles();
-                        if !self.cycles_buf.is_empty() {
-                            self.li_minions = self.get_minions(self.get_selected_cycle().event().sid());
-                            self.li_events = Vec::new();
-                            self.selected_minion = 0;
+                        if let Ok(cycles) = self.get_cycles() {
+                            self.cycles_buf = cycles;
+                            self.minions_buf = Vec::new();
+                            self.events_buf = Vec::new();
+                            self.event_data = IndexMap::new();
+
+                            if !self.cycles_buf.is_empty() {
+                                self.li_minions = self.get_minions(self.get_selected_cycle().event().sid());
+                                self.li_events = Vec::new();
+                                self.selected_minion = 0;
+                            }
+                            self.shift_next();
+                        } else {
+                            self.error_alert_visible = true;
                         }
-                        self.shift_next();
                     }
                     ActiveBox::Minions => {
+                        // Reset if no cycles
                         if !self.li_minions.is_empty() {
                             if let Some(mli) = self.get_selected_minion() {
                                 self.li_events = self.get_events(self.get_selected_cycle().event().sid(), mli.event().id());
@@ -331,6 +395,14 @@ impl SysInspectUX {
                 self.purge_alert_visible = true;
                 self.purge_alert_choice = AlertResult::Default;
             }
+
+            KeyCode::PageUp => if self.active_box == ActiveBox::Info {
+                self.active_box = ActiveBox::Events;
+            },
+
+            KeyCode::PageDown => if self.active_box == ActiveBox::Events {
+                self.active_box = ActiveBox::Info;
+            },
 
             _ => {}
         }
@@ -363,13 +435,19 @@ impl SysInspectUX {
         self.exit = true;
     }
     /// Returns a vector of cycle names.
-    pub fn get_cycles(&self) -> Vec<CycleListItem> {
+    pub fn get_cycles(&self) -> Result<Vec<CycleListItem>, SysinspectError> {
         if let Some(ipc) = self.evtipc.as_ref() {
             let c_ipc = ipc.clone();
             return tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
-                    let r = c_ipc.lock().await.query("", "", "", QUERY_CYCLES).await.unwrap();
-                    let mut cycles: Vec<CycleListItem> = r
+                    let rq = match c_ipc.lock().await.query("", "", "", QUERY_CYCLES).await {
+                        Ok(rq) => rq,
+                        Err(err) => {
+                            return Err(SysinspectError::ProtoError(format!("Error getting data: {}", err)));
+                        }
+                    };
+
+                    let mut cycles: Vec<CycleListItem> = rq
                         .into_inner()
                         .records
                         .into_iter()
@@ -381,11 +459,11 @@ impl SysInspectUX {
                         })
                         .collect();
                     cycles.sort_by_key(|ts| ts.event().get_ts_unix());
-                    cycles
+                    Ok(cycles)
                 })
             });
         }
-        vec![]
+        Ok(vec![])
     }
 
     /// Returns a vector of minion names (random IDs).
@@ -448,6 +526,11 @@ impl SysInspectUX {
     /// Count the vertical space for the alert display, plus three empty lines
     fn get_text_lines(s: &str) -> u16 {
         s.matches('\n').count() as u16 + 3
+    }
+
+    /// Get the maximum width of the lines
+    fn get_max_width_lines(s: &str) -> u16 {
+        s.lines().map(|l| l.len() as u16).max().unwrap_or_default()
     }
 
     /// Get event data
