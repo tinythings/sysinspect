@@ -35,7 +35,11 @@ pub async fn run(cfg: MasterConfig) -> io::Result<()> {
             let r = app.run(&mut terminal);
             ratatui::restore();
 
-            println!("{:#?}", MEM_LOGGER.get_messages());
+            // XXX: Temporary log dumper. Should go to its own window popup later
+            if !MEM_LOGGER.get_messages().is_empty() {
+                println!("Memory log:");
+                println!("{:#?}", MEM_LOGGER.get_messages());
+            }
 
             r
         }
