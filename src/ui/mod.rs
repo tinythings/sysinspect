@@ -359,9 +359,17 @@ impl SysInspectUX {
                             self.event_data = IndexMap::new();
 
                             if !self.cycles_buf.is_empty() {
-                                self.li_minions = self.get_minions(self.get_selected_cycle().event().sid());
-                                self.li_events = Vec::new();
-                                self.selected_minion = 0;
+                                match self.get_minions(self.get_selected_cycle().event().sid()) {
+                                    Ok(minions) => {
+                                        self.li_minions = minions;
+                                        self.selected_minion = 0;
+                                        self.selected_event = 0;
+                                    }
+                                    Err(err) => {
+                                        self.error_alert_visible = true;
+                                        self.error_alert_message = err.to_string();
+                                    }
+                                }
                             }
                             self.shift_next();
                         } else {
@@ -372,7 +380,17 @@ impl SysInspectUX {
                         // Reset if no cycles
                         if !self.li_minions.is_empty() {
                             if let Some(mli) = self.get_selected_minion() {
-                                self.li_events = self.get_events(self.get_selected_cycle().event().sid(), mli.event().id());
+                                match self.get_events(self.get_selected_cycle().event().sid(), mli.event().id()) {
+                                    Ok(events) => {
+                                        self.li_events = events;
+                                        self.selected_event = 0;
+                                        self.event_data = IndexMap::new();
+                                    }
+                                    Err(err) => {
+                                        self.error_alert_visible = true;
+                                        self.error_alert_message = err.to_string();
+                                    }
+                                }
                             }
                             self.selected_event = 0;
                         }
@@ -396,13 +414,17 @@ impl SysInspectUX {
                 self.purge_alert_choice = AlertResult::Default;
             }
 
-            KeyCode::PageUp => if self.active_box == ActiveBox::Info {
-                self.active_box = ActiveBox::Events;
-            },
+            KeyCode::PageUp => {
+                if self.active_box == ActiveBox::Info {
+                    self.active_box = ActiveBox::Events;
+                }
+            }
 
-            KeyCode::PageDown => if self.active_box == ActiveBox::Events {
-                self.active_box = ActiveBox::Info;
-            },
+            KeyCode::PageDown => {
+                if self.active_box == ActiveBox::Events {
+                    self.active_box = ActiveBox::Info;
+                }
+            }
 
             _ => {}
         }
@@ -469,12 +491,17 @@ impl SysInspectUX {
     /// Returns a vector of minion names (random IDs).
     /// Params:
     /// - `sid`: Session ID (cycle)
-    pub fn get_minions(&self, sid: &str) -> Vec<MinionListItem> {
+    pub fn get_minions(&self, sid: &str) -> Result<Vec<MinionListItem>, SysinspectError> {
         if let Some(ipc) = self.evtipc.as_ref() {
             let c_ipc = ipc.clone();
             return tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
-                    let r = c_ipc.lock().await.query("", "", sid, QUERY_MINIONS).await.unwrap();
+                    let r = match c_ipc.lock().await.query("", "", sid, QUERY_MINIONS).await {
+                        Ok(r) => r,
+                        Err(err) => {
+                            return Err(SysinspectError::ProtoError(format!("Error getting data: {}", err)));
+                        }
+                    };
                     let minions: Vec<MinionListItem> = r
                         .into_inner()
                         .records
@@ -487,24 +514,29 @@ impl SysInspectUX {
                             MinionListItem::new(s)
                         })
                         .collect();
-                    minions
+                    Ok(minions)
                 })
             });
         }
 
-        vec![]
+        Ok(vec![])
     }
 
     /// Returns a vector of events for a particular minion.
     /// Params:
     /// - `sid`: Session ID (cycle)
     /// - `mid`: Minion ID
-    pub fn get_events(&self, sid: &str, mid: &str) -> Vec<EventListItem> {
+    pub fn get_events(&self, sid: &str, mid: &str) -> Result<Vec<EventListItem>, SysinspectError> {
         if let Some(ipc) = self.evtipc.as_ref() {
             let c_ipc = ipc.clone();
             return tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
-                    let r = c_ipc.lock().await.query(mid, "", sid, QUERY_EVENTS).await.unwrap();
+                    let r = match c_ipc.lock().await.query(mid, "", sid, QUERY_EVENTS).await {
+                        Ok(r) => r,
+                        Err(err) => {
+                            return Err(SysinspectError::ProtoError(format!("Error getting data: {}", err)));
+                        }
+                    };
                     let events: Vec<EventListItem> = r
                         .into_inner()
                         .records
@@ -516,11 +548,11 @@ impl SysInspectUX {
                             )
                         })
                         .collect();
-                    events
+                    Ok(events)
                 })
             });
         }
-        vec![]
+        Ok(vec![])
     }
 
     /// Count the vertical space for the alert display, plus three empty lines
