@@ -198,7 +198,7 @@ impl SysInspectUX {
         Widget::render(&block, rect, buf);
 
         let cycles_inner = block.inner(rect);
-        let cycles = self.get_cycles();
+        let cycles = self.cycles_buf.clone();
         let mut list_state = ListState::default();
         if !cycles.is_empty() {
             list_state.select(Some(self.selected_cycle));
@@ -247,7 +247,8 @@ impl Widget for &SysInspectUX {
         self._render_minions_block(minions_a, buf);
         self._render_right_pane(events_a, buf);
 
-        // Catch purge dialog
+        // Catch dialogs
+        self.dialog_error(area, buf);
         self.dialog_purge(area, buf);
         self.dialog_exit(area, buf);
     }
