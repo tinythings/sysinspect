@@ -564,12 +564,4 @@ impl SysInspectUX {
     fn get_max_width_lines(s: &str) -> u16 {
         s.lines().map(|l| l.len() as u16).max().unwrap_or_default()
     }
-
-    /// Get event data
-    fn get_event_data(&self) -> IndexMap<String, String> {
-        let mut m = IndexMap::new();
-        m.insert("Foo".to_string(), "Bar".to_string());
-        m.insert("Baz".to_string(), "Toto".to_string());
-        m
-    }
 }
