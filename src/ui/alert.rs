@@ -6,11 +6,40 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
+enum AlertButtons {
+    YesNo,
+    OkCancel,
+    Ok,
+    Quit,
+}
+
 static YES_LABEL: &str = "Yes";
 static NO_LABEL: &str = "No";
+static OK_LABEL: &str = "OK";
+static CANCEL_LABEL: &str = "Cancel";
+static QUIT_LABEL: &str = "Quit";
 static DEFAULT_BUTTON_WIDTH: u16 = 12;
 
+#[allow(clippy::too_many_arguments)]
 impl SysInspectUX {
+    pub fn dialog_error(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.error_alert_visible {
+            return;
+        }
+        Self::quit_popup(
+            parent,
+            buf,
+            Some("Error"),
+            &format!(
+                "An unexpected error occurred:\n{}\n\nPlease check the logs for more information.",
+                self.error_alert_message
+            ),
+            Some(Color::Red),
+            AlertResult::Quit,
+            Some(0),
+        );
+    }
+
     pub fn dialog_purge(&self, parent: Rect, buf: &mut Buffer) {
         if !self.purge_alert_visible {
             return;
@@ -22,6 +51,7 @@ impl SysInspectUX {
             "Are you sure you want\nto delete everything?\n\nThis operation is irreversible.",
             None,
             self.purge_alert_choice.clone(),
+            None,
         );
     }
 
@@ -30,7 +60,7 @@ impl SysInspectUX {
             return;
         }
 
-        Self::yesno_popup(parent, buf, None, "Quit the UI?", Some(Color::Blue), self.exit_alert_choice.clone());
+        Self::okcancel_popup(parent, buf, None, "Quit the UI?", Some(Color::Blue), self.exit_alert_choice.clone(), None);
     }
 
     /// Draws a button in MS-DOS style (no shadow)
@@ -41,16 +71,47 @@ impl SysInspectUX {
         format!("[{}{}{}]", " ".repeat(left_pad), trimmed, " ".repeat(total_pad - left_pad))
     }
 
+    /// Draws quit popup area
+    fn quit_popup(
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
+        width: Option<u16>,
+    ) {
+        Self::_popup(parent, buf, title, text, background, choice, AlertButtons::Quit, width);
+    }
+
+    /// Draws ok/cancel popup area
+    fn okcancel_popup(
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
+        width: Option<u16>,
+    ) {
+        Self::_popup(parent, buf, title, text, background, choice, AlertButtons::OkCancel, width);
+    }
+
     /// Draws yes/no popup area
     fn yesno_popup(
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
+        width: Option<u16>,
+    ) {
+        Self::_popup(parent, buf, title, text, background, choice, AlertButtons::YesNo, width);
+    }
+
+    /// Draws a popup area
+    fn _popup(
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
+        buttons: AlertButtons, width: Option<u16>,
     ) {
         let background = background.unwrap_or(Color::Red);
 
         let text = format!("\n{}", text);
         let text_lines = Self::get_text_lines(&text);
         let height = text_lines + 3;
-        let width = (parent.width / 4).max(20);
+
+        #[allow(clippy::unnecessary_unwrap)]
+        let mut width = if width.is_none() { (parent.width / 4).max(20) } else { width.unwrap() };
+        if width == 0 {
+            width = Self::get_max_width_lines(&text) + 2;
+        }
+
         let x = parent.x + (parent.width.saturating_sub(width)) / 2;
         let y = parent.y + (parent.height.saturating_sub(height)) / 2;
         let canvas = Rect { x, y, width, height };
@@ -82,32 +143,37 @@ impl SysInspectUX {
             .style(Style::default().fg(Color::White).bg(background))
             .render(text_area, buf);
 
-        let yes_label = Self::format_button(YES_LABEL);
-        let no_label = Self::format_button(NO_LABEL);
+        let (lbtn_label, rbtn_label) = match buttons {
+            AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
+            AlertButtons::OkCancel => (Self::format_button(OK_LABEL), Self::format_button(CANCEL_LABEL)),
+            AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
+            AlertButtons::Quit => (Self::format_button(QUIT_LABEL), "".to_string()),
+        };
 
         let button_splits = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length((width - (yes_label.len() as u16 + 3 + no_label.len() as u16)) / 2),
-                Constraint::Length(yes_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                Constraint::Length((width - (lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
+                Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
                 Constraint::Length(3),
-                Constraint::Length(no_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
             ])
             .split(button_area);
 
-        let action_style = if choice != AlertResult::Default {
+        // Button styles
+        let b_passive = if choice != AlertResult::Default {
             Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White).bg(background)
         };
-        let cancel_style = if choice == AlertResult::Default {
+        let b_active = if choice == AlertResult::Default {
             Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White).bg(background)
         };
 
-        Paragraph::new(yes_label).style(action_style).render(button_splits[1], buf);
-        Paragraph::new(no_label).style(cancel_style).render(button_splits[3], buf);
+        Paragraph::new(lbtn_label).style(b_passive).render(button_splits[1], buf);
+        Paragraph::new(rbtn_label).style(b_active).render(button_splits[3], buf);
 
         // MS-DOS style shadows :-)
         for idx in 0..width {
