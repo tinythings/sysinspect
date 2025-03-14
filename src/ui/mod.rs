@@ -13,6 +13,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
+    text::Line,
     widgets::{Paragraph, Row},
 };
 use std::{
@@ -24,6 +25,7 @@ use tokio::sync::Mutex;
 
 mod alert;
 mod elements;
+mod statusbar;
 mod wgt;
 
 pub async fn run(cfg: MasterConfig) -> io::Result<()> {
@@ -53,7 +55,7 @@ pub struct SysInspectUX {
     pub event_data: IndexMap<String, String>,
     pub active_box: ActiveBox,
 
-    pub status_text: String,
+    pub status_text: Line<'static>,
 
     /// Purge alert
     pub purge_alert_visible: bool,
@@ -82,7 +84,7 @@ pub struct SysInspectUX {
 
 impl Default for SysInspectUX {
     fn default() -> Self {
-        Self {
+        let mut instance = Self {
             exit: false,
             selected_cycle: 0,
             selected_minion: 0,
@@ -91,7 +93,7 @@ impl Default for SysInspectUX {
             li_events: Vec::new(),
             event_data: IndexMap::new(),
             active_box: ActiveBox::default(),
-            status_text: String::new(),
+            status_text: Line::from(vec![]),
 
             // Alerts
             purge_alert_visible: false,
@@ -109,7 +111,9 @@ impl Default for SysInspectUX {
 
             actdt_info_offset: 0,
             info_rows: RefCell::new(vec![]),
-        }
+        };
+        instance.status_at_cycles(); // Also an initial status
+        instance
     }
 }
 
@@ -145,7 +149,7 @@ impl SysInspectUX {
 
         frame.render_widget(self, main_area);
 
-        let status_paragraph = Paragraph::new(self.status_text.as_str())
+        let status_paragraph = Paragraph::new(self.status_text.clone())
             .style(Style::default().fg(Color::Yellow).bg(Color::Blue).add_modifier(Modifier::BOLD));
         frame.render_widget(status_paragraph, status_area);
     }
@@ -162,18 +166,50 @@ impl SysInspectUX {
     /// Cycle active pan to the right (used on RIGHT or ENTER key)
     fn shift_next(&mut self) {
         match self.active_box {
-            ActiveBox::Cycles => self.active_box = ActiveBox::Minions,
-            ActiveBox::Minions => self.active_box = ActiveBox::Events,
-            ActiveBox::Events | ActiveBox::Info => self.active_box = ActiveBox::Cycles,
+            ActiveBox::Cycles => {
+                if self.li_minions.is_empty() {
+                    return;
+                }
+                self.status_at_minions();
+                self.active_box = ActiveBox::Minions
+            }
+
+            ActiveBox::Minions => {
+                if self.li_events.is_empty() {
+                    return;
+                }
+                self.status_at_action_results();
+                self.active_box = ActiveBox::Events
+            }
+
+            ActiveBox::Events | ActiveBox::Info => {
+                self.status_at_cycles();
+                self.active_box = ActiveBox::Cycles
+            }
         };
     }
 
     /// Cycle active pan to the left (used on LEFT or ESC key)
     fn shift_prev(&mut self) {
         match self.active_box {
-            ActiveBox::Cycles => self.active_box = ActiveBox::Events,
-            ActiveBox::Minions => self.active_box = ActiveBox::Cycles,
-            ActiveBox::Events | ActiveBox::Info => self.active_box = ActiveBox::Minions,
+            ActiveBox::Cycles => {
+                if self.li_minions.is_empty() {
+                    return;
+                }
+
+                self.status_at_action_results();
+                self.active_box = ActiveBox::Events
+            }
+
+            ActiveBox::Minions => {
+                self.status_at_cycles();
+                self.active_box = ActiveBox::Cycles
+            }
+
+            ActiveBox::Events | ActiveBox::Info => {
+                self.status_at_minions();
+                self.active_box = ActiveBox::Minions
+            }
         };
     }
 
@@ -192,15 +228,11 @@ impl SysInspectUX {
                 }
                 KeyCode::Enter => {
                     if self.purge_alert_choice == AlertResult::Purge {
-                        self.status_text = "Purge confirmed".to_string();
                         // XXX: call DB here
-                    } else {
-                        self.status_text = "Purge cancelled".to_string();
                     }
                     self.purge_alert_visible = false;
                 }
                 KeyCode::Esc => {
-                    self.status_text = "Purge cancelled".to_string();
                     self.purge_alert_visible = false;
                 }
                 _ => {}
@@ -398,6 +430,7 @@ impl SysInspectUX {
                     }
                     ActiveBox::Events => {
                         if !self.li_events.is_empty() && self.get_selected_event().is_some() {
+                            self.status_at_action_data();
                             self.active_box = ActiveBox::Info;
                             self.event_data = self.get_selected_event().unwrap().event().flatten();
                         }
@@ -416,12 +449,14 @@ impl SysInspectUX {
 
             KeyCode::PageUp => {
                 if self.active_box == ActiveBox::Info {
+                    self.status_at_action_results();
                     self.active_box = ActiveBox::Events;
                 }
             }
 
             KeyCode::PageDown => {
                 if self.active_box == ActiveBox::Events {
+                    self.status_at_action_data();
                     self.active_box = ActiveBox::Info;
                 }
             }
