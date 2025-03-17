@@ -1,20 +1,20 @@
 use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use colored::Colorize;
 use libsysinspect::{
+    SysinspectError,
     cfg::mmconf::MinionConfig,
     inspector::SysInspectRunner,
     intp::actproc::response::ActionResponse,
     proto::{
+        MasterMessage, MinionMessage, ProtoConversion,
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
         query::{MinionQuery, SCHEME_COMMAND},
         rqtypes::RequestType,
-        MasterMessage, MinionMessage, ProtoConversion,
     },
     rsa,
     traits::{self},
     util::{self, dataconv},
-    SysinspectError,
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -25,7 +25,7 @@ use std::{
     vec,
 };
 use tokio::io::AsyncReadExt;
-use tokio::net::{tcp::OwnedReadHalf, TcpStream};
+use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
 use uuid::Uuid;
@@ -362,7 +362,7 @@ impl SysMinion {
     }
 
     /// Launch sysinspect
-    async fn launch_sysinspect(self: Arc<Self>, scheme: &str, msp: &ModStatePayload) {
+    async fn launch_sysinspect(self: Arc<Self>, cycle_id: &str, scheme: &str, msp: &ModStatePayload) {
         // Get the query first
         let mqr = match MinionQuery::new(scheme) {
             Ok(mqr) => mqr,
@@ -424,7 +424,7 @@ impl SysMinion {
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
 
-        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr())));
+        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
 
         sr.start().await;
 
@@ -456,7 +456,13 @@ impl SysMinion {
     }
 
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
-        log::debug!("Dispatching message");
+        log::debug!("Dispatching message: {:#?}", cmd);
+
+        if cmd.get_cycle().is_empty() {
+            log::error!("Cycle ID is empty!");
+            return;
+        }
+
         let tgt = cmd.get_target();
 
         // Is command minion-specific?
@@ -513,9 +519,9 @@ impl SysMinion {
                 if cmd.get_target().scheme().starts_with(SCHEME_COMMAND) {
                     self.as_ptr().call_internal_command(cmd.get_target().scheme()).await;
                 } else {
-                    self.as_ptr().launch_sysinspect(cmd.get_target().scheme(), &pld).await;
+                    self.as_ptr().launch_sysinspect(cmd.get_cycle(), cmd.get_target().scheme(), &pld).await;
                     log::debug!("Command dispatched");
-                    log::trace!("Command payload: {:#?}", pld);
+                    log::debug!("Command payload: {:#?}", pld);
                 }
             }
             Ok(PayloadType::Undef(pld)) => {
