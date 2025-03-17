@@ -456,7 +456,7 @@ impl SysMinion {
     }
 
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
-        log::debug!("Dispatching message");
+        log::debug!("Dispatching message: {:#?}", cmd);
         let tgt = cmd.get_target();
 
         // Is command minion-specific?
@@ -515,7 +515,7 @@ impl SysMinion {
                 } else {
                     self.as_ptr().launch_sysinspect(cmd.get_target().scheme(), &pld).await;
                     log::debug!("Command dispatched");
-                    log::trace!("Command payload: {:#?}", pld);
+                    log::debug!("Command payload: {:#?}", pld);
                 }
             }
             Ok(PayloadType::Undef(pld)) => {

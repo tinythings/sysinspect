@@ -305,10 +305,10 @@ impl EventsRegistry {
     ) -> Result<String, SysinspectError> {
         let session_minions = self.get_tree(sid.sid())?;
         if !session_minions.contains_key(&mid)? {
-            log::debug!("Ensuring minion: {mid}");
+            log::debug!("Adding minion: {mid} at {}", sid.sid().green());
             session_minions.insert(&mid, serde_json::to_string(&traits)?.as_bytes())?;
         } else {
-            log::debug!("Minion already in the database {mid}");
+            log::debug!("Minion already in the database {mid} at {}", sid.sid().yellow());
         }
 
         Ok(mid)

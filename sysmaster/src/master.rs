@@ -354,7 +354,7 @@ impl SysMaster {
 
                                     match m.evtipc.add_event(&sid, EventMinion::new(mid), pl).await {
                                         Ok(_) => {
-                                            log::info!("Event added for {} in {:#?}", req.id(), sid);
+                                            log::debug!("Event added for {} in {:#?}", req.id(), sid);
                                         }
                                         Err(err) => {
                                             log::error!("Unable to add event: {err}");
@@ -420,8 +420,6 @@ impl SysMaster {
                                                 let c_master = Arc::clone(&master);
                                                 let c_msg = msg.clone();
                                                 tokio::spawn(async move {c_master.lock().await.on_fifo_commands(&c_msg).await;});
-
-                                                // Broadcast the message to everyone
                                                 let _ = bcast.send(msg.sendable().unwrap());
                                             }
                                         }
