@@ -1,10 +1,10 @@
 use crate::{
+    SysinspectError,
     cfg::mmconf::MinionConfig,
     intp::{self, actions::Action, inspector::SysInspector},
     mdescr::mspec,
     reactor::{callback::EventProcessorCallback, evtproc::EventProcessor},
     traits::systraits::SystemTraits,
-    SysinspectError,
 };
 use colored::Colorize;
 use intp::actproc::response::ActionResponse;
@@ -116,6 +116,7 @@ impl SysInspectRunner {
         }
     }
 
+    /// Start the inspector
     pub async fn start(&mut self) {
         log::info!("Starting sysinspect runner");
         match mspec::load(&self.model_pth, self.traits.clone()) {

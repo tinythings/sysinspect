@@ -1,4 +1,4 @@
-use crate::{intp::actproc::response::ActionResponse, SysinspectError};
+use crate::{SysinspectError, intp::actproc::response::ActionResponse};
 use async_trait::async_trait;
 
 #[async_trait]

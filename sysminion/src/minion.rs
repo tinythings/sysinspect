@@ -1,20 +1,20 @@
 use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use colored::Colorize;
 use libsysinspect::{
+    SysinspectError,
     cfg::mmconf::MinionConfig,
     inspector::SysInspectRunner,
     intp::actproc::response::ActionResponse,
     proto::{
+        MasterMessage, MinionMessage, ProtoConversion,
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
         query::{MinionQuery, SCHEME_COMMAND},
         rqtypes::RequestType,
-        MasterMessage, MinionMessage, ProtoConversion,
     },
     rsa,
     traits::{self},
     util::{self, dataconv},
-    SysinspectError,
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -25,7 +25,7 @@ use std::{
     vec,
 };
 use tokio::io::AsyncReadExt;
-use tokio::net::{tcp::OwnedReadHalf, TcpStream};
+use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
 use uuid::Uuid;

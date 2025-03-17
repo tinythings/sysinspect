@@ -6,7 +6,7 @@ pub mod rqtypes;
 use crate::SysinspectError;
 use errcodes::ProtoErrorCode;
 use rqtypes::RequestType;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 /// Master message
