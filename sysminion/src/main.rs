@@ -8,8 +8,9 @@ mod rsa;
 use clidef::cli;
 use daemonize::Daemonize;
 use libsysinspect::{
+    SysinspectError,
     cfg::{get_minion_config, mmconf::MinionConfig},
-    logger, SysinspectError,
+    logger,
 };
 use log::LevelFilter;
 use std::{env, fs::File, process::exit};
