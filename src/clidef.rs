@@ -72,6 +72,13 @@ pub fn cli(version: &'static str) -> Command {
         // Cluster
         .next_help_heading("Cluster")
         .arg(
+            Arg::new("ui")
+            .short('u')
+            .long("ui")
+            .action(ArgAction::SetTrue)
+            .help("Run terminal user interface app (TUI) for the review of the results")
+        )
+        .arg(
             Arg::new("unregister")
                 .long("unregister")
                 .help("Unregister a minion by its System Id. New registration will be required.")

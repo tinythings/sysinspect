@@ -47,6 +47,9 @@ pub static DEFAULT_MASTER_LOG_ERR: &str = "sysmaster.errors.log";
 /// Default path for the telemetry database
 pub static DEFAULT_MASTER_TELEMETRY_DB: &str = "/var/tmp/sysinspect/telemetry";
 
+/// Default path for the telemetry communication socket
+pub static DEFAULT_MASTER_TELEMETRY_SCK: &str = "/tmp/sysinspect.telemetry.sock";
+
 /// Default filename for the minion log
 pub static DEFAULT_MINION_LOG_STD: &str = "sysminion.standard.log";
 
@@ -277,6 +280,11 @@ pub struct MasterConfig {
     // Telemetry database location
     #[serde(rename = "telemetry.location")]
     telemetry_location: Option<String>,
+
+    // Telemetry socket communication between
+    // sysinspect and sysmaster
+    #[serde(rename = "telemetry.socket")]
+    telemetry_socket: Option<String>,
 }
 
 impl MasterConfig {
@@ -374,5 +382,10 @@ impl MasterConfig {
     /// Return the path of the telemetry location
     pub fn telemetry_location(&self) -> PathBuf {
         PathBuf::from(self.telemetry_location.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_DB.to_string()))
+    }
+
+    /// Return the path of the telemetry communication socket location
+    pub fn telemetry_socket(&self) -> PathBuf {
+        PathBuf::from(self.telemetry_socket.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_SCK.to_string()))
     }
 }

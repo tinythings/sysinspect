@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use fs_extra::dir::{CopyOptions, copy};
+use indexmap::IndexMap;
 use libsysinspect::{
     SysinspectError,
     util::{self},
@@ -8,10 +10,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sled::{Db, Tree};
 use std::{collections::HashMap, fs, path::PathBuf};
+use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct EventData {
     data: HashMap<String, Value>,
 }
@@ -40,34 +43,101 @@ impl EventData {
         util::dataconv::as_str(self.data.get("cid").cloned())
     }
 
+    pub fn get_constraints(&self) -> HashMap<String, Value> {
+        serde_json::from_value(self.data.get("constraints").unwrap().clone()).unwrap()
+    }
+
     pub fn get_response(&self) -> HashMap<String, Value> {
         // Should work... :-)
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
     }
+
+    /// Get the timestamp
+    pub fn get_timestamp(&self) -> String {
+        util::dataconv::as_str(self.data.get("timestamp").cloned())
+    }
+
+    pub fn from_bytes(b: Vec<u8>) -> Result<Self, SysinspectError> {
+        match String::from_utf8(b) {
+            Ok(data) => Ok(serde_json::from_str::<Self>(&data)?),
+            Err(err) => Err(SysinspectError::MasterGeneralError(format!("Unable to recover event minion: {err}"))),
+        }
+    }
+
+    /// Flattens the entire data into IndexMap<String, String>
+    pub fn flatten(&self) -> IndexMap<String, String> {
+        let mut out = IndexMap::new();
+        Self::_flatten(self.data.get("response").unwrap(), "", &mut out);
+        out
+    }
+
+    fn _flatten(value: &Value, prefix: &str, result: &mut IndexMap<String, String>) {
+        match value {
+            Value::Object(map) => {
+                for (k, v) in map {
+                    let new_prefix = if prefix.is_empty() { k.clone() } else { format!("{}.{}", prefix, k) };
+                    Self::_flatten(v, &new_prefix, result);
+                }
+            }
+            Value::Array(arr) => {
+                for (i, v) in arr.iter().enumerate() {
+                    let new_prefix = format!("{}[{}]", prefix, i);
+                    Self::_flatten(v, &new_prefix, result);
+                }
+            }
+            _ => {
+                result.insert(prefix.to_string(), value.to_string());
+            }
+        }
+    }
 }
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventMinion {
     mid: String,
+    cycles_id: Option<String>, // Is set later
     traits: HashMap<String, Value>,
 }
 
 impl EventMinion {
     pub fn new(mid: String) -> Self {
-        Self { mid, traits: HashMap::new() }
+        EventMinion { mid, cycles_id: None, traits: HashMap::new() }
     }
 
+    /// Minion Id
     pub fn id(&self) -> &str {
         &self.mid
+    }
+
+    /// Cycles Id
+    pub fn cid(&self) -> String {
+        self.cycles_id.clone().unwrap_or_default()
     }
 
     pub fn get_trait(&self, id: &str) -> Option<&Value> {
         self.traits.get(id)
     }
+
+    pub fn from_bytes(b: Vec<u8>) -> Result<Self, SysinspectError> {
+        match String::from_utf8(b) {
+            Ok(data) => Ok(serde_json::from_str::<Self>(&data)?),
+            Err(err) => Err(SysinspectError::MasterGeneralError(format!("Unable to recover event minion: {err}"))),
+        }
+    }
+
+    pub fn set_cid(&mut self, cid: String) {
+        self.cycles_id = Some(cid);
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventSession {
+    /// sysinspect query
     query: String,
+
+    /// Timestamp
     ts: DateTime<Utc>,
+
+    /// Session ID
     sid: String,
 }
 
@@ -91,6 +161,10 @@ impl EventSession {
         self.ts.to_rfc3339()
     }
 
+    pub fn get_ts_mask(&self, m: Option<&str>) -> String {
+        self.ts.format(m.unwrap_or("%Y.%m.%d %H:%M")).to_string()
+    }
+
     pub fn get_ts_unix(&self) -> i64 {
         self.ts.timestamp()
     }
@@ -107,6 +181,13 @@ impl EventSession {
 #[derive(Debug)]
 pub struct EventsRegistry {
     conn: Db,
+    cloned: Option<PathBuf>,
+}
+
+impl Default for EventsRegistry {
+    fn default() -> Self {
+        Self { conn: sled::Config::new().temporary(true).open().unwrap(), cloned: None } // open in memory
+    }
 }
 
 impl EventsRegistry {
@@ -121,6 +202,49 @@ impl EventsRegistry {
                 Ok(db) => db,
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
             },
+            cloned: None,
+        })
+    }
+
+    /// Should be explicitly called on exit
+    pub fn cleanup(&self) -> Result<(), SysinspectError> {
+        if let Some(cloned) = self.cloned.clone() {
+            return Ok(fs::remove_dir_all(cloned)?);
+        }
+
+        Ok(())
+    }
+
+    /// This is a brute-force copy of the database, because sled doesn't allow open database
+    /// in read-only mode from the other processes if it is already opened.
+    pub fn clone(p: PathBuf) -> Result<EventsRegistry, SysinspectError> {
+        let mut options = CopyOptions::new();
+        options.overwrite = true;
+        options.copy_inside = true;
+
+        let prefix = "sysinspect-db-clone-";
+        let pattern = format!("/tmp/{}*", prefix);
+        for entry in glob::glob(&pattern).unwrap() {
+            match entry {
+                Ok(path) if path.is_dir() => {
+                    log::info!("Cleanup stale clone: {:?}", path);
+                    fs::remove_dir_all(path)?;
+                }
+                Ok(_) => {} // Not a directory, skip it.
+                Err(e) => eprintln!("Error matching path: {:?}", e),
+            }
+        }
+
+        let tmpdir = Builder::new().prefix(prefix).tempdir()?.into_path();
+        log::info!("Cloned database to {}", tmpdir.to_str().unwrap_or_default());
+        copy(p, &tmpdir, &options).map(|_| ()).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        Ok(EventsRegistry {
+            conn: match sled::open(&tmpdir) {
+                Ok(db) => db,
+                Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
+            },
+            cloned: Some(tmpdir),
         })
     }
 
@@ -133,15 +257,15 @@ impl EventsRegistry {
     }
 
     /// Return a tree Id out of sid and mid
-    fn to_tree_id(sid: &EventSession, mid: &EventMinion) -> String {
-        format!("{}@{}", sid.sid(), mid.id())
+    fn to_tree_id(sid: &str, mid: &str) -> String {
+        format!("{}@{}", sid, mid)
     }
 
     /// Add an event
     pub fn add_event(
-        &mut self, sid: EventSession, mid: EventMinion, payload: HashMap<String, Value>,
+        &mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>,
     ) -> Result<(), SysinspectError> {
-        let events = self.get_tree(&Self::to_tree_id(&sid, &mid))?;
+        let events = self.get_tree(&Self::to_tree_id(sid.sid(), mid.id()))?;
         if let Err(err) = events.insert(
             format!(
                 "{}/{}/{}",
@@ -206,21 +330,25 @@ impl EventsRegistry {
     }
 
     /// Return all minions within the session
-    pub fn get_minions(&self, sid: &EventSession) -> Result<Vec<EventMinion>, SysinspectError> {
+    pub fn get_minions(&self, sid: &str) -> Result<Vec<EventMinion>, SysinspectError> {
         let mut ms = Vec::<EventMinion>::new();
-        let minions = self.get_tree(sid.sid())?;
+        let minions = self.get_tree(sid)?;
         for data in minions.iter().values() {
             let traits = match data {
                 Ok(m) => serde_json::from_str::<HashMap<String, Value>>(&String::from_utf8(m.to_vec()).unwrap_or_default())?,
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Error getting minions: {err}"))),
             };
-            ms.push(EventMinion { mid: util::dataconv::as_str(traits.get("system.id").cloned()), traits });
+            ms.push(EventMinion {
+                mid: util::dataconv::as_str(traits.get("system.id").cloned()),
+                cycles_id: Some(sid.to_string()),
+                traits,
+            });
         }
         Ok(ms)
     }
 
-    pub(crate) fn get_events(&self, s: &EventSession, m: &EventMinion) -> Result<Vec<EventData>, SysinspectError> {
-        let tid = Self::to_tree_id(s, m);
+    pub(crate) fn get_events(&self, sid: &str, mid: &str) -> Result<Vec<EventData>, SysinspectError> {
+        let tid = Self::to_tree_id(sid, mid);
         let mut es = Vec::<EventData>::new();
         let events = self.get_tree(&tid)?;
         for evt in events.iter().values() {

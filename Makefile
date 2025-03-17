@@ -8,6 +8,9 @@ ARC_NAME := sysinspect-${ARC_VERSION}
 check:
 	cargo clippy --all -- -Dwarnings -Aunused-variables -Adead-code
 
+fix:
+	cargo clippy --fix --allow-dirty --allow-staged --all
+
 devel-musl:
 	cargo build -v --workspace --target x86_64-unknown-linux-musl
 	rm -rf target/x86_64-unknown-linux-musl/debug/sys/

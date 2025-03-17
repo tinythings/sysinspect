@@ -15,7 +15,8 @@ Welcome to the Project Sysinspect!
    moddev/overview
    moddescr/overview
    evthandlers/overview
-
+   uix/ui
+ 
 .. toctree::
    :maxdepth: 1
    :caption: Tutorials

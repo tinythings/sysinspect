@@ -1,6 +1,5 @@
 mod clidef;
 mod dataserv;
-mod evtreg;
 mod master;
 mod registry;
 mod rmt;
@@ -8,15 +7,16 @@ mod rmt;
 use clidef::cli;
 use daemonize::Daemonize;
 use libsysinspect::{
+    SysinspectError,
     cfg::{mmconf::MasterConfig, select_config_path},
-    logger, SysinspectError,
+    logger,
 };
 use log::LevelFilter;
 use std::{env, fs::File};
 use std::{path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysmaster";
-static VERSION: &str = "0.3.0";
+static VERSION: &str = "0.4.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {

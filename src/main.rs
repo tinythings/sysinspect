@@ -1,27 +1,34 @@
 use clap::ArgMatches;
 use colored::Colorize;
 use libsysinspect::{
+    SysinspectError,
     cfg::{
         mmconf::{MasterConfig, MinionConfig},
         select_config_path,
     },
     inspector::SysInspectRunner,
-    logger,
+    logger::{self, MemoryLogger},
     proto::query::{
-        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
         SCHEME_COMMAND,
+        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
     },
     reactor::handlers,
     traits::get_minion_traits,
-    SysinspectError,
 };
 use log::LevelFilter;
-use std::{env, fs::OpenOptions, io::Write};
+use std::{
+    env,
+    fs::OpenOptions,
+    io::{ErrorKind, Write},
+    sync::Mutex,
+};
 
 mod clidef;
+mod ui;
 
-static VERSION: &str = "0.3.0";
+static VERSION: &str = "0.4.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
 
 /// Display event handlers
 fn print_event_handlers() {
@@ -46,7 +53,13 @@ fn call_master_fifo(
 
 /// Set logger
 fn set_logger(p: &ArgMatches) {
-    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+    let log: &'static dyn log::Log = if *p.get_one::<bool>("ui").unwrap_or(&false) {
+        &MEM_LOGGER as &'static dyn log::Log
+    } else {
+        &LOGGER as &'static dyn log::Log
+    };
+
+    if let Err(err) = log::set_logger(log).map(|()| {
         log::set_max_level(match p.get_count("debug") {
             0 => LevelFilter::Info,
             1 => LevelFilter::Debug,
@@ -62,7 +75,8 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
     MasterConfig::new(select_config_path(p.get_one::<&str>("config").cloned())?)
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     let mut cli = clidef::cli(VERSION);
 
@@ -92,11 +106,6 @@ fn main() {
         };
     }
 
-    if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
-        print_event_handlers();
-        return;
-    }
-
     // Get master config
     let cfg = match get_cfg(&params) {
         Ok(cfg) => cfg,
@@ -105,6 +114,25 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
+        print_event_handlers();
+        return;
+    } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
+        if let Err(err) = ui::run(cfg).await {
+            let x = err.kind();
+            if x == ErrorKind::InvalidData {
+                println!(
+                    "Can't start the UI: {}.\nIs {} running and reachable?\n",
+                    err.to_string().bright_red(),
+                    "SysInspect Master".bright_yellow()
+                );
+            } else {
+                println!("Unexpected error: {}", err.to_string().bright_red())
+            }
+        }
+        return;
+    }
 
     if let Some(model) = params.get_one::<String>("path") {
         let query = params.get_one::<String>("query");
@@ -130,6 +158,6 @@ fn main() {
         sr.set_checkbook_labels(clidef::split_by(&params, "labels", None));
         sr.set_traits(get_minion_traits(None));
 
-        tokio::runtime::Runtime::new().unwrap().block_on(sr.start())
+        sr.start().await;
     }
 }

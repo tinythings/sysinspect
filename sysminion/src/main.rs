@@ -8,15 +8,16 @@ mod rsa;
 use clidef::cli;
 use daemonize::Daemonize;
 use libsysinspect::{
+    SysinspectError,
     cfg::{get_minion_config, mmconf::MinionConfig},
-    logger, SysinspectError,
+    logger,
 };
 use log::LevelFilter;
 use std::{env, fs::File, process::exit};
 use tokio::task::JoinHandle;
 
 static APPNAME: &str = "sysminion";
-static VERSION: &str = "0.3.0";
+static VERSION: &str = "0.4.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {

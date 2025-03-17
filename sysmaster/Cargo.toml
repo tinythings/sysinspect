@@ -1,6 +1,6 @@
 [package]
 name = "sysmaster"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 
 [dependencies]
@@ -28,6 +28,7 @@ serde_yaml = "0.9.34"
 tokio = { version = "1.41.0", features = ["full"] }
 tokio-rustls = "0.26.0"
 libsysinspect = { path = "../libsysinspect" }
+libeventreg = { path = "../libeventreg" }
 log = "0.4.22"
 sled = "0.34.7"
 rsa = { version = "0.9.6", features = ["pkcs5", "sha1", "sha2"] }

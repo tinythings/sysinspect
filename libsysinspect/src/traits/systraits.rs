@@ -1,13 +1,14 @@
 use crate::{
+    SysinspectError,
     cfg::mmconf::MinionConfig,
     traits::{
         HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME,
-        SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+        SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
     },
-    SysinspectError,
+    util::sys::to_fqdn_ip,
 };
 use indexmap::IndexMap;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self},
@@ -106,6 +107,11 @@ impl SystemTraits {
         // Common
         if let Some(v) = sysinfo::System::host_name() {
             self.put(SYS_NET_HOSTNAME.to_string(), json!(v));
+        }
+
+        if let Some((fqdn, ipaddr)) = to_fqdn_ip(&sysinfo::System::host_name().unwrap_or_default()) {
+            self.put(SYS_NET_HOSTNAME_FQDN.to_string(), json!(fqdn));
+            self.put(SYS_NET_HOSTNAME_IP.to_string(), json!(ipaddr.to_string()));
         }
 
         if let Some(v) = sysinfo::System::kernel_version() {

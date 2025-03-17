@@ -80,7 +80,7 @@ and something is false.
     :bi:`prior` their evaluation.
 
 ``if-true``
-===========
+-----------
 
 This requisite specifies that the current action can start only if a list of **all specified constraints**
 returns positive (success).
@@ -105,7 +105,7 @@ Example:
               equals: true
 
 ``if-false``
-============
+------------
 
 This requisite specifies that the current action can start only if a list of **all specified constraints**
 returns negative (fails).
