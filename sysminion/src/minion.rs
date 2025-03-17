@@ -457,6 +457,12 @@ impl SysMinion {
 
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
         log::debug!("Dispatching message: {:#?}", cmd);
+
+        if cmd.get_cycle().is_empty() {
+            log::error!("Cycle ID is empty!");
+            return;
+        }
+
         let tgt = cmd.get_target();
 
         // Is command minion-specific?
