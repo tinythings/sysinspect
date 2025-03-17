@@ -8,10 +8,15 @@ use errcodes::ProtoErrorCode;
 use rqtypes::RequestType;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
+use uuid::Uuid;
 
 /// Master message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasterMessage {
+    /// Message Id which is used as cycle ID
+    #[serde(rename = "cl")]
+    cycle: String,
+
     #[serde(rename = "t")]
     target: MinionTarget,
 
@@ -28,7 +33,13 @@ pub struct MasterMessage {
 impl MasterMessage {
     /// Master message constructor
     pub fn new(rtype: RequestType, data: Value) -> MasterMessage {
-        MasterMessage { target: Default::default(), request: rtype, data, retcode: ProtoErrorCode::Undef as usize }
+        MasterMessage {
+            target: Default::default(),
+            request: rtype,
+            data,
+            retcode: ProtoErrorCode::Undef as usize,
+            cycle: Uuid::new_v4().to_string(),
+        }
     }
 
     /// Add a target.
@@ -67,6 +78,11 @@ impl MasterMessage {
     /// Get targeting means
     pub fn get_target(&self) -> &MinionTarget {
         &self.target
+    }
+
+    /// Get cycle ID (message ID)
+    pub fn get_cycle(&self) -> &String {
+        &self.cycle
     }
 }
 

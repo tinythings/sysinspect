@@ -2,7 +2,6 @@ use crate::minion::SysMinion;
 use async_trait::async_trait;
 use libsysinspect::{SysinspectError, intp::actproc::response::ActionResponse, reactor::callback::EventProcessorCallback};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct ActionResponseCallback {
@@ -11,8 +10,10 @@ pub struct ActionResponseCallback {
 }
 
 impl ActionResponseCallback {
-    pub(crate) fn new(minion: Arc<SysMinion>) -> Self {
-        Self { minion, cid: Uuid::new_v4().to_string() }
+    /// The `cid` (Cycle ID) is used to identify the master cycle, so the response
+    /// is registered with the other minions, grouped into the same call session.
+    pub(crate) fn new(minion: Arc<SysMinion>, cid: &str) -> Self {
+        Self { minion, cid: cid.to_owned() }
     }
 }
 

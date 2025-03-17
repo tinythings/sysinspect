@@ -362,7 +362,7 @@ impl SysMinion {
     }
 
     /// Launch sysinspect
-    async fn launch_sysinspect(self: Arc<Self>, scheme: &str, msp: &ModStatePayload) {
+    async fn launch_sysinspect(self: Arc<Self>, cycle_id: &str, scheme: &str, msp: &ModStatePayload) {
         // Get the query first
         let mqr = match MinionQuery::new(scheme) {
             Ok(mqr) => mqr,
@@ -424,7 +424,7 @@ impl SysMinion {
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
 
-        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr())));
+        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
 
         sr.start().await;
 
@@ -519,7 +519,7 @@ impl SysMinion {
                 if cmd.get_target().scheme().starts_with(SCHEME_COMMAND) {
                     self.as_ptr().call_internal_command(cmd.get_target().scheme()).await;
                 } else {
-                    self.as_ptr().launch_sysinspect(cmd.get_target().scheme(), &pld).await;
+                    self.as_ptr().launch_sysinspect(cmd.get_cycle(), cmd.get_target().scheme(), &pld).await;
                     log::debug!("Command dispatched");
                     log::debug!("Command payload: {:#?}", pld);
                 }
