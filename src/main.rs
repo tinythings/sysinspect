@@ -26,7 +26,7 @@ use std::{
 mod clidef;
 mod ui;
 
-static VERSION: &str = "0.3.0";
+static VERSION: &str = "0.4.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
 

@@ -16,7 +16,7 @@ use std::{env, fs::File, process::exit};
 use tokio::task::JoinHandle;
 
 static APPNAME: &str = "sysminion";
-static VERSION: &str = "0.3.0";
+static VERSION: &str = "0.4.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
