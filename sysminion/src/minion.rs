@@ -563,5 +563,5 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
 /// it for the first run.
 pub(crate) fn setup(args: &ArgMatches, cfg: MinionConfig) -> Result<(), SysinspectError> {
     let dir = args.get_one::<String>("directory").unwrap_or(&"".to_string()).to_string();
-    Ok(libsetup::mnsetup::MinionSetup::new().set_alt_dir(dir).setup()?)
+    libsetup::mnsetup::MinionSetup::new().set_alt_dir(dir).setup()
 }
