@@ -5,6 +5,7 @@ mod minion;
 mod proto;
 mod rsa;
 
+use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
 use libsysinspect::{
@@ -47,6 +48,32 @@ fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectE
     Ok(())
 }
 
+// Print help?
+fn help(cli: &mut Command, params: ArgMatches) -> bool {
+    if let Some(sub) = params.subcommand_matches("setup") {
+        if sub.get_flag("help") {
+            if let Some(s_cli) = cli.find_subcommand_mut("setup") {
+                _ = s_cli.print_help();
+                println!("here {}/{}", sub.args_present(), sub.get_flag("help"));
+                return true;
+            }
+            return false;
+        }
+    }
+    if params.get_flag("help") {
+        _ = &cli.print_long_help();
+        return true;
+    }
+
+    // Print a global version?
+    if params.get_flag("version") {
+        println!("Version: {} {}", APPNAME, VERSION);
+        return true;
+    }
+
+    false
+}
+
 fn main() -> std::io::Result<()> {
     let mut cli = cli(VERSION, APPNAME);
     if env::args().collect::<Vec<String>>().len() == 1 {
@@ -56,15 +83,9 @@ fn main() -> std::io::Result<()> {
 
     let params = cli.to_owned().get_matches();
 
-    // Print help?
-    if params.get_flag("help") {
-        return cli.print_help();
-    }
-
-    // Print version?
-    if params.get_flag("version") {
-        println!("Version: {} {}", APPNAME, VERSION);
-        return Ok(());
+    // Print helps, versions etc
+    if help(&mut cli, params.clone()) {
+        std::process::exit(0);
     }
 
     // Setup logger
@@ -137,6 +158,12 @@ fn main() -> std::io::Result<()> {
         if let Err(err) = libsysinspect::util::sys::kill_process(cfg.pidfile(), Some(2)) {
             log::error!("Unable to stop sysminion: {err}");
         }
+    } else if let Some(sub) = params.subcommand_matches("setup") {
+        if let Err(err) = minion::setup(sub, cfg) {
+            log::error!("Error running setup: {err}");
+        }
+    } else {
+        cli.print_help()?;
     }
 
     Ok(())
