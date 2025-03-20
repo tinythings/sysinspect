@@ -22,6 +22,7 @@ rustls = "0.23.16"
 rustls-pemfile = "2.2.0"
 tokio = { version = "1.41.0", features = ["full"] }
 libsysinspect = { path = "../libsysinspect" }
+libsetup = { path = "../libsetup" }
 log = "0.4.22"
 serde_yaml = "0.9.34"
 serde = { version = "1.0.214", features = ["derive"] }

@@ -1,4 +1,4 @@
-use crate::{cfg::mmconf::DEFAULT_MODULES_DIR, util, SysinspectError};
+use crate::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR, util};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -118,8 +118,9 @@ impl Config {
         if !modpath.exists() {
             if !pymodpath.exists() {
                 return Err(SysinspectError::ModuleError(format!(
-                    "No module \"{}\" was not found as \"{:?}\"",
-                    namespace, modpath
+                    "Missing module \"{}\" in \"{}\"",
+                    namespace,
+                    modpath.to_str().unwrap_or_default()
                 )));
             } else {
                 modpath = pymodpath;

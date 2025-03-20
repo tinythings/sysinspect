@@ -50,14 +50,14 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .help("Stop minion if runs as a daemon")
         )
 
-        .next_help_heading("Info")
-        .arg(
-            Arg::new("status")
-                .long("status")
-                .action(ArgAction::SetTrue)
-                .help("Show minion status")
+        .next_help_heading("Minion")
+        .subcommand(Command::new("setup").about("Minion local setup").styles(styles.clone()).disable_help_flag(true)
+            .arg(Arg::new("with-default-config").short('c').long("with-default-config").action(ArgAction::SetTrue).help("Create a default config file"))
+            .arg(Arg::new("master-addr").short('a').long("master-addr").help("<IP>:[port] address of the master"))
+            .arg(Arg::new("directory").short('d').long("directory").help("Alternative writable path that would contain everything at once. Otherwise default paths are used."))
+            .arg(Arg::new("dry-run").short('n').long("dry-run").action(ArgAction::SetTrue).help("Do not apply anything, just check the setup."))
+            .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help on this command"))
         )
-
 
         // Other
         .next_help_heading("Other")

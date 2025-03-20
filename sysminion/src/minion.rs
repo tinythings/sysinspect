@@ -1,8 +1,13 @@
 use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
+use clap::ArgMatches;
 use colored::Colorize;
+use libsetup::get_ssh_client_ip;
 use libsysinspect::{
     SysinspectError,
-    cfg::mmconf::MinionConfig,
+    cfg::{
+        get_minion_config,
+        mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
+    },
     inspector::SysInspectRunner,
     intp::actproc::response::ActionResponse,
     proto::{
@@ -20,6 +25,7 @@ use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     fs,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
     vec,
@@ -553,4 +559,47 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
     log::info!("Shutting down client.");
 
     Ok(())
+}
+
+/// Setup minion
+///
+/// This is a quick setup for the minion. It creates all directories and files
+/// required for the minion to run. It does not start the minion, but only prepares
+/// it for the first run.
+pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
+    let alt_dir = args.get_one::<String>("directory").unwrap_or(&"".to_string()).to_string();
+    let mut dir = PathBuf::from(&alt_dir);
+    if !alt_dir.is_empty() {
+        if !dir.exists() {
+            log::info!("Creating directory {}", dir.to_str().unwrap_or_default());
+            fs::create_dir_all(&dir)?;
+        } else if !dir.is_dir() {
+            return Err(SysinspectError::ConfigError(format!("{} is not a directory", dir.to_str().unwrap_or_default())));
+        }
+
+        dir = fs::canonicalize(dir)?;
+    }
+
+    if args.get_flag("with-default-config") {
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(args.get_one::<String>("master-addr").unwrap_or(&get_ssh_client_ip().unwrap_or_default()));
+        cfg.set_master_port(DEFAULT_PORT);
+
+        if !alt_dir.is_empty() {
+            cfg.set_root_dir(dir.to_str().unwrap_or_default());
+        }
+
+        let cp = PathBuf::from("sysinspect.conf");
+        if !cp.exists() {
+            log::info!("Creating default config file at {}", cp.to_str().unwrap_or_default());
+            fs::write(cp, SysInspectConfig::default().set_minion_config(cfg).to_yaml())?;
+        } else {
+            return Err(SysinspectError::ConfigError("Config file already exists. Delete it, perhaps?..".to_string()));
+        }
+    }
+
+    libsetup::mnsetup::MinionSetup::new()
+        .set_config(get_minion_config(None)?)
+        .set_alt_dir(dir.to_str().unwrap_or_default().to_string())
+        .setup()
 }

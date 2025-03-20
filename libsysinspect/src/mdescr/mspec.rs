@@ -1,10 +1,16 @@
 use super::{datapatch, mspecdef::ModelSpec};
-use crate::{SysinspectError, cfg::select_config_path, tmpl::render::ModelTplRender, traits::systraits::SystemTraits};
+use crate::{
+    SysinspectError,
+    cfg::mmconf::{MinionConfig, SysInspectConfig},
+    tmpl::render::ModelTplRender,
+    traits::systraits::SystemTraits,
+};
 use indexmap::IndexMap;
 use serde_yaml::Value;
 use std::{
     fs::{self},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use walkdir::WalkDir;
 
@@ -13,6 +19,7 @@ pub const MODEL_FILE_EXT: &str = ".cfg";
 
 /// Spec loader object
 struct SpecLoader {
+    // Path to the model
     pth: PathBuf,
 
     // Only one init allowed
@@ -20,11 +27,14 @@ struct SpecLoader {
 
     // System traits if running in distributed mode
     traits: Option<IndexMap<String, serde_json::Value>>,
+
+    // Minion config
+    cfg: Arc<MinionConfig>,
 }
 
 impl SpecLoader {
     // Constructor
-    fn new(pth: PathBuf, traits: Option<SystemTraits>) -> Self {
+    fn new(cfg: Arc<MinionConfig>, pth: PathBuf, traits: Option<SystemTraits>) -> Self {
         let mut ext: Option<IndexMap<String, serde_json::Value>> = None;
         if let Some(traits) = traits {
             let mut et: IndexMap<String, serde_json::Value> = IndexMap::new();
@@ -36,7 +46,7 @@ impl SpecLoader {
             ext = Some(et);
         }
 
-        Self { pth, init: false, traits: ext }
+        Self { cfg, pth, init: false, traits: ext }
     }
 
     /// Collect YAML parts of the model from a different files
@@ -140,8 +150,8 @@ impl SpecLoader {
             return Err(SysinspectError::ModelDSLError(format!("No model found at {}", self.pth.to_str().unwrap_or_default())));
         }
 
-        // Load app config and merge to the main model
-        base.push(serde_yaml::from_str::<Value>(&fs::read_to_string(select_config_path(None)?)?)?);
+        // Merge minion config to the main model
+        base.push(SysInspectConfig::default().set_minion_config((*self.cfg).clone()).to_value());
 
         let mut base = self.merge_parts(&mut base)?;
         if !iht.is_empty() {
@@ -153,6 +163,7 @@ impl SpecLoader {
 }
 
 /// Load spec from a given path
-pub fn load(path: &str, traits: Option<SystemTraits>) -> Result<ModelSpec, SysinspectError> {
-    SpecLoader::new(fs::canonicalize(path)?, traits).load()
+pub fn load(cfg: Arc<MinionConfig>, path: &str, traits: Option<SystemTraits>) -> Result<ModelSpec, SysinspectError> {
+    log::info!("Loading model spec from {}", path);
+    SpecLoader::new(cfg, fs::canonicalize(path)?, traits).load()
 }
