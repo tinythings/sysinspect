@@ -1,4 +1,4 @@
-use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, get_config, proto, rsa::MinionRSAKeyManager};
+use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use clap::ArgMatches;
 use colored::Colorize;
 use libsetup::get_ssh_client_ip;
@@ -577,7 +577,7 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
             return Err(SysinspectError::ConfigError(format!("{} is not a directory", dir.to_str().unwrap_or_default())));
         }
 
-        dir = fs::canonicalize(PathBuf::from(dir))?;
+        dir = fs::canonicalize(dir)?;
     }
 
     if args.get_flag("with-default-config") {
@@ -586,7 +586,7 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
         cfg.set_master_port(DEFAULT_PORT);
 
         if !alt_dir.is_empty() {
-            cfg.set_root_dir(&dir.to_str().unwrap_or_default());
+            cfg.set_root_dir(dir.to_str().unwrap_or_default());
         }
 
         let cp = PathBuf::from("sysinspect.conf");

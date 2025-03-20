@@ -135,6 +135,7 @@ impl MinionSetup {
 
     /// Generate configuration files
     fn generate_config(&mut self) -> Result<(), SysinspectError> {
+        #[allow(clippy::unnecessary_to_owned)]
         self.cfg.set_sharelib_path(&self.get_sharelib().to_string());
         self.cfg.set_pid_path(PathBuf::from(self.get_run()).join("sysinspect.pid").to_str().unwrap_or_default());
 

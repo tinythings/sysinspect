@@ -10,7 +10,7 @@ pub mod mnsetup;
 pub fn get_ssh_client_ip() -> Option<String> {
     if let Ok(ssh_client) = env::var("SSH_CLIENT") {
         let parts: Vec<&str> = ssh_client.split_whitespace().collect();
-        if parts.len() > 0 {
+        if !parts.is_empty() {
             return Some(parts[0].to_string());
         }
     }
