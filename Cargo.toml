@@ -33,7 +33,7 @@ members = [
     "libeventreg",
     "sysmaster",
     "sysminion",
-    "modules/fs/file", "libsetup",
+    "modules/fs/file", "libsetup", "libmodpak",
 ]
 
 [profile.release]
