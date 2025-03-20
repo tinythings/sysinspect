@@ -1,8 +1,15 @@
 use libsysinspect::{
     SysinspectError,
-    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_MODULES_PYLIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT},
+    cfg::mmconf::{
+        DEFAULT_MODULES_DIR, DEFAULT_MODULES_PYLIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
+        SysInspectConfig,
+    },
 };
-use std::{fs::File, io::Write, path::Path};
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -10,6 +17,7 @@ pub struct MinionSetup {
     alt_dir: String,
     sharelib: String,
     master_addr: String,
+    cfg: MinionConfig,
 }
 
 impl MinionSetup {
@@ -76,7 +84,7 @@ impl MinionSetup {
     /// Get `/etc/sysinspect`
     /// This is the directory where the configuration files are stored
     fn get_etc(&self) -> String {
-        if self.alt_dir.is_empty() { DEFAULT_SYSINSPECT_ROOT.to_string() } else { format!("{}/sysinspect", self.alt_dir) }
+        if self.alt_dir.is_empty() { DEFAULT_SYSINSPECT_ROOT.to_string() } else { format!("{}/etc", self.alt_dir) }
     }
 
     /// Get /usr/bin
@@ -116,21 +124,58 @@ impl MinionSetup {
         ];
 
         for d in dirs {
-            log::info!("Creating directory {}", d);
-            /*
             if !Path::new(&d).exists() {
                 std::fs::create_dir_all(&d)
                     .map_err(|_| SysinspectError::ConfigError(format!("Unable to create directory {}", d)))?;
             }
-            */
         }
 
         Ok(())
     }
 
     /// Generate configuration files
-    fn generate_config(&self) -> Result<(), SysinspectError> {
-        for d in [self.get_shared_subdir(DEFAULT_MODULES_DIR), self.get_shared_subdir(DEFAULT_MODULES_PYLIB_DIR)] {}
+    fn generate_config(&mut self) -> Result<(), SysinspectError> {
+        self.cfg.set_sharelib_path(&self.get_sharelib().to_string());
+        self.cfg.set_pid_path(PathBuf::from(self.get_run()).join("sysinspect.pid").to_str().unwrap_or_default());
+
+        let cfp = PathBuf::from(self.get_etc()).join("sysinspect.conf");
+        log::info!("Writing configuration file to {}", cfp.to_str().unwrap_or_default());
+
+        fs::write(cfp, SysInspectConfig::default().set_minion_config(self.cfg.clone()).to_yaml())?;
+
+        Ok(())
+    }
+
+    /// Cleanup everything after the setup
+    fn cleanup(&self) -> Result<(), SysinspectError> {
+        let self_name = std::env::current_exe()
+            .map_err(|e| SysinspectError::ConfigError(format!("Failed to get current executable: {}", e)))?;
+        self_name
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| SysinspectError::ConfigError("Unable to determine the executable file name".to_string()))?;
+
+        // Remove temporary files in the current directory
+        for fname in ["sysinspect.conf", self_name.to_str().unwrap_or_default()] {
+            let tmpcfg = PathBuf::from(fname);
+            if tmpcfg.exists() {
+                fs::remove_file(tmpcfg)
+                    .map_err(|e| SysinspectError::ConfigError(format!("Failed to remove temporary file: {}", e)))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Copy binaries
+    fn copy_binaries(&self) -> Result<(), SysinspectError> {
+        let bin = std::env::current_exe()?;
+        let dst = PathBuf::from(self.get_bin()).join(bin.file_name().unwrap_or_default());
+        fs::copy(&bin, &dst).map_err(|e| {
+            SysinspectError::ConfigError(format!("Failed to copy executable to {}: {}", dst.to_str().unwrap_or_default(), e))
+        })?;
+
         Ok(())
     }
 
@@ -157,8 +202,9 @@ impl MinionSetup {
     }
 
     /// Setup the minion
-    pub fn setup(&self) -> Result<(), SysinspectError> {
+    pub fn setup(&mut self) -> Result<(), SysinspectError> {
         log::info!("Setting up the minion. This is a quick setup, please check the configuration files for more details.");
+
         self.check_my_permissions()?;
         log::info!("Permissions OK");
 
@@ -169,10 +215,20 @@ impl MinionSetup {
         log::info!("Directory structure set up");
 
         self.generate_config()?;
-        log::info!("Configuration files generated");
+        log::info!("Configuration file generated to {}", self.get_etc());
 
+        self.copy_binaries()?;
+        log::info!("Binaries are copied to {}", self.get_bin());
+
+        self.cleanup()?;
         log::info!("That should do.");
 
         Ok(())
+    }
+
+    /// Set configuration file instance
+    pub fn set_config(mut self, cfg: MinionConfig) -> Self {
+        self.cfg = cfg;
+        self
     }
 }

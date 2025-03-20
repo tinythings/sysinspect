@@ -48,13 +48,23 @@ fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectE
     Ok(())
 }
 
+fn get_config(params: &ArgMatches) -> MinionConfig {
+    // Config
+    match get_minion_config(Some(params.get_one::<String>("config").map_or("", |v| v))) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::error!("Unable to find a Minion config: {err}");
+            exit(1);
+        }
+    }
+}
+
 // Print help?
 fn help(cli: &mut Command, params: ArgMatches) -> bool {
     if let Some(sub) = params.subcommand_matches("setup") {
         if sub.get_flag("help") {
             if let Some(s_cli) = cli.find_subcommand_mut("setup") {
                 _ = s_cli.print_help();
-                println!("here {}/{}", sub.args_present(), sub.get_flag("help"));
                 return true;
             }
             return false;
@@ -99,23 +109,16 @@ fn main() -> std::io::Result<()> {
         println!("Error setting logger output: {}", err);
     }
 
-    // Config
-    let cfg = match get_minion_config(Some(params.get_one::<String>("config").map_or("", |v| v))) {
-        Ok(cfg) => cfg,
-        Err(err) => {
-            log::error!("Unable to find a Minion config: {err}");
-            exit(1);
-        }
-    };
-
     // Start
     let fp = params.get_one::<String>("register").cloned();
     if params.get_flag("start") || fp.is_some() {
+        let cfg = get_config(&params);
         if let Err(err) = start_minion(cfg, fp) {
             log::error!("Error starting minion: {err}");
         }
     } else if params.get_flag("daemon") {
         log::info!("Starting daemon");
+        let cfg = get_config(&params);
         let sout = match File::create(cfg.logfile_std()) {
             Ok(sout) => {
                 log::info!("Opened main log file at {}", cfg.logfile_std().to_str().unwrap_or_default());
@@ -155,11 +158,12 @@ fn main() -> std::io::Result<()> {
         }
     } else if params.get_flag("stop") {
         log::info!("Stopping daemon");
+        let cfg = get_config(&params);
         if let Err(err) = libsysinspect::util::sys::kill_process(cfg.pidfile(), Some(2)) {
             log::error!("Unable to stop sysminion: {err}");
         }
     } else if let Some(sub) = params.subcommand_matches("setup") {
-        if let Err(err) = minion::setup(sub, cfg) {
+        if let Err(err) = minion::setup(sub) {
             log::error!("Error running setup: {err}");
         }
     } else {

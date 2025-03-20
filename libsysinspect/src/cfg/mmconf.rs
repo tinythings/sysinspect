@@ -162,6 +162,35 @@ impl MinionConfig {
         Err(SysinspectError::ConfigError(format!("Unable to read config at: {}", cp)))
     }
 
+    /// Set Master IP
+    pub fn set_master_ip(&mut self, ip: &str) {
+        if ip.is_empty() {
+            return;
+        }
+
+        self.master_ip = ip.to_string();
+    }
+
+    /// Set Master fileserver port
+    pub fn set_master_port(&mut self, port: u32) {
+        self.master_port = Some(port);
+    }
+
+    /// Set root directory
+    pub fn set_root_dir(&mut self, dir: &str) {
+        self.root = Some(dir.to_string());
+    }
+
+    /// Set sharelib path
+    pub fn set_sharelib_path(&mut self, p: &str) {
+        self.sharelib_path = Some(p.to_string());
+    }
+
+    /// Set pidfile path
+    pub fn set_pid_path(&mut self, p: &str) {
+        self.pidfile = Some(p.to_string());
+    }
+
     /// Return master addr
     pub fn master(&self) -> String {
         format!("{}:{}", self.master_ip, self.master_port.unwrap_or(DEFAULT_PORT))
@@ -387,5 +416,42 @@ impl MasterConfig {
     /// Return the path of the telemetry communication socket location
     pub fn telemetry_socket(&self) -> PathBuf {
         PathBuf::from(self.telemetry_socket.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_SCK.to_string()))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+struct SysInspectConfigs {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    minion: Option<MinionConfig>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    master: Option<MasterConfig>,
+}
+
+/// SysInspect configuration serialiser
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct SysInspectConfig {
+    config: SysInspectConfigs,
+}
+
+impl SysInspectConfig {
+    pub fn to_yaml(&self) -> String {
+        serde_yaml::to_string(self).unwrap_or_default()
+    }
+
+    pub fn to_value(&self) -> Value {
+        serde_yaml::to_value(self).unwrap_or_default()
+    }
+
+    /// Set minion config
+    pub fn set_minion_config(mut self, cfg: MinionConfig) -> Self {
+        self.config.minion = Some(cfg);
+        self
+    }
+
+    /// Set master config
+    pub fn set_master_config(mut self, cfg: MasterConfig) -> Self {
+        self.config.master = Some(cfg);
+        self
     }
 }
