@@ -61,10 +61,19 @@ pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
 pub static CFG_MINION_KEYS: &str = "minion-keys";
 pub static CFG_MINION_REGISTRY: &str = "minion-registry";
 pub static CFG_FILESERVER_ROOT: &str = "data";
-pub static CFG_MODELS_ROOT: &str = "models";
-pub static CFG_TRAITS_ROOT: &str = "traits";
-pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 pub static CFG_DB: &str = "registry";
+
+// Repository for modules within the CFG_FILESERVER_ROOT
+pub static CFG_MODREPO_ROOT: &str = "repo";
+
+// Served models within the CFG_FILESERVER_ROOT
+pub static CFG_MODELS_ROOT: &str = "models";
+
+// Traits within the CFG_FILESERVER_ROOT
+pub static CFG_TRAITS_ROOT: &str = "traits";
+
+// Trait custom functions within the CFG_FILESERVER_ROOT
+pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 
 // Key names
 // ---------
