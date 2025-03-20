@@ -119,7 +119,7 @@ impl SysInspectRunner {
     /// Start the inspector
     pub async fn start(&mut self) {
         log::info!("Starting sysinspect runner");
-        match mspec::load(&self.model_pth, self.traits.clone()) {
+        match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone()) {
             Ok(spec) => {
                 log::debug!("Initalising inspector");
                 match SysInspector::new(spec, Some(Self::minion_cfg().sharelib_dir().clone())) {
