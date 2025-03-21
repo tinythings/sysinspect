@@ -23,10 +23,10 @@ pub fn cli(version: &'static str) -> Command {
             .arg(Arg::new("remove").short('R').long("remove").action(ArgAction::SetTrue).help("Remove a module from the repository").conflicts_with_all(["add", "list"]))
             .arg(Arg::new("list").short('L').long("list").action(ArgAction::SetTrue).help("List all modules in the repository").conflicts_with_all(["add", "remove"]))
 
-            .arg(Arg::new("name").short('n').long("name").required_unless_present("help").help("Module name"))
+            .arg(Arg::new("name").short('n').long("name").required_unless_present_any(["help", "list"]).help("Module name"))
+            .arg(Arg::new("path").short('p').long("path").required_unless_present_any(["help", "list"]).help("Path to the module"))
+            .arg(Arg::new("descr").short('d').long("descr").required_unless_present_any(["help", "list"]).help("Description of the module"))
             .arg(Arg::new("arch").short('a').long("arch").help("Module architecture (x86, x64, arm, arm64, noarch)").default_value("noarch"))
-            .arg(Arg::new("binary").short('b').long("binary").action(ArgAction::SetTrue).help("Add a binary module"))
-            .arg(Arg::new("path").short('p').long("path").required_unless_present("help").help("Path to the module"))
 
             .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help on this command"))
         )

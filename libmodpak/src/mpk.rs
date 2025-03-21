@@ -3,11 +3,12 @@ use libsysinspect::SysinspectError;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[allow(clippy::type_complexity)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModPakRepoIndex {
     /// Platform -> Architecture -> Module name
-    /// e.g. "linux" -> "x86_64" -> "fs.file"
-    platform: IndexMap<String, IndexMap<String, IndexMap<String, String>>>,
+    /// e.g. "linux" -> "x86_64" -> "fs.file" -> key/value (name, descr, version etc)
+    platform: IndexMap<String, IndexMap<String, IndexMap<String, IndexMap<String, String>>>>,
 }
 
 impl Default for ModPakRepoIndex {
@@ -23,13 +24,21 @@ impl ModPakRepoIndex {
     }
 
     /// Adds a module to the index.
-    pub fn add_module(&mut self, name: &str, subpath: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
-        self.platform
+    pub fn add_module(
+        &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str,
+    ) -> Result<(), SysinspectError> {
+        // XXX: the method should have rather a struct as options instead of 42 parameters :-(
+        let module = self
+            .platform
             .entry(platform.to_string())
             .or_default()
             .entry(arch.to_string())
             .or_default()
-            .insert(name.to_string(), subpath.to_string());
+            .entry(name.to_string())
+            .or_default();
+
+        module.insert("subpath".to_string(), subpath.to_string());
+        module.insert("descr".to_string(), descr.to_string());
 
         Ok(())
     }
@@ -56,12 +65,29 @@ impl ModPakRepoIndex {
         let index: ModPakRepoIndex = serde_yaml::from_str(yaml)?;
         Ok(index)
     }
+
+    #[allow(clippy::type_complexity)]
+    /// Returns the modules in the index. Optionally filtered by architecture.
+    pub(crate) fn get_modules(
+        &self, arch: Option<&str>,
+    ) -> IndexMap<String, IndexMap<String, IndexMap<String, IndexMap<String, String>>>> {
+        if let Some(arch) = arch {
+            self.platform
+                .iter()
+                .filter(|(_, arch_map)| arch_map.contains_key(arch))
+                .map(|(platform, arch_map)| (platform.clone(), arch_map.clone()))
+                .collect()
+        } else {
+            self.platform.clone()
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ModPakMetadata {
     path: PathBuf,
     name: String,
+    descr: String,
 }
 
 impl ModPakMetadata {
@@ -90,7 +116,15 @@ impl ModPakMetadata {
             mpm.name = name.clone();
         }
 
+        if let Some(descr) = matches.get_one::<String>("descr") {
+            mpm.descr = descr.clone();
+        }
+
         mpm
+    }
+
+    pub(crate) fn get_descr(&self) -> &str {
+        &self.descr
     }
 }
 

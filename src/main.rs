@@ -134,7 +134,6 @@ async fn main() {
     };
 
     if let Some(sub) = params.subcommand_matches("module") {
-        log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
         let mut repo = match libmodpak::SysInspectModPak::new(cfg.get_mod_repo_root()) {
             Ok(repo) => repo,
             Err(err) => {
@@ -144,14 +143,18 @@ async fn main() {
         };
 
         if sub.get_flag("add") {
+            log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
             if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(sub)) {
                 log::error!("Failed to add module: {}", err);
                 exit(1);
             }
         } else if sub.get_flag("list") {
-            log::info!("Listing modules");
+            repo.list_modules().unwrap_or_else(|err| {
+                log::error!("Failed to list modules: {}", err);
+                exit(1);
+            });
         } else if sub.get_flag("remove") {
-            log::info!("Removing module");
+            log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
         };
         exit(0)
     }

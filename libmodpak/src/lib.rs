@@ -1,8 +1,9 @@
 use colored::Colorize;
 use goblin::{Object, elf::header};
+use indexmap::IndexMap;
 use libsysinspect::SysinspectError;
-use mpk::{ModPackModule, ModPakMetadata, ModPakRepoIndex};
-use std::{fs, path::PathBuf};
+use mpk::{ModPakMetadata, ModPakRepoIndex};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 pub mod mpk;
 
@@ -107,7 +108,7 @@ impl SysInspectModPak {
         std::fs::copy(meta.get_path(), self.root.join(&subpath))?;
 
         self.idx
-            .add_module(meta.get_name().as_str(), module_subpath.to_str().unwrap_or_default(), p, arch)
+            .add_module(meta.get_name().as_str(), module_subpath.to_str().unwrap_or_default(), p, arch, meta.get_descr())
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {}", e)))?;
         log::debug!("Writing index to {}", self.root.join(REPO_INDEX).display().to_string().bright_yellow());
         fs::write(self.root.join(REPO_INDEX), self.idx.to_yaml()?)?;
@@ -117,20 +118,53 @@ impl SysInspectModPak {
         Ok(())
     }
 
-    pub fn list_modules(&self) -> Result<Vec<ModPackModule>, SysinspectError> {
-        let mut modules = Vec::new();
-        for entry in std::fs::read_dir(&self.root)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                let path = entry.path();
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if let Some(arch) = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) {
-                        modules.push(ModPackModule::new(name.to_string(), false)?);
-                    }
+    fn print_table(modules: &IndexMap<String, IndexMap<String, String>>) {
+        let c_width = modules.keys().map(|s| s.len()).max().unwrap_or(0);
+        let mk_width = modules.values().flat_map(|data| data.keys()).map(|k| k.len()).max().unwrap_or(0);
+        let mut modules: Vec<_> = modules.iter().collect();
+        modules.sort_by_key(|(name, _)| name.as_str());
+
+        for (name, attr) in modules {
+            let mut attr: Vec<(&String, &String)> = attr.iter().filter(|(k, _)| *k != "subpath").collect();
+            attr.sort_by_key(|(key, _)| key.as_str());
+
+            if let Some((k, v)) = attr.first() {
+                println!(
+                    "    {:<mod_width$}  {k:>key_width$}: {v}",
+                    name.bright_white().bold(),
+                    mod_width = c_width,
+                    k = k.yellow(),
+                    key_width = mk_width,
+                    v = v
+                );
+
+                for (k, v) in attr.iter().skip(1) {
+                    println!(
+                        "    {:<mod_width$}  {k:>key_width$}: {v}",
+                        "",
+                        mod_width = c_width,
+                        k = k.yellow(),
+                        key_width = mk_width,
+                        v = v
+                    );
                 }
+            } else {
+                println!("    {:<mod_width$}", name, mod_width = c_width);
+            }
+            println!()
+        }
+    }
+
+    pub fn list_modules(&self) -> Result<(), SysinspectError> {
+        let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
+        for (p, archset) in self.idx.get_modules(None) {
+            let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
+            for (arch, modules) in archset {
+                println!("{} ({}): ", p, arch.bright_green());
+                Self::print_table(&modules);
             }
         }
-        Ok(modules)
+        Ok(())
     }
 
     pub fn remove_module(&self, name: &str) -> Result<(), SysinspectError> {
