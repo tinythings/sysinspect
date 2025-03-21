@@ -1692,6 +1692,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "goblin"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daa0a64d21a7eb230583b4c5f4e23b7e4e57974f96620f42a7e75e08ae66d745"
+dependencies = [
+ "log",
+ "plain",
+ "scroll",
+]
+
+[[package]]
 name = "h2"
 version = "0.3.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2561,6 +2572,10 @@ checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 name = "libmodpak"
 version = "0.1.0"
 dependencies = [
+ "clap 4.5.32",
+ "colored 3.0.0",
+ "goblin",
+ "indexmap 2.8.0",
  "libsysinspect",
  "log",
  "serde",
@@ -2648,7 +2663,7 @@ dependencies = [
  "sha2",
  "shlex",
  "sled",
- "sysinfo",
+ "sysinfo 0.32.1",
  "tera",
  "textwrap 0.16.2",
  "tokio",
@@ -2989,7 +3004,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sysinfo",
+ "sysinfo 0.32.1",
  "tokio",
 ]
 
@@ -3478,6 +3493,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
+name = "plain"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
+
+[[package]]
 name = "pmutil"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3542,7 +3563,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sysinfo",
+ "sysinfo 0.32.1",
 ]
 
 [[package]]
@@ -4551,6 +4572,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "scroll"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6"
+dependencies = [
+ "scroll_derive",
+]
+
+[[package]]
+name = "scroll_derive"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f81c2fde025af7e69b1d1420531c8a8811ca898919db177141a85313b1cb932"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
+]
+
+[[package]]
 name = "scrypt"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4997,22 +5038,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "sysinfo"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fc858248ea01b66f19d8e8a6d55f41deaf91e9d495246fd01368d99935c6c01"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+ "memchr",
+ "ntapi",
+ "rayon",
+ "windows 0.57.0",
+]
+
+[[package]]
 name = "sysinspect"
 version = "0.4.0"
 dependencies = [
  "chrono",
  "clap 4.5.32",
- "colored 2.2.0",
+ "colored 3.0.0",
  "crossterm",
  "indexmap 2.8.0",
  "jsonpath_lib",
  "libeventreg",
+ "libmodpak",
  "libsysinspect",
  "log",
  "rand 0.9.0",
  "ratatui",
  "serde_json",
- "sysinfo",
+ "sysinfo 0.33.1",
  "tokio",
 ]
 
@@ -5073,7 +5129,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sysinfo",
+ "sysinfo 0.32.1",
  "tokio",
  "uuid",
 ]
@@ -5342,9 +5398,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.44.0"
+version = "1.44.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9975ea0f48b5aa3972bf2d888c238182458437cc2a19374b81b25cdf1023fb3a"
+checksum = "f382da615b842244d4b8738c82ed1275e6c5dd90c459a30941cd07080b06c91a"
 dependencies = [
  "backtrace",
  "bytes",
