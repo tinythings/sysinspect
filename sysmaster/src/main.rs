@@ -14,7 +14,6 @@ use libsysinspect::{
     logger,
 };
 use log::LevelFilter;
-use rsa::sha2::digest::typenum::Mod;
 use std::{env, fs::File};
 use std::{path::PathBuf, process::exit};
 
