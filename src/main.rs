@@ -144,7 +144,7 @@ async fn main() {
         };
 
         if sub.get_flag("add") {
-            if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(&sub)) {
+            if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(sub)) {
                 log::error!("Failed to add module: {}", err);
                 exit(1);
             }

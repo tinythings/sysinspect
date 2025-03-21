@@ -24,7 +24,7 @@ impl SysInspectModPak {
         if !root.exists() {
             log::info!("Creating module repository at {}", root.display());
             std::fs::create_dir_all(&root)?;
-            fs::write(&root.join(REPO_INDEX), ModPakRepoIndex::new().to_yaml()?)?;
+            fs::write(root.join(REPO_INDEX), ModPakRepoIndex::new().to_yaml()?)?;
         }
 
         Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(root.join(REPO_INDEX))?)? })
@@ -82,7 +82,7 @@ impl SysInspectModPak {
                         ));
                     }
                 };
-                (true, x, Self::get_osabi_label(elf.header.e_ident[header::EI_OSABI as usize]))
+                (true, x, Self::get_osabi_label(elf.header.e_ident[header::EI_OSABI]))
             }
             _ => {
                 log::info!("Module is not an executable ELF file");
