@@ -7,13 +7,14 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.38"
-clap = { version = "4.5.21", features = ["unstable-styles"] }
-colored = "2.1.0"
+clap = { version = "4.5.32", features = ["unstable-styles"] }
+colored = "3.0.0"
 libsysinspect = { path = "./libsysinspect" }
 libeventreg = { path = "./libeventreg" }
+libmodpak = { path = "./libmodpak" }
 log = "0.4.22"
-sysinfo = { version = "0.32.0", features = ["linux-tmpfs"] }
-tokio = { version = "1.43.0", features = ["full"] }
+sysinfo = { version = "0.33.1", features = ["linux-tmpfs"] }
+tokio = { version = "1.44.1", features = ["full"] }
 ratatui = { version = "0.29.0", features = [
     "all-widgets",
     "serde",
@@ -21,7 +22,7 @@ ratatui = { version = "0.29.0", features = [
 ] }
 crossterm = "0.28.1"
 rand = "0.9.0"
-indexmap = "2.7.1"
+indexmap = "2.8.0"
 serde_json = "1.0.140"
 jsonpath_lib = "0.3.0"
 
@@ -33,7 +34,9 @@ members = [
     "libeventreg",
     "sysmaster",
     "sysminion",
-    "modules/fs/file", "libsetup",
+    "modules/fs/file",
+    "libsetup",
+    "libmodpak",
 ]
 
 [profile.release]

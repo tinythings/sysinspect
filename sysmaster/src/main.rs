@@ -4,6 +4,7 @@ mod master;
 mod registry;
 mod rmt;
 
+use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
 use libsysinspect::{
@@ -27,6 +28,22 @@ fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     Ok(())
 }
 
+// Print help?
+fn help(cli: &mut Command, params: ArgMatches) -> bool {
+    if params.get_flag("help") {
+        _ = &cli.print_long_help();
+        return true;
+    }
+
+    // Print a global version?
+    if params.get_flag("version") {
+        println!("Version: {} {}", APPNAME, VERSION);
+        return true;
+    }
+
+    false
+}
+
 fn main() -> Result<(), SysinspectError> {
     let mut cli = cli(VERSION, APPNAME);
     let params = cli.to_owned().get_matches();
@@ -38,9 +55,8 @@ fn main() -> Result<(), SysinspectError> {
     }
 
     // Print version?
-    if *params.get_one::<bool>("version").unwrap() {
-        println!("Version: {} {}", APPNAME, VERSION);
-        return Ok(());
+    if help(&mut cli, params.to_owned()) {
+        std::process::exit(1);
     }
 
     // Setup logger
