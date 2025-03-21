@@ -10,6 +10,12 @@ pub struct ModPakRepoIndex {
     platform: IndexMap<String, IndexMap<String, IndexMap<String, String>>>,
 }
 
+impl Default for ModPakRepoIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModPakRepoIndex {
     /// Creates a new ModPakRepoIndex.
     pub fn new() -> Self {
@@ -20,9 +26,9 @@ impl ModPakRepoIndex {
     pub fn add_module(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
         self.platform
             .entry(platform.to_string())
-            .or_insert_with(IndexMap::new)
+            .or_default()
             .entry(arch.to_string())
-            .or_insert_with(IndexMap::new)
+            .or_default()
             .insert(name.to_string(), name.to_string());
 
         Ok(())
