@@ -426,6 +426,11 @@ impl MasterConfig {
     pub fn telemetry_socket(&self) -> PathBuf {
         PathBuf::from(self.telemetry_socket.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_SCK.to_string()))
     }
+
+    /// Return the path of the telemetry communication socket location
+    pub fn get_mod_repo_root(&self) -> PathBuf {
+        self.fileserver_root().join(CFG_MODREPO_ROOT)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]

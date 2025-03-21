@@ -7,12 +7,14 @@ mod rmt;
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
+use libmodpak::mpk::{ModPackModule, ModPakArch};
 use libsysinspect::{
     SysinspectError,
     cfg::{mmconf::MasterConfig, select_config_path},
     logger,
 };
 use log::LevelFilter;
+use rsa::sha2::digest::typenum::Mod;
 use std::{env, fs::File};
 use std::{path::PathBuf, process::exit};
 
@@ -94,6 +96,33 @@ fn main() -> Result<(), SysinspectError> {
         };
     }
     let cfg = MasterConfig::new(cfp)?;
+
+    if let Some(sub) = params.subcommand_matches("module") {
+        log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
+        let repo = libmodpak::SysInspectModPak::new(cfg.get_mod_repo_root())?;
+
+        let arch_label = sub.get_one::<String>("arch").unwrap_or(&"noarch".to_string()).to_owned();
+        let arch = match arch_label.as_str() {
+            "x86" => ModPakArch::X86,
+            "x64" => ModPakArch::X64,
+            "arm" => ModPakArch::ARM,
+            "arm64" => ModPakArch::ARM64,
+            "noarch" => ModPakArch::Noarch,
+            _ => {
+                log::error!("Unknown architecture: {}", arch_label);
+                exit(1);
+            }
+        };
+
+        let m = ModPackModule::new(sub.get_one::<String>("name").unwrap_or(&"".to_string()).to_owned(), arch, false)?;
+
+        if sub.get_flag("list") {
+            repo.add_module(m)?;
+        } else if sub.get_flag("add") {
+        } else if sub.get_flag("remove") {
+        }
+        exit(0)
+    }
 
     // Mode
     if params.get_flag("start") {
