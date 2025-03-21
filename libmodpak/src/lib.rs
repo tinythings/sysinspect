@@ -97,7 +97,6 @@ impl SysInspectModPak {
         ));
         let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(x);
         log::debug!("Subpath: {}", subpath.display().to_string().bright_yellow());
-        log::info!("Adding module");
         if let Some(p) = self.root.join(&subpath).parent() {
             if !p.exists() {
                 log::debug!("Creating directory {}", p.display().to_string().bright_yellow());
