@@ -1,5 +1,5 @@
-use clap::{builder::styling, ArgMatches};
 use clap::{Arg, ArgAction, Command};
+use clap::{ArgMatches, builder::styling};
 use colored::Colorize;
 
 pub static APPNAME: &str = "sysinspect";
@@ -16,6 +16,20 @@ pub fn cli(version: &'static str) -> Command {
         .version(version)
         .about(format!("{} - {}", APPNAME.bright_magenta().bold(), "is a tool for anomaly detection and root cause analysis in a known system"))
         .override_usage(format!("{} [OPTIONS] [FILTERS]", APPNAME))
+
+        // Module management
+        .subcommand(Command::new("module").about("Add, remove or list modules").styles(styles.clone()).disable_help_flag(true)
+            .arg(Arg::new("add").short('A').long("add").action(ArgAction::SetTrue).help("Add a module to the repository").conflicts_with_all(["remove", "list"]))
+            .arg(Arg::new("remove").short('R').long("remove").action(ArgAction::SetTrue).help("Remove a module from the repository").conflicts_with_all(["add", "list"]))
+            .arg(Arg::new("list").short('L').long("list").action(ArgAction::SetTrue).help("List all modules in the repository").conflicts_with_all(["add", "remove"]))
+
+            .arg(Arg::new("name").short('n').long("name").required_unless_present("help").help("Module name"))
+            .arg(Arg::new("arch").short('a').long("arch").help("Module architecture (x86, x64, arm, arm64, noarch)").default_value("noarch"))
+            .arg(Arg::new("binary").short('b').long("binary").action(ArgAction::SetTrue).help("Add a binary module"))
+            .arg(Arg::new("path").short('p').long("path").required_unless_present("help").help("Path to the module"))
+
+            .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help on this command"))
+        )
 
         // Sysinspect
         .next_help_heading("Main")

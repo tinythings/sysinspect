@@ -1,5 +1,6 @@
-use clap::ArgMatches;
+use clap::{ArgMatches, Command};
 use colored::Colorize;
+use libmodpak::{self, mpk::ModPakMetadata};
 use libsysinspect::{
     SysinspectError,
     cfg::{
@@ -20,6 +21,7 @@ use std::{
     env,
     fs::OpenOptions,
     io::{ErrorKind, Write},
+    process::exit,
     sync::Mutex,
 };
 
@@ -75,6 +77,31 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
     MasterConfig::new(select_config_path(p.get_one::<&str>("config").cloned())?)
 }
 
+// Print help?
+fn help(cli: &mut Command, params: &ArgMatches) -> bool {
+    if let Some(sub) = params.subcommand_matches("module") {
+        if sub.get_flag("help") {
+            if let Some(s_cli) = cli.find_subcommand_mut("module") {
+                _ = s_cli.print_help();
+                return true;
+            }
+            return false;
+        }
+    }
+    if params.get_flag("help") {
+        _ = &cli.print_long_help();
+        return true;
+    }
+
+    // Print a global version?
+    if params.get_flag("version") {
+        println!("Version: {}", VERSION);
+        return true;
+    }
+
+    false
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
@@ -93,17 +120,8 @@ async fn main() {
     set_logger(&params);
 
     // Print help?
-    if *params.get_one::<bool>("help").unwrap() {
-        return {
-            cli.print_help().unwrap();
-        };
-    }
-
-    // Print version?
-    if *params.get_one::<bool>("version").unwrap() {
-        return {
-            println!("Version {}", VERSION);
-        };
+    if help(&mut cli, &params) {
+        std::process::exit(0);
     }
 
     // Get master config
@@ -114,6 +132,29 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    if let Some(sub) = params.subcommand_matches("module") {
+        log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
+        let mut repo = match libmodpak::SysInspectModPak::new(cfg.get_mod_repo_root()) {
+            Ok(repo) => repo,
+            Err(err) => {
+                log::error!("Unable to open module repository: {}", err);
+                exit(1);
+            }
+        };
+
+        if sub.get_flag("add") {
+            if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(&sub)) {
+                log::error!("Failed to add module: {}", err);
+                exit(1);
+            }
+        } else if sub.get_flag("list") {
+            log::info!("Listing modules");
+        } else if sub.get_flag("remove") {
+            log::info!("Removing module");
+        };
+        exit(0)
+    }
 
     if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
         print_event_handlers();
