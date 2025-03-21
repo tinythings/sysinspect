@@ -98,12 +98,12 @@ impl SysInspectModPak {
         let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(x);
         log::debug!("Subpath: {}", subpath.display().to_string().bright_yellow());
         log::info!("Adding module");
-        self.root.join(&subpath).parent().map(|p| {
+        if let Some(p) = self.root.join(&subpath).parent() {
             if !p.exists() {
                 log::debug!("Creating directory {}", p.display().to_string().bright_yellow());
                 std::fs::create_dir_all(p).unwrap();
             }
-        });
+        }
         log::debug!("Copying module to {}", self.root.join(&subpath).display().to_string().bright_yellow());
         std::fs::copy(meta.get_path(), self.root.join(&subpath))?;
 
