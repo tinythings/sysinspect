@@ -23,13 +23,13 @@ impl ModPakRepoIndex {
     }
 
     /// Adds a module to the index.
-    pub fn add_module(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
+    pub fn add_module(&mut self, name: &str, subpath: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
         self.platform
             .entry(platform.to_string())
             .or_default()
             .entry(arch.to_string())
             .or_default()
-            .insert(name.to_string(), name.to_string());
+            .insert(name.to_string(), subpath.to_string());
 
         Ok(())
     }

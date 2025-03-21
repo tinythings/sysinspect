@@ -91,11 +91,11 @@ impl SysInspectModPak {
         };
 
         log::info!("Platform: {}", p);
-        let x = PathBuf::from(Self::after(
+        let module_subpath = PathBuf::from(Self::after(
             meta.get_path().to_str().unwrap_or_default(),
             meta.get_subpath().to_str().unwrap_or_default(),
         ));
-        let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(x);
+        let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(&module_subpath);
         log::debug!("Subpath: {}", subpath.display().to_string().bright_yellow());
         if let Some(p) = self.root.join(&subpath).parent() {
             if !p.exists() {
@@ -107,7 +107,7 @@ impl SysInspectModPak {
         std::fs::copy(meta.get_path(), self.root.join(&subpath))?;
 
         self.idx
-            .add_module(meta.get_name().as_str(), p, arch)
+            .add_module(meta.get_name().as_str(), module_subpath.to_str().unwrap_or_default(), p, arch)
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {}", e)))?;
         log::debug!("Writing index to {}", self.root.join(REPO_INDEX).display().to_string().bright_yellow());
         fs::write(self.root.join(REPO_INDEX), self.idx.to_yaml()?)?;
