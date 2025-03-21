@@ -65,7 +65,7 @@ impl SysInspectModPak {
             Object::Elf(elf) => {
                 let x = match elf.header.e_machine {
                     goblin::elf::header::EM_X86_64 => {
-                        log::info!("Architectire: x86_64 ELF");
+                        log::info!("Architecture: x86_64 ELF");
                         "x86_64"
                     }
                     goblin::elf::header::EM_ARM => {
