@@ -13,3 +13,4 @@ clap = { version = "4.5.32", features = ["unstable-styles"] }
 goblin = "0.9.3"
 colored = "3.0.0"
 indexmap = { version = "2.8.0", features = ["serde"] }
+reqwest = "0.12.15"
