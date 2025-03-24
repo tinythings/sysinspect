@@ -28,7 +28,13 @@ impl SysInspectModPak {
             fs::write(root.join(REPO_INDEX), ModPakRepoIndex::new().to_yaml()?)?;
         }
 
-        Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(root.join(REPO_INDEX))?)? })
+        let ridx = root.join(REPO_INDEX);
+        if !ridx.exists() {
+            log::info!("Creating module repository index at {}", ridx.display());
+            fs::write(&ridx, ModPakRepoIndex::new().to_yaml()?)?;
+        }
+
+        Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(ridx)?)? })
     }
 
     /// Get osabi label
