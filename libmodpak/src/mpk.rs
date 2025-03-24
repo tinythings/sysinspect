@@ -3,12 +3,43 @@ use libsysinspect::SysinspectError;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModAttrs {
+    subpath: String,
+    descr: String,
+
+    #[serde(rename = "type")]
+    mod_type: String,
+}
+
+impl ModAttrs {
+    /// Creates a new ModAttrs with the given subpath, description, and type.
+    pub fn new(subpath: String, descr: String, mod_type: String) -> Self {
+        Self { subpath, descr, mod_type }
+    }
+
+    /// Returns the subpath of the module.
+    pub fn subpath(&self) -> &str {
+        &self.subpath
+    }
+
+    /// Returns the description of the module.
+    pub fn descr(&self) -> &str {
+        &self.descr
+    }
+
+    /// Returns the type of the module.
+    pub fn mod_type(&self) -> &str {
+        &self.mod_type
+    }
+}
+
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModPakRepoIndex {
     /// Platform -> Architecture -> Module name
     /// e.g. "linux" -> "x86_64" -> "fs.file" -> key/value (name, descr, version etc)
-    platform: IndexMap<String, IndexMap<String, IndexMap<String, IndexMap<String, String>>>>,
+    platform: IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>>,
 }
 
 impl Default for ModPakRepoIndex {
@@ -25,20 +56,21 @@ impl ModPakRepoIndex {
 
     /// Adds a module to the index.
     pub fn add_module(
-        &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str,
+        &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool,
     ) -> Result<(), SysinspectError> {
-        // XXX: the method should have rather a struct as options instead of 42 parameters :-(
+        let attrs = ModAttrs {
+            subpath: subpath.to_string(),
+            descr: descr.to_string(),
+            mod_type: if bin { "binary".to_string() } else { "script".to_string() },
+        };
+
         let module = self
             .platform
             .entry(platform.to_string())
             .or_default()
             .entry(arch.to_string())
             .or_default()
-            .entry(name.to_string())
-            .or_default();
-
-        module.insert("subpath".to_string(), subpath.to_string());
-        module.insert("descr".to_string(), descr.to_string());
+            .insert(name.to_string(), attrs);
 
         Ok(())
     }
@@ -68,14 +100,20 @@ impl ModPakRepoIndex {
 
     #[allow(clippy::type_complexity)]
     /// Returns the modules in the index. Optionally filtered by architecture.
-    pub(crate) fn get_modules(
-        &self, arch: Option<&str>,
-    ) -> IndexMap<String, IndexMap<String, IndexMap<String, IndexMap<String, String>>>> {
+    pub(crate) fn get_modules(&self, arch: Option<&str>) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
         if let Some(arch) = arch {
             self.platform
                 .iter()
-                .filter(|(_, arch_map)| arch_map.contains_key(arch))
-                .map(|(platform, arch_map)| (platform.clone(), arch_map.clone()))
+                .filter_map(|(platform, arch_map)| {
+                    if let Some(mod_map) = arch_map.get(arch) {
+                        // Create a new arch map containing only the filtered arch.
+                        let mut new_arch_map = IndexMap::new();
+                        new_arch_map.insert(arch.to_string(), (*mod_map).clone());
+                        Some((platform.clone(), new_arch_map))
+                    } else {
+                        None
+                    }
+                })
                 .collect()
         } else {
             self.platform.clone()

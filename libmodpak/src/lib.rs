@@ -1,8 +1,8 @@
 use colored::Colorize;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
-use libsysinspect::SysinspectError;
-use mpk::{ModPakMetadata, ModPakRepoIndex};
+use libsysinspect::{SysinspectError, cfg::mmconf::MinionConfig};
+use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use std::{collections::HashMap, fs, path::PathBuf};
 
 pub mod mpk;
@@ -12,7 +12,52 @@ ModPack is a library for creating and managing modules, providing a way to defin
 their dependencies, and their architecture.
 */
 
-static REPO_INDEX: &str = "repo.index";
+static REPO_MOD_INDEX: &str = "mod.index";
+
+pub struct SysInspectModPakMinion {
+    url: String,
+}
+
+impl SysInspectModPakMinion {
+    /// Creates a new SysInspectModPakMinion instance.
+    pub fn new(cfg: MinionConfig) -> Self {
+        Self { url: cfg.fileserver() }
+    }
+
+    async fn get_modpak_idx(&self) -> Result<ModPakRepoIndex, SysinspectError> {
+        let resp = reqwest::Client::new()
+            .get(format!("http://{}/repo/{}", self.url.clone(), REPO_MOD_INDEX))
+            .send()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
+        if resp.status() != reqwest::StatusCode::OK {
+            return Err(SysinspectError::MasterGeneralError(format!("Failed to get modpak index: {}", resp.status())));
+        }
+
+        let buff = resp.bytes().await.unwrap();
+        let idx = ModPakRepoIndex::from_yaml(&String::from_utf8_lossy(&buff))?;
+        Ok(idx)
+    }
+
+    pub async fn sync_modules(&self) {
+        log::info!("Syncing modules from {}", self.url);
+
+        let ridx = self.get_modpak_idx().await.unwrap();
+        log::info!("ridx: {:#?}", ridx);
+
+        let ostype = env!("THIS_OS");
+        let osarch = env!("THIS_ARCH");
+        log::info!("Running on: {}/{}", ostype, osarch);
+    }
+
+    /// Get module location.
+    /// If the module is a binary module, it will return the path to the binary.
+    /// This is also works for the current platform and architecture.
+    pub fn get_module(&self, name: &str) -> Result<String, SysinspectError> {
+        Ok("".to_string())
+    }
+}
+
 /// ModPakRepo is a repository for storing and managing modules.
 pub struct SysInspectModPak {
     root: PathBuf,
@@ -25,10 +70,10 @@ impl SysInspectModPak {
         if !root.exists() {
             log::info!("Creating module repository at {}", root.display());
             std::fs::create_dir_all(&root)?;
-            fs::write(root.join(REPO_INDEX), ModPakRepoIndex::new().to_yaml()?)?;
+            fs::write(root.join(REPO_MOD_INDEX), ModPakRepoIndex::new().to_yaml()?)?;
         }
 
-        let ridx = root.join(REPO_INDEX);
+        let ridx = root.join(REPO_MOD_INDEX);
         if !ridx.exists() {
             log::info!("Creating module repository index at {}", ridx.display());
             fs::write(&ridx, ModPakRepoIndex::new().to_yaml()?)?;
@@ -113,50 +158,48 @@ impl SysInspectModPak {
         std::fs::copy(meta.get_path(), self.root.join(&subpath))?;
 
         self.idx
-            .add_module(meta.get_name().as_str(), module_subpath.to_str().unwrap_or_default(), p, arch, meta.get_descr())
+            .add_module(
+                meta.get_name().as_str(),
+                module_subpath.to_str().unwrap_or_default(),
+                p,
+                arch,
+                meta.get_descr(),
+                subpath.to_str().unwrap_or_default().starts_with("bin/"),
+            )
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {}", e)))?;
-        log::debug!("Writing index to {}", self.root.join(REPO_INDEX).display().to_string().bright_yellow());
-        fs::write(self.root.join(REPO_INDEX), self.idx.to_yaml()?)?;
+        log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
         log::debug!("Module {} added to index", meta.get_name().bright_yellow());
         log::info!("Module {} added successfully", meta.get_name().bright_yellow());
 
         Ok(())
     }
 
-    fn print_table(modules: &IndexMap<String, IndexMap<String, String>>) {
-        let c_width = modules.keys().map(|s| s.len()).max().unwrap_or(0);
-        let mk_width = modules.values().flat_map(|data| data.keys()).map(|k| k.len()).max().unwrap_or(0);
-        let mut modules: Vec<_> = modules.iter().collect();
-        modules.sort_by_key(|(name, _)| name.as_str());
+    fn print_table(modules: &IndexMap<String, ModAttrs>) {
+        let mw = modules.keys().map(|s| s.len()).max().unwrap_or(0);
+        let kw = "descr".len().max("type".len());
+        let mut mods: Vec<_> = modules.iter().collect();
+        mods.sort_by_key(|(name, _)| *name);
 
-        for (name, attr) in modules {
-            let mut attr: Vec<(&String, &String)> = attr.iter().filter(|(k, _)| *k != "subpath").collect();
-            attr.sort_by_key(|(key, _)| key.as_str());
-
-            if let Some((k, v)) = attr.first() {
+        for (mname, attrs) in mods {
+            let mut attrs = vec![("descr", attrs.descr()), ("type", attrs.mod_type())];
+            attrs.sort_by_key(|(k, _)| *k);
+            if let Some((first_key, first_value)) = attrs.first() {
                 println!(
-                    "    {:<mod_width$}  {k:>key_width$}: {v}",
-                    name.bright_white().bold(),
-                    mod_width = c_width,
-                    k = k.yellow(),
-                    key_width = mk_width,
-                    v = v
+                    "    {:<mw$}  {:>kw$}: {}",
+                    mname.bright_white().bold(),
+                    first_key.yellow(),
+                    first_value,
+                    mw = mw,
+                    kw = kw,
                 );
-
-                for (k, v) in attr.iter().skip(1) {
-                    println!(
-                        "    {:<mod_width$}  {k:>key_width$}: {v}",
-                        "",
-                        mod_width = c_width,
-                        k = k.yellow(),
-                        key_width = mk_width,
-                        v = v
-                    );
+                for (k, v) in attrs.iter().skip(1) {
+                    println!("    {:<mw$}  {:>kw$}: {}", "", k.yellow(), v, mw = mw, kw = kw,);
                 }
             } else {
-                println!("    {:<mod_width$}", name, mod_width = c_width);
+                println!("    {:<mw$}", mname, mw = mw);
             }
-            println!()
+            println!();
         }
     }
 
@@ -174,11 +217,5 @@ impl SysInspectModPak {
 
     pub fn remove_module(&self, name: &str) -> Result<(), SysinspectError> {
         Ok(())
-    }
-
-    /// Get module location.
-    /// If the module is a binary module, it will return the path to the binary.
-    pub fn get_module(&self, name: &str) -> Result<String, SysinspectError> {
-        Ok("".to_string())
     }
 }
