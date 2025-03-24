@@ -34,9 +34,8 @@ impl SysInspectModPak {
     /// Get osabi label
     fn get_osabi_label(osabi: u8) -> &'static str {
         match osabi {
-            header::ELFOSABI_SYSV => "sysv",
+            header::ELFOSABI_SYSV | header::ELFOSABI_LINUX => "linux",
             header::ELFOSABI_NETBSD => "netbsd",
-            header::ELFOSABI_LINUX => "linux",
             header::ELFOSABI_FREEBSD => "freebsd",
             header::ELFOSABI_OPENBSD => "openbsd",
             header::ELFOSABI_ARM => "arm",
