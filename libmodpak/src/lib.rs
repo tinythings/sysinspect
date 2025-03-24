@@ -182,7 +182,7 @@ impl SysInspectModPak {
         mods.sort_by_key(|(name, _)| *name);
 
         for (mname, attrs) in mods {
-            let mut attrs = vec![("descr", attrs.descr()), ("type", attrs.mod_type())];
+            let mut attrs = [("descr", attrs.descr()), ("type", attrs.mod_type())];
             attrs.sort_by_key(|(k, _)| *k);
             if let Some((first_key, first_value)) = attrs.first() {
                 println!(
