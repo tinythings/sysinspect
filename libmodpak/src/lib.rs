@@ -40,14 +40,36 @@ impl SysInspectModPakMinion {
     }
 
     pub async fn sync_modules(&self) {
-        log::info!("Syncing modules from {}", self.url);
-
-        let ridx = self.get_modpak_idx().await.unwrap();
-        log::info!("ridx: {:#?}", ridx);
-
         let ostype = env!("THIS_OS");
         let osarch = env!("THIS_ARCH");
-        log::info!("Running on: {}/{}", ostype, osarch);
+
+        log::info!("Syncing modules from {}", self.url);
+        let ridx = self.get_modpak_idx().await.unwrap();
+        for (name, attrs) in ridx.get_modules() {
+            let path = format!(
+                "http://{}/repo/{}/{}/{}/{}",
+                self.url,
+                if attrs.mod_type().eq("binary") { "bin" } else { "script" },
+                ostype,
+                osarch,
+                attrs.subpath()
+            );
+            log::info!("Downloading module {} from {}", name.bright_yellow(), path);
+            let resp = reqwest::Client::new()
+                .get(path)
+                .send()
+                .await
+                .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))
+                .unwrap();
+            if resp.status() != reqwest::StatusCode::OK {
+                log::error!("Failed to download module {}: {}", name, resp.status());
+                continue;
+            }
+            let buff = resp.bytes().await.unwrap();
+            println!("Got byte length: {}", buff.len());
+            //fs::write(attrs.get_path(), buff).unwrap();
+        }
+        log::info!("Syncing modules from {} done", self.url);
     }
 
     /// Get module location.
@@ -205,7 +227,7 @@ impl SysInspectModPak {
 
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
         let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
-        for (p, archset) in self.idx.get_modules(None) {
+        for (p, archset) in self.idx.get_all_modules(None) {
             let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());

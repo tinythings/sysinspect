@@ -98,9 +98,23 @@ impl ModPakRepoIndex {
         Ok(index)
     }
 
+    pub(crate) fn get_modules(&self) -> IndexMap<String, ModAttrs> {
+        let ostype = env!("THIS_OS");
+        let osarch = env!("THIS_ARCH");
+        let mut modules = IndexMap::new();
+        if let Some(platform_map) = self.platform.get(ostype) {
+            if let Some(arch_map) = platform_map.get(osarch) {
+                for (name, attrs) in arch_map.iter() {
+                    modules.insert(name.clone(), attrs.clone());
+                }
+            }
+        }
+        modules
+    }
+
     #[allow(clippy::type_complexity)]
     /// Returns the modules in the index. Optionally filtered by architecture.
-    pub(crate) fn get_modules(&self, arch: Option<&str>) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
+    pub(crate) fn get_all_modules(&self, arch: Option<&str>) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
         if let Some(arch) = arch {
             self.platform
                 .iter()
