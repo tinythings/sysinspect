@@ -137,6 +137,15 @@ async fn main() {
         let mut repo = match libmodpak::SysInspectModPak::new(cfg.get_mod_repo_root()) {
             Ok(repo) => repo,
             Err(err) => {
+                match &err {
+                    SysinspectError::IoErr(err) => {
+                        if err.kind() == ErrorKind::NotFound {
+                            log::error!("No module repository found. Create one, perhaps?..");
+                            exit(1);
+                        }
+                    }
+                    _ => {}
+                }
                 log::error!("Unable to open module repository: {}", err);
                 exit(1);
             }
