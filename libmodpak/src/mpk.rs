@@ -110,8 +110,7 @@ impl ModPakRepoIndex {
             checksum: checksum.to_string(),
         };
 
-        let module = self
-            .platform
+        self.platform
             .entry(platform.to_string())
             .or_default()
             .entry(arch.to_string())
