@@ -1,8 +1,11 @@
 use colored::Colorize;
 use fs_extra::dir::CopyOptions;
-use goblin::{Object, elf::header};
+use goblin::{Object, elf::header, pe::subsystem};
 use indexmap::IndexMap;
-use libsysinspect::{SysinspectError, cfg::mmconf::MinionConfig};
+use libsysinspect::{
+    SysinspectError,
+    cfg::mmconf::{DEFAULT_MODULES_DIR, MinionConfig},
+};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use std::{collections::HashMap, fs, path::PathBuf};
 
@@ -16,18 +19,18 @@ their dependencies, and their architecture.
 static REPO_MOD_INDEX: &str = "mod.index";
 
 pub struct SysInspectModPakMinion {
-    url: String,
+    cfg: MinionConfig,
 }
 
 impl SysInspectModPakMinion {
     /// Creates a new SysInspectModPakMinion instance.
     pub fn new(cfg: MinionConfig) -> Self {
-        Self { url: cfg.fileserver() }
+        Self { cfg }
     }
 
     async fn get_modpak_idx(&self) -> Result<ModPakRepoIndex, SysinspectError> {
         let resp = reqwest::Client::new()
-            .get(format!("http://{}/repo/{}", self.url.clone(), REPO_MOD_INDEX))
+            .get(format!("http://{}/repo/{}", self.cfg.fileserver(), REPO_MOD_INDEX))
             .send()
             .await
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
@@ -40,37 +43,50 @@ impl SysInspectModPakMinion {
         Ok(idx)
     }
 
+    pub fn verify_module_by_subpath(&self, subpath: &str, checksum: &str) -> Result<bool, SysinspectError> {
+        let path = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(subpath);
+        log::info!("Verifying module {} with checksum {}", path.display().to_string().bright_yellow(), checksum);
+        Ok(libsysinspect::util::iofs::get_file_sha256(path.to_path_buf())?.eq(checksum))
+    }
+
     pub async fn sync_modules(&self) {
         let ostype = env!("THIS_OS");
         let osarch = env!("THIS_ARCH");
 
-        log::info!("Syncing modules from {}", self.url);
+        log::info!("Syncing modules from {}", self.cfg.fileserver());
         let ridx = self.get_modpak_idx().await.unwrap();
         for (name, attrs) in ridx.get_modules() {
             let path = format!(
                 "http://{}/repo/{}/{}/{}/{}",
-                self.url,
+                self.cfg.fileserver(),
                 if attrs.mod_type().eq("binary") { "bin" } else { "script" },
                 ostype,
                 osarch,
                 attrs.subpath()
             );
-            log::info!("Downloading module {} from {}", name.bright_yellow(), path);
-            let resp = reqwest::Client::new()
-                .get(path)
-                .send()
-                .await
-                .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))
-                .unwrap();
-            if resp.status() != reqwest::StatusCode::OK {
-                log::error!("Failed to download module {}: {}", name, resp.status());
-                continue;
+
+            if !self.verify_module_by_subpath(attrs.subpath(), attrs.checksum()).unwrap_or(false) {
+                log::info!("Downloading module {} from {}", name.bright_yellow(), path);
+                let resp = reqwest::Client::new()
+                    .get(path)
+                    .send()
+                    .await
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))
+                    .unwrap();
+                if resp.status() != reqwest::StatusCode::OK {
+                    log::error!("Failed to download module {}: {}", name, resp.status());
+                    continue;
+                }
+                let buff = resp.bytes().await.unwrap();
+                let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
+
+                // Check if we need to write that
+                log::info!("Writing module to {}", dst.display().to_string().bright_yellow());
+
+                //fs::write(dst, buff).unwrap();
             }
-            let buff = resp.bytes().await.unwrap();
-            println!("Got byte length: {}", buff.len());
-            //fs::write(attrs.get_path(), buff).unwrap();
         }
-        log::info!("Syncing modules from {} done", self.url);
+        log::info!("Syncing modules from {} done", self.cfg.fileserver());
     }
 
     /// Get module location.
