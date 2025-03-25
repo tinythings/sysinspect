@@ -2544,6 +2544,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "colored 3.0.0",
+ "fs_extra",
  "goblin",
  "indexmap 2.8.0",
  "libsysinspect",
