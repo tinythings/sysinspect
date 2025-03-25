@@ -131,6 +131,11 @@ impl ModPakRepoIndex {
         Ok(())
     }
 
+    /// Returns scanned library data
+    pub fn library(&self) -> &Vec<ModPakRepoLibFile> {
+        &self.library
+    }
+
     /// Serializes the index to a YAML string.
     pub fn to_yaml(&self) -> Result<String, SysinspectError> {
         let yaml = serde_yaml::to_string(self)?;
