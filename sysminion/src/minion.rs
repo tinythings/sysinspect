@@ -26,6 +26,7 @@ use serde_json::json;
 use std::{
     fs,
     path::PathBuf,
+    process,
     sync::Arc,
     time::{Duration, Instant},
     vec,
@@ -561,8 +562,7 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
     // Keep the client alive until Ctrl+C is pressed
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
     log::info!("Shutting down client.");
-
-    Ok(())
+    process::exit(0);
 }
 
 /// Setup minion
