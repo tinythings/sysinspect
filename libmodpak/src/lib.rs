@@ -45,6 +45,16 @@ impl SysInspectModPakMinion {
 
     pub fn verify_module_by_subpath(&self, subpath: &str, checksum: &str) -> Result<bool, SysinspectError> {
         let path = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(subpath);
+        if !path.exists() {
+            log::info!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
+            return Ok(false);
+        }
+
+        if self.cfg.fastsync() {
+            log::info!("Fast sync enabled, skipping verification of module {}", path.display().to_string().bright_yellow());
+            return Ok(path.exists());
+        }
+
         log::info!("Verifying module {} with checksum {}", path.display().to_string().bright_yellow(), checksum);
         Ok(libsysinspect::util::iofs::get_file_sha256(path.to_path_buf())?.eq(checksum))
     }

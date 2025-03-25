@@ -126,6 +126,14 @@ pub struct MinionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     sharelib_path: Option<String>,
 
+    /// Check modules on startup, but do not verify their SHA256 checksum,
+    /// only verify their mere presence. This will speed up the startup
+    /// process, but will not guarantee the integrity of the modules.
+    /// Default: false
+    #[serde(rename = "modules.fastsync")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    modules_check: Option<bool>,
+
     /// IP address of Master
     #[serde(rename = "master.ip")]
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -273,6 +281,11 @@ impl MinionConfig {
         }
 
         _logfile_path().join(DEFAULT_MINION_LOG_ERR)
+    }
+
+    /// Return modules.fastsync flag
+    pub fn fastsync(&self) -> bool {
+        self.modules_check.unwrap_or(false)
     }
 }
 
