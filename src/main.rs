@@ -21,6 +21,7 @@ use std::{
     env,
     fs::OpenOptions,
     io::{ErrorKind, Write},
+    path::PathBuf,
     process::exit,
     sync::Mutex,
 };
@@ -149,10 +150,18 @@ async fn main() {
         };
 
         if sub.get_flag("add") {
-            log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
-            if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(sub)) {
-                log::error!("Failed to add module: {}", err);
-                exit(1);
+            if sub.get_flag("lib") {
+                log::info!("Processing library in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
+                if let Err(err) = repo.add_library(PathBuf::from(sub.get_one::<String>("path").unwrap_or(&"".to_string()))) {
+                    log::error!("Failed to add library: {}", err);
+                    exit(1);
+                }
+            } else {
+                log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
+                if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(sub)) {
+                    log::error!("Failed to add module: {}", err);
+                    exit(1);
+                }
             }
         } else if sub.get_flag("list") {
             repo.list_modules().unwrap_or_else(|err| {

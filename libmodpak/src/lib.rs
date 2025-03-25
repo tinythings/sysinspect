@@ -1,4 +1,5 @@
 use colored::Colorize;
+use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
 use libsysinspect::{SysinspectError, cfg::mmconf::MinionConfig};
@@ -128,6 +129,27 @@ impl SysInspectModPak {
         }
     }
 
+    pub fn add_library(&mut self, p: PathBuf) -> Result<(), SysinspectError> {
+        let path = self.root.join("lib");
+        if !path.exists() {
+            log::info!("Creating module repository at {}", path.display());
+            std::fs::create_dir_all(&path)?;
+        }
+
+        let mut options = CopyOptions::new();
+        options.overwrite = true; // Overwrite existing files if necessary
+        options.copy_inside = true; // Copy the contents inside `p` instead of the directory itself
+
+        log::info!("Copying library from {} to {}", p.display(), path.display());
+        fs_extra::dir::copy(&p, &path, &options)
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {}", e)))?;
+        self.idx.add_library(&path)?;
+        log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
+        log::info!("Library {} added to index", p.display().to_string().bright_yellow());
+        Ok(())
+    }
+
     /// Add an existing binary module.
     pub fn add_module(&mut self, meta: ModPakMetadata) -> Result<(), SysinspectError> {
         let path = fs::canonicalize(meta.get_path())?;
@@ -178,6 +200,7 @@ impl SysInspectModPak {
         }
         log::debug!("Copying module to {}", self.root.join(&subpath).display().to_string().bright_yellow());
         std::fs::copy(meta.get_path(), self.root.join(&subpath))?;
+        let checksum = libsysinspect::util::iofs::get_file_sha256(self.root.join(&subpath))?;
 
         self.idx
             .add_module(
@@ -187,6 +210,7 @@ impl SysInspectModPak {
                 arch,
                 meta.get_descr(),
                 subpath.to_str().unwrap_or_default().starts_with("bin/"),
+                &checksum,
             )
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {}", e)))?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());

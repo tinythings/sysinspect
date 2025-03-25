@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use libsysinspect::SysinspectError;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModAttrs {
@@ -10,12 +10,15 @@ pub struct ModAttrs {
 
     #[serde(rename = "type")]
     mod_type: String,
+
+    #[serde(rename = "sha256")]
+    checksum: String,
 }
 
 impl ModAttrs {
     /// Creates a new ModAttrs with the given subpath, description, and type.
-    pub fn new(subpath: String, descr: String, mod_type: String) -> Self {
-        Self { subpath, descr, mod_type }
+    pub fn new(subpath: String, descr: String, mod_type: String, checksum: String) -> Self {
+        Self { subpath, descr, mod_type, checksum }
     }
 
     /// Returns the subpath of the module.
@@ -32,6 +35,33 @@ impl ModAttrs {
     pub fn mod_type(&self) -> &str {
         &self.mod_type
     }
+
+    /// Returns the checksum of the module.
+    pub fn checksum(&self) -> &str {
+        &self.checksum
+    }
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModPakRepoLibFile {
+    file: PathBuf,
+    checksum: String,
+}
+
+impl ModPakRepoLibFile {
+    /// Creates a new ModPakRepoLibFile with the given file and checksum.
+    pub fn new(file: PathBuf, checksum: &str) -> Self {
+        Self { file, checksum: checksum.to_string() }
+    }
+
+    /// Returns the file of the library file.
+    pub fn file(&self) -> &PathBuf {
+        &self.file
+    }
+
+    /// Returns the checksum of the library file.
+    pub fn checksum(&self) -> &str {
+        &self.checksum
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -40,6 +70,12 @@ pub struct ModPakRepoIndex {
     /// Platform -> Architecture -> Module name
     /// e.g. "linux" -> "x86_64" -> "fs.file" -> key/value (name, descr, version etc)
     platform: IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>>,
+
+    /// Simply files. They are all the same on all minions for all platforms and architectures.
+    /// Usually they are meant to be just Python scripts. Possibly .so files could be also
+    /// there, but they have to be unique in naming for each platform/arch and linked
+    /// accordingly.
+    library: Vec<ModPakRepoLibFile>,
 }
 
 impl Default for ModPakRepoIndex {
@@ -51,17 +87,26 @@ impl Default for ModPakRepoIndex {
 impl ModPakRepoIndex {
     /// Creates a new ModPakRepoIndex.
     pub fn new() -> Self {
-        Self { platform: IndexMap::new() }
+        Self { platform: IndexMap::new(), library: vec![] }
+    }
+
+    pub fn add_library(&mut self, p: &PathBuf) -> Result<(), SysinspectError> {
+        for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.clone(), None) {
+            self.library.push(ModPakRepoLibFile::new(p.join(fname), &cs));
+        }
+
+        Ok(())
     }
 
     /// Adds a module to the index.
     pub fn add_module(
-        &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool,
+        &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool, checksum: &str,
     ) -> Result<(), SysinspectError> {
         let attrs = ModAttrs {
             subpath: subpath.to_string(),
             descr: descr.to_string(),
             mod_type: if bin { "binary".to_string() } else { "script".to_string() },
+            checksum: checksum.to_string(),
         };
 
         let module = self
