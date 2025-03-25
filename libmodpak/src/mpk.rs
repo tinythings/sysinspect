@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use libsysinspect::SysinspectError;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModAttrs {
@@ -90,8 +90,8 @@ impl ModPakRepoIndex {
         Self { platform: IndexMap::new(), library: vec![] }
     }
 
-    pub fn add_library(&mut self, p: &PathBuf) -> Result<(), SysinspectError> {
-        for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.clone(), None) {
+    pub fn add_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
+        for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.to_path_buf(), None) {
             self.library.push(ModPakRepoLibFile::new(p.join(fname), &cs));
         }
 
@@ -99,6 +99,7 @@ impl ModPakRepoIndex {
     }
 
     /// Adds a module to the index.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_module(
         &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool, checksum: &str,
     ) -> Result<(), SysinspectError> {
