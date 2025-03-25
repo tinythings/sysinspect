@@ -7,6 +7,7 @@ use libsysinspect::{
     cfg::mmconf::{DEFAULT_MODULES_DIR, MinionConfig},
 };
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
+use std::os::unix::fs::PermissionsExt;
 use std::{collections::HashMap, fs, path::PathBuf};
 
 pub mod mpk;
@@ -59,12 +60,15 @@ impl SysInspectModPakMinion {
         Ok(libsysinspect::util::iofs::get_file_sha256(path.to_path_buf())?.eq(checksum))
     }
 
+    /// Syncs modules from the fileserver. This also includes libraries.
     pub async fn sync_modules(&self) {
         let ostype = env!("THIS_OS");
         let osarch = env!("THIS_ARCH");
 
         log::info!("Syncing modules from {}", self.cfg.fileserver());
         let ridx = self.get_modpak_idx().await.unwrap();
+
+        // Modules
         for (name, attrs) in ridx.get_modules() {
             let path = format!(
                 "http://{}/repo/{}/{}/{}/{}",
@@ -92,8 +96,18 @@ impl SysInspectModPakMinion {
 
                 // Check if we need to write that
                 log::info!("Writing module to {}", dst.display().to_string().bright_yellow());
+                if let Some(pdst) = dst.parent() {
+                    if !pdst.exists() {
+                        log::debug!("Creating directory {}", pdst.display().to_string().bright_yellow());
+                        std::fs::create_dir_all(pdst).unwrap();
+                    }
+                }
+                fs::write(&dst, buff).unwrap();
 
-                //fs::write(dst, buff).unwrap();
+                // chmod +X
+                let mut p = fs::metadata(&dst).unwrap().permissions();
+                p.set_mode(0o755);
+                fs::set_permissions(dst, p).unwrap();
             }
         }
         log::info!("Syncing modules from {} done", self.cfg.fileserver());
