@@ -1,6 +1,6 @@
 use colored::Colorize;
 use fs_extra::dir::CopyOptions;
-use goblin::{Object, elf::header, pe::subsystem};
+use goblin::{Object, elf::header};
 use indexmap::IndexMap;
 use libsysinspect::{
     SysinspectError,
