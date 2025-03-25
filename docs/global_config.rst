@@ -213,6 +213,13 @@ and contains the following directives:
 
     Port of Master's fileserver. By default it is set to ``4201``.
 
+``modules.fastsync``
+
+    Modules are always automatically synchronised at Minion boot. However, it requires full recalculation
+    of each module's SHA256 checksum and it might take a while, if you have a lot of modules and they are big.
+    If enabled, however, Minion will only check if module is present and if it is, it will not recalculate
+    the checksum. By default it is set to ``false``.
+
 Example configuration for the Sysinspect Minion:
 
 .. code-block:: yaml
