@@ -544,8 +544,6 @@ impl SysMinion {
 pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<(), SysinspectError> {
     // Get plugins repo
     let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
-    modpak.sync_modules().await;
-
     let minion = SysMinion::new(cfg, fingerprint).await?;
     minion.as_ptr().do_proto().await?;
 
@@ -555,6 +553,7 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
     } else {
         // ehlo
         minion.as_ptr().send_ehlo().await?;
+        modpak.sync_modules().await;
     }
 
     minion.as_ptr().do_ping_update().await?;
