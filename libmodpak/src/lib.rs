@@ -62,9 +62,7 @@ impl SysInspectModPakMinion {
         if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_FAST) {
             log::info!("Fast sync: {}", subpath.to_string().bright_yellow());
             let buff = fs::read_to_string(fcs)?;
-            if buff.trim() == checksum {
-                return Ok((true, Some(buff)));
-            }
+            return Ok((buff.trim() == checksum, Some(buff)));
         }
 
         log::info!("Full sync: {}", subpath.to_string().bright_yellow());
