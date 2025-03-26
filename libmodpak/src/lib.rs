@@ -2,13 +2,11 @@ use colored::Colorize;
 use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
-use libsysinspect::cfg::{
-    mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig},
-};
+use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
-use std::{collections::HashMap, fs, path::PathBuf};
 use std::os::unix::fs::PermissionsExt;
+use std::{collections::HashMap, fs, path::PathBuf};
 
 pub mod mpk;
 
@@ -209,13 +207,6 @@ impl SysInspectModPakMinion {
         log::info!("Syncing modules from {} done", self.cfg.fileserver());
         Ok(())
     }
-
-    /// Get module location.
-    /// If the module is a binary module, it will return the path to the binary.
-    /// This is also works for the current platform and architecture.
-    pub fn get_module(&self, name: &str) -> Result<String, SysinspectError> {
-        Ok("".to_string())
-    }
 }
 
 /// ModPakRepo is a repository for storing and managing modules.
@@ -395,10 +386,6 @@ impl SysInspectModPak {
                 Self::print_table(&modules);
             }
         }
-        Ok(())
-    }
-
-    pub fn remove_module(&self, name: &str) -> Result<(), SysinspectError> {
         Ok(())
     }
 }

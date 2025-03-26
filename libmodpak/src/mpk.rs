@@ -248,9 +248,6 @@ impl ModPackModule {
         Ok(Self { name: name.trim_start_matches('.').trim_end_matches('.').to_string(), binary })
     }
 
-    fn get_name_subpath(&self) -> String {
-        self.name.clone().replace('.', "/")
-    }
     /// Returns true if the module is a binary module.
     pub fn is_binary(&self) -> bool {
         self.binary
