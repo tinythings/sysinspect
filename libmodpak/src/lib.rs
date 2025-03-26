@@ -2,11 +2,14 @@ use colored::Colorize;
 use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
-use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
+use libsysinspect::cfg::{
+    self,
+    mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig},
+};
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
-use std::os::unix::fs::PermissionsExt;
 use std::{collections::HashMap, fs, path::PathBuf};
+use std::{os::unix::fs::PermissionsExt, process::exit};
 
 pub mod mpk;
 
@@ -47,12 +50,12 @@ impl SysInspectModPakMinion {
     ) -> Result<(bool, Option<String>), SysinspectError> {
         let path = self.cfg.sharelib_dir().join(section).join(subpath);
         if !path.exists() {
-            log::info!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
+            log::warn!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
             return Ok((false, None));
         }
 
         if self.cfg.autosync().eq(CFG_AUTOSYNC_SHALLOW) {
-            log::info!("Shallow sync: {}", subpath.to_string().bright_yellow());
+            log::debug!("Shallow sync: {}", subpath.to_string().bright_yellow());
             return Ok((path.exists(), None));
         }
 
@@ -60,18 +63,23 @@ impl SysInspectModPakMinion {
 
         // Shallow-check if the checksum file exists and matches the expected checksum
         if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_FAST) {
-            log::info!("Fast sync: {}", subpath.to_string().bright_yellow());
+            log::debug!("Fast sync: {}", subpath.to_string().bright_yellow());
             let buff = fs::read_to_string(fcs)?;
             return Ok((buff.trim() == checksum, Some(buff)));
         }
 
-        log::info!("Full sync: {}", subpath.to_string().bright_yellow());
+        log::debug!("Full sync: {}", subpath.to_string().bright_yellow());
         let fcs = libsysinspect::util::iofs::get_file_sha256(path.to_path_buf())?;
         Ok((fcs.eq(checksum), Some(fcs)))
     }
 
     pub async fn sync(&self) -> Result<(), SysinspectError> {
-        log::info!("Data sync with {}", self.cfg.fileserver());
+        match self.cfg.autosync().as_str() {
+            v if v == CFG_AUTOSYNC_SHALLOW => log::info!("Shallow data sync with {}", self.cfg.fileserver()),
+            v if v == CFG_AUTOSYNC_FAST => log::info!("Fast data sync with {}", self.cfg.fileserver()),
+            _ => log::info!("Full data sync with {}", self.cfg.fileserver()),
+        }
+
         let ridx = self.get_modpak_idx().await?;
 
         self.sync_modules(&ridx).await?;
@@ -83,13 +91,16 @@ impl SysInspectModPakMinion {
     /// Syncs libraries from the fileserver.
     async fn sync_libraries(&self, ridx: &ModPakRepoIndex) -> Result<(), SysinspectError> {
         log::info!("Syncing {} library objects", ridx.library().len());
+        let libt = ridx.library().len();
+        let mut synced = 0;
+        log::info!("{}% of library objects synced", (synced * 100) / libt);
+
         for (_, lf) in ridx.library() {
-            // Check if the library is already present
-            let (verified, fcs) = self
+            let (verified, _) = self
                 .verify_artefact_by_subpath(DEFAULT_MODULES_LIB_DIR, lf.file().to_str().unwrap_or_default(), lf.checksum())
                 .unwrap_or((false, None));
 
-            if !verified || fcs.is_none() {
+            if !verified {
                 log::info!("Updating library artifact {}", lf.file().display().to_string().bright_yellow());
                 let resp = reqwest::Client::new()
                     .get(format!("http://{}/repo/lib/{}", self.cfg.fileserver(), lf.file().display()))
@@ -118,6 +129,11 @@ impl SysInspectModPakMinion {
                 fs::write(&dst, buff)?;
                 fs::write(dst.with_extension("checksum.sha256"), lf.checksum())?;
             }
+
+            synced += 1;
+            if synced % (libt / 4).max(1) == 0 || synced == libt {
+                log::info!("{}% of library objects synced", (synced * 100) / libt);
+            }
         }
         log::info!("Syncing libraries from {} done", self.cfg.fileserver());
         Ok(())
@@ -127,6 +143,11 @@ impl SysInspectModPakMinion {
     async fn sync_modules(&self, ridx: &ModPakRepoIndex) -> Result<(), SysinspectError> {
         let ostype = env!("THIS_OS");
         let osarch = env!("THIS_ARCH");
+
+        let modt = ridx.modules().len();
+        log::info!("Syncing {} modules", modt);
+        let mut synced = 0;
+        log::info!("{}% of modules synced", (synced * 100) / modt);
 
         // Modules
         for (name, attrs) in ridx.modules() {
@@ -180,6 +201,10 @@ impl SysInspectModPakMinion {
                     log::info!("Updating module checksum as {}", dst_cs.display().to_string().bright_yellow());
                     fs::write(dst_cs, fsc)?;
                 }
+            }
+            synced += 1;
+            if synced % (modt / 4).max(1) == 0 || synced == modt {
+                log::info!("{}% of modules synced", (synced * 100) / modt);
             }
         }
         log::info!("Syncing modules from {} done", self.cfg.fileserver());
