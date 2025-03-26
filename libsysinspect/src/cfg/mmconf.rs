@@ -36,7 +36,7 @@ pub static DEFAULT_MODULES_SHARELIB: &str = "/usr/share/sysinspect";
 pub static DEFAULT_MODULES_DIR: &str = "modules";
 
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for python libraries
-pub static DEFAULT_MODULES_PYLIB_DIR: &str = "lib";
+pub static DEFAULT_MODULES_LIB_DIR: &str = "lib";
 
 /// Default filename for the master log
 pub static DEFAULT_MASTER_LOG_STD: &str = "sysmaster.standard.log";

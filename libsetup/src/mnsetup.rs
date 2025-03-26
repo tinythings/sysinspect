@@ -1,7 +1,7 @@
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::{
-        DEFAULT_MODULES_DIR, DEFAULT_MODULES_PYLIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
+        DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
         SysInspectConfig,
     },
 };
@@ -120,7 +120,7 @@ impl MinionSetup {
             self.get_tmp(),
             self.get_db(),
             self.get_shared_subdir(DEFAULT_MODULES_DIR),
-            self.get_shared_subdir(DEFAULT_MODULES_PYLIB_DIR),
+            self.get_shared_subdir(DEFAULT_MODULES_LIB_DIR),
         ];
 
         for d in dirs {

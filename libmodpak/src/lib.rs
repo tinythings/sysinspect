@@ -2,7 +2,7 @@ use colored::Colorize;
 use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
-use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, MinionConfig};
+use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use std::os::unix::fs::PermissionsExt;
@@ -42,8 +42,10 @@ impl SysInspectModPakMinion {
         Ok(idx)
     }
 
-    pub fn verify_module_by_subpath(&self, subpath: &str, checksum: &str) -> Result<(bool, Option<String>), SysinspectError> {
-        let path = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(subpath);
+    pub fn verify_artefact_by_subpath(
+        &self, section: &str, subpath: &str, checksum: &str,
+    ) -> Result<(bool, Option<String>), SysinspectError> {
+        let path = self.cfg.sharelib_dir().join(section).join(subpath);
         if !path.exists() {
             log::info!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
             return Ok((false, None));
@@ -70,16 +72,66 @@ impl SysInspectModPakMinion {
         Ok((fcs.eq(checksum), Some(fcs)))
     }
 
-    /// Syncs modules from the fileserver. This also includes libraries.
-    pub async fn sync_modules(&self) {
+    pub async fn sync(&self) -> Result<(), SysinspectError> {
+        log::info!("Data sync with {}", self.cfg.fileserver());
+        let ridx = self.get_modpak_idx().await?;
+
+        self.sync_modules(&ridx).await?;
+        self.sync_libraries(&ridx).await?;
+        log::info!("Data sync done");
+        Ok(())
+    }
+
+    /// Syncs libraries from the fileserver.
+    async fn sync_libraries(&self, ridx: &ModPakRepoIndex) -> Result<(), SysinspectError> {
+        log::info!("Syncing {} library objects", ridx.library().len());
+        for lf in ridx.library() {
+            // Check if the library is already present
+            let (verified, fcs) = self
+                .verify_artefact_by_subpath(DEFAULT_MODULES_LIB_DIR, lf.file().to_str().unwrap_or_default(), lf.checksum())
+                .unwrap_or((false, None));
+
+            if !verified || fcs.is_none() {
+                log::info!("Updating library artifact {}", lf.file().display().to_string().bright_yellow());
+                let resp = reqwest::Client::new()
+                    .get(format!("http://{}/repo/lib/{}", self.cfg.fileserver(), lf.file().display()))
+                    .send()
+                    .await
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
+                if resp.status() != reqwest::StatusCode::OK {
+                    log::error!("Failed to download library {}: {}", lf.file().display(), resp.status());
+                    continue;
+                }
+                let buff = resp
+                    .bytes()
+                    .await
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
+                let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_LIB_DIR).join(lf.file());
+
+                log::debug!("Writing library to {} ({} bytes)", dst.display().to_string().bright_yellow(), buff.len());
+
+                if let Some(dst) = dst.parent() {
+                    if !dst.exists() {
+                        log::debug!("Creating directory {}", dst.display().to_string().bright_yellow());
+                        std::fs::create_dir_all(dst)?;
+                    }
+                }
+
+                fs::write(&dst, buff)?;
+                fs::write(dst.with_extension("checksum.sha256"), lf.checksum())?;
+            }
+        }
+        log::info!("Syncing libraries from {} done", self.cfg.fileserver());
+        Ok(())
+    }
+
+    /// Syncs modules from the fileserver.
+    async fn sync_modules(&self, ridx: &ModPakRepoIndex) -> Result<(), SysinspectError> {
         let ostype = env!("THIS_OS");
         let osarch = env!("THIS_ARCH");
 
-        log::info!("Syncing modules from {}", self.cfg.fileserver());
-        let ridx = self.get_modpak_idx().await.unwrap();
-
         // Modules
-        for (name, attrs) in ridx.get_modules() {
+        for (name, attrs) in ridx.modules() {
             let path = format!(
                 "http://{}/repo/{}/{}/{}/{}",
                 self.cfg.fileserver(),
@@ -91,45 +143,49 @@ impl SysInspectModPakMinion {
             let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
             let dst_cs = dst.with_extension("checksum.sha256");
 
-            let (verified, fsc) = self.verify_module_by_subpath(attrs.subpath(), attrs.checksum()).unwrap_or((false, None));
+            let (verified, fsc) =
+                self.verify_artefact_by_subpath(DEFAULT_MODULES_DIR, attrs.subpath(), attrs.checksum()).unwrap_or((false, None));
             if !verified {
                 log::info!("Downloading module {} from {}", name.bright_yellow(), path);
                 let resp = reqwest::Client::new()
                     .get(path)
                     .send()
                     .await
-                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))
-                    .unwrap();
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
                 if resp.status() != reqwest::StatusCode::OK {
                     log::error!("Failed to download module {}: {}", name, resp.status());
                     continue;
                 }
-                let buff = resp.bytes().await.unwrap();
+                let buff = resp
+                    .bytes()
+                    .await
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
 
                 // Check if we need to write that
                 log::info!("Writing module to {}", dst.display().to_string().bright_yellow());
                 if let Some(pdst) = dst.parent() {
                     if !pdst.exists() {
                         log::debug!("Creating directory {}", pdst.display().to_string().bright_yellow());
-                        std::fs::create_dir_all(pdst).unwrap();
+                        std::fs::create_dir_all(pdst)?;
                     }
                 }
-                fs::write(&dst, buff).unwrap();
+                fs::write(&dst, buff)?;
 
                 // chmod +X
-                let mut p = fs::metadata(&dst).unwrap().permissions();
+                let mut p = fs::metadata(&dst)?.permissions();
                 p.set_mode(0o755);
-                fs::set_permissions(&dst, p).unwrap();
+                fs::set_permissions(&dst, p)?;
             }
 
             if let Some(fsc) = fsc {
                 if !dst_cs.exists() || !verified {
                     log::info!("Updating module checksum as {}", dst_cs.display().to_string().bright_yellow());
-                    fs::write(dst_cs, fsc).unwrap();
+                    fs::write(dst_cs, fsc)?;
                 }
             }
         }
         log::info!("Syncing modules from {} done", self.cfg.fileserver());
+        Ok(())
     }
 
     /// Get module location.
@@ -202,7 +258,7 @@ impl SysInspectModPak {
         log::info!("Copying library from {} to {}", p.display(), path.display());
         fs_extra::dir::copy(&p, &path, &options)
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {}", e)))?;
-        self.idx.add_library(&path)?;
+        self.idx.index_library(&path)?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
         fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
         log::info!("Library {} added to index", p.display().to_string().bright_yellow());
@@ -262,7 +318,7 @@ impl SysInspectModPak {
         let checksum = libsysinspect::util::iofs::get_file_sha256(self.root.join(&subpath))?;
 
         self.idx
-            .add_module(
+            .index_module(
                 meta.get_name().as_str(),
                 module_subpath.to_str().unwrap_or_default(),
                 p,
@@ -310,7 +366,7 @@ impl SysInspectModPak {
 
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
         let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
-        for (p, archset) in self.idx.get_all_modules(None) {
+        for (p, archset) in self.idx.all_modules(None) {
             let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());

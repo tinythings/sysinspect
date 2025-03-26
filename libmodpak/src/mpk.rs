@@ -90,9 +90,10 @@ impl ModPakRepoIndex {
         Self { platform: IndexMap::new(), library: vec![] }
     }
 
-    pub fn add_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
+    pub fn index_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
         for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.to_path_buf(), None) {
-            self.library.push(ModPakRepoLibFile::new(p.join(fname), &cs));
+            log::info!("Adding library file: {} with checksum: {}", fname, cs);
+            self.library.push(ModPakRepoLibFile::new(PathBuf::from(fname), &cs));
         }
 
         Ok(())
@@ -100,7 +101,7 @@ impl ModPakRepoIndex {
 
     /// Adds a module to the index.
     #[allow(clippy::too_many_arguments)]
-    pub fn add_module(
+    pub fn index_module(
         &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool, checksum: &str,
     ) -> Result<(), SysinspectError> {
         let attrs = ModAttrs {
@@ -148,7 +149,7 @@ impl ModPakRepoIndex {
         Ok(index)
     }
 
-    pub(crate) fn get_modules(&self) -> IndexMap<String, ModAttrs> {
+    pub(crate) fn modules(&self) -> IndexMap<String, ModAttrs> {
         let ostype = env!("THIS_OS");
         let osarch = env!("THIS_ARCH");
         let mut modules = IndexMap::new();
@@ -164,7 +165,7 @@ impl ModPakRepoIndex {
 
     #[allow(clippy::type_complexity)]
     /// Returns the modules in the index. Optionally filtered by architecture.
-    pub(crate) fn get_all_modules(&self, arch: Option<&str>) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
+    pub(crate) fn all_modules(&self, arch: Option<&str>) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
         if let Some(arch) = arch {
             self.platform
                 .iter()
