@@ -2,10 +2,8 @@ use colored::Colorize;
 use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
-use libsysinspect::{
-    SysinspectError,
-    cfg::mmconf::{DEFAULT_MODULES_DIR, MinionConfig},
-};
+use libsysinspect::cfg::mmconf::MinionConfig;
+use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use std::os::unix::fs::PermissionsExt;
 use std::{collections::HashMap, fs, path::PathBuf};
