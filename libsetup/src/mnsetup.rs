@@ -1,8 +1,8 @@
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::{
-        DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
-        SysInspectConfig,
+        CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT,
+        MinionConfig, SysInspectConfig,
     },
 };
 use std::{
@@ -138,6 +138,7 @@ impl MinionSetup {
         #[allow(clippy::unnecessary_to_owned)]
         self.cfg.set_sharelib_path(&self.get_sharelib().to_string());
         self.cfg.set_pid_path(PathBuf::from(self.get_run()).join("sysinspect.pid").to_str().unwrap_or_default());
+        self.cfg.set_autosync(CFG_AUTOSYNC_SHALLOW);
 
         let cfp = PathBuf::from(self.get_etc()).join("sysinspect.conf");
         log::info!("Writing configuration file to {}", cfp.to_str().unwrap_or_default());

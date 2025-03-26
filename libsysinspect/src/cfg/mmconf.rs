@@ -297,6 +297,11 @@ impl MinionConfig {
     pub fn autosync(&self) -> String {
         self.modules_check.as_ref().unwrap_or(&CFG_AUTOSYNC_DEFAULT.to_string()).clone()
     }
+
+    /// Set autosync mode
+    pub fn set_autosync(&mut self, mode: &str) {
+        self.modules_check = Some(mode.to_string());
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
