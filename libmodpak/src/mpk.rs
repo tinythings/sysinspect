@@ -75,7 +75,7 @@ pub struct ModPakRepoIndex {
     /// Usually they are meant to be just Python scripts. Possibly .so files could be also
     /// there, but they have to be unique in naming for each platform/arch and linked
     /// accordingly.
-    library: Vec<ModPakRepoLibFile>,
+    library: IndexMap<String, ModPakRepoLibFile>,
 }
 
 impl Default for ModPakRepoIndex {
@@ -87,13 +87,13 @@ impl Default for ModPakRepoIndex {
 impl ModPakRepoIndex {
     /// Creates a new ModPakRepoIndex.
     pub fn new() -> Self {
-        Self { platform: IndexMap::new(), library: vec![] }
+        Self { platform: IndexMap::new(), library: IndexMap::new() }
     }
 
     pub fn index_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
         for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.to_path_buf(), None) {
             log::info!("Adding library file: {} with checksum: {}", fname, cs);
-            self.library.push(ModPakRepoLibFile::new(PathBuf::from(fname), &cs));
+            self.library.insert(fname.clone(), ModPakRepoLibFile::new(PathBuf::from(fname), &cs));
         }
 
         Ok(())
@@ -133,7 +133,7 @@ impl ModPakRepoIndex {
     }
 
     /// Returns scanned library data
-    pub fn library(&self) -> &Vec<ModPakRepoLibFile> {
+    pub fn library(&self) -> &IndexMap<String, ModPakRepoLibFile> {
         &self.library
     }
 

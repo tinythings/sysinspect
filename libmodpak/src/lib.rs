@@ -85,7 +85,7 @@ impl SysInspectModPakMinion {
     /// Syncs libraries from the fileserver.
     async fn sync_libraries(&self, ridx: &ModPakRepoIndex) -> Result<(), SysinspectError> {
         log::info!("Syncing {} library objects", ridx.library().len());
-        for lf in ridx.library() {
+        for (_, lf) in ridx.library() {
             // Check if the library is already present
             let (verified, fcs) = self
                 .verify_artefact_by_subpath(DEFAULT_MODULES_LIB_DIR, lf.file().to_str().unwrap_or_default(), lf.checksum())
