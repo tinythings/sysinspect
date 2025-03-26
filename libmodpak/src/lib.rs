@@ -47,7 +47,7 @@ impl SysInspectModPakMinion {
     ) -> Result<(bool, Option<String>), SysinspectError> {
         let path = self.cfg.sharelib_dir().join(section).join(subpath);
         if !path.exists() {
-            log::warn!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
+            log::debug!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
             return Ok((false, None));
         }
 
@@ -90,7 +90,7 @@ impl SysInspectModPakMinion {
         log::info!("Syncing {} library objects", ridx.library().len());
         let libt = ridx.library().len();
         let mut synced = 0;
-        log::info!("{}% of library objects synced", (synced * 100) / libt);
+        log::warn!("{}% of library objects synced", (synced * 100) / libt);
 
         for (_, lf) in ridx.library() {
             let (verified, _) = self
@@ -98,7 +98,7 @@ impl SysInspectModPakMinion {
                 .unwrap_or((false, None));
 
             if !verified {
-                log::info!("Updating library artifact {}", lf.file().display().to_string().bright_yellow());
+                log::debug!("Updating library artifact {}", lf.file().display().to_string().bright_yellow());
                 let resp = reqwest::Client::new()
                     .get(format!("http://{}/repo/lib/{}", self.cfg.fileserver(), lf.file().display()))
                     .send()
@@ -128,8 +128,8 @@ impl SysInspectModPakMinion {
             }
 
             synced += 1;
-            if synced % (libt / 4).max(1) == 0 || synced == libt {
-                log::info!("{}% of library objects synced", (synced * 100) / libt);
+            if synced % (libt / 0xf).max(1) == 0 || synced == libt {
+                log::warn!("{}% of library objects synced", (synced * 100) / libt);
             }
         }
         log::info!("Syncing libraries from {} done", self.cfg.fileserver());
@@ -144,7 +144,7 @@ impl SysInspectModPakMinion {
         let modt = ridx.modules().len();
         log::info!("Syncing {} modules", modt);
         let mut synced = 0;
-        log::info!("{}% of modules synced", (synced * 100) / modt);
+        log::warn!("{}% of modules synced", (synced * 100) / modt);
 
         // Modules
         for (name, attrs) in ridx.modules() {
@@ -162,7 +162,7 @@ impl SysInspectModPakMinion {
             let (verified, fsc) =
                 self.verify_artefact_by_subpath(DEFAULT_MODULES_DIR, attrs.subpath(), attrs.checksum()).unwrap_or((false, None));
             if !verified {
-                log::info!("Downloading module {} from {}", name.bright_yellow(), path);
+                log::debug!("Downloading module {} from {}", name.bright_yellow(), path);
                 let resp = reqwest::Client::new()
                     .get(path)
                     .send()
@@ -178,7 +178,7 @@ impl SysInspectModPakMinion {
                     .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
 
                 // Check if we need to write that
-                log::info!("Writing module to {}", dst.display().to_string().bright_yellow());
+                log::debug!("Writing module to {}", dst.display().to_string().bright_yellow());
                 if let Some(pdst) = dst.parent() {
                     if !pdst.exists() {
                         log::debug!("Creating directory {}", pdst.display().to_string().bright_yellow());
@@ -195,13 +195,13 @@ impl SysInspectModPakMinion {
 
             if let Some(fsc) = fsc {
                 if !dst_cs.exists() || !verified {
-                    log::info!("Updating module checksum as {}", dst_cs.display().to_string().bright_yellow());
+                    log::debug!("Updating module checksum as {}", dst_cs.display().to_string().bright_yellow());
                     fs::write(dst_cs, fsc)?;
                 }
             }
             synced += 1;
-            if synced % (modt / 4).max(1) == 0 || synced == modt {
-                log::info!("{}% of modules synced", (synced * 100) / modt);
+            if synced % (modt / 0xf).max(1) == 0 || synced == modt {
+                log::warn!("{}% of modules synced", (synced * 100) / modt);
             }
         }
         log::info!("Syncing modules from {} done", self.cfg.fileserver());
