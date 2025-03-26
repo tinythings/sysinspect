@@ -82,6 +82,13 @@ pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
 pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
 
+// Sync
+// ----
+pub static CFG_AUTOSYNC_FULL: &str = "full";
+pub static CFG_AUTOSYNC_FAST: &str = "fast";
+pub static CFG_AUTOSYNC_SHALLOW: &str = "shallow";
+pub static CFG_AUTOSYNC_DEFAULT: &str = CFG_AUTOSYNC_FULL;
+
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
     let mut home = String::from("");
@@ -126,13 +133,16 @@ pub struct MinionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     sharelib_path: Option<String>,
 
-    /// Check modules on startup, but do not verify their SHA256 checksum,
-    /// only verify their mere presence. This will speed up the startup
-    /// process, but will not guarantee the integrity of the modules.
-    /// Default: false
-    #[serde(rename = "modules.fastsync")]
+    /// Check module checksup on startup. It has three values:
+    /// - full: calculate the checksum of each module
+    /// - fast: compare the checksum of each module with the one stored in the cache
+    /// - shallow: verify only if the file exists. NOTE: this does not defend against the local minion changes!
+    /// - Any other value: defaults to `full` behavior.
+    ///
+    /// Default: full
+    #[serde(rename = "modules.autosync")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    modules_check: Option<bool>,
+    modules_check: Option<String>,
 
     /// IP address of Master
     #[serde(rename = "master.ip")]
@@ -284,8 +294,8 @@ impl MinionConfig {
     }
 
     /// Return modules.fastsync flag
-    pub fn fastsync(&self) -> bool {
-        self.modules_check.unwrap_or(false)
+    pub fn autosync(&self) -> String {
+        self.modules_check.as_ref().unwrap_or(&CFG_AUTOSYNC_DEFAULT.to_string()).clone()
     }
 }
 

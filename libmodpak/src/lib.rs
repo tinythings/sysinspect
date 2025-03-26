@@ -2,7 +2,7 @@ use colored::Colorize;
 use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
-use libsysinspect::cfg::mmconf::MinionConfig;
+use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, MinionConfig};
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use std::os::unix::fs::PermissionsExt;
@@ -42,20 +42,32 @@ impl SysInspectModPakMinion {
         Ok(idx)
     }
 
-    pub fn verify_module_by_subpath(&self, subpath: &str, checksum: &str) -> Result<bool, SysinspectError> {
+    pub fn verify_module_by_subpath(&self, subpath: &str, checksum: &str) -> Result<(bool, Option<String>), SysinspectError> {
         let path = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(subpath);
         if !path.exists() {
             log::info!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
-            return Ok(false);
+            return Ok((false, None));
         }
 
-        if self.cfg.fastsync() {
-            log::info!("Fast sync enabled, skipping verification of module {}", path.display().to_string().bright_yellow());
-            return Ok(path.exists());
+        if self.cfg.autosync().eq(CFG_AUTOSYNC_SHALLOW) {
+            log::info!("Shallow sync: {}", subpath.to_string().bright_yellow());
+            return Ok((path.exists(), None));
         }
 
-        log::info!("Verifying module {} with checksum {}", path.display().to_string().bright_yellow(), checksum);
-        Ok(libsysinspect::util::iofs::get_file_sha256(path.to_path_buf())?.eq(checksum))
+        let fcs = path.with_extension("checksum.sha256");
+
+        // Shallow-check if the checksum file exists and matches the expected checksum
+        if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_FAST) {
+            log::info!("Fast sync: {}", subpath.to_string().bright_yellow());
+            let buff = fs::read_to_string(fcs)?;
+            if buff.trim() == checksum {
+                return Ok((true, Some(buff)));
+            }
+        }
+
+        log::info!("Full sync: {}", subpath.to_string().bright_yellow());
+        let fcs = libsysinspect::util::iofs::get_file_sha256(path.to_path_buf())?;
+        Ok((fcs.eq(checksum), Some(fcs)))
     }
 
     /// Syncs modules from the fileserver. This also includes libraries.
@@ -76,8 +88,11 @@ impl SysInspectModPakMinion {
                 osarch,
                 attrs.subpath()
             );
+            let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
+            let dst_cs = dst.with_extension("checksum.sha256");
 
-            if !self.verify_module_by_subpath(attrs.subpath(), attrs.checksum()).unwrap_or(false) {
+            let (verified, fsc) = self.verify_module_by_subpath(attrs.subpath(), attrs.checksum()).unwrap_or((false, None));
+            if !verified {
                 log::info!("Downloading module {} from {}", name.bright_yellow(), path);
                 let resp = reqwest::Client::new()
                     .get(path)
@@ -90,7 +105,6 @@ impl SysInspectModPakMinion {
                     continue;
                 }
                 let buff = resp.bytes().await.unwrap();
-                let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
 
                 // Check if we need to write that
                 log::info!("Writing module to {}", dst.display().to_string().bright_yellow());
@@ -105,7 +119,14 @@ impl SysInspectModPakMinion {
                 // chmod +X
                 let mut p = fs::metadata(&dst).unwrap().permissions();
                 p.set_mode(0o755);
-                fs::set_permissions(dst, p).unwrap();
+                fs::set_permissions(&dst, p).unwrap();
+            }
+
+            if let Some(fsc) = fsc {
+                if !dst_cs.exists() || !verified {
+                    log::info!("Updating module checksum as {}", dst_cs.display().to_string().bright_yellow());
+                    fs::write(dst_cs, fsc).unwrap();
+                }
             }
         }
         log::info!("Syncing modules from {} done", self.cfg.fileserver());
