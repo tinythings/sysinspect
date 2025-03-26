@@ -3,13 +3,12 @@ use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
 use libsysinspect::cfg::{
-    self,
     mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig},
 };
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use std::{collections::HashMap, fs, path::PathBuf};
-use std::{os::unix::fs::PermissionsExt, process::exit};
+use std::os::unix::fs::PermissionsExt;
 
 pub mod mpk;
 
