@@ -26,8 +26,8 @@ pub fn cli(version: &'static str) -> Command {
             .arg(Arg::new("lib").short('l').long("lib").action(ArgAction::SetTrue).help("Module is a library (usually Python scripts)").conflicts_with_all(["list"]))
 
             .arg(Arg::new("name").short('n').long("name").required_unless_present_any(["help", "list", "lib"]).help("Module name"))
-            .arg(Arg::new("path").short('p').long("path").required_unless_present_any(["help", "list"]).help("Path to the module (or library)"))
-            .arg(Arg::new("descr").short('d').long("descr").required_unless_present_any(["help", "list", "lib"]).help("Description of the module"))
+            .arg(Arg::new("path").short('p').long("path").required_unless_present_any(["help", "list", "remove"]).help("Path to the module (or library)"))
+            .arg(Arg::new("descr").short('d').long("descr").required_unless_present_any(["help", "list", "lib", "remove"]).help("Description of the module"))
             .arg(Arg::new("arch").short('a').long("arch").help("Module architecture (x86, x64, arm, arm64, noarch)").default_value("noarch"))
 
             .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help on this command"))

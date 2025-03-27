@@ -290,7 +290,7 @@ impl SysInspectModPak {
         if !root.exists() {
             log::info!("Creating module repository at {}", root.display());
             std::fs::create_dir_all(&root)?;
-            fs::write(root.join(REPO_MOD_INDEX), ModPakRepoIndex::new().to_yaml()?)?;
+            fs::write(root.join(REPO_MOD_INDEX), ModPakRepoIndex::new().to_yaml()?)?; // XXX: needs flock
         }
 
         let ridx = root.join(REPO_MOD_INDEX);
@@ -342,7 +342,7 @@ impl SysInspectModPak {
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {}", e)))?;
         self.idx.index_library(&path)?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
-        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
         log::info!("Library {} added to index", p.display().to_string().bright_yellow());
         Ok(())
     }
@@ -411,7 +411,9 @@ impl SysInspectModPak {
             )
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {}", e)))?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
-        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
+
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
+
         log::debug!("Module {} added to index", meta.get_name().bright_yellow());
         log::info!("Module {} added successfully", meta.get_name().bright_yellow());
 
@@ -448,13 +450,37 @@ impl SysInspectModPak {
 
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
         let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
-        for (p, archset) in self.idx.all_modules(None) {
+        for (p, archset) in self.idx.all_modules(None, None) {
             let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
                 Self::print_table(&modules);
             }
         }
+        Ok(())
+    }
+
+    pub fn remove_module(&mut self, name: Vec<&str>) -> Result<(), SysinspectError> {
+        let x = self.idx.all_modules(None, Some(name.clone()));
+        for (p, archset) in x {
+            for (arch, modules) in archset {
+                for (name, _) in modules {
+                    let subpath =
+                        PathBuf::from(format!("{}/{}/{}", if name.starts_with("bin") { "bin" } else { "script" }, p, arch))
+                            .join(name);
+                    let path = self.root.join(&subpath);
+                    log::info!("Removing module {}", path.display().to_string().bright_yellow());
+                    if let Err(err) = fs::remove_file(&path) {
+                        log::error!("Failed to remove module: {}", err);
+                    }
+                }
+            }
+        }
+
+        // Update the index
+        self.idx.remove_module_all(name)?; // unindex
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
+
         Ok(())
     }
 }

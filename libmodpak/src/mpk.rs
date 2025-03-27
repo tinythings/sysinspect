@@ -122,13 +122,25 @@ impl ModPakRepoIndex {
     }
 
     /// Deletes a module from the index.
-    pub fn del_module(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
+    pub fn remove_module(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
         if let Some(platform_map) = self.platform.get_mut(platform) {
             if let Some(arch_map) = platform_map.get_mut(arch) {
                 arch_map.shift_remove(name);
             }
         }
 
+        Ok(())
+    }
+
+    /// Deletes all modules with the given name from the index for all platforms and architectures.
+    pub fn remove_module_all(&mut self, name: Vec<&str>) -> Result<(), SysinspectError> {
+        for n in name {
+            for (_, platform_map) in self.platform.iter_mut() {
+                for (_, arch_map) in platform_map.iter_mut() {
+                    arch_map.shift_remove(n);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -163,15 +175,57 @@ impl ModPakRepoIndex {
         modules
     }
 
-    #[allow(clippy::type_complexity)]
-    /// Returns the modules in the index. Optionally filtered by architecture.
-    pub(crate) fn all_modules(&self, arch: Option<&str>) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
+    /// Returns the modules in the index. Optionally filtered by architecture and names.
+    pub(crate) fn all_modules(
+        &self, arch: Option<&str>, names: Option<Vec<&str>>,
+    ) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
         if let Some(arch) = arch {
             self.platform
                 .iter()
                 .filter_map(|(platform, arch_map)| {
                     if let Some(mod_map) = arch_map.get(arch) {
-                        // Create a new arch map containing only the filtered arch.
+                        let mut filtered_mod_map = mod_map.clone();
+
+                        if let Some(names) = &names {
+                            filtered_mod_map.retain(|name, _| names.contains(&name.as_str()));
+                        }
+
+                        if !filtered_mod_map.is_empty() {
+                            let mut new_arch_map = IndexMap::new();
+                            new_arch_map.insert(arch.to_string(), filtered_mod_map);
+                            Some((platform.clone(), new_arch_map))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            let mut filtered_platform = self.platform.clone();
+            if let Some(names) = &names {
+                for (_, arch_map) in filtered_platform.iter_mut() {
+                    for (_, mod_map) in arch_map.iter_mut() {
+                        mod_map.retain(|name, _| names.contains(&name.as_str()));
+                    }
+                }
+            }
+
+            filtered_platform
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    /// Returns the modules in the index. Optionally filtered by architecture.
+    pub(crate) fn xall_modules(
+        &self, arch: Option<&str>, names: Option<Vec<&str>>,
+    ) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
+        if let Some(arch) = arch {
+            self.platform
+                .iter()
+                .filter_map(|(platform, arch_map)| {
+                    if let Some(mod_map) = arch_map.get(arch) {
                         let mut new_arch_map = IndexMap::new();
                         new_arch_map.insert(arch.to_string(), (*mod_map).clone());
                         Some((platform.clone(), new_arch_map))

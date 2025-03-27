@@ -169,7 +169,13 @@ async fn main() {
                 exit(1);
             });
         } else if sub.get_flag("remove") {
-            log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
+            let s = "".to_string();
+            if let Err(err) =
+                repo.remove_module(sub.get_one::<String>("name").unwrap_or(&s).split(',').map(|s| s.trim()).collect())
+            {
+                log::error!("Failed to remove modules: {}", err);
+                exit(1);
+            }
         };
         exit(0)
     }
