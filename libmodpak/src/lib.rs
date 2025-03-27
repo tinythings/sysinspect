@@ -52,12 +52,11 @@ impl SysInspectModPakMinion {
             return Ok((false, None));
         }
 
-        if self.cfg.autosync().eq(CFG_AUTOSYNC_SHALLOW) {
+        let fcs = path.with_extension(REPO_MOD_SHA256_EXT);
+        if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_SHALLOW) {
             log::debug!("Shallow sync: {}", subpath.to_string().bright_yellow());
             return Ok((path.exists(), None));
         }
-
-        let fcs = path.with_extension(REPO_MOD_SHA256_EXT);
 
         // Shallow-check if the checksum file exists and matches the expected checksum
         if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_FAST) {
