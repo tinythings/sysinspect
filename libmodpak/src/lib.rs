@@ -70,6 +70,7 @@ impl SysInspectModPakMinion {
         Ok((fcs.eq(checksum), Some(fcs)))
     }
 
+    /// Syncs the module repository with the fileserver.
     pub async fn sync(&self) -> Result<(), SysinspectError> {
         match self.cfg.autosync().as_str() {
             v if v == CFG_AUTOSYNC_SHALLOW => log::info!("Shallow data sync with {}", self.cfg.fileserver()),
@@ -79,9 +80,74 @@ impl SysInspectModPakMinion {
 
         let ridx = self.get_modpak_idx().await?;
 
+        self.sync_integrity(&ridx)?; // blocking
         self.sync_modules(&ridx).await?;
         self.sync_libraries(&ridx).await?;
         log::info!("Data sync done");
+        Ok(())
+    }
+
+    fn get_all_shared(&self) -> Result<IndexMap<String, PathBuf>, SysinspectError> {
+        fn collect_files(root: &PathBuf, dir: &PathBuf, shared: &mut IndexMap<String, PathBuf>) -> Result<(), SysinspectError> {
+            for e in fs::read_dir(dir).map_err(|e| {
+                log::error!("Failed to read directory: {}", e);
+                SysinspectError::MasterGeneralError(format!("Failed to read directory: {}", e))
+            })? {
+                let e = e.map_err(|e| {
+                    log::error!("Failed to read entry: {}", e);
+                    SysinspectError::MasterGeneralError(format!("Failed to read entry: {}", e))
+                })?;
+                let p = e.path();
+                if p.is_file() {
+                    shared.insert(
+                        p.strip_prefix(root)
+                            .map_err(|e| SysinspectError::MasterGeneralError(format!("Strip prefix error: {}", e)))?
+                            .to_string_lossy()
+                            .to_string(),
+                        p,
+                    );
+                } else if p.is_dir() {
+                    collect_files(root, &p, shared)?;
+                }
+            }
+            Ok(())
+        }
+
+        let mut shared = IndexMap::new();
+        for sp in [DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR].iter() {
+            let root = self.cfg.sharelib_dir().join(sp);
+            collect_files(&root, &root, &mut shared)?;
+        }
+
+        Ok(shared)
+    }
+
+    /// Syncs the integrity of the repository by removing any unknown files or those that are no longer in the index.
+    fn sync_integrity(&self, ridx: &ModPakRepoIndex) -> Result<(), SysinspectError> {
+        log::info!("Checking module integrity");
+        let mut unknown = self.get_all_shared()?;
+
+        for attrs in ridx.modules().values() {
+            unknown.swap_remove(attrs.subpath());
+            unknown.swap_remove(&format!("{}.{}", attrs.subpath(), REPO_MOD_SHA256_EXT));
+        }
+
+        for rfile in ridx.library().values() {
+            unknown.swap_remove(rfile.file().to_str().unwrap_or_default());
+            unknown.swap_remove(&rfile.file().with_extension(REPO_MOD_SHA256_EXT).to_string_lossy().to_string());
+        }
+
+        if unknown.is_empty() {
+            log::info!("Integrity check finished");
+        } else {
+            let mut c = 0;
+            for (k, v) in unknown.iter() {
+                log::debug!("Removing: {}", k.bright_red());
+                fs::remove_file(v)?;
+                c += 1;
+            }
+            log::info!("Integrity check finished with {} orphans removed", c.to_string().bright_red().bold());
+        }
         Ok(())
     }
 
