@@ -11,7 +11,7 @@ use libsysinspect::{
     logger::{self, MemoryLogger},
     proto::query::{
         SCHEME_COMMAND,
-        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
+        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
     },
     reactor::handlers,
     traits::get_minion_traits,
@@ -207,6 +207,10 @@ async fn main() {
         }
     } else if params.get_flag("shutdown") {
         if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SHUTDOWN), "*", None, None, &cfg.socket()) {
+            log::error!("Cannot reach master: {err}");
+        }
+    } else if params.get_flag("sync") {
+        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SYNC), "*", None, None, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mid) = params.get_one::<String>("unregister") {

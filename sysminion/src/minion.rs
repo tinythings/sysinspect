@@ -456,6 +456,10 @@ impl SysMinion {
                 log::info!("{} from the master", "Unregistering".bright_red().bold());
                 self.as_ptr().send_bye().await;
             }
+            libsysinspect::proto::query::commands::CLUSTER_SYNC => {
+                log::info!("Syncing the minion with the master");
+                libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await.unwrap();
+            }
             _ => {
                 log::warn!("Unknown command: {cmd}");
             }
