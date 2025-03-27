@@ -43,7 +43,7 @@ impl SysInspectModPakMinion {
         Ok(idx)
     }
 
-    pub fn verify_artefact_by_subpath(
+    async fn verify_artefact_by_subpath(
         &self, section: &str, subpath: &str, checksum: &str,
     ) -> Result<(bool, Option<String>), SysinspectError> {
         let path = self.cfg.sharelib_dir().join(section).join(subpath);
@@ -96,6 +96,7 @@ impl SysInspectModPakMinion {
         for (_, lf) in ridx.library() {
             let (verified, _) = self
                 .verify_artefact_by_subpath(DEFAULT_MODULES_LIB_DIR, lf.file().to_str().unwrap_or_default(), lf.checksum())
+                .await
                 .unwrap_or((false, None));
 
             if !verified {
@@ -160,8 +161,10 @@ impl SysInspectModPakMinion {
             let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
             let dst_cs = dst.with_extension(REPO_MOD_SHA256_EXT);
 
-            let (verified, fsc) =
-                self.verify_artefact_by_subpath(DEFAULT_MODULES_DIR, attrs.subpath(), attrs.checksum()).unwrap_or((false, None));
+            let (verified, fsc) = self
+                .verify_artefact_by_subpath(DEFAULT_MODULES_DIR, attrs.subpath(), attrs.checksum())
+                .await
+                .unwrap_or((false, None));
             if !verified {
                 log::debug!("Downloading module {} from {}", name.bright_yellow(), path);
                 let resp = reqwest::Client::new()
