@@ -16,6 +16,7 @@ their dependencies, and their architecture.
 */
 
 static REPO_MOD_INDEX: &str = "mod.index";
+static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
 
 pub struct SysInspectModPakMinion {
     cfg: MinionConfig,
@@ -56,7 +57,7 @@ impl SysInspectModPakMinion {
             return Ok((path.exists(), None));
         }
 
-        let fcs = path.with_extension("checksum.sha256");
+        let fcs = path.with_extension(REPO_MOD_SHA256_EXT);
 
         // Shallow-check if the checksum file exists and matches the expected checksum
         if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_FAST) {
@@ -124,7 +125,7 @@ impl SysInspectModPakMinion {
                 }
 
                 fs::write(&dst, buff)?;
-                fs::write(dst.with_extension("checksum.sha256"), lf.checksum())?;
+                fs::write(dst.with_extension(REPO_MOD_SHA256_EXT), lf.checksum())?;
             }
 
             synced += 1;
@@ -157,7 +158,7 @@ impl SysInspectModPakMinion {
                 attrs.subpath()
             );
             let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
-            let dst_cs = dst.with_extension("checksum.sha256");
+            let dst_cs = dst.with_extension(REPO_MOD_SHA256_EXT);
 
             let (verified, fsc) =
                 self.verify_artefact_by_subpath(DEFAULT_MODULES_DIR, attrs.subpath(), attrs.checksum()).unwrap_or((false, None));
