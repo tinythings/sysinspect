@@ -460,26 +460,45 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    /// Removes a module from the repository and index.
     pub fn remove_module(&mut self, name: Vec<&str>) -> Result<(), SysinspectError> {
-        let x = self.idx.all_modules(None, Some(name.clone()));
-        for (p, archset) in x {
+        let mut c = 0;
+        for (p, archset) in self.idx.all_modules(None, Some(name.clone())) {
             for (arch, modules) in archset {
-                for (name, _) in modules {
-                    let subpath =
-                        PathBuf::from(format!("{}/{}/{}", if name.starts_with("bin") { "bin" } else { "script" }, p, arch))
-                            .join(name);
-                    let path = self.root.join(&subpath);
-                    log::info!("Removing module {}", path.display().to_string().bright_yellow());
-                    if let Err(err) = fs::remove_file(&path) {
-                        log::error!("Failed to remove module: {}", err);
+                for attrs in modules.values() {
+                    let path = self.root.join(
+                        PathBuf::from(format!("{}/{}/{}", if attrs.mod_type().eq("binary") { "bin" } else { "script" }, p, arch))
+                            .join(attrs.subpath()),
+                    );
+                    if path.exists() {
+                        if let Err(err) = fs::remove_file(&path) {
+                            log::error!("Failed to remove module: {}", err);
+                        }
+
+                        // Also remove the whole directory if it's empty already
+                        if let Some(p) = path.parent() {
+                            if let Ok(entries) = fs::read_dir(p) {
+                                if entries.count() == 0 {
+                                    fs::remove_dir(p)?;
+                                }
+                            }
+                        }
+                        c += 1;
+                    } else {
+                        log::error!("Module not found at {}", path.display().to_string().bright_yellow());
                     }
                 }
             }
         }
 
         // Update the index
-        self.idx.remove_module_all(name)?; // unindex
-        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
+        if c > 0 {
+            self.idx.remove_module_all(name.clone())?; // unindex
+            fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
+            log::info!("Module{} {} has been removed", if name.len() > 1 { "s" } else { "" }, name.join(", ").bright_yellow());
+        } else {
+            log::error!("No module{} found: {}", if name.len() > 1 { "s" } else { "" }, name.join(", ").bright_yellow());
+        }
 
         Ok(())
     }
