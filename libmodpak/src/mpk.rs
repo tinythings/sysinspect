@@ -215,29 +215,6 @@ impl ModPakRepoIndex {
             filtered_platform
         }
     }
-
-    #[allow(clippy::type_complexity)]
-    /// Returns the modules in the index. Optionally filtered by architecture.
-    pub(crate) fn xall_modules(
-        &self, arch: Option<&str>, names: Option<Vec<&str>>,
-    ) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
-        if let Some(arch) = arch {
-            self.platform
-                .iter()
-                .filter_map(|(platform, arch_map)| {
-                    if let Some(mod_map) = arch_map.get(arch) {
-                        let mut new_arch_map = IndexMap::new();
-                        new_arch_map.insert(arch.to_string(), (*mod_map).clone());
-                        Some((platform.clone(), new_arch_map))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            self.platform.clone()
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
