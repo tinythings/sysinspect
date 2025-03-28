@@ -162,13 +162,20 @@ impl ModPakRepoIndex {
     }
 
     pub(crate) fn modules(&self) -> IndexMap<String, ModAttrs> {
-        let ostype = env!("THIS_OS");
-        let osarch = env!("THIS_ARCH");
         let mut modules = IndexMap::new();
-        if let Some(platform_map) = self.platform.get(ostype) {
-            if let Some(arch_map) = platform_map.get(osarch) {
-                for (name, attrs) in arch_map.iter() {
-                    modules.insert(name.clone(), attrs.clone());
+        let os_types = vec![env!("THIS_OS").to_string(), "any".to_string()];
+        let arch_types = vec![env!("THIS_ARCH").to_string(), "noarch".to_string()];
+
+        for ostype in os_types {
+            if let Some(platform_map) = self.platform.get(&ostype) {
+                for osarch in &arch_types {
+                    if let Some(arch_map) = platform_map.get(osarch) {
+                        for (name, attrs) in arch_map.iter() {
+                            modules.insert(name.clone(), attrs.clone());
+                        }
+                    } else {
+                        log::warn!("No modules for arch: {}", osarch);
+                    }
                 }
             }
         }

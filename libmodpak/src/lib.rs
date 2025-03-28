@@ -220,12 +220,13 @@ impl SysInspectModPakMinion {
 
         // Modules
         for (name, attrs) in ridx.modules() {
+            let is_binary = attrs.mod_type().eq("binary");
             let path = format!(
                 "http://{}/repo/{}/{}/{}/{}",
                 self.cfg.fileserver(),
-                if attrs.mod_type().eq("binary") { "bin" } else { "script" },
-                ostype,
-                osarch,
+                if is_binary { "bin" } else { "script" },
+                if is_binary { ostype } else { "any" },
+                if is_binary { osarch } else { "noarch" },
                 attrs.subpath()
             );
             let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
@@ -238,12 +239,12 @@ impl SysInspectModPakMinion {
             if !verified {
                 log::debug!("Downloading module {} from {}", name.bright_yellow(), path);
                 let resp = reqwest::Client::new()
-                    .get(path)
+                    .get(&path)
                     .send()
                     .await
                     .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
                 if resp.status() != reqwest::StatusCode::OK {
-                    log::error!("Failed to download module {}: {}", name, resp.status());
+                    log::error!("Failed to download module {}: {} on url {}", name, resp.status(), path);
                     continue;
                 }
                 let buff = resp
@@ -341,6 +342,7 @@ impl SysInspectModPak {
         let mut options = CopyOptions::new();
         options.overwrite = true; // Overwrite existing files if necessary
         options.copy_inside = true; // Copy the contents inside `p` instead of the directory itself
+        options.content_only = true; // Copy only the contents of the directory
 
         log::info!("Copying library from {} to {}", p.display(), path.display());
         fs_extra::dir::copy(&p, &path, &options)
