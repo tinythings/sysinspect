@@ -129,7 +129,8 @@ impl SysInspectModPakMinion {
 
         for attrs in ridx.modules().values() {
             unknown.swap_remove(attrs.subpath());
-            unknown.swap_remove(&format!("{}.{}", attrs.subpath(), REPO_MOD_SHA256_EXT));
+            unknown
+                .swap_remove(&PathBuf::from(attrs.subpath()).with_extension(REPO_MOD_SHA256_EXT).to_string_lossy().to_string());
         }
 
         for rfile in ridx.library().values() {
