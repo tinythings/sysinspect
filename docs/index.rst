@@ -16,13 +16,14 @@ Welcome to the Project Sysinspect!
    moddescr/overview
    evthandlers/overview
    uix/ui
- 
+
 .. toctree::
    :maxdepth: 1
    :caption: Tutorials
 
    tutorial/cfgmgmt_tutor
    tutorial/action_chain_tutor
+   tutorial/module_management
 
 
 Welcome to Sysinspect: an engine of Anomaly Detection and Root Cause Analysis.
