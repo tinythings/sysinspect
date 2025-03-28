@@ -281,7 +281,7 @@ impl SysMaster {
                                     let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
                                     log::trace!(
                                         "Update last contacted for {} (alive for {:.2} min)",
-                                        req.id().to_string(),
+                                        req.id(),
                                         uptime as f64 / 60.0
                                     );
                                 });
@@ -347,7 +347,7 @@ impl SysMaster {
                                     {
                                         Ok(mid) => mid,
                                         Err(err) => {
-                                            log::error!("Unable to record a minion {}: {err}", req.id().to_string());
+                                            log::error!("Unable to record a minion {}: {err}", req.id());
                                             return;
                                         }
                                     };
@@ -477,11 +477,11 @@ impl SysMaster {
                         // Task to send messages to the client
                         tokio::spawn(async move {
                             let mut writer = writer;
-                            log::info!("Minion {} connected. Ready to send messages.", local_addr.to_string());
+                            log::info!("Minion {} connected. Ready to send messages.", local_addr);
 
                             loop {
                                 if let Ok(msg) = bcast_sub.recv().await {
-                                    log::trace!("Sending message to minion at {} length of {}", local_addr.to_string(), msg.len());
+                                    log::trace!("Sending message to minion at {} length of {}", local_addr, msg.len());
                                     let mut guard = c_master.lock().await;
                                     if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
                                         || writer.write_all(&msg).await.is_err()
