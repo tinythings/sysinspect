@@ -4,11 +4,9 @@ Various unsorted utils with the filesystem, IO, files, byte arrays etc
 
 use crate::SysinspectError;
 use hex::encode;
-use pest::pratt_parser::Op;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    fs,
     io::{BufReader, Read},
 };
 use std::{fs::File, path::PathBuf};
