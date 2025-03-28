@@ -36,7 +36,7 @@ pub static DEFAULT_MODULES_SHARELIB: &str = "/usr/share/sysinspect";
 pub static DEFAULT_MODULES_DIR: &str = "modules";
 
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for python libraries
-pub static DEFAULT_MODULES_PYLIB_DIR: &str = "lib";
+pub static DEFAULT_MODULES_LIB_DIR: &str = "lib";
 
 /// Default filename for the master log
 pub static DEFAULT_MASTER_LOG_STD: &str = "sysmaster.standard.log";
@@ -61,10 +61,19 @@ pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
 pub static CFG_MINION_KEYS: &str = "minion-keys";
 pub static CFG_MINION_REGISTRY: &str = "minion-registry";
 pub static CFG_FILESERVER_ROOT: &str = "data";
-pub static CFG_MODELS_ROOT: &str = "models";
-pub static CFG_TRAITS_ROOT: &str = "traits";
-pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 pub static CFG_DB: &str = "registry";
+
+// Repository for modules within the CFG_FILESERVER_ROOT
+pub static CFG_MODREPO_ROOT: &str = "repo";
+
+// Served models within the CFG_FILESERVER_ROOT
+pub static CFG_MODELS_ROOT: &str = "models";
+
+// Traits within the CFG_FILESERVER_ROOT
+pub static CFG_TRAITS_ROOT: &str = "traits";
+
+// Trait custom functions within the CFG_FILESERVER_ROOT
+pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 
 // Key names
 // ---------
@@ -72,6 +81,13 @@ pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
 pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
 pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
+
+// Sync
+// ----
+pub static CFG_AUTOSYNC_FULL: &str = "full";
+pub static CFG_AUTOSYNC_FAST: &str = "fast";
+pub static CFG_AUTOSYNC_SHALLOW: &str = "shallow";
+pub static CFG_AUTOSYNC_DEFAULT: &str = CFG_AUTOSYNC_FULL;
 
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
@@ -116,6 +132,17 @@ pub struct MinionConfig {
     #[serde(rename = "path.sharelib")]
     #[serde(skip_serializing_if = "Option::is_none")]
     sharelib_path: Option<String>,
+
+    /// Check module checksup on startup. It has three values:
+    /// - full: calculate the checksum of each module
+    /// - fast: compare the checksum of each module with the one stored in the cache
+    /// - shallow: verify only if the file exists. NOTE: this does not defend against the local minion changes!
+    /// - Any other value: defaults to `full` behavior.
+    ///
+    /// Default: full
+    #[serde(rename = "modules.autosync")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    modules_check: Option<String>,
 
     /// IP address of Master
     #[serde(rename = "master.ip")]
@@ -264,6 +291,16 @@ impl MinionConfig {
         }
 
         _logfile_path().join(DEFAULT_MINION_LOG_ERR)
+    }
+
+    /// Return modules.fastsync flag
+    pub fn autosync(&self) -> String {
+        self.modules_check.as_ref().unwrap_or(&CFG_AUTOSYNC_DEFAULT.to_string()).clone()
+    }
+
+    /// Set autosync mode
+    pub fn set_autosync(&mut self, mode: &str) {
+        self.modules_check = Some(mode.to_string());
     }
 }
 
@@ -416,6 +453,11 @@ impl MasterConfig {
     /// Return the path of the telemetry communication socket location
     pub fn telemetry_socket(&self) -> PathBuf {
         PathBuf::from(self.telemetry_socket.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_SCK.to_string()))
+    }
+
+    /// Return the path of the telemetry communication socket location
+    pub fn get_mod_repo_root(&self) -> PathBuf {
+        self.fileserver_root().join(CFG_MODREPO_ROOT)
     }
 }
 

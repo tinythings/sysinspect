@@ -31,6 +31,7 @@ pub enum SysinspectError {
     MasterGeneralError(String),
     MinionGeneralError(String),
     ProtoError(String),
+    InvalidModuleName(String),
 
     // Wrappers for the system errors
     IoErr(io::Error),
@@ -71,6 +72,7 @@ impl Display for SysinspectError {
             SysinspectError::DynError(err) => format!("(General) {err}"),
             SysinspectError::TemplateError(err) => format!("(DSL) {err}"),
             SysinspectError::SledError(err) => format!("(DB) {err}"),
+            SysinspectError::InvalidModuleName(err) => format!("(Module) Invalid module name: {err}"),
         };
 
         write!(f, "{msg}")?;

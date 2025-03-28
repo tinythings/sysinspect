@@ -10,6 +10,9 @@ pub mod commands {
     // Stop the entire cluster
     pub const CLUSTER_SHUTDOWN: &str = "cluster/shutdown";
 
+    // Sync the entire cluster
+    pub const CLUSTER_SYNC: &str = "cluster/sync";
+
     // Restart the entire cluster
     // TODO: Not implemented yet
     pub const CLUSTER_REBOOT: &str = "cluster/reboot";

@@ -26,6 +26,7 @@ use serde_json::json;
 use std::{
     fs,
     path::PathBuf,
+    process,
     sync::Arc,
     time::{Duration, Instant},
     vec,
@@ -455,6 +456,10 @@ impl SysMinion {
                 log::info!("{} from the master", "Unregistering".bright_red().bold());
                 self.as_ptr().send_bye().await;
             }
+            libsysinspect::proto::query::commands::CLUSTER_SYNC => {
+                log::info!("Syncing the minion with the master");
+                libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await.unwrap();
+            }
             _ => {
                 log::warn!("Unknown command: {cmd}");
             }
@@ -541,6 +546,8 @@ impl SysMinion {
 }
 
 pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<(), SysinspectError> {
+    // Get plugins repo
+    let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg, fingerprint).await?;
     minion.as_ptr().do_proto().await?;
 
@@ -550,6 +557,7 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
     } else {
         // ehlo
         minion.as_ptr().send_ehlo().await?;
+        modpak.sync().await?;
     }
 
     minion.as_ptr().do_ping_update().await?;
@@ -557,8 +565,7 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
     // Keep the client alive until Ctrl+C is pressed
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
     log::info!("Shutting down client.");
-
-    Ok(())
+    process::exit(0);
 }
 
 /// Setup minion

@@ -1,7 +1,7 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
     SysinspectError,
-    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_MODULES_PYLIB_DIR},
+    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR},
     inspector::SysInspectRunner,
     intp::{
         actproc::response::{ConstraintFailure, ConstraintPass},
@@ -252,7 +252,7 @@ impl ModCall {
 
         // TODO: Add libpath and modpath here! Must come from MinionConfig
         match pylang::pvm::PyVm::new(
-            get_cfg_sharelib().join(DEFAULT_MODULES_PYLIB_DIR),
+            get_cfg_sharelib().join(DEFAULT_MODULES_LIB_DIR),
             get_cfg_sharelib().join(DEFAULT_MODULES_DIR),
         )
         .as_ptr()

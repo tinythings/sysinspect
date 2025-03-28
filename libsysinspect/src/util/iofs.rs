@@ -36,7 +36,6 @@ pub fn scan_files_sha256(pth: PathBuf, ext: Option<&str>) -> HashMap<String, Str
         .into_iter()
         .filter_map(|entry| {
             let entry = entry.ok()?;
-
             if entry.file_type().is_file() {
                 if ext.is_some() && entry.path().extension().and_then(|e| e.to_str()) == ext || ext.is_none() {
                     Some((

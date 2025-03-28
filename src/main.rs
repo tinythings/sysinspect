@@ -1,5 +1,6 @@
-use clap::ArgMatches;
+use clap::{ArgMatches, Command};
 use colored::Colorize;
+use libmodpak::{self, mpk::ModPakMetadata};
 use libsysinspect::{
     SysinspectError,
     cfg::{
@@ -10,7 +11,7 @@ use libsysinspect::{
     logger::{self, MemoryLogger},
     proto::query::{
         SCHEME_COMMAND,
-        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN},
+        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
     },
     reactor::handlers,
     traits::get_minion_traits,
@@ -20,6 +21,8 @@ use std::{
     env,
     fs::OpenOptions,
     io::{ErrorKind, Write},
+    path::PathBuf,
+    process::exit,
     sync::Mutex,
 };
 
@@ -75,6 +78,31 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
     MasterConfig::new(select_config_path(p.get_one::<&str>("config").cloned())?)
 }
 
+// Print help?
+fn help(cli: &mut Command, params: &ArgMatches) -> bool {
+    if let Some(sub) = params.subcommand_matches("module") {
+        if sub.get_flag("help") {
+            if let Some(s_cli) = cli.find_subcommand_mut("module") {
+                _ = s_cli.print_help();
+                return true;
+            }
+            return false;
+        }
+    }
+    if params.get_flag("help") {
+        _ = &cli.print_long_help();
+        return true;
+    }
+
+    // Print a global version?
+    if params.get_flag("version") {
+        println!("Version: {}", VERSION);
+        return true;
+    }
+
+    false
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
@@ -93,17 +121,8 @@ async fn main() {
     set_logger(&params);
 
     // Print help?
-    if *params.get_one::<bool>("help").unwrap() {
-        return {
-            cli.print_help().unwrap();
-        };
-    }
-
-    // Print version?
-    if *params.get_one::<bool>("version").unwrap() {
-        return {
-            println!("Version {}", VERSION);
-        };
+    if help(&mut cli, &params) {
+        std::process::exit(0);
     }
 
     // Get master config
@@ -114,6 +133,52 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    if let Some(sub) = params.subcommand_matches("module") {
+        let mut repo = match libmodpak::SysInspectModPak::new(cfg.get_mod_repo_root()) {
+            Ok(repo) => repo,
+            Err(err) => {
+                if let SysinspectError::IoErr(err) = &err {
+                    if err.kind() == ErrorKind::NotFound {
+                        log::error!("No module repository found. Create one, perhaps?..");
+                        exit(1);
+                    }
+                }
+                log::error!("Unable to open module repository: {}", err);
+                exit(1);
+            }
+        };
+
+        if sub.get_flag("add") {
+            if sub.get_flag("lib") {
+                log::info!("Processing library in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
+                if let Err(err) = repo.add_library(PathBuf::from(sub.get_one::<String>("path").unwrap_or(&"".to_string()))) {
+                    log::error!("Failed to add library: {}", err);
+                    exit(1);
+                }
+            } else {
+                log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
+                if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(sub)) {
+                    log::error!("Failed to add module: {}", err);
+                    exit(1);
+                }
+            }
+        } else if sub.get_flag("list") {
+            repo.list_modules().unwrap_or_else(|err| {
+                log::error!("Failed to list modules: {}", err);
+                exit(1);
+            });
+        } else if sub.get_flag("remove") {
+            let s = "".to_string();
+            if let Err(err) =
+                repo.remove_module(sub.get_one::<String>("name").unwrap_or(&s).split(',').map(|s| s.trim()).collect())
+            {
+                log::error!("Failed to remove modules: {}", err);
+                exit(1);
+            }
+        };
+        exit(0)
+    }
 
     if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
         print_event_handlers();
@@ -142,6 +207,10 @@ async fn main() {
         }
     } else if params.get_flag("shutdown") {
         if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SHUTDOWN), "*", None, None, &cfg.socket()) {
+            log::error!("Cannot reach master: {err}");
+        }
+    } else if params.get_flag("sync") {
+        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SYNC), "*", None, None, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mid) = params.get_one::<String>("unregister") {
