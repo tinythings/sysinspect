@@ -38,6 +38,7 @@ Your system should have the following packages (Ubuntu/Debian):
 
 - pkg-config
 - libssl-dev
+- libffi-dev
 
 Or equivalent names in your Linux distribution.
 
