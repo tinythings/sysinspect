@@ -7,7 +7,7 @@ edition = "2024"
 libsysinspect = { path = "../../../libsysinspect" }
 anyhow = "1.0.94"
 dotenv = "0.15.0"
-ssh2 = "0.9.4"
+ssh2 = { version = "0.9.4", features = ["vendored-openssl"] }
 serde = "1.0.213"
 serde_json = "1.0.132"
 serde_yaml = "0.9.34"
