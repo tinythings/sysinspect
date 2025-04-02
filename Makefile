@@ -11,7 +11,8 @@ define deps
 		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev"; \
 		sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libffi-dev; \
 	else \
-		echo "Error: Unsupported OS ($$OS_ID). This script only supports Debian/Ubuntu." >&2; \
+		echo "Oops, no fun for $$OS_ID right now. Builds are only possible on Debian/Ubuntu." >&2; \
+		echo "But! You can fix this by sending your PR here: https://github.com/tinythings/sysinspect :-)" >&2; \
 		exit 1; \
 	fi
 endef
@@ -21,6 +22,14 @@ define tgt
 	echo "Adding target $$t"; \
 	rustup target add $$t;
 endef
+
+define check_present
+	@if ! command -v $(1) >/dev/null 2>&1; then \
+		echo "Error: '$(1)' is not found, aborting." >&2; \
+		exit 1; \
+	fi
+endef
+
 
 define move_bin
 	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
@@ -36,6 +45,11 @@ define move_bin
 	mv $$dir/file $$dir/fs/;
 endef
 
+setup:
+	$(call deps)
+	$(call tgt,aarch64-unknown-linux-musl)
+	$(call tgt,x86_64-unknown-linux-musl)
+
 clean:
 	cargo clean
 
@@ -46,26 +60,22 @@ fix:
 	cargo clippy --fix --allow-dirty --allow-staged --all
 
 musl-aarch64-dev:
-	$(call deps)
-	$(call tgt,aarch64-unknown-linux-musl)
+	$(call check_present,aarch64-linux-musl-gcc)
 	cargo build -v --workspace --target aarch64-unknown-linux-musl
 	$(call move_bin,debug,aarch64-unknown-linux-musl)
 
 musl-aarch64:
-	$(call deps)
-	$(call tgt,aarch64-unknown-linux-musl)
+	$(call check_present,aarch64-linux-musl-gcc)
 	cargo build --release --workspace --target aarch64-unknown-linux-musl
 	$(call move_bin,release,aarch64-unknown-linux-musl)
 
 musl-x86_64-dev:
-	$(call deps)
-	$(call tgt,x86_64-unknown-linux-musl)
+	$(call check_present,x86_64-linux-musl-gcc)
 	cargo build -v --workspace --target x86_64-unknown-linux-musl
 	$(call move_bin,debug,x86_64-unknown-linux-musl)
 
 musl-x86_64:
-	$(call deps)
-	$(call tgt,x86_64-unknown-linux-musl)
+	$(call check_present,x86_64-linux-musl-gcc)
 	cargo build --release --workspace --target x86_64-unknown-linux-musl
 	$(call move_bin,release,x86_64-unknown-linux-musl)
 
