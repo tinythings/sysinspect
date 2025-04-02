@@ -5,6 +5,23 @@ ARC_NAME := sysinspect-${ARC_VERSION}
 
 .PHONY:build
 
+define deps
+	@OS_ID=$$(lsb_release -si 2>/dev/null); \
+	if [ "$$OS_ID" = "Ubuntu" ] || [ "$$OS_ID" = "Debian" ]; then \
+		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev"; \
+		sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libffi-dev; \
+	else \
+		echo "Error: Unsupported OS ($$OS_ID). This script only supports Debian/Ubuntu." >&2; \
+		exit 1; \
+	fi
+endef
+
+define tgt
+	@t=$(1); \
+	echo "Adding target $$t"; \
+	rustup target add $$t;
+endef
+
 define move_bin
 	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
 	echo "Moving binaries in $$dir"; \
@@ -29,22 +46,26 @@ fix:
 	cargo clippy --fix --allow-dirty --allow-staged --all
 
 musl-aarch64-dev:
-	rustup target add aarch64-unknown-linux-musl
+	$(call deps)
+	$(call tgt,aarch64-unknown-linux-musl)
 	cargo build -v --workspace --target aarch64-unknown-linux-musl
 	$(call move_bin,debug,aarch64-unknown-linux-musl)
 
 musl-aarch64:
-	rustup target add aarch64-unknown-linux-musl
+	$(call deps)
+	$(call tgt,aarch64-unknown-linux-musl)
 	cargo build --release --workspace --target aarch64-unknown-linux-musl
 	$(call move_bin,release,aarch64-unknown-linux-musl)
 
 musl-x86_64-dev:
-	rustup target add x86_64-unknown-linux-musl
+	$(call deps)
+	$(call tgt,x86_64-unknown-linux-musl)
 	cargo build -v --workspace --target x86_64-unknown-linux-musl
 	$(call move_bin,debug,x86_64-unknown-linux-musl)
 
 musl-x86_64:
-	rustup target add x86_64-unknown-linux-musl
+	$(call deps)
+	$(call tgt,x86_64-unknown-linux-musl)
 	cargo build --release --workspace --target x86_64-unknown-linux-musl
 	$(call move_bin,release,x86_64-unknown-linux-musl)
 
