@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.39"
+chrono = "0.4.40"
 libsysinspect = { path = "../../../libsysinspect" }
-reqwest = { version = "0.12.12", features = ["blocking"] }
-serde = "1.0.213"
-serde_json = "1.0.132"
+reqwest = { version = "0.12.15", features = ["blocking"] }
+serde = "1.0.219"
+serde_json = "1.0.140"
 serde_yaml = "0.9.34"
 sha2 = "0.10.8"
 users = "0.11.0"

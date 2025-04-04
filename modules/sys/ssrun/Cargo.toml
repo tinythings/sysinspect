@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 libsysinspect = { path = "../../../libsysinspect" }
-anyhow = "1.0.94"
+anyhow = "1.0.97"
 dotenv = "0.15.0"
-ssh2 = { version = "0.9.4", features = ["vendored-openssl"] }
-serde = "1.0.213"
-serde_json = "1.0.132"
+ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }
+serde = "1.0.219"
+serde_json = "1.0.140"
 serde_yaml = "0.9.34"
 maplit = "1.0.2"
