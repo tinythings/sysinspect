@@ -37,7 +37,8 @@ members = [
     "sysminion",
     "modules/fs/file",
     "libsetup",
-    "libmodpak", "libpulse",
+    "libmodpak",
+    "libscheduler",
 ]
 
 [profile.release]

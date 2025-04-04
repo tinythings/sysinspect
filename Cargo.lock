@@ -2553,14 +2553,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libpulse"
-version = "0.1.0"
-dependencies = [
- "tokio",
- "tokio-task-scheduler",
-]
-
-[[package]]
 name = "libredox"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2568,6 +2560,16 @@ checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
 dependencies = [
  "bitflags 2.9.0",
  "libc",
+]
+
+[[package]]
+name = "libscheduler"
+version = "0.1.0"
+dependencies = [
+ "libsysinspect",
+ "log",
+ "tokio",
+ "tokio-task-scheduler",
 ]
 
 [[package]]
@@ -5142,7 +5144,7 @@ dependencies = [
  "libc",
  "libeventreg",
  "libmodpak",
- "libpulse",
+ "libscheduler",
  "libsysinspect",
  "log",
  "once_cell",
