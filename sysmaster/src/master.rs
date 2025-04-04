@@ -26,6 +26,7 @@ use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
+    process,
     sync::Arc,
 };
 use tokio::net::TcpListener;
@@ -559,12 +560,36 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
 
     // Start the IPC server as a background task
     let ipc = {
-        let master_clone = Arc::clone(&master);
+        let master = Arc::clone(&master);
         tokio::spawn(async move {
-            let evtipc = Arc::clone(&master_clone.lock().await.evtipc.clone());
+            let evtipc = Arc::clone(&master.lock().await.evtipc.clone());
             if let Err(e) = evtipc.run().await {
                 log::error!("IPC server error: {:?}", e);
             }
+        })
+    };
+
+    let scheduler = {
+        let master = Arc::clone(&master);
+        tokio::spawn(async move {
+            let svc = libscheduler::SchedulerService::new();
+            svc.add_event(libscheduler::pulse::EventTask::new("master test", move || {
+                let master = Arc::clone(&master);
+                async move {
+                    let (bcast, msg) = {
+                        let mut master = master.lock().await;
+                        (master.broadcast().clone(), master.msg_query("cm/file-ops;*;;"))
+                    };
+
+                    if let Some(m) = msg {
+                        let _ = bcast.send(m.sendable().unwrap());
+                        log::debug!("Scheduler called minions");
+                    }
+                }
+            }))
+            .await
+            .unwrap();
+            svc.start().await.unwrap();
         })
     };
 
@@ -582,7 +607,9 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     // Listen for shutdown signal and cancel tasks
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
     log::info!("Received shutdown signal.");
+
     ipc.abort();
+    scheduler.abort();
 
     std::process::exit(0);
 }
