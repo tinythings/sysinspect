@@ -8,6 +8,12 @@ pub struct SchedulerService {
     pulse: Arc<Mutex<EventsScheduler>>,
 }
 
+impl Default for SchedulerService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SchedulerService {
     pub fn new() -> Self {
         Self { pulse: Arc::new(Mutex::new(EventsScheduler::new())) }
