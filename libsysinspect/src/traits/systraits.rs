@@ -146,9 +146,7 @@ impl SystemTraits {
         self.put(HW_CPU_BRAND.to_string(), json!(system.cpus()[0].brand()));
         self.put(HW_CPU_FREQ.to_string(), json!(system.cpus()[0].frequency()));
         self.put(HW_CPU_VENDOR.to_string(), json!(system.cpus()[0].vendor_id()));
-        if let Some(pcrc) = system.physical_core_count() {
-            self.put(HW_CPU_CORES.to_string(), json!(pcrc));
-        }
+        self.put(HW_CPU_CORES.to_string(), json!(system.cpus().len()));
     }
 
     /// Load network data

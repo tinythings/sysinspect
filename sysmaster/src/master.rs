@@ -543,6 +543,59 @@ impl SysMaster {
 
         Ok(())
     }
+
+    /// Start scheduler
+    async fn do_scheduler_service(master: Arc<Mutex<Self>>) -> Option<tokio::task::JoinHandle<()>> {
+        let scheduler = master.lock().await.cfg().scheduler();
+        if scheduler.is_empty() {
+            log::info!("No recurring tasks defined");
+            return None;
+        }
+
+        log::info!("Adding {} recurring tasks", scheduler.len());
+        Some(tokio::spawn(async move {
+            let svc = libscheduler::SchedulerService::new();
+            for tdef in scheduler {
+                let tname = tdef.name().to_string();
+                let mtask = Arc::clone(&master);
+                match libscheduler::pulse::EventTask::new(tdef.clone(), move || {
+                    let master = Arc::clone(&mtask);
+                    let tdef = tdef.clone();
+                    async move {
+                        let (bcast, msg) = {
+                            let mut master = master.lock().await;
+                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()))
+                        };
+
+                        if let Some(m) = msg {
+                            let _ = bcast.send(m.sendable().unwrap());
+                            log::debug!("Scheduler called minions with {}", tdef.name());
+                        }
+                    }
+                }) {
+                    Ok(etask) => {
+                        log::info!("Task {} added", tname);
+                        svc.add_event(etask).await.unwrap();
+                    }
+                    Err(err) => {
+                        log::error!("Unable to add task {}: {}", tname, err);
+                        continue;
+                    }
+                };
+            }
+            svc.start().await.unwrap();
+        }))
+    }
+
+    /// Start IPC server
+    async fn do_ipc_service(master: Arc<Mutex<Self>>) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let evtipc = Arc::clone(&master.lock().await.evtipc.clone());
+            if let Err(e) = evtipc.run().await {
+                log::error!("IPC server error: {:?}", e);
+            }
+        })
+    }
 }
 
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
@@ -557,16 +610,9 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     // Start internal fileserver for minions
     fls::start(cfg).await?;
 
-    // Start the IPC server as a background task
-    let ipc = {
-        let master_clone = Arc::clone(&master);
-        tokio::spawn(async move {
-            let evtipc = Arc::clone(&master_clone.lock().await.evtipc.clone());
-            if let Err(e) = evtipc.run().await {
-                log::error!("IPC server error: {:?}", e);
-            }
-        })
-    };
+    // Start services
+    let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;
+    let scheduler = SysMaster::do_scheduler_service(Arc::clone(&master)).await;
 
     // Task to read from the FIFO and broadcast messages to clients
     SysMaster::do_fifo(Arc::clone(&master)).await;
@@ -582,7 +628,12 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     // Listen for shutdown signal and cancel tasks
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
     log::info!("Received shutdown signal.");
+
     ipc.abort();
+
+    if let Some(scheduler) = scheduler {
+        scheduler.abort();
+    }
 
     std::process::exit(0);
 }

@@ -1,6 +1,7 @@
 use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
 use clap::ArgMatches;
 use colored::Colorize;
+use libmodpak::MODPAK_SYNC_STATE;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
     SysinspectError,
@@ -467,6 +468,11 @@ impl SysMinion {
     }
 
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
+        if MODPAK_SYNC_STATE.is_syncing().await {
+            log::debug!("Minion is still syncing, request command dropped");
+            return;
+        }
+
         log::debug!("Dispatching message: {:#?}", cmd);
 
         if cmd.get_cycle().is_empty() {

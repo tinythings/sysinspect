@@ -89,6 +89,13 @@ pub static CFG_AUTOSYNC_FAST: &str = "fast";
 pub static CFG_AUTOSYNC_SHALLOW: &str = "shallow";
 pub static CFG_AUTOSYNC_DEFAULT: &str = CFG_AUTOSYNC_FULL;
 
+// Task Intervals
+// ---------------
+pub const CFG_TASK_INTERVAL_SECONDS: &str = "seconds";
+pub const CFG_TASK_INTERVAL_MINUTES: &str = "minutes";
+pub const CFG_TASK_INTERVAL_HOURS: &str = "hours";
+pub const CFG_TASK_INTERVAL_DAYS: &str = "days";
+
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
     let mut home = String::from("");
@@ -108,6 +115,47 @@ fn _logfile_path() -> PathBuf {
         }
     }
     PathBuf::from("")
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct TaskConfig {
+    name: String,
+    query: String,
+    traits: Option<Vec<String>>,
+    interval: u32,
+    #[serde(rename = "interval.unit")]
+    interval_unit: String,
+}
+
+impl TaskConfig {
+    /// Create a new task
+    pub fn new(name: &str, query: &str, interval: u32, unit: &str) -> Self {
+        Self { name: name.to_string(), query: query.to_string(), traits: None, interval, interval_unit: unit.to_string() }
+    }
+
+    /// Set task traits
+    pub fn traits(&self) -> Option<&Vec<String>> {
+        self.traits.as_ref()
+    }
+
+    /// Get task name
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get query (path, scope, traits, minion id)
+    pub fn query(&self) -> String {
+        let mut p: Vec<&str> = self.query.splitn(4, ';').collect();
+        while p.len() < 4 {
+            p.push("");
+        }
+        p.join(";")
+    }
+
+    /// Get interval in seconds
+    pub fn interval(&self) -> (u32, String) {
+        (self.interval, self.interval_unit.clone())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -351,6 +399,9 @@ pub struct MasterConfig {
     // sysinspect and sysmaster
     #[serde(rename = "telemetry.socket")]
     telemetry_socket: Option<String>,
+
+    // Scheduler for recurring queries to all the minions
+    scheduler: Option<Vec<TaskConfig>>,
 }
 
 impl MasterConfig {
@@ -365,6 +416,11 @@ impl MasterConfig {
         }
 
         Err(SysinspectError::ConfigError(format!("Unable to read config at: {}", cp)))
+    }
+
+    /// Get scheduler tasks
+    pub fn scheduler(&self) -> Vec<TaskConfig> {
+        self.scheduler.clone().unwrap_or_default()
     }
 
     /// Return master addr

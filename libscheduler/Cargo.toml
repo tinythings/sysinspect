@@ -1,0 +1,10 @@
+[package]
+name = "libscheduler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.44.1", features = ["full"] }
+tokio-task-scheduler = "1.0.0"
+libsysinspect = { path = "../libsysinspect" }
+log = "0.4.27"

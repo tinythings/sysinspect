@@ -142,6 +142,47 @@ Below are directives for the configuration of the File Server service:
     key/value database is located and records all results, coming from the minion
     when processing a given query. Default is set to ``/var/tmp/sysinspect/telemetry``.
 
+``scheduler``
+
+    Scheduler is a component of Sysinspect Master, which is responsible for
+    scheduling the *repetitive* tasks to call the minions. The aggregate *"scheduler"*
+    takes a list of tasks. Each task is a list of key/value pairs:
+
+    - ``name`` - name of the task
+    - ``query`` — query to be executed on the minion. Query is written in a semicolon-separated format
+        sending the following information:
+        - model name
+        - target scope (e.g. ``*`` for all targets)
+    - ``traits`` — list of traits to be used for the query. E.g. ``system.os.name:Ubuntu``.
+    - ``interval`` — interval of the task, i.e. how often the task should be executed.
+      This value can be in seconds, minutes or hours.
+    - ``interval.unit`` — unit of the interval. This value can be one of the following:
+
+        - seconds
+        - minutes
+        - hours
+        - days
+
+    An example of scheduled tasks:
+
+    .. code-block:: yaml
+
+        - name: "Name of your task"
+
+          # Same query as in the command line of SysInspect
+          query: "foo/bar;*"
+          traits:
+            - system.os.name:Ubuntu
+            - system.os.version:20.04
+          interval: 3
+          interval.unit: seconds
+
+        - name: "Name of your another task"
+          query: "some/model/etc;*"
+          interval: 1
+          interval.unit: minutes
+
+
 Example configuration for the Sysinspect Master:
 
 .. code-block:: yaml

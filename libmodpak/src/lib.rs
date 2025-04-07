@@ -5,8 +5,11 @@ use indexmap::IndexMap;
 use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
+use once_cell::sync::Lazy;
 use std::os::unix::fs::PermissionsExt;
+use std::sync::Arc;
 use std::{collections::HashMap, fs, path::PathBuf};
+use tokio::sync::Mutex;
 
 pub mod mpk;
 
@@ -17,6 +20,34 @@ their dependencies, and their architecture.
 
 static REPO_MOD_INDEX: &str = "mod.index";
 static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
+
+pub struct ModPakSyncState {
+    state: Arc<Mutex<bool>>,
+}
+
+impl Default for ModPakSyncState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ModPakSyncState {
+    pub fn new() -> Self {
+        Self { state: Arc::new(Mutex::new(false)) }
+    }
+
+    pub async fn set_syncing(&self, sync: bool) {
+        let mut state = self.state.lock().await;
+        *state = sync;
+    }
+
+    pub async fn is_syncing(&self) -> bool {
+        let state = self.state.lock().await;
+        *state
+    }
+}
+
+pub static MODPAK_SYNC_STATE: Lazy<ModPakSyncState> = Lazy::new(ModPakSyncState::new);
 
 pub struct SysInspectModPakMinion {
     cfg: MinionConfig,
@@ -78,11 +109,14 @@ impl SysInspectModPakMinion {
             _ => log::info!("Full data sync with {}", self.cfg.fileserver()),
         }
 
+        MODPAK_SYNC_STATE.set_syncing(true).await;
         let ridx = self.get_modpak_idx().await?;
 
         self.sync_integrity(&ridx)?; // blocking
         self.sync_modules(&ridx).await?;
         self.sync_libraries(&ridx).await?;
+
+        MODPAK_SYNC_STATE.set_syncing(false).await;
         log::info!("Data sync done");
         Ok(())
     }
