@@ -41,6 +41,7 @@ pub enum SysinspectError {
     DynError(Box<dyn Error + Send + Sync>),
     TemplateError(tera::Error),
     SledError(sled::Error),
+    AnyError(anyhow::Error),
 }
 
 impl Error for SysinspectError {
@@ -73,6 +74,9 @@ impl Display for SysinspectError {
             SysinspectError::TemplateError(err) => format!("(DSL) {err}"),
             SysinspectError::SledError(err) => format!("(DB) {err}"),
             SysinspectError::InvalidModuleName(err) => format!("(Module) Invalid module name: {err}"),
+            SysinspectError::AnyError(err) => {
+                format!("(General) {}", err.chain().map(|e| e.to_string()).collect::<Vec<_>>().join(" "))
+            }
         };
 
         write!(f, "{msg}")?;
@@ -125,5 +129,12 @@ impl From<tera::Error> for SysinspectError {
 impl From<sled::Error> for SysinspectError {
     fn from(err: sled::Error) -> Self {
         SysinspectError::SledError(err)
+    }
+}
+
+/// Anyhow errors
+impl From<anyhow::Error> for SysinspectError {
+    fn from(err: anyhow::Error) -> Self {
+        SysinspectError::AnyError(err)
     }
 }
