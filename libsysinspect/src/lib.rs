@@ -74,7 +74,9 @@ impl Display for SysinspectError {
             SysinspectError::TemplateError(err) => format!("(DSL) {err}"),
             SysinspectError::SledError(err) => format!("(DB) {err}"),
             SysinspectError::InvalidModuleName(err) => format!("(Module) Invalid module name: {err}"),
-            SysinspectError::AnyError(err) => format!("(General) {err}"),
+            SysinspectError::AnyError(err) => {
+                format!("(General) {}", err.chain().map(|e| e.to_string()).collect::<Vec<_>>().join(" "))
+            }
         };
 
         write!(f, "{msg}")?;
