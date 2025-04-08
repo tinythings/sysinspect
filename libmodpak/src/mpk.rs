@@ -261,7 +261,8 @@ impl ModPakMetadata {
                 std::fs::read_to_string(&spec)
                     .with_context(|| format!("Unable to read spec file at {}", spec.display()))?
                     .as_str(),
-            ).unwrap_or_default()
+            )
+            .with_context(|| "Gibberish in spec file?")?
         } else {
             ModInterface::default()
         };
