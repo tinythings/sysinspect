@@ -158,7 +158,14 @@ async fn main() {
                 }
             } else {
                 log::info!("Processing modules in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
-                if let Err(err) = repo.add_module(ModPakMetadata::from_cli_matches(sub)) {
+                let meta = match ModPakMetadata::from_cli_matches(sub) {
+                    Ok(m) => m,
+                    Err(err) => {
+                        log::error!("{}", err);
+                        exit(1);
+                    }
+                };
+                if let Err(err) = repo.add_module(meta) {
                     log::error!("Failed to add module: {}", err);
                     exit(1);
                 }

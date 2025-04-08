@@ -1,5 +1,7 @@
+use anyhow::Context;
+use colored::Colorize;
 use indexmap::IndexMap;
-use libsysinspect::SysinspectError;
+use libsysinspect::{SysinspectError, modlib::modinit::ModInterface};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -246,22 +248,54 @@ impl ModPakMetadata {
         self.get_name().trim_start_matches('.').trim_end_matches('.').to_string().replace('.', "/").into()
     }
 
-    pub fn from_cli_matches(matches: &clap::ArgMatches) -> Self {
+    pub fn from_cli_matches(matches: &clap::ArgMatches) -> Result<Self, SysinspectError> {
         let mut mpm = ModPakMetadata::default();
 
         if let Some(path) = matches.get_one::<String>("path") {
             mpm.path = PathBuf::from(path);
         }
 
+        let spec = PathBuf::from(format!("{}.spec", &mpm.path.display()));
+        let mi: ModInterface = if spec.exists() {
+            match serde_yaml::from_str(
+                std::fs::read_to_string(&spec)
+                    .with_context(|| format!("Unable to read spec file at {}", spec.display()))?
+                    .as_str(),
+            ) {
+                Ok(mi) => mi,
+                Err(_) => ModInterface::default(),
+            }
+        } else {
+            ModInterface::default()
+        };
+
         if let Some(name) = matches.get_one::<String>("name") {
             mpm.name = name.clone();
+        } else if !mi.name().is_empty() {
+            mpm.name = mi.name().to_string();
+        }
+        if mpm.name.is_empty() {
+            return Err(SysinspectError::InvalidModuleName(
+                format!("name was not obtained. Either add a spec file or use the {} option.", "--name".bright_yellow())
+                    .to_string(),
+            ));
         }
 
         if let Some(descr) = matches.get_one::<String>("descr") {
             mpm.descr = descr.clone();
+        } else if !mi.description().is_empty() {
+            mpm.descr = mi.description().to_string().replace("\n", "");
+        }
+        if mpm.descr.is_empty() {
+            return Err(SysinspectError::InvalidModuleName(
+                format!("description was not obtained. Either add a spec file or use the {} option.", "--descr".bright_yellow())
+                    .to_string(),
+            ));
         }
 
-        mpm
+        log::info!("Adding module at {}", mpm.path.display());
+
+        Ok(mpm)
     }
 
     pub(crate) fn get_descr(&self) -> &str {
