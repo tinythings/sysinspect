@@ -257,14 +257,11 @@ impl ModPakMetadata {
 
         let spec = PathBuf::from(format!("{}.spec", &mpm.path.display()));
         let mi: ModInterface = if spec.exists() {
-            match serde_yaml::from_str(
+            serde_yaml::from_str(
                 std::fs::read_to_string(&spec)
                     .with_context(|| format!("Unable to read spec file at {}", spec.display()))?
                     .as_str(),
-            ) {
-                Ok(mi) => mi,
-                Err(_) => ModInterface::default(),
-            }
+            ).unwrap_or_default()
         } else {
             ModInterface::default()
         };
