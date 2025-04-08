@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_yaml::Value;
 use std::env::args;
-use textwrap::{fill, Options};
+use textwrap::{Options, fill};
 
 static H_WIDTH: usize = 80;
 
@@ -76,7 +76,7 @@ impl ModArgument {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModInterface {
     name: String,
     version: String,
@@ -188,6 +188,36 @@ impl ModInterface {
             ex_code,
             returns(self),
         )
+    }
+
+    /// Get the name of the module
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get version
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Get author
+    pub fn author(&self) -> &str {
+        &self.author
+    }
+
+    /// Get description
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// Get options to the module
+    pub fn options(&self) -> &[ModOption] {
+        &self.options
+    }
+
+    /// Get arguments of the module
+    pub fn arguments(&self) -> &[ModArgument] {
+        &self.arguments
     }
 }
 
