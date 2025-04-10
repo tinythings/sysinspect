@@ -76,6 +76,7 @@ Sysinspect Master configuration is located under earlier mentioned ``master`` se
 and contains the following directives:
 
 ``socket``
+##########
 
     Path for a FIFO socket to communicate with the ``sysinspect`` command,
     which is issuing commands over the network.
@@ -83,6 +84,7 @@ and contains the following directives:
     Default value is ``/tmp/sysinspect-master.socket``.
 
 ``bind.ip``
+###########
 
     IPv4 address on which the Master is listening for all incoming and outgoing traffic
     with Minion communication.
@@ -90,6 +92,7 @@ and contains the following directives:
     Default value is ``0.0.0.0``.
 
 ``bind.port``
+#############
 
     Network port number on which the Master is listening using ``bind.ip`` directive.
 
@@ -118,31 +121,37 @@ configurable default namespaces for each cathegory of the artefacts.
 Below are directives for the configuration of the File Server service:
 
 ``fileserver.bind.ip``
+######################
 
     Same as ``bind.ip``, but for the internal File Server service.
 
 ``fileserver.bind.port``
+########################
 
     Network port number on which the File Server service is listening.
 
     File Server service port is ``4201``.
 
 ``fileserver.models.root``
+##########################
 
     Relative path where are the master models kept.
 
 ``fileserver.models``
+######################
 
     List of subdirectories within ``fileserver.models.root``, exporting models. If a model is not
     in the list, it will not be available for the minions.
 
 ``telemetry.location``
+######################
 
     Location of the telemetry local database. This is a directory, where the
     key/value database is located and records all results, coming from the minion
     when processing a given query. Default is set to ``/var/tmp/sysinspect/telemetry``.
 
 ``scheduler``
+#############
 
     Scheduler is a component of Sysinspect Master, which is responsible for
     scheduling the *repetitive* tasks to call the minions. The aggregate *"scheduler"*
@@ -209,6 +218,7 @@ Sysinspect Minion configuration is located under earlier mentioned ``minion`` se
 and contains the following directives:
 
 ``path.root``
+#############
 
     Typically, Minion if running standard, the root of all data kept by a Minion is
     defaulted to ``/etc/sysinspect``, same as Master. However, in an embedded and custom
@@ -217,6 +227,7 @@ and contains the following directives:
     set according to the system setup.
 
 ``path.id``
+###########
 
     By default, the minion Id is the ``/etc/machine-id``. However, this file is usually
     present on a regular Linux server and desktop distributions, but practically never
@@ -235,30 +246,35 @@ and contains the following directives:
         id.path: </absolute/path>|relative
 
 ``path.sharelib``
+#################
 
     The location of sharelib directory, which is by default is at the location
     ``/usr/share/sysinspect``. On most embedded systems those root filesystem is usually read-only,
     this location can be changed. This directory contains ``lib`` and ``modules`` subdirectories.
 
-
 ``master.ip``
+#############
 
     Corresponds to ``bind.ip`` of Master node and should be identical.
 
 ``master.port``
+###############
 
     Corresponds to ``bind.ip.port`` of Master node and should be identical. By default it is
     set to ``4200``.
 
 ``master.fileserver.port``
+##########################
 
     Port of Master's fileserver. By default it is set to ``4201``.
 
 ``master.reconnect``
+####################
 
     Sets reconnection to the master (or not). This is a boolean value, which is set to ``true`` by default.
 
 ``master.reconnect.freq``
+#########################
 
     Sets the frequency of reconnection to the master. This is a number of times, which is set to ``0`` by default.
     There are two options:
@@ -266,7 +282,17 @@ and contains the following directives:
         - ``0`` — infinite reconnection attempts
         - ``n`` — number of reconnection attempts. If the number is reached, the minion will stop trying to reconnect.
 
+``master.reconnect.interval``
+#############################
+
+    Interval (seconds) between reconnection attempts. This is a number of seconds, which is set to ``5-30`` range by default.
+    Possible values are *(seconds, between the reconnection attemps)*:
+
+        - ``n`` — specific amount of seconds
+        - ``n-n1`` — a range of randomly selected seconds within that range
+
 ``modules.autosync``
+####################
 
     Modules are always automatically synchronised at Minion boot. However, it requires full recalculation
     of each module's SHA256 checksum and it might take a while, if you have a lot of modules and they are big.
@@ -306,6 +332,7 @@ Common
 There are directories that are same on both Master and Minion:
 
 ``$SR/functions``
+#################
 
     Directory, containing custom trait functions. They are meant to be defined on the Master side
     and then sync'ed to all the minions.
@@ -316,14 +343,17 @@ Only on Master
 Public and private RSA keys of Master are:
 
 ``$SR/master.rsa``
+##################
 
     Master's private RSA key.
 
 ``$SR/master.rsa.pub``
+######################
 
     Master's public RSA key.
 
 ``$SR/minion-keys``
+###################
 
     Public keys from registered minions in format ``<minion-id>.rsa.pub``.
 
@@ -331,6 +361,7 @@ Public and private RSA keys of Master are:
     generated one, if this file does not exist.
 
 ``$SR/minion-registry``
+#######################
 
     A binary cache of minion's data, such as minion traits, data about currently connected minions etc.
     This is fully purge-able directory, i.e. data can be freely deleted. However, Sysinspect Master
@@ -342,17 +373,21 @@ Only on Minion
 Public and private RSA keys of Master are:
 
 ``$SR/master.rsa``
+##################
 
     Minion's private RSA key.
 
 ``$SR/master.rsa.pub``
+######################
 
     Minion's public RSA key.
 
 ``$SR/traits``
+##############
 
     Directory, containing custom static traits of a Minion.
 
 ``$SR/models``
+##############
 
     Directory, containing models.
