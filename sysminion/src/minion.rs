@@ -34,7 +34,6 @@ use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     fs,
-    os::unix::process,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
