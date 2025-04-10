@@ -92,6 +92,7 @@ pub static CFG_AUTOSYNC_DEFAULT: &str = CFG_AUTOSYNC_FULL;
 // Reconnect to the master
 pub static CFG_RECONNECT_DEFAULT: bool = true;
 pub static CFG_RECONNECT_FREQ_DEFAULT: u32 = 0;
+pub static CFG_RECONNECT_DEFAULT_INTERVAL: &str = "5-30";
 
 // Task Intervals
 // ---------------
@@ -226,6 +227,14 @@ pub struct MinionConfig {
     #[serde(rename = "master.reconnect.freq")]
     #[serde(skip_serializing_if = "Option::is_none")]
     master_reconnect_freq: Option<u32>,
+
+    /// Reconnect interval in seconds
+    /// Values are:
+    /// - n is a number of seconds
+    /// - n-n range is a random number of seconds within the range
+    #[serde(rename = "master.reconnect.interval")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    master_reconnect_interval: Option<String>,
 
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
@@ -372,13 +381,28 @@ impl MinionConfig {
     }
 
     /// Reconnect policy
-    pub fn master_reconnect(&self) -> bool {
+    pub fn reconnect(&self) -> bool {
         self.master_reconnect.unwrap_or(CFG_RECONNECT_DEFAULT)
     }
 
     /// Reconnect frequencies
-    pub fn master_reconnect_freq(&self) -> u32 {
+    pub fn reconnect_freq(&self) -> u32 {
         self.master_reconnect_freq.unwrap_or(CFG_RECONNECT_FREQ_DEFAULT)
+    }
+
+    /// Reconnect interval (seconds)
+    pub fn reconnect_interval(&self) -> u64 {
+        let i = self.master_reconnect_interval.clone().unwrap_or(CFG_RECONNECT_DEFAULT_INTERVAL.to_string());
+        if let Ok(i) = i.parse::<u64>() {
+            return i;
+        }
+        if let Some((start, end)) = i.split_once('-') {
+            if let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>()) {
+                return rand::random::<u64>() % (end - start) + start;
+            }
+        }
+
+        rand::random::<u64>() % 30 + 5
     }
 }
 
