@@ -1,4 +1,12 @@
-use crate::{arcb::ActionResponseCallback, filedata::MinionFiledata, proto, rsa::MinionRSAKeyManager};
+use crate::{
+    arcb::ActionResponseCallback,
+    filedata::MinionFiledata,
+    proto::{
+        self,
+        msg::{CONNECTION_TX, ExitState},
+    },
+    rsa::MinionRSAKeyManager,
+};
 use clap::ArgMatches;
 use colored::Colorize;
 use libmodpak::MODPAK_SYNC_STATE;
@@ -27,7 +35,6 @@ use serde_json::json;
 use std::{
     fs,
     path::PathBuf,
-    process,
     sync::Arc,
     time::{Duration, Instant},
     vec,
@@ -167,13 +174,16 @@ impl SysMinion {
     /// A sub-process that checks if a ping is going through. On ping timeout
     /// that would indicate that the Master is either dead or disconnected or not available.
     /// That should kick Minion to start reconnecting.
-    pub async fn do_ping_update(self: Arc<Self>) -> Result<(), SysinspectError> {
+    pub async fn do_ping_update(self: Arc<Self>, state: Arc<ExitState>) -> Result<(), SysinspectError> {
+        let reconnect_sender = CONNECTION_TX.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 if self.as_ptr().last_ping.lock().await.elapsed() > self.as_ptr().ping_timeout {
-                    log::warn!("Master seems unresponsive, terminating.");
-                    std::process::exit(1);
+                    log::warn!("Master seems unresponsive, triggering reconnect.");
+                    let _ = reconnect_sender.send(());
+                    state.exit.store(true, std::sync::atomic::Ordering::Relaxed);
+                    break;
                 }
             }
         });
@@ -551,8 +561,9 @@ impl SysMinion {
     }
 }
 
-pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<(), SysinspectError> {
-    // Get plugins repo
+/// Constructs and starts an actual minion
+async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>) -> Result<(), SysinspectError> {
+    let state = Arc::new(ExitState::new());
     let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg, fingerprint).await?;
     minion.as_ptr().do_proto().await?;
@@ -566,12 +577,57 @@ pub async fn minion(cfg: MinionConfig, fingerprint: Option<String>) -> Result<()
         modpak.sync().await?;
     }
 
-    minion.as_ptr().do_ping_update().await?;
+    minion.as_ptr().do_ping_update(state.clone()).await?;
 
-    // Keep the client alive until Ctrl+C is pressed
-    tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
-    log::info!("Shutting down client.");
-    process::exit(0);
+    // Keeps client running
+    while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+    Ok(())
+}
+
+pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
+    let mut reconnect_rx = CONNECTION_TX.subscribe();
+    let mut ra = 0;
+
+    loop {
+        log::info!("Starting minion instance...");
+
+        let c_cfg = cfg.clone();
+        let c_fp = fp.clone();
+        let mut mhdl = tokio::spawn(async move { _minion_instance(c_cfg, c_fp).await });
+
+        tokio::select! {
+            res = &mut mhdl => {
+                match res {
+                    Ok(Ok(_)) => log::info!("Minion instance ended gracefully, reconnecting..."),
+                    Ok(Err(e)) => log::error!("Minion encountered an error: {:?}", e),
+                    Err(e) => log::error!("Minion task panicked or was cancelled: {:?}", e),
+                }
+            }
+            _ = reconnect_rx.recv() => {
+                log::warn!("Reconnect signal received; aborting current minion instance.");
+                mhdl.abort();
+                let _ = mhdl.await;
+            }
+        }
+
+        if !cfg.reconnect() {
+            log::warn!("Reconnect is disabled, exiting...");
+            std::process::exit(1);
+        } else {
+            ra += 1;
+            log::info!("Reconnect attempt: {}", ra);
+            if cfg.reconnect_freq() > 0 && ra > cfg.reconnect_freq() {
+                log::warn!("Too many reconnect attempts, exiting...");
+                std::process::exit(1);
+            }
+        }
+
+        let interval = cfg.reconnect_interval();
+        log::info!("Reconnecting in {} seconds...", interval);
+        tokio::time::sleep(Duration::from_secs(interval)).await;
+    }
 }
 
 /// Setup minion

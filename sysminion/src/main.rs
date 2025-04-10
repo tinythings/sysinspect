@@ -28,9 +28,7 @@ fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectE
             let c_cfg = cfg.clone();
             let c_fp = fp.clone();
             let h: JoinHandle<()> = tokio::spawn(async move {
-                if let Err(err) = minion::minion(c_cfg, c_fp).await {
-                    log::error!("Minion error: {err}");
-                }
+                minion::minion(c_cfg, c_fp).await;
             });
 
             log::info!("Minion process started");
