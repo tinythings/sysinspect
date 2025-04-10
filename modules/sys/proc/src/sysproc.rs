@@ -1,8 +1,8 @@
-use libsysinspect::modlib::{
+use libmodcore::{
     response::ModResponse,
     runtime::{self, ModRequest},
 };
-use procfs::process::{all_processes, LimitValue, Process};
+use procfs::process::{LimitValue, Process, all_processes};
 use serde_json::json;
 use std::{collections::HashMap, vec};
 

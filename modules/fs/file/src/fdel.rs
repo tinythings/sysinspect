@@ -1,4 +1,4 @@
-use libsysinspect::modlib::{
+use libmodcore::{
     response::ModResponse,
     runtime::{ArgValue, ModRequest},
 };

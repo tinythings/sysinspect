@@ -1,7 +1,8 @@
 use anyhow::Context;
 use colored::Colorize;
 use indexmap::IndexMap;
-use libsysinspect::{SysinspectError, modlib::modinit::ModInterface};
+use libmodcore::modinit::ModInterface;
+use libsysinspect::SysinspectError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 

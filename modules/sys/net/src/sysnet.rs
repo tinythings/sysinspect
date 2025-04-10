@@ -1,18 +1,16 @@
 use crate::routing;
-use libsysinspect::{
-    modlib::{
-        response::ModResponse,
-        runtime::{self, ModRequest},
-    },
-    SysinspectError,
+use libmodcore::{
+    response::ModResponse,
+    runtime::{self, ModRequest},
 };
+use libsysinspect::SysinspectError;
 use nix::{
-    ifaddrs::{getifaddrs, InterfaceAddress},
+    ifaddrs::{InterfaceAddress, getifaddrs},
     net::if_::InterfaceFlags,
     sys::socket::{AddressFamily, SockaddrLike},
 };
 use serde_json::json;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 
 struct NetInfo {
     ifaces: Vec<InterfaceAddress>,

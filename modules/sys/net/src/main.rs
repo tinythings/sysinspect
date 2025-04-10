@@ -1,10 +1,10 @@
-use libsysinspect::modlib::{modinit::ModInterface, runtime};
+use libmodcore::{init_mod_doc, modinit::ModInterface, runtime};
 use sysnet::run;
 mod routing;
 mod sysnet;
 
 fn main() {
-    let mod_doc = libsysinspect::init_mod_doc!(ModInterface);
+    let mod_doc = init_mod_doc!(ModInterface);
     if mod_doc.print_help() {
         return;
     }

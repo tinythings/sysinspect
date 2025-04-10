@@ -1,15 +1,13 @@
+use libmodcore::{
+    init_mod_doc,
+    modinit::ModInterface,
+    response::ModResponse,
+    runtime::{ArgValue, ModRequest, get_call_args, send_call_response},
+};
+
 mod fdel;
 mod fill;
 mod info;
-
-use libsysinspect::{
-    init_mod_doc,
-    modlib::{
-        modinit::ModInterface,
-        response::ModResponse,
-        runtime::{get_call_args, send_call_response, ArgValue, ModRequest},
-    },
-};
 
 /// Run module
 fn run_mod(rq: &ModRequest) -> ModResponse {

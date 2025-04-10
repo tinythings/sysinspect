@@ -1,6 +1,6 @@
-use crate::util::dataconv;
 use colored::Colorize;
 use indexmap::IndexMap;
+use libsysinspect::util::dataconv;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;

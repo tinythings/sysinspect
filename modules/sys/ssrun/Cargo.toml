@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 libsysinspect = { path = "../../../libsysinspect" }
+libmodcore = { path = "../../../libmodcore" }
 anyhow = "1.0.97"
 dotenv = "0.15.0"
 ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }

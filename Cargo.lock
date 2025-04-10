@@ -1357,6 +1357,7 @@ name = "file"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "libmodcore",
  "libsysinspect",
  "reqwest",
  "serde",
@@ -2536,6 +2537,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 
 [[package]]
+name = "libmodcore"
+version = "0.1.0"
+dependencies = [
+ "colored",
+ "indexmap 2.9.0",
+ "libsysinspect",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "shlex",
+ "textwrap",
+]
+
+[[package]]
 name = "libmodpak"
 version = "0.1.0"
 dependencies = [
@@ -2545,6 +2561,7 @@ dependencies = [
  "fs_extra",
  "goblin",
  "indexmap 2.9.0",
+ "libmodcore",
  "libsysinspect",
  "log",
  "once_cell",
@@ -2971,6 +2988,7 @@ dependencies = [
 name = "net"
 version = "0.2.0"
 dependencies = [
+ "libmodcore",
  "libsysinspect",
  "neli",
  "nix",
@@ -3566,6 +3584,7 @@ dependencies = [
 name = "proc"
 version = "0.2.0"
 dependencies = [
+ "libmodcore",
  "libsysinspect",
  "procfs",
  "serde",
@@ -4103,6 +4122,7 @@ source = "git+https://github.com/astral-sh/ruff.git?tag=0.11.0#2cd25ef6410fb5fca
 name = "run"
 version = "0.2.0"
 dependencies = [
+ "libmodcore",
  "libsysinspect",
  "serde",
  "serde_json",
@@ -4944,6 +4964,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dotenv",
+ "libmodcore",
  "libsysinspect",
  "maplit",
  "serde",
