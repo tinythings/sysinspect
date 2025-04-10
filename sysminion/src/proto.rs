@@ -1,14 +1,34 @@
 pub mod msg {
+    use std::sync::atomic::AtomicBool;
+
     use crate::minion::MINION_SID;
     use libsysinspect::{
-        proto::{rqtypes::RequestType, MinionMessage},
+        SysinspectError,
+        proto::{MasterMessage, ProtoConversion},
+    };
+    use libsysinspect::{
+        proto::{MinionMessage, rqtypes::RequestType},
         traits,
         util::dataconv,
     };
-    use libsysinspect::{
-        proto::{MasterMessage, ProtoConversion},
-        SysinspectError,
-    };
+    use once_cell::sync::Lazy;
+    use tokio::sync::broadcast;
+
+    /// Channel for master connection status
+    pub static CONNECTION_TX: Lazy<broadcast::Sender<()>> = Lazy::new(|| {
+        let (tx, _) = broadcast::channel(1); // We have a small but enough buffer
+        tx
+    });
+
+    pub struct ExitState {
+        pub exit: AtomicBool,
+    }
+
+    impl ExitState {
+        pub fn new() -> Self {
+            Self { exit: AtomicBool::new(false) }
+        }
+    }
 
     /// Make pong message
     pub fn get_pong() -> Vec<u8> {
