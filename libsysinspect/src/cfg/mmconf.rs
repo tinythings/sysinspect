@@ -89,6 +89,10 @@ pub static CFG_AUTOSYNC_FAST: &str = "fast";
 pub static CFG_AUTOSYNC_SHALLOW: &str = "shallow";
 pub static CFG_AUTOSYNC_DEFAULT: &str = CFG_AUTOSYNC_FULL;
 
+// Reconnect to the master
+pub static CFG_RECONNECT_DEFAULT: bool = true;
+pub static CFG_RECONNECT_FREQ_DEFAULT: u32 = 0;
+
 // Task Intervals
 // ---------------
 pub const CFG_TASK_INTERVAL_SECONDS: &str = "seconds";
@@ -206,6 +210,22 @@ pub struct MinionConfig {
     #[serde(rename = "master.fileserver.port")]
     #[serde(skip_serializing_if = "Option::is_none")]
     master_fileserver_port: Option<u32>,
+
+    /// Reconnect policies to the master
+    /// Values are:
+    /// - "true" (default)
+    /// - "false"
+    #[serde(rename = "master.reconnect")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    master_reconnect: Option<bool>,
+
+    /// Reconnect frequencies to the master
+    /// Values are:
+    /// - 0 is infinite (default)
+    /// - More than 0
+    #[serde(rename = "master.reconnect.freq")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    master_reconnect_freq: Option<u32>,
 
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
@@ -349,6 +369,16 @@ impl MinionConfig {
     /// Set autosync mode
     pub fn set_autosync(&mut self, mode: &str) {
         self.modules_check = Some(mode.to_string());
+    }
+
+    /// Reconnect policy
+    pub fn master_reconnect(&self) -> bool {
+        self.master_reconnect.unwrap_or(CFG_RECONNECT_DEFAULT)
+    }
+
+    /// Reconnect frequencies
+    pub fn master_reconnect_freq(&self) -> u32 {
+        self.master_reconnect_freq.unwrap_or(CFG_RECONNECT_FREQ_DEFAULT)
     }
 }
 
