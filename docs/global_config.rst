@@ -78,6 +78,8 @@ and contains the following directives:
 ``socket``
 ##########
 
+    Type: **string**
+
     Path for a FIFO socket to communicate with the ``sysinspect`` command,
     which is issuing commands over the network.
 
@@ -86,6 +88,8 @@ and contains the following directives:
 ``bind.ip``
 ###########
 
+    Type: **string**
+
     IPv4 address on which the Master is listening for all incoming and outgoing traffic
     with Minion communication.
 
@@ -93,6 +97,8 @@ and contains the following directives:
 
 ``bind.port``
 #############
+
+    Type: **integer**
 
     Network port number on which the Master is listening using ``bind.ip`` directive.
 
@@ -123,10 +129,14 @@ Below are directives for the configuration of the File Server service:
 ``fileserver.bind.ip``
 ######################
 
+    Type: **string**
+
     Same as ``bind.ip``, but for the internal File Server service.
 
 ``fileserver.bind.port``
 ########################
+
+    Type: **integer**
 
     Network port number on which the File Server service is listening.
 
@@ -135,16 +145,22 @@ Below are directives for the configuration of the File Server service:
 ``fileserver.models.root``
 ##########################
 
+    Type: **string**
+
     Relative path where are the master models kept.
 
 ``fileserver.models``
 ######################
+
+    Type: **list**
 
     List of subdirectories within ``fileserver.models.root``, exporting models. If a model is not
     in the list, it will not be available for the minions.
 
 ``telemetry.location``
 ######################
+
+    Type: **string**
 
     Location of the telemetry local database. This is a directory, where the
     key/value database is located and records all results, coming from the minion
@@ -153,19 +169,21 @@ Below are directives for the configuration of the File Server service:
 ``scheduler``
 #############
 
+    Type: **list**
+
     Scheduler is a component of Sysinspect Master, which is responsible for
     scheduling the *repetitive* tasks to call the minions. The aggregate *"scheduler"*
     takes a list of tasks. Each task is a list of key/value pairs:
 
-    - ``name`` — name of the task
-    - ``query`` — query to be executed on the minion. Query is written in a semicolon-separated format
+    - ``name`` — name of the task. Type: **string**. This is a human-readable name of the task. It is used for logging purposes and should be unique.
+    - ``query`` — query to be executed on the minion. Type: **string**. Query is written in a semicolon-separated format
         sending the following information:
         - model name
         - target scope (e.g. ``*`` for all targets)
-    - ``traits`` — list of traits to be used for the query. E.g. ``system.os.name:Ubuntu``.
+    - ``traits`` — list of traits to be used for the query. Type: **string**. E.g. ``system.os.name:Ubuntu``.
     - ``interval`` — interval of the task, i.e. how often the task should be executed.
       This value can be in seconds, minutes or hours.
-    - ``interval.unit`` — unit of the interval. This value can be one of the following:
+    - ``interval.unit`` — unit of the interval. Type: **string**. This value can be one of the following:
 
         - seconds
         - minutes
@@ -220,6 +238,8 @@ and contains the following directives:
 ``path.root``
 #############
 
+    Type: **string**
+
     Typically, Minion if running standard, the root of all data kept by a Minion is
     defaulted to ``/etc/sysinspect``, same as Master. However, in an embedded and custom
     systems this might not be possible, especially if the system is usually read-only
@@ -228,6 +248,8 @@ and contains the following directives:
 
 ``path.id``
 ###########
+
+    Type: **string**
 
     By default, the minion Id is the ``/etc/machine-id``. However, this file is usually
     present on a regular Linux server and desktop distributions, but practically never
@@ -248,6 +270,8 @@ and contains the following directives:
 ``path.sharelib``
 #################
 
+    Type: **string**
+
     The location of sharelib directory, which is by default is at the location
     ``/usr/share/sysinspect``. On most embedded systems those root filesystem is usually read-only,
     this location can be changed. This directory contains ``lib`` and ``modules`` subdirectories.
@@ -260,21 +284,29 @@ and contains the following directives:
 ``master.port``
 ###############
 
+    Type: **integer**
+
     Corresponds to ``bind.ip.port`` of Master node and should be identical. By default it is
     set to ``4200``.
 
 ``master.fileserver.port``
 ##########################
 
+    Type: **integer**
+
     Port of Master's fileserver. By default it is set to ``4201``.
 
 ``master.reconnect``
 ####################
 
+    Type: **boolean**
+
     Sets reconnection to the master (or not). This is a boolean value, which is set to ``true`` by default.
 
 ``master.reconnect.freq``
 #########################
+
+    Type: **integer**
 
     Sets the frequency of reconnection to the master. This is a number of times, which is set to ``0`` by default.
     There are two options:
@@ -285,6 +317,8 @@ and contains the following directives:
 ``master.reconnect.interval``
 #############################
 
+    Type: **string**
+
     Interval (seconds) between reconnection attempts. This is a number of seconds, which is set to ``5-30`` range by default.
     Possible values are *(seconds, between the reconnection attemps)*:
 
@@ -293,6 +327,8 @@ and contains the following directives:
 
 ``modules.autosync``
 ####################
+
+    Type: **string**
 
     Modules are always automatically synchronised at Minion boot. However, it requires full recalculation
     of each module's SHA256 checksum and it might take a while, if you have a lot of modules and they are big.
@@ -334,6 +370,8 @@ There are directories that are same on both Master and Minion:
 ``$SR/functions``
 #################
 
+    Type: **string**
+
     Directory, containing custom trait functions. They are meant to be defined on the Master side
     and then sync'ed to all the minions.
 
@@ -345,15 +383,21 @@ Public and private RSA keys of Master are:
 ``$SR/master.rsa``
 ##################
 
+    Type: **string**
+
     Master's private RSA key.
 
 ``$SR/master.rsa.pub``
 ######################
 
+    Type: **string**
+
     Master's public RSA key.
 
 ``$SR/minion-keys``
 ###################
+
+    Type: **string**
 
     Public keys from registered minions in format ``<minion-id>.rsa.pub``.
 
@@ -362,6 +406,8 @@ Public and private RSA keys of Master are:
 
 ``$SR/minion-registry``
 #######################
+
+    Type: **string**
 
     A binary cache of minion's data, such as minion traits, data about currently connected minions etc.
     This is fully purge-able directory, i.e. data can be freely deleted. However, Sysinspect Master
@@ -375,19 +421,27 @@ Public and private RSA keys of Master are:
 ``$SR/master.rsa``
 ##################
 
+    Type: **string**
+
     Minion's private RSA key.
 
 ``$SR/master.rsa.pub``
 ######################
+
+    Type: **string**
 
     Minion's public RSA key.
 
 ``$SR/traits``
 ##############
 
+    Type: **string**
+
     Directory, containing custom static traits of a Minion.
 
 ``$SR/models``
 ##############
+
+    Type: **string**
 
     Directory, containing models.
