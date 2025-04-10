@@ -148,7 +148,7 @@ Below are directives for the configuration of the File Server service:
     scheduling the *repetitive* tasks to call the minions. The aggregate *"scheduler"*
     takes a list of tasks. Each task is a list of key/value pairs:
 
-    - ``name`` - name of the task
+    - ``name`` — name of the task
     - ``query`` — query to be executed on the minion. Query is written in a semicolon-separated format
         sending the following information:
         - model name
@@ -254,17 +254,29 @@ and contains the following directives:
 
     Port of Master's fileserver. By default it is set to ``4201``.
 
+``master.reconnect``
+
+    Sets reconnection to the master (or not). This is a boolean value, which is set to ``true`` by default.
+
+``master.reconnect.freq``
+
+    Sets the frequency of reconnection to the master. This is a number of times, which is set to ``0`` by default.
+    There are two options:
+
+        - ``0`` — infinite reconnection attempts
+        - ``n`` — number of reconnection attempts. If the number is reached, the minion will stop trying to reconnect.
+
 ``modules.autosync``
 
     Modules are always automatically synchronised at Minion boot. However, it requires full recalculation
     of each module's SHA256 checksum and it might take a while, if you have a lot of modules and they are big.
     This value has the following options:
 
-    - ``full`` - full recalculation of all modules' SHA256 checksums. This is the default value.
+    - ``full`` — full recalculation of all modules' SHA256 checksums. This is the default value.
 
-    - ``fast`` - read cached SHA256 checksums. If the checksum is not in the cache, it will be calculated and stored in the cache.
+    - ``fast`` — read cached SHA256 checksums. If the checksum is not in the cache, it will be calculated and stored in the cache.
 
-    - ``shallow`` - no recalculation of the modules' SHA256 checksums, only verify if the module file is present. However, it will not ensure that the module is what is actually expected. This is useful for the embedded systems with read-only root filesystem, where the modules are kept in the ``/usr/share/sysinspect/modules`` directory (default).
+    - ``shallow`` — no recalculation of the modules' SHA256 checksums, only verify if the module file is present. However, it will not ensure that the module is what is actually expected. This is useful for the embedded systems with read-only root filesystem, where the modules are kept in the ``/usr/share/sysinspect/modules`` directory (default).
 
     By default it is set to ``full``.
 
