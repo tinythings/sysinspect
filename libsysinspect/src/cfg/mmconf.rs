@@ -398,7 +398,7 @@ impl MinionConfig {
         }
         if let Some((start, end)) = i.split_once('-') {
             if let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>()) {
-                return rand::random::<u64>() % (end - start) + start;
+                return if end > start { rand::random::<u64>() % (end - start + 1) + start } else { start };
             }
         }
 
