@@ -1,6 +1,6 @@
 use super::response::ModResponse;
-use crate::util;
 use indexmap::IndexMap;
+use libsysinspect::util;
 use serde::{Deserialize, Serialize};
 use std::io::Error;
 use std::io::{self, Read};

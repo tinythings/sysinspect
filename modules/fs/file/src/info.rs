@@ -3,10 +3,8 @@ Informational functions
  */
 
 use chrono::{DateTime, Utc};
-use libsysinspect::modlib::{
-    response::ModResponse,
-    runtime::{ArgValue, ModRequest},
-};
+use libmodcore::response::ModResponse;
+use libmodcore::runtime::{ArgValue, ModRequest};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::MetadataExt};

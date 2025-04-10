@@ -1,12 +1,9 @@
-use libsysinspect::modlib::{
-    modinit::ModInterface,
-    runtime::{self},
-};
+use libmodcore::{init_mod_doc, modinit::ModInterface, runtime};
 use sysproc::run;
 mod sysproc;
 
 fn main() {
-    let mod_doc = libsysinspect::init_mod_doc!(ModInterface);
+    let mod_doc = init_mod_doc!(ModInterface);
     if mod_doc.print_help() {
         return;
     }

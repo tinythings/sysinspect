@@ -1,14 +1,9 @@
 use anyhow::Context;
 use dotenv::dotenv;
-use libsysinspect::{
-    init_mod_doc,
-    modlib::{
-        getenv,
-        modinit::ModInterface,
-        response::ModResponse,
-        runtime::{get_arg, get_call_args, send_call_response, ModRequest},
-    },
-};
+use libmodcore::modinit::ModInterface;
+use libmodcore::response::ModResponse;
+use libmodcore::runtime::{ModRequest, get_arg, get_call_args, send_call_response};
+use libmodcore::{getenv, init_mod_doc};
 use maplit::hashmap;
 use serde_json::json;
 use ssh2::Session;

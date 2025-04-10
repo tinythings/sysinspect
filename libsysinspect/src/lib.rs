@@ -12,7 +12,6 @@ pub mod inspector;
 pub mod intp;
 pub mod logger;
 pub mod mdescr;
-pub mod modlib;
 pub mod proto;
 pub mod pylang;
 pub mod reactor;

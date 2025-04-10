@@ -1,10 +1,8 @@
-use libsysinspect::{
-    cfg::mmconf::DEFAULT_FILESERVER_PORT,
-    modlib::{
-        response::ModResponse,
-        runtime::{ArgValue, ModRequest},
-    },
+use libmodcore::{
+    response::ModResponse,
+    runtime::{ArgValue, ModRequest},
 };
+use libsysinspect::cfg::mmconf::DEFAULT_FILESERVER_PORT;
 use reqwest::blocking::get;
 use std::{
     fs::{self, File},

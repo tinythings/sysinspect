@@ -1,13 +1,12 @@
 use core::str;
-use libsysinspect::{
-    init_mod_doc,
-    modlib::{
-        getenv,
-        modinit::ModInterface,
-        response::ModResponse,
-        runtime::{self, get_arg, get_call_args, get_opt, send_call_response, ModRequest},
-    },
+use libmodcore::init_mod_doc;
+use libmodcore::{
+    getenv,
+    modinit::ModInterface,
+    response::ModResponse,
+    runtime::{self, ModRequest, get_arg, get_call_args, get_opt, send_call_response},
 };
+
 use serde_json::json;
 use std::{
     io::Write,
