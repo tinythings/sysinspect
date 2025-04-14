@@ -467,14 +467,14 @@ impl SysInspectUX {
                 self.purge_alert_choice = AlertResult::Default;
             }
 
-            KeyCode::PageUp => {
+            KeyCode::BackTab => {
                 if self.active_box == ActiveBox::Info {
                     self.status_at_action_results();
                     self.active_box = ActiveBox::Events;
                 }
             }
 
-            KeyCode::PageDown => {
+            KeyCode::Tab => {
                 if self.active_box == ActiveBox::Events {
                     self.status_at_action_data();
                     self.active_box = ActiveBox::Info;
