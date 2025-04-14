@@ -1,5 +1,5 @@
 use super::{
-    SysInspectUX,
+    SysInspectUX, UISizes,
     elements::{ActiveBox, DbListItem, EventListItem},
 };
 use ratatui::{
@@ -15,6 +15,9 @@ use ratatui::{
 impl SysInspectUX {
     /// Render information box where data from the selected event is displayed
     fn _render_info_box(&self, rect: Rect, buf: &mut Buffer) {
+        let csize = self.size.get();
+        self.size.set(UISizes { table_info: rect.height.saturating_sub(2) as usize, ..csize });
+
         let title = "Action Data";
         let block = self._get_box_block(title, ActiveBox::Info);
 
@@ -102,6 +105,9 @@ impl SysInspectUX {
 
     /// Render list of events
     fn _render_events_box(&self, rect: Rect, buf: &mut Buffer) {
+        let csize = self.size.get();
+        self.size.set(UISizes { table_events: rect.height.saturating_sub(2) as usize, ..csize });
+
         let title = "Action Results";
         let block = self._get_box_block(title, ActiveBox::Events);
         Widget::render(&block, rect, buf);
@@ -145,6 +151,9 @@ impl SysInspectUX {
 
     /// Render minions block in the middle of the main screen
     fn _render_minions_block(&self, rect: Rect, buf: &mut Buffer) {
+        let csize = self.size.get();
+        self.size.set(UISizes { table_minions: rect.height.saturating_sub(2) as usize, ..csize });
+
         let title = "Minions";
         let block = self._get_box_block(title, ActiveBox::Minions);
         Widget::render(&block, rect, buf);
@@ -193,6 +202,9 @@ impl SysInspectUX {
 
     /// Render cycles block in the middle of the main screen
     fn _render_cycles_block(&self, rect: Rect, buf: &mut Buffer) {
+        let csize = self.size.get();
+        self.size.set(UISizes { table_cycles: rect.height.saturating_sub(2) as usize, ..csize });
+
         let title = "Query Calls";
         let block = self._get_box_block(title, ActiveBox::Cycles);
         Widget::render(&block, rect, buf);

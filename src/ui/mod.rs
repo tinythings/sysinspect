@@ -47,18 +47,12 @@ pub async fn run(cfg: MasterConfig) -> io::Result<()> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct UISizes {
     pub table_cycles: usize,
     pub table_minions: usize,
     pub table_events: usize,
     pub table_info: usize,
-}
-
-impl Default for UISizes {
-    fn default() -> Self {
-        UISizes { table_cycles: 0, table_minions: 0, table_events: 0, table_info: 0 }
-    }
 }
 
 #[derive(Debug)]
@@ -352,6 +346,46 @@ impl SysInspectUX {
         }
 
         match e.code {
+            KeyCode::PageUp => {
+                match self.active_box {
+                    ActiveBox::Cycles => {
+                        self.selected_cycle = self.selected_cycle.saturating_sub(self.size.get().table_cycles);
+                    }
+                    ActiveBox::Minions => {
+                        self.selected_minion = self.selected_minion.saturating_sub(self.size.get().table_minions);
+                    }
+                    ActiveBox::Events => {
+                        self.selected_event = self.selected_event.saturating_sub(self.size.get().table_events);
+                    }
+                    ActiveBox::Info => {
+                        self.actdt_info_offset = self.actdt_info_offset.saturating_sub(self.size.get().table_info);
+                    }
+                };
+            }
+            KeyCode::PageDown => {
+                match self.active_box {
+                    ActiveBox::Cycles => {
+                        self.selected_cycle =
+                            (self.selected_cycle + self.size.get().table_cycles).min(self.cycles_buf.len().saturating_sub(1));
+                    }
+                    ActiveBox::Minions => {
+                        if !self.li_events.is_empty() {
+                            self.selected_minion = (self.selected_minion + self.size.get().table_minions)
+                                .min(self.li_minions.len().saturating_sub(1));
+                        }
+                    }
+                    ActiveBox::Events => {
+                        if !self.li_events.is_empty() {
+                            self.selected_event =
+                                (self.selected_event + self.size.get().table_events).min(self.li_events.len().saturating_sub(1));
+                        }
+                    }
+                    ActiveBox::Info => {
+                        self.actdt_info_offset = (self.actdt_info_offset + self.size.get().table_info)
+                            .min(self.info_rows.borrow().len().saturating_sub(1));
+                    }
+                };
+            }
             KeyCode::Up => {
                 match self.active_box {
                     ActiveBox::Cycles => self.on_update_cycles(false),
