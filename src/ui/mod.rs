@@ -17,7 +17,7 @@ use ratatui::{
     widgets::{Paragraph, Row},
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     io::{self, Error},
     sync::Arc,
 };
@@ -45,6 +45,14 @@ pub async fn run(cfg: MasterConfig) -> io::Result<()> {
         }
         Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UISizes {
+    pub table_cycles: usize,
+    pub table_minions: usize,
+    pub table_events: usize,
+    pub table_info: usize,
 }
 
 #[derive(Debug)]
@@ -84,6 +92,7 @@ pub struct SysInspectUX {
 
     actdt_info_offset: usize,
     info_rows: RefCell<Vec<Row<'static>>>,
+    pub size: Cell<UISizes>,
 }
 
 impl Default for SysInspectUX {
@@ -115,6 +124,7 @@ impl Default for SysInspectUX {
 
             actdt_info_offset: 0,
             info_rows: RefCell::new(vec![]),
+            size: Cell::new(UISizes::default()),
         };
         instance.status_at_cycles(); // Also an initial status
         instance
@@ -336,6 +346,46 @@ impl SysInspectUX {
         }
 
         match e.code {
+            KeyCode::PageUp => {
+                match self.active_box {
+                    ActiveBox::Cycles => {
+                        self.selected_cycle = self.selected_cycle.saturating_sub(self.size.get().table_cycles);
+                    }
+                    ActiveBox::Minions => {
+                        self.selected_minion = self.selected_minion.saturating_sub(self.size.get().table_minions);
+                    }
+                    ActiveBox::Events => {
+                        self.selected_event = self.selected_event.saturating_sub(self.size.get().table_events);
+                    }
+                    ActiveBox::Info => {
+                        self.actdt_info_offset = self.actdt_info_offset.saturating_sub(self.size.get().table_info);
+                    }
+                };
+            }
+            KeyCode::PageDown => {
+                match self.active_box {
+                    ActiveBox::Cycles => {
+                        self.selected_cycle =
+                            (self.selected_cycle + self.size.get().table_cycles).min(self.cycles_buf.len().saturating_sub(1));
+                    }
+                    ActiveBox::Minions => {
+                        if !self.li_events.is_empty() {
+                            self.selected_minion = (self.selected_minion + self.size.get().table_minions)
+                                .min(self.li_minions.len().saturating_sub(1));
+                        }
+                    }
+                    ActiveBox::Events => {
+                        if !self.li_events.is_empty() {
+                            self.selected_event =
+                                (self.selected_event + self.size.get().table_events).min(self.li_events.len().saturating_sub(1));
+                        }
+                    }
+                    ActiveBox::Info => {
+                        self.actdt_info_offset = (self.actdt_info_offset + self.size.get().table_info)
+                            .min(self.info_rows.borrow().len().saturating_sub(1));
+                    }
+                };
+            }
             KeyCode::Up => {
                 match self.active_box {
                     ActiveBox::Cycles => self.on_update_cycles(false),
@@ -451,14 +501,14 @@ impl SysInspectUX {
                 self.purge_alert_choice = AlertResult::Default;
             }
 
-            KeyCode::PageUp => {
+            KeyCode::BackTab => {
                 if self.active_box == ActiveBox::Info {
                     self.status_at_action_results();
                     self.active_box = ActiveBox::Events;
                 }
             }
 
-            KeyCode::PageDown => {
+            KeyCode::Tab => {
                 if self.active_box == ActiveBox::Events {
                     self.status_at_action_data();
                     self.active_box = ActiveBox::Info;
