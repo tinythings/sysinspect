@@ -17,7 +17,7 @@ use ratatui::{
     widgets::{Paragraph, Row},
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     io::{self, Error},
     sync::Arc,
 };
@@ -44,6 +44,20 @@ pub async fn run(cfg: MasterConfig) -> io::Result<()> {
             r
         }
         Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct UISizes {
+    pub table_cycles: usize,
+    pub table_minions: usize,
+    pub table_events: usize,
+    pub table_info: usize,
+}
+
+impl Default for UISizes {
+    fn default() -> Self {
+        UISizes { table_cycles: 0, table_minions: 0, table_events: 0, table_info: 0 }
     }
 }
 
@@ -84,6 +98,7 @@ pub struct SysInspectUX {
 
     actdt_info_offset: usize,
     info_rows: RefCell<Vec<Row<'static>>>,
+    pub size: Cell<UISizes>,
 }
 
 impl Default for SysInspectUX {
@@ -115,6 +130,7 @@ impl Default for SysInspectUX {
 
             actdt_info_offset: 0,
             info_rows: RefCell::new(vec![]),
+            size: Cell::new(UISizes::default()),
         };
         instance.status_at_cycles(); // Also an initial status
         instance
