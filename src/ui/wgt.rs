@@ -264,5 +264,6 @@ impl Widget for &SysInspectUX {
         self.dialog_error(area, buf);
         self.dialog_purge(area, buf);
         self.dialog_exit(area, buf);
+        self.dialog_help(area, buf);
     }
 }
