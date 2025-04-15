@@ -650,14 +650,14 @@ impl SysInspectUX {
     fn purge_database(&mut self) -> Result<(), SysinspectError> {
         let out = if let Some(ipc) = self.evtipc.as_ref() {
             let c_ipc = ipc.clone();
-            return tokio::task::block_in_place(|| {
+            tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
                     match c_ipc.lock().await.query("", "", "", QUERY_CMD_PURGE_ALL).await {
                         Ok(_) => Ok(()),
                         Err(err) => Err(SysinspectError::ProtoError(format!("Error purging data: {}", err))),
                     }
                 })
-            });
+            })
         } else {
             Ok(())
         };
