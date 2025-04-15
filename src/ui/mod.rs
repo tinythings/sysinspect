@@ -82,6 +82,9 @@ pub struct SysInspectUX {
     pub exit_alert_visible: bool,
     pub exit_alert_choice: AlertResult,
 
+    // Help popup
+    pub help_popup_visible: bool,
+
     // DB
     pub evtipc: Option<Arc<Mutex<DbIPCClient>>>,
 
@@ -116,6 +119,7 @@ impl Default for SysInspectUX {
             error_alert_visible: false,
             error_alert_choice: AlertResult::default(),
             error_alert_message: String::new(),
+            help_popup_visible: false,
 
             evtipc: None,
             cycles_buf: Vec::new(),
@@ -227,6 +231,21 @@ impl SysInspectUX {
         };
     }
 
+    fn on_help_popup(&mut self, e: event::KeyEvent) -> bool {
+        let mut stat = false;
+        if self.help_popup_visible {
+            stat = true;
+            match e.code {
+                KeyCode::Enter | KeyCode::Esc => {
+                    self.help_popup_visible = false;
+                }
+                _ => {}
+            }
+        }
+
+        stat
+    }
+
     /// Process purge alert key events
     fn on_purge_alert(&mut self, e: event::KeyEvent) -> bool {
         let mut stat = false;
@@ -336,6 +355,10 @@ impl SysInspectUX {
     fn on_update_events(&mut self, down: bool) {}
 
     fn on_key(&mut self, e: event::KeyEvent) {
+        if self.on_help_popup(e) {
+            return;
+        }
+
         if self.on_purge_alert(e) {
             return;
         }
@@ -503,6 +526,9 @@ impl SysInspectUX {
                 self.purge_alert_visible = true;
                 self.purge_alert_choice = AlertResult::Default;
             }
+            KeyCode::Char('h') => {
+                self.help_popup_visible = true;
+            }
 
             KeyCode::BackTab => {
                 if self.active_box == ActiveBox::Info {
@@ -572,7 +598,7 @@ impl SysInspectUX {
                             CycleListItem::new(s.get_ts_mask(None).as_str(), s)
                         })
                         .collect();
-                    cycles.sort_by_key(|ts| ts.event().get_ts_unix());
+                    cycles.sort_by_key(|ts| std::cmp::Reverse(ts.event().get_ts_unix()));
                     Ok(cycles)
                 })
             });

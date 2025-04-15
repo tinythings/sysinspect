@@ -15,7 +15,9 @@ impl SysInspectUX {
             Span::styled("LEFT ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::styled("to action results, ", Style::default().fg(Color::LightCyan)),
             Span::styled("ESC ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled("to quit", Style::default().fg(Color::LightCyan)),
+            Span::styled("to quit, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("'h' ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("for more help", Style::default().fg(Color::LightCyan)),
         ]);
     }
 
@@ -29,7 +31,9 @@ impl SysInspectUX {
             Span::styled("LEFT ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::styled("to query calls, ", Style::default().fg(Color::LightCyan)),
             Span::styled("ESC ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled("to quit", Style::default().fg(Color::LightCyan)),
+            Span::styled("to quit, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("'h' ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("for more help", Style::default().fg(Color::LightCyan)),
         ]);
     }
 
@@ -45,7 +49,9 @@ impl SysInspectUX {
             Span::styled("LEFT ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::styled("to minions, ", Style::default().fg(Color::LightCyan)),
             Span::styled("ESC ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled("to quit", Style::default().fg(Color::LightCyan)),
+            Span::styled("to quit, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("'h' ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("for more help", Style::default().fg(Color::LightCyan)),
         ]);
     }
 
@@ -59,7 +65,9 @@ impl SysInspectUX {
             Span::styled("LEFT ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::styled("to minions, ", Style::default().fg(Color::LightCyan)),
             Span::styled("ESC ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled("to quit", Style::default().fg(Color::LightCyan)),
+            Span::styled("to quit, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("'h' ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("for more help", Style::default().fg(Color::LightCyan)),
         ]);
     }
 }
