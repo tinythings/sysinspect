@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
 use libeventreg::{
-    QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS,
+    QUERY_CMD_PURGE_ALL, QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS,
     ipcc::DbIPCClient,
     kvdb::{EventData, EventMinion, EventSession},
 };
@@ -242,7 +242,10 @@ impl SysInspectUX {
                 }
                 KeyCode::Enter => {
                     if self.purge_alert_choice == AlertResult::Purge {
-                        // XXX: call DB here
+                        self.purge_database().unwrap_or_else(|err| {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = err.to_string();
+                        });
                     }
                     self.purge_alert_visible = false;
                 }
@@ -642,6 +645,41 @@ impl SysInspectUX {
             });
         }
         Ok(vec![])
+    }
+
+    fn purge_database(&mut self) -> Result<(), SysinspectError> {
+        let out = if let Some(ipc) = self.evtipc.as_ref() {
+            let c_ipc = ipc.clone();
+            return tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    match c_ipc.lock().await.query("", "", "", QUERY_CMD_PURGE_ALL).await {
+                        Ok(_) => Ok(()),
+                        Err(err) => Err(SysinspectError::ProtoError(format!("Error purging data: {}", err))),
+                    }
+                })
+            });
+        } else {
+            Ok(())
+        };
+
+        // Reset the UI
+        if out.is_ok() {
+            self.active_box = ActiveBox::Cycles;
+            self.selected_cycle = 0;
+            self.selected_minion = 0;
+            self.selected_event = 0;
+            self.cycles_buf = Vec::new();
+            self.minions_buf = Vec::new();
+            self.events_buf = Vec::new();
+            self.event_data = IndexMap::new();
+            self.li_minions = Vec::new();
+            self.li_events = Vec::new();
+
+            self.status_at_cycles();
+            self.on_update_cycles(false);
+        }
+
+        out
     }
 
     /// Count the vertical space for the alert display, plus three empty lines
