@@ -8,14 +8,15 @@
 
 
 Sysinspect is an engine of Anomaly Detection and Root Cause Analysis.
-This engine is indented to perform anomaly detection and root cause analysis on any system.
-It is using Model Description as a source of knowledge and a
-collection of modules with telemetry data in order to perform various
-testing scenarios. 
+This engine is indented to perform anomaly detection and root cause
+analysis on any system. It is using Model Description as a source of
+knowledge and a collection of modules with telemetry data in order to
+perform various testing scenarios. 
 
 ## Use Case
 
-Primarily this is an experimental work for Anomaly Detection (AD) and Root Cause Analysis (RCA).
+Primarily this is an experimental work for Anomaly Detection (AD) and
+Root Cause Analysis (RCA).
 
 ## Bonus Use Case
 
@@ -25,12 +26,12 @@ This workflow works very similar to Ansible style.
 
 ## Documentation
 
-Complete documentation can be found here: [https://sysinspect.readthedocs.io/en/latest/](https://sysinspect.readthedocs.io/en/latest/)
+Complete documentation can be found here:
+[https://sysinspect.readthedocs.io/en/latest/](https://sysinspect.readthedocs.io/en/latest/)
 
 ## Building & Requirements
 
-At this moment, Rust 1.81 toolchain is required. Maybe earlier
-versions also work. 😉
+SysInspect is currently built on Ubuntu 22.04 or 24.04.
 
 ### Dependencies
 
@@ -45,8 +46,18 @@ Or equivalent names in your Linux distribution.
 ### Building
 
 To build Sysinspect, **do not** use `cargo` directly, but use GNU
-Make. Building release xis as simple as that:
+Make. First, you need to setup your environment:
+
+  make setup <ENTER>
+
+Once this is done, you can make a release build:
 
   make <ENTER>
 
-Binary will be found in `/target/release` and modules in `/target/release/sys` (currently only `sys.` namespace implemented).
+Binary will be found in `/target/release` and modules in
+`/target/release/sys` (currently only `sys.` namespace implemented).
+
+For static compilation you can use `musl-x86_64-dev` or `musl-x86_64`
+targets. For cross-compilation on ARM you can use `musl-aarch64-dev`
+or `musl-aarch64`, but the cross compiler for linking
+(`aarch64-linux-gnu-gcc`) must be installed separately.
