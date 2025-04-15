@@ -362,4 +362,26 @@ impl EventsRegistry {
 
         Ok(es)
     }
+
+    /// Delete everything from the database (flush it out completely).
+    pub(crate) fn purge_all_data(&self) -> Result<(), SysinspectError> {
+        log::info!("Purging all data from the database");
+        let mut c = 0;
+        for tree in self.conn.tree_names() {
+            let name = std::str::from_utf8(tree.as_ref()).unwrap_or("<invalid utf8>");
+
+            // skip internal trees, they aren't purgeable anyway even if hit
+            if !name.starts_with("__sled__") {
+                if let Err(err) = self.conn.drop_tree(tree.clone()) {
+                    log::error!("Error purging tree {}: {}", name, err);
+                } else {
+                    log::debug!("Purged tree {}", name);
+                    c += 1;
+                }
+            }
+        }
+        log::info!("Purged {} trees", c);
+
+        Ok(())
+    }
 }

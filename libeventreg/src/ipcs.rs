@@ -1,5 +1,5 @@
 use crate::kvdb::{EventData, EventMinion, EventSession, EventsRegistry};
-use crate::{QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS};
+use crate::{QUERY_CMD_PURGE_ALL, QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS};
 use ipc::ipc_service_server::{IpcService, IpcServiceServer};
 use ipc::{EmptyRequest, QueryRequest, QueryResponse, Record, RecordsResponse};
 use libsysinspect::SysinspectError;
@@ -69,6 +69,11 @@ impl IpcService for Arc<DbIPCService> {
                 }
             }
 
+            QUERY_CMD_PURGE_ALL => {
+                log::info!("Purging all events");
+                self.purge_all().await.map_err(|e| Status::internal(e.to_string()))?;
+            }
+
             _ => log::info!("Got unknown command: {:#?}", req.command),
         };
 
@@ -113,6 +118,11 @@ impl DbIPCService {
     /// Get events
     pub async fn get_events(&self, sid: &str, mid: &str) -> Result<Vec<EventData>, SysinspectError> {
         self.evtreg.lock().await.get_events(sid, mid)
+    }
+
+    /// Get all events
+    pub async fn purge_all(&self) -> Result<(), SysinspectError> {
+        self.evtreg.lock().await.purge_all_data()
     }
 
     /// Run IPC service using Unix socket (path)
