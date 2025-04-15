@@ -572,7 +572,7 @@ impl SysInspectUX {
                             CycleListItem::new(s.get_ts_mask(None).as_str(), s)
                         })
                         .collect();
-                    cycles.sort_by_key(|ts| ts.event().get_ts_unix());
+                    cycles.sort_by_key(|ts| std::cmp::Reverse(ts.event().get_ts_unix()));
                     Ok(cycles)
                 })
             });
