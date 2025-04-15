@@ -155,7 +155,7 @@ impl SysInspectUX {
         self.size.set(UISizes { table_minions: rect.height.saturating_sub(2) as usize, ..csize });
 
         let title =
-            if self.li_minions.len() > 0 { format!("Minions ({})", self.li_minions.len()) } else { "Minions".to_string() };
+            if !self.li_minions.is_empty() { format!("Minions ({})", self.li_minions.len()) } else { "Minions".to_string() };
         let block = self._get_box_block(&title, ActiveBox::Minions);
         Widget::render(&block, rect, buf);
 
