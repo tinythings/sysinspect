@@ -48,11 +48,11 @@ Or equivalent names in your Linux distribution.
 To build Sysinspect, **do not** use `cargo` directly, but use GNU
 Make. First, you need to setup your environment:
 
-  make setup <ENTER>
+    make setup <ENTER>
 
 Once this is done, you can make a release build:
 
-  make <ENTER>
+    make <ENTER>
 
 Binary will be found in `/target/release` and modules in
 `/target/release/sys` (currently only `sys.` namespace implemented).
