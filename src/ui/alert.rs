@@ -34,6 +34,7 @@ impl SysInspectUX {
                 "An unexpected error occurred:\n{}\n\nPlease check the logs for more information.",
                 self.error_alert_message
             ),
+            Alignment::Center,
             Some(Color::Red),
             AlertResult::Quit,
             Some(0),
@@ -51,6 +52,22 @@ impl SysInspectUX {
             "Are you sure you want\nto delete everything?\n\nThis operation is irreversible.",
             None,
             self.purge_alert_choice.clone(),
+            None,
+        );
+    }
+
+    pub fn dialog_help(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.help_popup_visible {
+            return;
+        }
+        Self::quit_popup(
+            parent,
+            buf,
+            Some("Help"),
+            "\"p\" - to purge all records from the dataase\n\"q\" - to quit the UI\n\"h\" - to show this help\n",
+            Alignment::Left,
+            Some(Color::Green),
+            AlertResult::Quit,
             None,
         );
     }
@@ -73,10 +90,10 @@ impl SysInspectUX {
 
     /// Draws quit popup area
     fn quit_popup(
-        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
-        width: Option<u16>,
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, text_align: Alignment, background: Option<Color>,
+        choice: AlertResult, width: Option<u16>,
     ) {
-        Self::_popup(parent, buf, title, text, background, choice, AlertButtons::Quit, width);
+        Self::_popup(parent, buf, title, text, background, text_align, choice, AlertButtons::Quit, width);
     }
 
     /// Draws ok/cancel popup area
@@ -84,7 +101,7 @@ impl SysInspectUX {
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
         width: Option<u16>,
     ) {
-        Self::_popup(parent, buf, title, text, background, choice, AlertButtons::OkCancel, width);
+        Self::_popup(parent, buf, title, text, background, Alignment::Center, choice, AlertButtons::OkCancel, width);
     }
 
     /// Draws yes/no popup area
@@ -92,13 +109,13 @@ impl SysInspectUX {
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
         width: Option<u16>,
     ) {
-        Self::_popup(parent, buf, title, text, background, choice, AlertButtons::YesNo, width);
+        Self::_popup(parent, buf, title, text, background, Alignment::Center, choice, AlertButtons::YesNo, width);
     }
 
     /// Draws a popup area
     fn _popup(
-        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
-        buttons: AlertButtons, width: Option<u16>,
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment,
+        choice: AlertResult, buttons: AlertButtons, width: Option<u16>,
     ) {
         let background = background.unwrap_or(Color::Red);
 
@@ -138,11 +155,7 @@ impl SysInspectUX {
         let text_area = vertical_chunks[0];
         let button_area = vertical_chunks[1];
 
-        Paragraph::new(text)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::White).bg(background))
-            .render(text_area, buf);
-
+        Paragraph::new(text).alignment(text_align).style(Style::default().fg(Color::White).bg(background)).render(text_area, buf);
         let (lbtn_label, rbtn_label) = match buttons {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(OK_LABEL), Self::format_button(CANCEL_LABEL)),
