@@ -154,8 +154,9 @@ impl SysInspectUX {
         let csize = self.size.get();
         self.size.set(UISizes { table_minions: rect.height.saturating_sub(2) as usize, ..csize });
 
-        let title = "Minions";
-        let block = self._get_box_block(title, ActiveBox::Minions);
+        let title =
+            if self.li_minions.len() > 0 { format!("Minions ({})", self.li_minions.len()) } else { "Minions".to_string() };
+        let block = self._get_box_block(&title, ActiveBox::Minions);
         Widget::render(&block, rect, buf);
 
         let minions_inner = block.inner(rect);
@@ -205,8 +206,8 @@ impl SysInspectUX {
         let csize = self.size.get();
         self.size.set(UISizes { table_cycles: rect.height.saturating_sub(2) as usize, ..csize });
 
-        let title = "Query Calls";
-        let block = self._get_box_block(title, ActiveBox::Cycles);
+        let title = format!("Query Calls ({})", self.cycles_buf.len());
+        let block = self._get_box_block(&title, ActiveBox::Cycles);
         Widget::render(&block, rect, buf);
 
         let cycles_inner = block.inner(rect);
