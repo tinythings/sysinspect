@@ -326,7 +326,7 @@ impl SysMinion {
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::info!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::EventsEnd, json!(ar).to_string()).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar).to_string()).sendable()?).await;
         Ok(())
     }
 

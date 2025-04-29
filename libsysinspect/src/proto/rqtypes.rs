@@ -50,13 +50,11 @@ pub enum RequestType {
     #[serde(rename = "po")]
     Pong,
 
-    /// Event notice
+    /// Event notice. This is called after each action/event.
     #[serde(rename = "evt")]
     Event,
 
-    /// Marker for the end of the model query call
-    /// This is fired at the end of all actions
-    /// those sent events (see RequestType::Event)
-    #[serde(rename = "eve")]
-    EventsEnd,
+    /// Model notice. This is called at the end of the model cycle
+    #[serde(rename = "mvt")]
+    ModelEvent,
 }

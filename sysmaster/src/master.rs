@@ -363,7 +363,7 @@ impl SysMaster {
                                 });
                             }
 
-                            RequestType::EventsEnd => {
+                            RequestType::ModelEvent => {
                                 log::info!("Minion {} finished sending events", req.id());
                                 // XXX: Aggregate OTLP events
                             }
