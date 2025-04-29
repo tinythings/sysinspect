@@ -363,6 +363,11 @@ impl SysMaster {
                                 });
                             }
 
+                            RequestType::EventsEnd => {
+                                log::info!("Minion {} finished sending events", req.id());
+                                // XXX: Aggregate OTLP events
+                            }
+
                             _ => {
                                 log::error!("Minion sends unknown request type");
                             }
