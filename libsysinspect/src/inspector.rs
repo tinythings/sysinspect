@@ -29,7 +29,11 @@ pub struct SysInspectRunner {
     cstr_f: Vec<String>, // constraints that failed
     cstr_s: Vec<String>, // constraints that succeeded
 
-    async_callbacks: Vec<Box<dyn EventProcessorCallback>>,
+    // Called after every action
+    action_callbacks: Vec<Box<dyn EventProcessorCallback>>,
+
+    // Called after all actions at the end
+    model_callbacks: Vec<Box<dyn EventProcessorCallback>>,
 }
 
 impl SysInspectRunner {
@@ -43,8 +47,14 @@ impl SysInspectRunner {
         MINION_CONFIG.get().unwrap_or(&Arc::new(MinionConfig::default())).clone()
     }
 
-    pub fn add_async_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
-        self.async_callbacks.push(c);
+    /// Adds a callback to be called after every action
+    pub fn add_action_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+        self.action_callbacks.push(c);
+    }
+
+    /// Adds a callback to be called after all actions at the end of the model cycle
+    pub fn add_model_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+        self.model_callbacks.push(c);
     }
 
     /// Return minion config as JSON
@@ -126,8 +136,11 @@ impl SysInspectRunner {
                     Ok(isp) => {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg());
-                        for c in std::mem::take(&mut self.async_callbacks) {
-                            evtproc.add_async_callback(c);
+                        for c in std::mem::take(&mut self.action_callbacks) {
+                            evtproc.add_action_callback(c);
+                        }
+                        for c in std::mem::take(&mut self.model_callbacks) {
+                            evtproc.add_model_callback(c);
                         }
 
                         let actions = if !self.cb_labels.is_empty() {

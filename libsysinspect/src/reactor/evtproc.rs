@@ -1,6 +1,6 @@
 use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
-    intp::conf::Config,
+    intp::{actproc::response::ActionResponse, conf::Config},
     reactor::handlers::{self},
 };
 
@@ -8,12 +8,19 @@ pub struct EventProcessor<'a> {
     receiver: Receiver,
     cfg: Option<&'a Config>,
     handlers: Vec<Box<dyn EventHandler>>,
-    async_callbacks: Vec<Box<dyn EventProcessorCallback>>,
+    action_callbacks: Vec<Box<dyn EventProcessorCallback>>,
+    model_callbacks: Vec<Box<dyn EventProcessorCallback>>,
 }
 
 impl<'a> EventProcessor<'a> {
     pub fn new() -> Self {
-        EventProcessor { receiver: Receiver::default(), cfg: None, handlers: Vec::default(), async_callbacks: Vec::default() }
+        EventProcessor {
+            receiver: Receiver::default(),
+            cfg: None,
+            handlers: Vec::default(),
+            action_callbacks: Vec::default(),
+            model_callbacks: Vec::default(),
+        }
     }
 
     /// Setup event processor from the given configuration
@@ -41,8 +48,12 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Add a callback
-    pub fn add_async_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
-        self.async_callbacks.push(c);
+    pub fn add_action_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+        self.action_callbacks.push(c);
+    }
+
+    pub fn add_model_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+        self.model_callbacks.push(c);
     }
 
     /// Get actions receiver
@@ -64,8 +75,15 @@ impl<'a> EventProcessor<'a> {
                 h.handle(&ar);
             }
             // Each action response sent via callback
-            for ac in &mut self.async_callbacks {
+            for ac in &mut self.action_callbacks {
                 _ = ac.on_action_response(ar.clone()).await;
+            }
+        }
+
+        // Call model callbacks for the last action response (it is usually only passes the minion reference)
+        if let Some(ar) = self.receiver.get_last() {
+            for cb in &mut self.model_callbacks {
+                _ = cb.on_action_response(ar.clone()).await;
             }
         }
     }

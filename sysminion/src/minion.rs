@@ -1,5 +1,5 @@
 use crate::{
-    callbacks::ActionResponseCallback,
+    callbacks::{ActionResponseCallback, ModelResponseCallback},
     filedata::MinionFiledata,
     proto::{
         self,
@@ -323,6 +323,13 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Send finalisation marker callback to the master on the results
+    pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
+        log::info!("Sending fin sync callback on {}", ar.aid());
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::EventsEnd, json!(ar).to_string()).sendable()?).await;
+        Ok(())
+    }
+
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
         let r = MinionMessage::new(
@@ -442,7 +449,8 @@ impl SysMinion {
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
 
-        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
+        sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
+        sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
 
         sr.start().await;
 

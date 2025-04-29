@@ -37,4 +37,8 @@ impl Receiver {
         }
         out
     }
+
+    pub fn get_last(&self) -> Option<ActionResponse> {
+        self.actions.values().last().and_then(|v| v.last().cloned())
+    }
 }
