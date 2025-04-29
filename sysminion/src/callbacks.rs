@@ -1,4 +1,4 @@
-use crate::minion::{self, SysMinion};
+use crate::minion::SysMinion;
 use async_trait::async_trait;
 use libsysinspect::{SysinspectError, intp::actproc::response::ActionResponse, reactor::callback::EventProcessorCallback};
 use std::sync::Arc;
