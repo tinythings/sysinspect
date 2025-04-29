@@ -1,6 +1,6 @@
 use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
-    intp::{actproc::response::ActionResponse, conf::Config},
+    intp::conf::Config,
     reactor::handlers::{self},
 };
 
