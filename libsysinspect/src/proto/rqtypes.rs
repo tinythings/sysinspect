@@ -53,4 +53,10 @@ pub enum RequestType {
     /// Event notice
     #[serde(rename = "evt")]
     Event,
+
+    /// Marker for the end of the model query call
+    /// This is fired at the end of all actions
+    /// those sent events (see RequestType::Event)
+    #[serde(rename = "eve")]
+    EventsEnd,
 }
