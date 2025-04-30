@@ -166,6 +166,42 @@ Below are directives for the configuration of the File Server service:
     key/value database is located and records all results, coming from the minion
     when processing a given query. Default is set to ``/var/tmp/sysinspect/telemetry``.
 
+``telemetry.collector.grpc``
+############################
+
+    Type: **string**
+
+    URI of the telemetry collector in format ``<IP>:<PORT>``. Default value is
+    ``127.0.0.1:4317`` assuming that the collector is running on the same machine.
+
+``telemetry.collector.compression``
+###################################
+
+    Type: **string**
+
+    Compression algorithm to be used for the telemetry collector. This is a string
+    and can be one of the following:
+
+        - ``gzip`` (default)
+        - ``zstd``
+        - ``none``
+
+    Which algorithm to choose?
+
+        - ``gzip`` is a good choice for most of the cases. It is most backward compatible
+          but it does not have a good compression ratio and is using more CPU power. On large metric,
+          ratio is about 33.8 and throughput is about 131 MB/s, resulting to about 52K ns/op.
+        - ``zstd`` is a much better choice for the embedded systems, where the CPU power is limited.
+          It has a better compression ratio, and is also faster than ``gzip``, but is too new. On large metric,
+          ratio is about 47.2 and throughput is about 476 MB/s, resulting to about 14K ns/op.
+        - ``none`` no compression at all. This is a good choice for the embedded systems, where
+          the CPU power is limited and the network bandwidth is not an issue.
+
+    .. attention::
+
+        The compression algorithm must be supported by the telemetry collector.
+        Far not all collectors supports ``zstd`` compression algorithm.
+
 ``scheduler``
 #############
 
