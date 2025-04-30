@@ -331,7 +331,7 @@ impl EventsRegistry {
 
     pub fn get_session(&self, sid: &str) -> Result<EventSession, SysinspectError> {
         let sessions = self.get_tree(TR_SESSIONS)?;
-        if let Some(v) = sessions.get(&sid)? {
+        if let Some(v) = sessions.get(sid)? {
             let v = String::from_utf8(v.to_vec()).unwrap_or_default();
             return EventSession::from_bytes(v.as_bytes().to_vec());
         }
