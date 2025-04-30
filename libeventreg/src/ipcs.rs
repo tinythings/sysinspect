@@ -110,6 +110,10 @@ impl DbIPCService {
         self.evtreg.lock().await.get_sessions()
     }
 
+    pub async fn get_session(&self, sid: &str) -> Result<EventSession, SysinspectError> {
+        self.evtreg.lock().await.get_session(sid)
+    }
+
     /// Get minions
     pub async fn get_minions(&self, sid: &str) -> Result<Vec<EventMinion>, SysinspectError> {
         self.evtreg.lock().await.get_minions(sid)
