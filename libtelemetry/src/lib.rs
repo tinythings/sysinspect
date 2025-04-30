@@ -10,7 +10,6 @@ use opentelemetry_otlp::Protocol;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_otlp::WithTonicConfig;
 use opentelemetry_sdk::logs::{BatchLogProcessor, SdkLoggerProvider};
-use serde_json::json;
 use std::io;
 use tokio::sync::OnceCell;
 
