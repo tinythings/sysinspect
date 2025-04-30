@@ -2,7 +2,6 @@ mod clidef;
 mod dataserv;
 mod master;
 mod registry;
-mod rmt;
 
 use clap::{ArgMatches, Command};
 use clidef::cli;
