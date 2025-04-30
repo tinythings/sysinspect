@@ -32,11 +32,7 @@ impl ExtValue for JsonValue {
     }
 
     fn as_array(&self) -> Option<&[Self]> {
-        if let JsonValue::Array(seq) = self {
-            Some(seq)
-        } else {
-            None
-        }
+        if let JsonValue::Array(seq) = self { Some(seq) } else { None }
     }
 
     fn is_object(&self) -> bool {
@@ -56,11 +52,7 @@ impl ExtValue for YamlValue {
     }
 
     fn as_array(&self) -> Option<&[Self]> {
-        if let YamlValue::Sequence(seq) = self {
-            Some(seq)
-        } else {
-            None
-        }
+        if let YamlValue::Sequence(seq) = self { Some(seq) } else { None }
     }
 
     fn is_object(&self) -> bool {
@@ -68,11 +60,7 @@ impl ExtValue for YamlValue {
     }
 
     fn get_by_key(&self, key: &Self::Key) -> Option<&Self> {
-        if let YamlValue::Mapping(map) = self {
-            map.get(YamlValue::String(key.clone()))
-        } else {
-            None
-        }
+        if let YamlValue::Mapping(map) = self { map.get(YamlValue::String(key.clone())) } else { None }
     }
 }
 
@@ -94,11 +82,7 @@ where
         }
         None
     } else if data.is_object() {
-        if let Some(v) = data.get_by_key(&ns[0].to_string()) {
-            get_ns_val(v, &ns[1..])
-        } else {
-            None
-        }
+        if let Some(v) = data.get_by_key(&ns[0].to_string()) { get_ns_val(v, &ns[1..]) } else { None }
     } else {
         None
     }

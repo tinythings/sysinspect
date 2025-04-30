@@ -151,7 +151,7 @@ impl SysInspector {
     /// Perform various model validations.
     fn validate(&self) -> Result<(), SysinspectError> {
         // Validate action chain: all constraints mentioned must be defined
-        let csr_ids = self.constraints.iter().map(|(k, v)| k.to_owned()).collect::<Vec<String>>();
+        let csr_ids = self.constraints.iter().map(|(k, _)| k.to_owned()).collect::<Vec<String>>();
         let mut ref_csr: Vec<String> = Vec::new();
         for a in self.actions.clone().values() {
             ref_csr.append(&mut a.if_true());
