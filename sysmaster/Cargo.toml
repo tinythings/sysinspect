@@ -31,6 +31,7 @@ libsysinspect = { path = "../libsysinspect" }
 libeventreg = { path = "../libeventreg" }
 libmodpak = { path = "../libmodpak" }
 libscheduler = { path = "../libscheduler" }
+libtelemetry = { path = "../libtelemetry" }
 log = "0.4.27"
 sled = "0.34.7"
 rsa = { version = "0.9.8", features = ["pkcs5", "sha1", "sha2"] }
