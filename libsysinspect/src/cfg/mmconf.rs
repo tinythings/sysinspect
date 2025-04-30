@@ -101,6 +101,12 @@ pub const CFG_TASK_INTERVAL_MINUTES: &str = "minutes";
 pub const CFG_TASK_INTERVAL_HOURS: &str = "hours";
 pub const CFG_TASK_INTERVAL_DAYS: &str = "days";
 
+// Telemetry (OTLP)
+pub static CFG_OTLP_COLLECTOR: &str = "127.0.0.1:4317"; // Default collector address
+pub static CFG_OTLP_SERVICE_NAME: &str = "sysinspect";
+pub static CFG_OTLP_SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub static CFG_OTLP_COMPRESSION: &str = "zstd"; // or "gzip"
+
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
     let mut home = String::from("");
@@ -454,6 +460,22 @@ pub struct MasterConfig {
     #[serde(rename = "telemetry.socket")]
     telemetry_socket: Option<String>,
 
+    // OpenTelemetry (OTLP) collector URI (IP:port)
+    #[serde(rename = "telemetry.collector.grpc")]
+    telemetry_collector_endpoint: Option<String>,
+
+    // OpenTelemetry (OTLP) service name
+    #[serde(rename = "telemetry.service.name")]
+    telemetry_service_name: Option<String>,
+
+    // OpenTelemetry (OTLP) service version
+    #[serde(rename = "telemetry.service.version")]
+    telemetry_service_version: Option<String>,
+
+    // OpenTelemetry (OTLP) compression mode. Default Zstd.
+    #[serde(rename = "telemetry.collector.compression")]
+    telemetry_compression: Option<String>,
+
     // Scheduler for recurring queries to all the minions
     scheduler: Option<Vec<TaskConfig>>,
 }
@@ -470,6 +492,31 @@ impl MasterConfig {
         }
 
         Err(SysinspectError::ConfigError(format!("Unable to read config at: {}", cp)))
+    }
+
+    /// Get OTLP collector endpoint
+    pub fn otlp_collector_endpoint(&self) -> String {
+        let uri = self.telemetry_collector_endpoint.clone().unwrap_or(CFG_OTLP_COLLECTOR.to_string());
+        format!("http://{}", uri.split("://").last().unwrap_or(&uri))
+    }
+
+    /// Get OTLP service name. Usually should be default.
+    pub fn otlp_service_name(&self) -> String {
+        self.telemetry_service_name.clone().unwrap_or(CFG_OTLP_SERVICE_NAME.to_string())
+    }
+
+    /// Get OTLP service version. Usually should be default.
+    pub fn otlp_service_version(&self) -> String {
+        self.telemetry_service_version.clone().unwrap_or(CFG_OTLP_SERVICE_VERSION.to_string())
+    }
+
+    /// Get OTLP compression mode. Usually should be default.
+    pub fn otlp_compression(&self) -> String {
+        let compression = self.telemetry_compression.clone().unwrap_or(CFG_OTLP_COMPRESSION.to_string());
+        if !compression.eq("gzip") && !compression.eq("zstd") {
+            return CFG_OTLP_COMPRESSION.to_string();
+        }
+        compression
     }
 
     /// Get scheduler tasks
