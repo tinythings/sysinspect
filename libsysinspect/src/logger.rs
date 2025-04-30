@@ -28,15 +28,12 @@ impl log::Log for STDOUTLogger {
     fn flush(&self) {}
 }
 
+#[derive(Default)]
 pub struct MemoryLogger {
     pub messages: Mutex<Vec<String>>,
 }
 
 impl MemoryLogger {
-    fn new() -> Self {
-        Self { messages: Mutex::new(Vec::new()) }
-    }
-
     // Retrieve the stored messages
     pub fn get_messages(&self) -> Vec<String> {
         self.messages.lock().unwrap().clone()
