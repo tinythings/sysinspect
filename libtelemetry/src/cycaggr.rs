@@ -8,6 +8,12 @@ pub struct CycleAggregator {
     minions: HashMap<String, JsonValue>,
 }
 
+impl Default for CycleAggregator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CycleAggregator {
     pub fn new() -> Self {
         CycleAggregator { minions: HashMap::new() }
