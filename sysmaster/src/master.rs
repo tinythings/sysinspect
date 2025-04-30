@@ -604,7 +604,7 @@ impl SysMaster {
 }
 
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
-    let master = Arc::new(Mutex::new(SysMaster::new(cfg.to_owned())?));
+    let master = Arc::new(Mutex::new(SysMaster::new(cfg.clone())?));
     {
         let mut m = master.lock().await;
         m.init().await?;
@@ -613,11 +613,12 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let (client_tx, client_rx) = mpsc::channel::<(Vec<u8>, String)>(100);
 
     // Start internal fileserver for minions
-    fls::start(cfg).await?;
+    fls::start(cfg.clone()).await?;
 
     // Start services
     let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;
     let scheduler = SysMaster::do_scheduler_service(Arc::clone(&master)).await;
+    libtelemetry::init_otel_collector(cfg).await?;
 
     // Task to read from the FIFO and broadcast messages to clients
     SysMaster::do_fifo(Arc::clone(&master)).await;
