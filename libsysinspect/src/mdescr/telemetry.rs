@@ -46,7 +46,7 @@ impl DataExport {
 
     /// Return the attribute format.
     pub fn attr_format(&self) -> Option<String> {
-        if let Some(f) = &self.attr_format { Some(f.clone()) } else { None }
+        self.attr_format.clone()
     }
 
     /// Get the explicit data type cast mapping
