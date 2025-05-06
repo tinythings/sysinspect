@@ -16,7 +16,7 @@
 .. role:: bi
    :class: bolditalic
 
-.. _configuration:
+.. _global_configuration:
 
 Configuration
 =============
