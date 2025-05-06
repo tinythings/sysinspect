@@ -14,7 +14,10 @@ use libeventreg::{
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::MasterConfig,
-    mdescr::mspec::MODEL_FILE_EXT,
+    mdescr::{
+        mspec::MODEL_FILE_EXT,
+        telemetry::EventSelector,
+    },
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
         rqtypes::RequestType,
@@ -330,6 +333,19 @@ impl SysMaster {
                                             return;
                                         }
                                     };
+
+                                    // Get telemetry config for this specifig event
+                                    if let Some(tcfp) = pl.get("telemetry").cloned() {
+                                        log::info!("Telemetry raw config: {:#?}", tcfp);
+                                        if let Ok(tcf) = serde_json::from_value::<Vec<EventSelector>>(tcfp) {
+                                            log::info!("Telemetry event selectors: {:#?}", tcf);
+                                            // XXX: Look for a mrec with tcf
+                                        } else {
+                                            log::error!("Telemetry config for event selector is not valid");
+                                        }
+                                    } else {
+                                        log::error!("Telemetry config for event selector not found");
+                                    }
 
                                     let sid = match m
                                         .evtipc

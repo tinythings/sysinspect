@@ -11,7 +11,7 @@ use super::telemetry::TelemetrySpec;
 /// This module's job is to read all the model files and put them together
 /// into one tree, resolving all interpolative points to one single
 /// configuration (spec)
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModelSpec {
     // These are fields of model.cfg init config
     //

@@ -132,10 +132,10 @@ impl SysInspectRunner {
         match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone()) {
             Ok(spec) => {
                 log::info!("Model spec loaded");
-                match SysInspector::new(spec, Some(Self::minion_cfg().sharelib_dir().clone())) {
+                match SysInspector::new(spec.clone(), Some(Self::minion_cfg().sharelib_dir().clone())) {
                     Ok(isp) => {
                         // Setup event processor
-                        let mut evtproc = EventProcessor::new().set_config(isp.cfg());
+                        let mut evtproc = EventProcessor::new().set_config(isp.cfg(), spec.telemetry());
                         for c in std::mem::take(&mut self.action_callbacks) {
                             evtproc.add_action_callback(c);
                         }

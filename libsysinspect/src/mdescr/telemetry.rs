@@ -8,6 +8,18 @@ pub struct TelemetrySpec {
     minion: Option<Vec<EventSelector>>,
 }
 
+impl TelemetrySpec {
+    /// Get the model telemetry spec
+    pub fn model(&self) -> Vec<EventSelector> {
+        if let Some(m) = &self.model { m.clone() } else { vec![] }
+    }
+
+    /// Get the minion telemetry spec
+    pub fn minion(&self) -> Vec<EventSelector> {
+        if let Some(m) = &self.minion { m.clone() } else { vec![] }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DataExport {
     // Name of the attribute where the data is stored in the OTEL's JSON container
