@@ -1,6 +1,7 @@
 use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
     intp::conf::Config,
+    mdescr::telemetry::TelemetrySpec,
     reactor::handlers::{self},
 };
 
@@ -10,6 +11,7 @@ pub struct EventProcessor<'a> {
     handlers: Vec<Box<dyn EventHandler>>,
     action_callbacks: Vec<Box<dyn EventProcessorCallback>>,
     model_callbacks: Vec<Box<dyn EventProcessorCallback>>,
+    telemetry_cfg: Option<TelemetrySpec>,
 }
 
 impl<'a> EventProcessor<'a> {
@@ -20,14 +22,17 @@ impl<'a> EventProcessor<'a> {
             handlers: Vec::default(),
             action_callbacks: Vec::default(),
             model_callbacks: Vec::default(),
+            telemetry_cfg: None,
         }
     }
 
     /// Setup event processor from the given configuration
-    fn setup(mut self) -> Self {
+    fn setup(mut self, telemetry_config: Option<TelemetrySpec>) -> Self {
         if self.cfg.is_none() {
             return self;
         }
+
+        self.telemetry_cfg = telemetry_config;
 
         let cfg = self.cfg.unwrap();
         for evt_id in cfg.get_event_ids() {
@@ -48,11 +53,13 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Add a callback
-    pub fn add_action_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+    pub fn add_action_callback(&mut self, mut c: Box<dyn EventProcessorCallback>) {
+        c.set_telemetry_config(self.telemetry_cfg.clone());
         self.action_callbacks.push(c);
     }
 
-    pub fn add_model_callback(&mut self, c: Box<dyn EventProcessorCallback>) {
+    pub fn add_model_callback(&mut self, mut c: Box<dyn EventProcessorCallback>) {
+        c.set_telemetry_config(self.telemetry_cfg.clone());
         self.model_callbacks.push(c);
     }
 
@@ -62,9 +69,9 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Set the configuration of a model
-    pub fn set_config(mut self, cfg: &'a Config) -> Self {
+    pub fn set_config(mut self, cfg: &'a Config, tcfg: Option<TelemetrySpec>) -> Self {
         self.cfg = Some(cfg);
-        self.setup()
+        self.setup(tcfg)
     }
 
     /// Process all handlers
