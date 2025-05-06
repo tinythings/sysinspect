@@ -113,6 +113,13 @@ impl SysMaster {
 
     /// Construct a Command message to the minion
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+        // Here is the entire model selector.
+        // Telemetry is sent to the collector for the entire *previous* call,
+        // since now we are constructing a new model call that will happen in a future.
+        //
+        // XXX: Aggregation for the previous call is not implemented yet.
+        libtelemetry::otel_log("PREVIOUS AGGREGATED DATA");
+
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
         if let [querypath, query, traits, mid] = query.as_slice() {
@@ -365,7 +372,43 @@ impl SysMaster {
 
                             RequestType::ModelEvent => {
                                 log::info!("Minion {} finished sending events", req.id());
-                                // XXX: Aggregate OTLP events
+                                let c_master = Arc::clone(&master);
+                                tokio::spawn(async move {
+                                    let master = c_master.lock().await;
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
+                                        Ok(pl) => pl,
+                                        Err(err) => {
+                                            log::error!("An event message with the bogus payload: {err}");
+                                            return;
+                                        }
+                                    };
+                                    let sid =
+                                        match master.evtipc.get_session(&util::dataconv::as_str(pl.get("cid").cloned())).await {
+                                            Ok(sid) => sid,
+                                            Err(err) => {
+                                                log::error!("Unable to acquire session for this iteration: {err}");
+                                                return;
+                                            }
+                                        };
+
+                                    // Here is essentially the selector
+                                    // This is happening on every minion.
+                                    // Since we do not know what minion will respond and which don't,
+                                    // we only collect what we know. Therefore aggregator must
+                                    // aggregate per-minion at the model call.
+                                    //
+                                    // XXX: Aggregation for the current call is not implemented yet.
+                                    libtelemetry::otel_log("CURRENT CALL AGGREGATED DATA");
+
+                                    for mn in master.evtipc.get_minions(sid.sid()).await.unwrap_or_default() {
+                                        log::info!("Minion {:#?} is registered in session", mn.get_trait("system.hostname"));
+                                        if let Ok(events) = master.evtipc.get_events(sid.sid(), mn.id()).await {
+                                            for e in events {
+                                                log::info!("Event {:#?} is registered in session", e.get_timestamp());
+                                            }
+                                        }
+                                    }
+                                });
                             }
 
                             _ => {
