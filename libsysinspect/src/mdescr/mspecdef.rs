@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::path::PathBuf;
 
+use super::telemetry::TelemetrySpec;
+
 /// Model Specification
 /// ===================
 ///
@@ -28,6 +30,8 @@ pub struct ModelSpec {
 
     inherits: Option<String>,
 
+    telemetry: Option<TelemetrySpec>,
+
     // The rest of the system structure
     #[serde(flatten)]
     system: IndexMap<String, Value>,
@@ -49,6 +53,15 @@ impl ModelSpec {
     pub fn inherits(&self) -> Option<PathBuf> {
         if let Some(p) = &self.inherits {
             return Some(PathBuf::from(p));
+        }
+
+        None
+    }
+
+    /// Get telemetry spec
+    pub fn telemetry(&self) -> Option<TelemetrySpec> {
+        if let Some(t) = &self.telemetry {
+            return Some(t.clone());
         }
 
         None

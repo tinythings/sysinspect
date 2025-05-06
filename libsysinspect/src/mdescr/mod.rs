@@ -1,6 +1,7 @@
 pub mod datapatch;
 pub mod mspec;
 pub mod mspecdef;
+pub mod telemetry;
 
 /// DSL directives
 pub static DSL_DIR_ENTITIES: &str = "entities";
