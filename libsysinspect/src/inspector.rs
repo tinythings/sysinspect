@@ -131,7 +131,7 @@ impl SysInspectRunner {
         log::info!("Starting sysinspect runner");
         match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone()) {
             Ok(spec) => {
-                log::debug!("Initalising inspector");
+                log::info!("Model spec loaded");
                 match SysInspector::new(spec, Some(Self::minion_cfg().sharelib_dir().clone())) {
                     Ok(isp) => {
                         // Setup event processor
