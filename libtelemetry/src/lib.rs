@@ -14,6 +14,7 @@ use std::io;
 use tokio::sync::OnceCell;
 
 pub mod cycaggr;
+pub mod expr;
 pub mod logevt;
 pub mod mnaggr;
 

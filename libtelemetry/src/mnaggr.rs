@@ -1,13 +1,17 @@
+use std::collections::HashMap;
+
+use libsysinspect::mdescr::telemetry::EventSelector;
 use serde_json::Value as JsonValue;
 
 pub struct MinionAggregator {
     label: String,
+    traits: HashMap<String, JsonValue>,
     data: JsonValue,
 }
 
 impl MinionAggregator {
-    pub fn new(label: String) -> Self {
-        MinionAggregator { label, data: JsonValue::Null }
+    pub fn new(label: String, traits: HashMap<String, JsonValue>) -> Self {
+        MinionAggregator { label, data: JsonValue::Null, traits }
     }
 
     /// Add minion's data to the aggregator
