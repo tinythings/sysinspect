@@ -90,3 +90,33 @@ pub struct EventSelector {
 
     export: DataExport,
 }
+
+impl EventSelector {
+    pub fn is_model_event(&self) -> bool {
+        self.map.is_some() && self.reduce.is_some()
+    }
+    /// Get the select list
+    pub fn select(&self) -> Vec<String> {
+        if let Some(s) = &self.select { s.clone() } else { vec![] }
+    }
+
+    /// Get the data map
+    pub fn data(&self) -> IndexMap<String, Value> {
+        self.data.clone()
+    }
+
+    /// Get the map
+    pub fn map(&self) -> IndexMap<String, String> {
+        if let Some(m) = &self.map { m.clone() } else { IndexMap::new() }
+    }
+
+    /// Get the reduce
+    pub fn reduce(&self) -> IndexMap<String, String> {
+        if let Some(r) = &self.reduce { r.clone() } else { IndexMap::new() }
+    }
+
+    /// Get the export spec
+    pub fn export(&self) -> DataExport {
+        self.export.clone()
+    }
+}

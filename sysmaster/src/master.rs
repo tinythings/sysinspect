@@ -14,10 +14,7 @@ use libeventreg::{
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::MasterConfig,
-    mdescr::{
-        mspec::MODEL_FILE_EXT,
-        telemetry::EventSelector,
-    },
+    mdescr::{mspec::MODEL_FILE_EXT, telemetry::EventSelector},
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
         rqtypes::RequestType,
@@ -336,10 +333,15 @@ impl SysMaster {
 
                                     // Get telemetry config for this specifig event
                                     if let Some(tcfp) = pl.get("telemetry").cloned() {
-                                        log::info!("Telemetry raw config: {:#?}", tcfp);
                                         if let Ok(tcf) = serde_json::from_value::<Vec<EventSelector>>(tcfp) {
-                                            log::info!("Telemetry event selectors: {:#?}", tcf);
-                                            // XXX: Look for a mrec with tcf
+                                            for es in tcf {
+                                                if es.is_model_event() {
+                                                    continue;
+                                                }
+                                                if mrec.matches_selectors(es.select()) {
+                                                    log::info!("MinionRecord::matches_selectors: {:#?}", es.data());
+                                                }
+                                            }
                                         } else {
                                             log::error!("Telemetry config for event selector is not valid");
                                         }
@@ -390,7 +392,9 @@ impl SysMaster {
                                 log::info!("Minion {} finished sending events", req.id());
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
-                                    let master = c_master.lock().await;
+                                    let mut master = c_master.lock().await;
+                                    let mrec = master.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
+
                                     let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
                                         Ok(pl) => pl,
                                         Err(err) => {
@@ -414,7 +418,9 @@ impl SysMaster {
                                     // aggregate per-minion at the model call.
                                     //
                                     // XXX: Aggregation for the current call is not implemented yet.
-                                    libtelemetry::otel_log("CURRENT CALL AGGREGATED DATA");
+                                    libtelemetry::otel_log(">>>>> CURRENT CALL AGGREGATED DATA");
+                                    log::debug!("Telemetry raw config after current call aggregation: {:#?}", pl);
+                                    log::debug!("mrec: {:?}", mrec);
 
                                     for mn in master.evtipc.get_minions(sid.sid()).await.unwrap_or_default() {
                                         log::info!("Minion {:#?} is registered in session", mn.get_trait("system.hostname"));
