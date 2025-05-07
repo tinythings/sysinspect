@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use libsysinspect::mdescr::telemetry::EventSelector;
 use serde_json::Value as JsonValue;
 
 pub struct MinionAggregator {
