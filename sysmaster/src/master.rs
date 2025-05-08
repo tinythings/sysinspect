@@ -334,12 +334,15 @@ impl SysMaster {
                                     // Get telemetry config for this specifig event
                                     if let Some(tcfp) = pl.get("telemetry").cloned() {
                                         if let Ok(tcf) = serde_json::from_value::<Vec<EventSelector>>(tcfp) {
+                                            log::debug!("Telemetry config: {:#?}", tcf);
                                             for es in tcf {
                                                 if es.is_model_event() {
                                                     continue;
                                                 }
                                                 if mrec.matches_selectors(es.select()) {
                                                     log::info!("MinionRecord::matches_selectors: {:#?}", es.data());
+                                                } else {
+                                                    log::debug!("Minion does not match traits selectors: {:#?}", es.data());
                                                 }
                                             }
                                         } else {
