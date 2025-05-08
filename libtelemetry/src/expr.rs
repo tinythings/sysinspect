@@ -195,14 +195,30 @@ impl ExpressionParser {
     }
 
     fn cmp_direct(&self) -> bool {
-        log::debug!("Direct comparison: {}", self.expr);
-        let val_str = self.value.as_str().unwrap_or_default();
-        let expr_str = self.expr.as_str();
-
-        if val_str == expr_str {
-            return true;
+        log::debug!("Comparing direct value: {}", self.expr);
+        match Self::get_value(&self.expr) {
+            ExprValue::Text(s) => {
+                if let Some(v) = self.value.as_str() {
+                    return s == *v;
+                }
+            }
+            ExprValue::Integer(i) => {
+                if let Some(v) = self.value.as_i64() {
+                    return i == v;
+                }
+            }
+            ExprValue::Float(f) => {
+                if let Some(v) = self.value.as_f64() {
+                    return f == v;
+                }
+            }
+            ExprValue::Bytes(b) => {
+                if let Some(v) = self.value.as_u64() {
+                    return b as u64 == v;
+                }
+            }
         }
-
+        log::debug!("Error comparing direct value: {} with value: {}", self.expr, self.value);
         false
     }
 
