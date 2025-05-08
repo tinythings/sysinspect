@@ -319,6 +319,7 @@ impl SysMinion {
     /// Send callback to the master on the results
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::info!("Sending sync callback on {}", ar.aid());
+        log::info!("Callback: {:#?}", ar);
         self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar).to_string()).sendable()?).await;
         Ok(())
     }
@@ -409,7 +410,7 @@ impl SysMinion {
             if self.as_ptr().filedata.lock().await.check_sha256(uri_file.to_owned(), fcs.to_owned(), true) {
                 continue;
             }
-            log::debug!("File {uri_file} has different checksum");
+            log::info!("Auto-updating {uri_file}");
 
             match self.as_ptr().download_file(uri_file).await {
                 Ok(data) => {
