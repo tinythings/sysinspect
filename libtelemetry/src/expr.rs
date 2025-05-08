@@ -131,7 +131,7 @@ impl ExpressionParser {
     }
 
     fn cmp_expr(&self) -> bool {
-        log::info!("Comparing expression: {}", self.expr);
+        log::debug!("Comparing expression: {}", self.expr);
         let (op, size) = match Self::get_expr(&self.expr) {
             Ok((op, size)) => (op, size),
             Err(e) => {
@@ -190,7 +190,7 @@ impl ExpressionParser {
                 }
             }
         }
-        log::error!("Error comparing expression: {} with value: {}", self.expr, self.value);
+        log::debug!("Error comparing expression: {} with value: {}", self.expr, self.value);
         false
     }
 
