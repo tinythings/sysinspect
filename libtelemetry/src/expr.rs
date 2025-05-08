@@ -1,4 +1,5 @@
 use byte_unit::Byte;
+use globset::Glob;
 use libsysinspect::SysinspectError;
 use regex::Regex;
 use serde_json::Value;
@@ -223,8 +224,12 @@ impl ExpressionParser {
     }
 
     fn glob(&self) -> bool {
-        log::debug!("Glob expression: {}", self.expr);
-        false
+        log::debug!("Comparing glob expression: {}", self.expr);
+        Glob::new(&self.expr)
+            .map_err(|e| SysinspectError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))
+            .unwrap()
+            .compile_matcher()
+            .is_match(self.value.as_str().unwrap_or_default())
     }
 
     fn eval(&mut self, val: Value) -> bool {
