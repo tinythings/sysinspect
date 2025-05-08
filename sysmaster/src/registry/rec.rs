@@ -37,12 +37,8 @@ impl MinionRecord {
                 continue;
             }
 
-            if parts[1] == libsysinspect::util::dataconv::to_string(self.traits.get(parts[0]).cloned()).unwrap_or_default() {
+            if libtelemetry::expr::expr(parts[1], self.traits.get(parts[0]).cloned().unwrap_or_default()) {
                 matched += 1;
-            } else {
-                log::error!("Selector {} does not match traits", selector);
-                log::error!("{:#?}", self.traits);
-                log::error!("------------");
             }
         }
         matched == set.len()
