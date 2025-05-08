@@ -140,10 +140,7 @@ impl ExpressionParser {
             }
         };
 
-        let exv = ExpressionParser::get_value(&size);
-        log::info!("Parsed expression: {:?}, value: {:?}", exv, self.value);
-
-        match exv {
+        match Self::get_value(&size) {
             ExprValue::Integer(i) => {
                 if let Some(v) = self.value.as_i64() {
                     return match op {
@@ -186,8 +183,8 @@ impl ExpressionParser {
             ExprValue::Text(s) => {
                 if let Some(v) = self.value.as_str() {
                     return match op {
-                        Op::NotEqual => s != v.to_string(),
-                        Op::Equal => s == v.to_string(),
+                        Op::NotEqual => s != *v,
+                        Op::Equal => s == *v,
                         _ => false,
                     };
                 }
