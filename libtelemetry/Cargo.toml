@@ -16,3 +16,4 @@ opentelemetry_sdk = { version = "0.29.0", features = ["metrics", "rt-tokio"] }
 opentelemetry-appender-log = "0.29.0"
 byte-unit = { version = "5.1.6", features = ["serde"] }
 regex = "1.11.1"
+globset = "0.4.16"

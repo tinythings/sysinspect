@@ -2771,6 +2771,7 @@ name = "libtelemetry"
 version = "0.1.0"
 dependencies = [
  "byte-unit",
+ "globset",
  "libsysinspect",
  "log",
  "opentelemetry",
