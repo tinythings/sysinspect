@@ -2465,6 +2465,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonpath-rust"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a37c2c87b8d16e788ce359660fead0ea5f4ed29ff400d55be74a4e01d1817d9"
+dependencies = [
+ "pest",
+ "pest_derive",
+ "regex",
+ "serde_json",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "jsonpath_lib"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2772,6 +2785,8 @@ version = "0.1.0"
 dependencies = [
  "byte-unit",
  "globset",
+ "indexmap 2.9.0",
+ "jsonpath-rust",
  "libsysinspect",
  "log",
  "opentelemetry",

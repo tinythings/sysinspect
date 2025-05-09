@@ -17,3 +17,5 @@ opentelemetry-appender-log = "0.29.0"
 byte-unit = { version = "5.1.6", features = ["serde"] }
 regex = "1.11.1"
 globset = "0.4.16"
+jsonpath-rust = "1.0.1"
+indexmap = { version = "2.9.0", features = ["serde"] }
