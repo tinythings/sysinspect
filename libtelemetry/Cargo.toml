@@ -19,3 +19,4 @@ regex = "1.11.1"
 globset = "0.4.16"
 jsonpath-rust = "1.0.1"
 indexmap = { version = "2.9.0", features = ["serde"] }
+strfmt = "0.2.4"
