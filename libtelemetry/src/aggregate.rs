@@ -36,3 +36,26 @@ impl CycleAggregator {
         vec![aggregated_data]
     }
 }
+
+pub struct MinionAggregator {
+    label: String,
+    traits: HashMap<String, JsonValue>,
+    data: JsonValue,
+}
+
+impl MinionAggregator {
+    pub fn new(label: String, traits: HashMap<String, JsonValue>) -> Self {
+        MinionAggregator { label, data: JsonValue::Null, traits }
+    }
+
+    /// Add minion's data to the aggregator
+    pub fn add_data(&mut self, data: JsonValue) {
+        self.data = data;
+    }
+
+    /// Aggregate all the data from the minion for the current cycle.
+    /// Returns an array of JSON objects, each containing a data for the OTLP log entry.
+    pub fn aggregate(&self) -> Vec<JsonValue> {
+        vec![self.data.clone()]
+    }
+}
