@@ -13,10 +13,10 @@ use opentelemetry_sdk::logs::{BatchLogProcessor, SdkLoggerProvider};
 use std::io;
 use tokio::sync::OnceCell;
 
-pub mod cycaggr;
+pub mod aggregate;
 pub mod expr;
 pub mod logevt;
-pub mod mnaggr;
+pub mod query;
 
 static OTEL_LOGGER: OnceCell<OpenTelemetryLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>> =
     OnceCell::const_new();
@@ -38,40 +38,6 @@ pub async fn init_otel_collector(cfg: MasterConfig) -> Result<(), SysinspectErro
     OTEL_LOGGER
         .set(otel_logger)
         .map_err(|_| SysinspectError::DynError(Box::new(io::Error::new(io::ErrorKind::Other, "Collector already initialized"))))
-
-    /*
-    otel_logger.log(
-        &Record::builder()
-            .args(format_args!("This is my one-off OTLP log"))
-            .level(Level::Info)
-            .target("manual")
-            .module_path_static(Some(module_path!()))
-            .file_static(Some(file!()))
-            .line(Some(line!()))
-            .build(),
-    );
-
-    let jpl = json!({
-        "user": "alice",
-        "action": "login",
-        "success": true,
-        "items": [1, 2, 3],
-    })
-    .to_string();
-
-    otel_logger.log(
-        &Record::builder()
-            .args(format_args!("{}", jpl))
-            .level(Level::Info)
-            .target("my-app")
-            .module_path_static(Some(module_path!()))
-            .file_static(Some(file!()))
-            .line(Some(line!()))
-            .build(),
-    );
-
-    Ok(())
-    */
 }
 
 // Returns a reference to the global OtlpLogger instance.
@@ -79,6 +45,22 @@ pub fn otel_logger() -> &'static OpenTelemetryLogBridge<SdkLoggerProvider, opent
     OTEL_LOGGER.get().expect("OTEL logger was not initialised")
 }
 
+/// Logs a JSON message to the OpenTelemetry collector.
+pub fn otel_log_json(msg: &serde_json::Value) {
+    let logger = otel_logger();
+    logger.log(
+        &Record::builder()
+            .args(format_args!("{}", msg))
+            .level(Level::Info)
+            .target("manual")
+            .module_path_static(Some(module_path!()))
+            .file_static(Some(file!()))
+            .line(Some(line!()))
+            .build(),
+    );
+}
+
+/// Logs a string message to the OpenTelemetry collector.
 pub fn otel_log(msg: &str) {
     let logger = otel_logger();
     logger.log(
