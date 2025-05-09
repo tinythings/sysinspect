@@ -41,6 +41,7 @@ pub enum SysinspectError {
     TemplateError(tera::Error),
     SledError(sled::Error),
     AnyError(anyhow::Error),
+    JsonPathError(String),
 }
 
 impl Error for SysinspectError {
@@ -76,6 +77,7 @@ impl Display for SysinspectError {
             SysinspectError::AnyError(err) => {
                 format!("(General) {}", err.chain().map(|e| e.to_string()).collect::<Vec<_>>().join(" "))
             }
+            SysinspectError::JsonPathError(err) => format!("(RFC9535 JSONPath) {err}"),
         };
 
         write!(f, "{msg}")?;
