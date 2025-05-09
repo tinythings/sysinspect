@@ -27,7 +27,7 @@ use libsysinspect::{
 };
 use libtelemetry::{otel_log_json, query::load_data};
 use once_cell::sync::Lazy;
-use serde_json::json;
+use serde_json::{json, to_value};
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -464,13 +464,17 @@ impl SysMaster {
             }
 
             if let Some(response) = pl.get("response") {
-                let data = match load_data(es.dataspec(), response.clone()) {
+                let mut data = match load_data(es.dataspec(), response.clone()) {
                     Ok(data) => data,
                     Err(err) => {
                         log::debug!("Unable to load data: {err}");
                         continue;
                     }
                 };
+
+                // Add static data
+                data.extend(es.export().static_data().iter().map(|(k, v)| (k.to_string(), to_value(v).unwrap_or_default())));
+
                 log::info!("Telemetry data: {:#?}", data);
                 otel_log_json(&json!(data));
             }
