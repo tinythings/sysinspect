@@ -20,6 +20,13 @@ impl TelemetrySpec {
     }
 }
 
+#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum DataExportType {
+    Model,
+    Cycle,
+    Action,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DataExport {
     // Name of the attribute where the data is stored in the OTEL's JSON container
@@ -39,6 +46,9 @@ pub struct DataExport {
 
     #[serde(rename = "telemetry-type")]
     telemetry_type: Option<String>,
+
+    #[serde(rename = "event-type")]
+    event_type: Option<String>,
 
     #[serde(rename = "static")]
     static_data: Option<IndexMap<String, Value>>,
@@ -75,6 +85,19 @@ impl DataExport {
     pub fn static_data(&self) -> IndexMap<String, Value> {
         if let Some(s) = &self.static_data { s.clone() } else { IndexMap::new() }
     }
+
+    /// Get the event type. Default is "cycle".
+    pub fn event_type(&self) -> DataExportType {
+        if let Some(t) = &self.event_type {
+            match t.as_str() {
+                "model" => DataExportType::Model,
+                "action" => DataExportType::Action,
+                _ => DataExportType::Cycle,
+            }
+        } else {
+            DataExportType::Cycle
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -100,9 +123,17 @@ impl EventSelector {
         if let Some(s) = &self.select { s.clone() } else { vec![] }
     }
 
-    /// Get the data map
-    pub fn data(&self) -> IndexMap<String, Value> {
-        self.data.clone()
+    /// Get the data map specification
+    pub fn dataspec(&self) -> IndexMap<String, String> {
+        let mut out: IndexMap<String, String> = IndexMap::new();
+        for (k, v) in &self.data {
+            let s = serde_yaml::to_string(v).unwrap_or_default();
+            if s.is_empty() {
+                continue;
+            }
+            out.insert(k.clone(), s);
+        }
+        out
     }
 
     /// Get the map
