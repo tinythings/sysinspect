@@ -3,6 +3,7 @@ use crate::{
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
+        rec::MinionRecord,
         session::{self, SessionKeeper},
     },
 };
@@ -14,13 +15,17 @@ use libeventreg::{
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::MasterConfig,
-    mdescr::{mspec::MODEL_FILE_EXT, telemetry::EventSelector},
+    mdescr::{
+        mspec::MODEL_FILE_EXT,
+        telemetry::{DataExportType, EventSelector},
+    },
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
         rqtypes::RequestType,
     },
     util::{self, iofs::scan_files_sha256},
 };
+use libtelemetry::{otel_log_json, query::load_data};
 use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
@@ -331,26 +336,7 @@ impl SysMaster {
                                         }
                                     };
 
-                                    // Get telemetry config for this specifig event
-                                    if let Some(tcfp) = pl.get("telemetry").cloned() {
-                                        if let Ok(tcf) = serde_json::from_value::<Vec<EventSelector>>(tcfp) {
-                                            log::debug!("Telemetry config: {:#?}", tcf);
-                                            for es in tcf {
-                                                if es.is_model_event() {
-                                                    continue;
-                                                }
-                                                if mrec.matches_selectors(es.select()) {
-                                                    log::info!("MinionRecord::matches_selectors: {:#?}", es.data());
-                                                } else {
-                                                    log::debug!("Minion does not match traits selectors: {:#?}", es.data());
-                                                }
-                                            }
-                                        } else {
-                                            log::error!("Telemetry config for event selector is not valid");
-                                        }
-                                    } else {
-                                        log::error!("Telemetry config for event selector not found");
-                                    }
+                                    m.on_event_otel(&mrec, &pl, DataExportType::Action);
 
                                     let sid = match m
                                         .evtipc
@@ -421,7 +407,7 @@ impl SysMaster {
                                     // aggregate per-minion at the model call.
                                     //
                                     // XXX: Aggregation for the current call is not implemented yet.
-                                    libtelemetry::otel_log(">>>>> CURRENT CALL AGGREGATED DATA");
+                                    //libtelemetry::otel_log(">>>>> CURRENT CALL AGGREGATED DATA");
                                     log::debug!("Telemetry raw config after current call aggregation: {:#?}", pl);
                                     log::debug!("mrec: {:?}", mrec);
 
@@ -446,6 +432,49 @@ impl SysMaster {
                 }
             }
         });
+    }
+
+    fn on_event_otel(&self, mrec: &MinionRecord, pl: &HashMap<String, serde_json::Value>, export_type: DataExportType) {
+        let tcf = match pl.get("telemetry").cloned() {
+            Some(value) => match serde_json::from_value::<Vec<EventSelector>>(value) {
+                Ok(selectors) => selectors,
+                Err(err) => {
+                    log::error!("Unable to parse telemetry config: {err}");
+                    return;
+                }
+            },
+            None => {
+                log::error!("Telemetry config not found");
+                return;
+            }
+        };
+
+        log::debug!("Telemetry config: {:#?}", tcf);
+
+        for es in tcf {
+            if es.is_model_event() {
+                continue;
+            }
+            if es.export().event_type() != export_type {
+                continue;
+            }
+            if !mrec.matches_selectors(es.select()) {
+                log::debug!("Minion does not match traits selectors: {:#?}", es.dataspec());
+                continue;
+            }
+
+            if let Some(response) = pl.get("response") {
+                let data = match load_data(es.dataspec(), response.clone()) {
+                    Ok(data) => data,
+                    Err(err) => {
+                        log::debug!("Unable to load data: {err}");
+                        continue;
+                    }
+                };
+                log::info!("Telemetry data: {:#?}", data);
+                otel_log_json(&json!(data));
+            }
+        }
     }
 
     pub async fn on_traits(&mut self, mid: String, payload: String) {
