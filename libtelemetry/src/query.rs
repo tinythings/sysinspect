@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use indexmap::IndexMap;
 use jsonpath_rust::JsonPath;
 use libsysinspect::SysinspectError;
@@ -34,4 +36,34 @@ pub fn load_data(paths: IndexMap<String, String>, data: Value) -> Result<IndexMa
     }
 
     Ok(out)
+}
+
+/// Cast data to the specified type
+pub fn cast_data(data: &mut IndexMap<String, Value>, typemap: &IndexMap<String, String>) {
+    for (key, val) in data.iter_mut() {
+        if let Some(t) = typemap.get(key) {
+            let t = t.trim().to_string();
+            let v = match t.as_str() {
+                "string" => Value::String(val.to_string()),
+                "int" => Value::from(val.as_i64().unwrap_or_default()),
+                "float" => Value::from(val.as_f64().unwrap_or_default()),
+                _ => continue,
+            };
+            *val = v;
+        }
+    }
+}
+
+/// Interpolate data to format a string
+pub fn interpolate_data(tpl: &str, data: &IndexMap<String, Value>) -> Result<String, Box<dyn std::error::Error>> {
+    let mut vars = HashMap::new();
+    for (k, v) in data.iter() {
+        let s = match v {
+            Value::String(s) => s.clone(),
+            _ => v.to_string(),
+        };
+        vars.insert(k.clone(), s);
+    }
+
+    Ok(strfmt::strfmt(tpl, &vars)?)
 }
