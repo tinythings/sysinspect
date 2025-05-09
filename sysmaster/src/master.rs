@@ -20,12 +20,14 @@ use libsysinspect::{
         telemetry::{DataExportType, EventSelector},
     },
     proto::{
-        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
-        rqtypes::RequestType,
+        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType,
     },
     util::{self, iofs::scan_files_sha256},
 };
-use libtelemetry::{otel_log_json, query::load_data};
+use libtelemetry::{
+    otel_log, otel_log_json,
+    query::{cast_data, interpolate_data, load_data},
+};
 use once_cell::sync::Lazy;
 use serde_json::{json, to_value};
 use std::{
@@ -138,10 +140,7 @@ impl SysMaster {
             let mut out: IndexMap<String, String> = IndexMap::default();
             for em in self.cfg.fileserver_models() {
                 for (n, cs) in scan_files_sha256(self.cfg.fileserver_mdl_root(false).join(em), Some(MODEL_FILE_EXT)) {
-                    out.insert(
-                        format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()),
-                        cs,
-                    );
+                    out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()), cs);
                 }
             }
 
@@ -189,8 +188,7 @@ impl SysMaster {
 
     /// Bounce message
     fn msg_not_registered(&mut self, mid: String) -> MasterMessage {
-        let mut m =
-            MasterMessage::new(RequestType::AgentUnknown, json!(self.mkr().get_master_key_pem().clone().unwrap().to_string()));
+        let mut m = MasterMessage::new(RequestType::AgentUnknown, json!(self.mkr().get_master_key_pem().clone().unwrap().to_string()));
         m.set_target(MinionTarget::new(&mid, ""));
         m.set_retcode(ProtoErrorCode::Success);
 
@@ -271,14 +269,11 @@ impl SysMaster {
                                     } else if guard.get_session().lock().await.exists(&c_id) {
                                         log::info!("Minion at {minion_addr} ({}) is already connected", req.id());
                                         guard.to_drop.insert(minion_addr);
-                                        _ = c_bcast.send(
-                                            guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap(),
-                                        );
+                                        _ = c_bcast.send(guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap());
                                     } else {
                                         log::info!("{} connected successfully", c_id);
                                         guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
-                                        _ = c_bcast
-                                            .send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
+                                        _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
                                         log::info!("Syncing traits with minion at {}", c_id);
                                     }
                                 });
@@ -291,11 +286,7 @@ impl SysMaster {
                                     let guard = c_master.lock().await;
                                     guard.get_session().lock().await.ping(&c_id, None);
                                     let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
-                                    log::trace!(
-                                        "Update last contacted for {} (alive for {:.2} min)",
-                                        req.id(),
-                                        uptime as f64 / 60.0
-                                    );
+                                    log::trace!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
                                 });
                             }
 
@@ -354,11 +345,7 @@ impl SysMaster {
                                         }
                                     };
 
-                                    let mid = match m
-                                        .evtipc
-                                        .ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned())
-                                        .await
-                                    {
+                                    let mid = match m.evtipc.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).await {
                                         Ok(mid) => mid,
                                         Err(err) => {
                                             log::error!("Unable to record a minion {}: {err}", req.id());
@@ -391,14 +378,13 @@ impl SysMaster {
                                             return;
                                         }
                                     };
-                                    let sid =
-                                        match master.evtipc.get_session(&util::dataconv::as_str(pl.get("cid").cloned())).await {
-                                            Ok(sid) => sid,
-                                            Err(err) => {
-                                                log::error!("Unable to acquire session for this iteration: {err}");
-                                                return;
-                                            }
-                                        };
+                                    let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get("cid").cloned())).await {
+                                        Ok(sid) => sid,
+                                        Err(err) => {
+                                            log::error!("Unable to acquire session for this iteration: {err}");
+                                            return;
+                                        }
+                                    };
 
                                     // Here is essentially the selector
                                     // This is happening on every minion.
@@ -475,8 +461,34 @@ impl SysMaster {
                 // Add static data
                 data.extend(es.export().static_data().iter().map(|(k, v)| (k.to_string(), to_value(v).unwrap_or_default())));
 
-                log::info!("Telemetry data: {:#?}", data);
-                otel_log_json(&json!(data));
+                // Cast data
+                cast_data(&mut data, &es.export().cast_map());
+
+                if es.export().telemetry_type().eq("log") {
+                    match es.export().attr_type().as_str() {
+                        "string" => {
+                            if let Some(tpl) = es.export().attr_format() {
+                                match interpolate_data(&tpl, &data) {
+                                    Ok(out) => otel_log(&out),
+                                    Err(err) => {
+                                        log::error!("Unable to interpolate telemetry data: {err}");
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                log::error!("Attribute type is set to \"string\", but no formatting template is provided.");
+                                continue;
+                            }
+                        }
+                        "json" => otel_log_json(&json!(data)),
+                        _ => {
+                            log::error!("Attribute type is set to \"{}\", but can be only \"string\" or \"json\".", es.export().telemetry_type());
+                            continue;
+                        }
+                    };
+                } else {
+                    log::error!("Telemetry type {} is not supported or not yet implemented", es.export().telemetry_type());
+                }
             }
         }
     }
