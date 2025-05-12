@@ -6,7 +6,7 @@ use log::Record;
 use opentelemetry::logs::Severity;
 use opentelemetry::logs::{LogRecord, Logger};
 
-use opentelemetry::{InstrumentationScope, KeyValue, logs::LoggerProvider, trace::FutureExt};
+use opentelemetry::{InstrumentationScope, KeyValue, logs::LoggerProvider};
 use opentelemetry_appender_log::OpenTelemetryLogBridge;
 use opentelemetry_otlp::Compression;
 use opentelemetry_otlp::LogExporter;
@@ -18,7 +18,7 @@ use opentelemetry_sdk::{
     Resource,
     logs::{BatchLogProcessor, SdkLoggerProvider},
 };
-use std::{fmt::Debug, io, time::SystemTime};
+use std::{io, time::SystemTime};
 use tokio::sync::OnceCell;
 
 pub mod aggregate;
