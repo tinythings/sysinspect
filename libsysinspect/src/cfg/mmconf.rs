@@ -1,4 +1,4 @@
-use crate::{SysinspectError, intp::functions::get_by_namespace};
+use crate::{SysinspectError, intp::functions::get_by_namespace, util};
 use indexmap::IndexMap;
 use nix::libc;
 use serde::{Deserialize, Serialize};
@@ -138,10 +138,78 @@ pub struct TelemetryConfig {
     compression: Option<String>,
 
     #[serde(rename = "exporter-resources")]
-    exporter_resources: Option<IndexMap<String, String>>,
+    exporter_resources: Option<IndexMap<String, Value>>,
 
     #[serde(rename = "exporter-scope")]
     exporter_scope: Option<IndexMap<String, String>>,
+}
+
+impl TelemetryConfig {
+    /// Get collector address
+    pub fn collector(&self) -> String {
+        self.collector.clone().unwrap_or(CFG_OTLP_COLLECTOR.to_string())
+    }
+
+    /// Get compression mode
+    pub fn compression(&self) -> String {
+        self.compression.clone().unwrap_or(CFG_OTLP_COMPRESSION.to_string())
+    }
+
+    /// Get exporter resources
+    pub fn resources(&self) -> IndexMap<String, String> {
+        let mut resources = IndexMap::new();
+        let mut skipped = vec![];
+        for (key, value) in self.exporter_resources.clone().unwrap_or_default() {
+            if let Some(v) = value.as_bool() {
+                if !v {
+                    // Explicitly disable a resource attribute
+                    skipped.push(key);
+                    continue;
+                }
+            }
+
+            let value = util::dataconv::to_string(Some(value)).unwrap_or_default().trim().to_string();
+            if value.is_empty() {
+                continue;
+            }
+
+            resources.insert(key, value);
+        }
+
+        for (k, v) in vec![
+            ("service.name", CFG_OTLP_SERVICE_NAME),
+            ("service.namespace", CFG_OTLP_SERVICE_NAME),
+            ("service.version", CFG_OTLP_SERVICE_VERSION),
+            ("host.name", "sysinspect"), // XXX: Fix this from traits
+            ("os.type", "linux"),
+            ("deployment.environment", "production"),
+            ("os.version", "linux"), // XXX: Fix this from traits
+        ] {
+            if !resources.contains_key(k) && !skipped.contains(&k.to_string()) {
+                resources.insert(k.to_string(), v.to_string());
+            }
+        }
+
+        resources
+    }
+
+    /// Get exporter scope
+    pub fn scope(&self) -> IndexMap<String, String> {
+        let mut scope = IndexMap::new();
+        for (k, v) in self.exporter_scope.clone().unwrap_or_default() {
+            scope.insert(k, v);
+        }
+
+        for (k, v) in vec![
+            ("name", "model"), // XXX: Fix this from query
+        ] {
+            if !scope.contains_key(k) {
+                scope.insert(k.to_string(), v.to_string());
+            }
+        }
+
+        scope
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -506,21 +574,6 @@ impl MasterConfig {
         format!("http://{}", uri.split("://").last().unwrap_or(&uri))
     }
 
-    /// Get OTLP service name. Usually should be default.
-    pub fn otlp_resources(&self) -> IndexMap<String, String> {
-        if let Some(cfg) = &self.telemetry {
-            if let Some(res) = &cfg.exporter_resources {
-                return res.clone();
-            }
-        }
-
-        let mut default = IndexMap::new();
-        default.insert("service.name".to_string(), CFG_OTLP_SERVICE_NAME.to_string());
-        default.insert("service.version".to_string(), CFG_OTLP_SERVICE_VERSION.to_string());
-
-        default
-    }
-
     /// Get OTLP compression mode. Usually should be default.
     pub fn otlp_compression(&self) -> String {
         let mut cpr = CFG_OTLP_COMPRESSION.to_string();
@@ -535,6 +588,15 @@ impl MasterConfig {
         }
 
         cpr
+    }
+
+    /// Get OTLP configuration
+    pub fn otlp_cfg(&self) -> TelemetryConfig {
+        if let Some(cfg) = &self.telemetry {
+            return cfg.clone();
+        }
+
+        TelemetryConfig::default()
     }
 
     /// Get scheduler tasks
