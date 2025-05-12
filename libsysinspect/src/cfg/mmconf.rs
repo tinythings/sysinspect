@@ -1,4 +1,5 @@
 use crate::{SysinspectError, intp::functions::get_by_namespace};
+use indexmap::IndexMap;
 use nix::libc;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Value, from_str, from_value};
@@ -126,6 +127,21 @@ fn _logfile_path() -> PathBuf {
         }
     }
     PathBuf::from("")
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct TelemetryConfig {
+    #[serde(rename = "collector.grpc")]
+    collector: Option<String>, // Default localhost
+
+    #[serde(rename = "collector.compression")]
+    compression: Option<String>,
+
+    #[serde(rename = "exporter-resources")]
+    exporter_resources: Option<IndexMap<String, String>>,
+
+    #[serde(rename = "exporter-scope")]
+    exporter_scope: Option<IndexMap<String, String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -451,7 +467,7 @@ pub struct MasterConfig {
     #[serde(rename = "pidfile")]
     pidfile: Option<String>,
 
-    // Telemetry database location
+    // Telemetry database location (local key/value storage)
     #[serde(rename = "telemetry.location")]
     telemetry_location: Option<String>,
 
@@ -460,21 +476,8 @@ pub struct MasterConfig {
     #[serde(rename = "telemetry.socket")]
     telemetry_socket: Option<String>,
 
-    // OpenTelemetry (OTLP) collector URI (IP:port)
-    #[serde(rename = "telemetry.collector.grpc")]
-    telemetry_collector_endpoint: Option<String>,
-
-    // OpenTelemetry (OTLP) service name
-    #[serde(rename = "telemetry.service.name")]
-    telemetry_service_name: Option<String>,
-
-    // OpenTelemetry (OTLP) service version
-    #[serde(rename = "telemetry.service.version")]
-    telemetry_service_version: Option<String>,
-
-    // OpenTelemetry (OTLP) compression mode. Default Zstd.
-    #[serde(rename = "telemetry.collector.compression")]
-    telemetry_compression: Option<String>,
+    // OpenTelemetry (OTLP) configuration
+    telemetry: Option<TelemetryConfig>,
 
     // Scheduler for recurring queries to all the minions
     scheduler: Option<Vec<TaskConfig>>,
@@ -496,27 +499,42 @@ impl MasterConfig {
 
     /// Get OTLP collector endpoint
     pub fn otlp_collector_endpoint(&self) -> String {
-        let uri = self.telemetry_collector_endpoint.clone().unwrap_or(CFG_OTLP_COLLECTOR.to_string());
+        let mut uri = String::new();
+        if let Some(cfg) = &self.telemetry {
+            uri = cfg.collector.clone().unwrap_or(CFG_OTLP_COLLECTOR.to_string());
+        }
         format!("http://{}", uri.split("://").last().unwrap_or(&uri))
     }
 
     /// Get OTLP service name. Usually should be default.
-    pub fn otlp_service_name(&self) -> String {
-        self.telemetry_service_name.clone().unwrap_or(CFG_OTLP_SERVICE_NAME.to_string())
-    }
+    pub fn otlp_resources(&self) -> IndexMap<String, String> {
+        if let Some(cfg) = &self.telemetry {
+            if let Some(res) = &cfg.exporter_resources {
+                return res.clone();
+            }
+        }
 
-    /// Get OTLP service version. Usually should be default.
-    pub fn otlp_service_version(&self) -> String {
-        self.telemetry_service_version.clone().unwrap_or(CFG_OTLP_SERVICE_VERSION.to_string())
+        let mut default = IndexMap::new();
+        default.insert("service.name".to_string(), CFG_OTLP_SERVICE_NAME.to_string());
+        default.insert("service.version".to_string(), CFG_OTLP_SERVICE_VERSION.to_string());
+
+        default
     }
 
     /// Get OTLP compression mode. Usually should be default.
     pub fn otlp_compression(&self) -> String {
-        let compression = self.telemetry_compression.clone().unwrap_or(CFG_OTLP_COMPRESSION.to_string());
-        if !compression.eq("gzip") && !compression.eq("zstd") {
+        let mut cpr = CFG_OTLP_COMPRESSION.to_string();
+        if let Some(cfg) = &self.telemetry {
+            if let Some(compression) = &cfg.compression {
+                cpr = compression.clone();
+            }
+        }
+
+        if !cpr.eq("gzip") && !cpr.eq("zstd") {
             return CFG_OTLP_COMPRESSION.to_string();
         }
-        compression
+
+        cpr
     }
 
     /// Get scheduler tasks
@@ -536,11 +554,7 @@ impl MasterConfig {
 
     /// Return fileserver addr
     pub fn fileserver_bind_addr(&self) -> String {
-        format!(
-            "{}:{}",
-            self.fsr_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()),
-            self.fsr_port.unwrap_or(DEFAULT_FILESERVER_PORT)
-        )
+        format!("{}:{}", self.fsr_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()), self.fsr_port.unwrap_or(DEFAULT_FILESERVER_PORT))
     }
 
     /// Get a list of exported models from the fileserver
