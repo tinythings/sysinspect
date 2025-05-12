@@ -200,9 +200,8 @@ impl TelemetryConfig {
             scope.insert(k, v);
         }
 
-        for (k, v) in vec![
-            ("name", "model"), // XXX: Fix this from query
-        ] {
+        // XXX: Fix the model name getting from an actual query
+        for (k, v) in [("name", "model")] {
             if !scope.contains_key(k) {
                 scope.insert(k.to_string(), v.to_string());
             }
