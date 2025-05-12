@@ -25,7 +25,7 @@ use libsysinspect::{
     util::{self, iofs::scan_files_sha256},
 };
 use libtelemetry::{
-    otel_log, otel_log_json,
+    otel_log_json,
     query::{cast_data, interpolate_data, load_data},
 };
 use once_cell::sync::Lazy;
@@ -34,6 +34,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::Path,
     sync::Arc,
+    vec,
 };
 use tokio::net::TcpListener;
 use tokio::select;
@@ -125,7 +126,7 @@ impl SysMaster {
         // since now we are constructing a new model call that will happen in a future.
         //
         // XXX: Aggregation for the previous call is not implemented yet.
-        libtelemetry::otel_log("PREVIOUS AGGREGATED DATA");
+        libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), Some(vec![("model".into(), "myquery here".into())]));
 
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
@@ -469,7 +470,7 @@ impl SysMaster {
                         "string" => {
                             if let Some(tpl) = es.export().attr_format() {
                                 match interpolate_data(&tpl, &data) {
-                                    Ok(out) => otel_log(&out),
+                                    Ok(out) => otel_log_json(&json!(&out), None),
                                     Err(err) => {
                                         log::error!("Unable to interpolate telemetry data: {err}");
                                         continue;
@@ -480,7 +481,7 @@ impl SysMaster {
                                 continue;
                             }
                         }
-                        "json" => otel_log_json(&json!(data)),
+                        "json" => otel_log_json(&json!(data), None),
                         _ => {
                             log::error!("Attribute type is set to \"{}\", but can be only \"string\" or \"json\".", es.export().telemetry_type());
                             continue;
