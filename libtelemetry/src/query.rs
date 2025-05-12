@@ -24,7 +24,6 @@ pub fn load_data(paths: IndexMap<String, String>, data: Value) -> Result<IndexMa
     for (k, jpath) in paths {
         let k = k.trim().to_string();
         let jpath = jpath.trim().to_string();
-        log::info!("Loading data for path for key {:#?}: {:#?}", k, jpath);
         let res = select(&jpath, &data)?;
         if res.is_empty() {
             return Err(SysinspectError::JsonPathError(format!("No data found for path: {}", k)));
