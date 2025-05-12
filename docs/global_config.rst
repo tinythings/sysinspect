@@ -222,7 +222,7 @@ Below are directives for the configuration of the File Server service:
             - ``service.version`` (string) — version of the telemetry service. Default value is the current SysInspect version.
             - ``host.name`` (string) — name of the host. Default value is the hostname of the machine.
             - ``os.type`` (string) — type of the operating system. Default value is ``linux``.
-            - ``os.deployment.environment`` (string) — deployment environment of the operating system. Default value is ``production``.
+            - ``deployment.environment`` (string) — deployment environment of the operating system. Default value is ``production``.
             - ``os.version`` (string) — version of the operating system. Default value is the current OS version.
 
         .. attention::
