@@ -162,7 +162,6 @@ impl TelemetryConfig {
         for (key, value) in self.exporter_resources.clone().unwrap_or_default() {
             if let Some(v) = value.as_bool() {
                 if !v {
-                    // Explicitly disable a resource attribute
                     skipped.push(key);
                     continue;
                 }
@@ -180,10 +179,10 @@ impl TelemetryConfig {
             ("service.name", CFG_OTLP_SERVICE_NAME),
             ("service.namespace", CFG_OTLP_SERVICE_NAME),
             ("service.version", CFG_OTLP_SERVICE_VERSION),
-            ("host.name", "sysinspect"), // XXX: Fix this from traits
-            ("os.type", "linux"),
+            ("host.name", sysinfo::System::host_name().unwrap_or_default().as_str()),
+            ("os.type", sysinfo::System::distribution_id().as_str()),
             ("deployment.environment", "production"),
-            ("os.version", "linux"), // XXX: Fix this from traits
+            ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str()),
         ] {
             if !resources.contains_key(k) && !skipped.contains(&k.to_string()) {
                 resources.insert(k.to_string(), v.to_string());
