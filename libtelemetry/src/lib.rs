@@ -61,7 +61,7 @@ pub async fn init_otel_collector(cfg: MasterConfig) -> Result<(), SysinspectErro
 }
 
 // Emit a JSON log record to the OpenTelemetry collector.
-pub fn otel_log_json(msg: &Value, attributes: Option<Vec<(Key, AnyValue)>>) {
+pub fn otel_log_json(msg: &Value, attributes: Vec<(String, Value)>) {
     fn json2av(v: &Value) -> AnyValue {
         match v {
             Value::Null => AnyValue::String("null".to_string().into()),
@@ -93,11 +93,10 @@ pub fn otel_log_json(msg: &Value, attributes: Option<Vec<(Key, AnyValue)>>) {
     rec.set_timestamp(SystemTime::now());
     rec.set_observed_timestamp(SystemTime::now());
 
-    if let Some(attrs) = attributes {
-        for (k, v) in attrs {
-            rec.add_attribute(k, v);
-        }
+    for (k, v) in attributes {
+        rec.add_attribute(k, json2av(&v));
     }
+
     rec.set_severity_text("info");
 
     logger.emit(rec);

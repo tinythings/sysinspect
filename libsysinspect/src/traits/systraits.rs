@@ -2,8 +2,8 @@ use crate::{
     SysinspectError,
     cfg::mmconf::MinionConfig,
     traits::{
-        HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME,
-        SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+        HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME, SYS_NET_HOSTNAME_FQDN,
+        SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
     },
     util::sys::to_fqdn_ip,
 };
@@ -170,22 +170,17 @@ impl SystemTraits {
             let fname = f.file_name();
             let fname = fname.to_str().unwrap_or_default();
             if fname.ends_with(".cfg") {
-                let content = Self::proxy_log_error(
-                    fs::read_to_string(f.path()),
-                    format!("Unable to read custom trait file at {}", fname).as_str(),
-                )
-                .unwrap_or_default();
+                let content = Self::proxy_log_error(fs::read_to_string(f.path()), format!("Unable to read custom trait file at {}", fname).as_str())
+                    .unwrap_or_default();
 
                 if content.is_empty() {
                     continue;
                 }
 
-                let content: Option<serde_yaml::Value> =
-                    Self::proxy_log_error(serde_yaml::from_str(&content), "Custom trait file has broken YAML");
+                let content: Option<serde_yaml::Value> = Self::proxy_log_error(serde_yaml::from_str(&content), "Custom trait file has broken YAML");
 
-                let content: Option<serde_json::Value> = content.as_ref().and_then(|v| {
-                    Self::proxy_log_error(serde_json::to_value(v), "Unable to convert existing YAML to JSON format")
-                });
+                let content: Option<serde_json::Value> =
+                    content.as_ref().and_then(|v| Self::proxy_log_error(serde_json::to_value(v), "Unable to convert existing YAML to JSON format"));
 
                 if content.is_none() {
                     log::error!("Unable to load custom traits from {}", f.file_name().to_str().unwrap_or_default());
@@ -193,10 +188,7 @@ impl SystemTraits {
                 }
 
                 let content = content.as_ref().and_then(|v| {
-                    Self::proxy_log_error(
-                        serde_json::from_value::<IndexMap<String, serde_json::Value>>(v.clone()),
-                        "Unable to parse JSON",
-                    )
+                    Self::proxy_log_error(serde_json::from_value::<IndexMap<String, serde_json::Value>>(v.clone()), "Unable to parse JSON")
                 });
 
                 if let Some(content) = content {
@@ -233,10 +225,8 @@ impl SystemTraits {
             if is_exec {
                 let out = Command::new(f.path()).output()?;
                 if out.status.success() {
-                    let data = Self::proxy_log_error(
-                        String::from_utf8(out.stdout),
-                        format!("Unable to load content from the function {}", fname).as_str(),
-                    );
+                    let data =
+                        Self::proxy_log_error(String::from_utf8(out.stdout), format!("Unable to load content from the function {}", fname).as_str());
                     if data.is_none() {
                         log::error!("Function {fname} returned no content");
                         continue;
