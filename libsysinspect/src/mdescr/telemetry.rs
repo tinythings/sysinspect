@@ -27,6 +27,12 @@ pub enum DataExportType {
     Action,
 }
 
+#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum StaticDataDestination {
+    Attribute,
+    Body,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DataExport {
     // Name of the attribute where the data is stored in the OTEL's JSON container
@@ -49,6 +55,9 @@ pub struct DataExport {
 
     #[serde(rename = "event-type")]
     event_type: Option<String>,
+
+    #[serde(rename = "static-destination")]
+    static_destination: Option<String>,
 
     #[serde(rename = "static")]
     static_data: Option<IndexMap<String, Value>>,
@@ -84,6 +93,15 @@ impl DataExport {
     /// Get the static data
     pub fn static_data(&self) -> IndexMap<String, Value> {
         if let Some(s) = &self.static_data { s.clone() } else { IndexMap::new() }
+    }
+
+    /// Get the static destination
+    pub fn static_destination(&self) -> StaticDataDestination {
+        if self.static_destination.clone().unwrap_or_default().to_lowercase().eq("body") {
+            return StaticDataDestination::Body;
+        }
+
+        StaticDataDestination::Attribute
     }
 
     /// Get the event type. Default is "cycle".
