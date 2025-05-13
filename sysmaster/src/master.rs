@@ -17,7 +17,7 @@ use libsysinspect::{
     cfg::mmconf::MasterConfig,
     mdescr::{
         mspec::MODEL_FILE_EXT,
-        telemetry::{DataExportType, EventSelector},
+        telemetry::{DataExportType, EventSelector, StaticDataDestination},
     },
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType,
@@ -29,7 +29,7 @@ use libtelemetry::{
     query::{cast_data, interpolate_data, load_data},
 };
 use once_cell::sync::Lazy;
-use serde_json::{json, to_value};
+use serde_json::{Value, json, to_value};
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -126,7 +126,7 @@ impl SysMaster {
         // since now we are constructing a new model call that will happen in a future.
         //
         // XXX: Aggregation for the previous call is not implemented yet.
-        libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), Some(vec![("model".into(), "myquery here".into())]));
+        libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), vec![("model".into(), "myquery here".into())]);
 
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
@@ -460,7 +460,13 @@ impl SysMaster {
                 };
 
                 // Add static data
-                data.extend(es.export().static_data().iter().map(|(k, v)| (k.to_string(), to_value(v).unwrap_or_default())));
+                let attributes: Vec<(String, Value)> = match es.export().static_destination() {
+                    StaticDataDestination::Attribute => es.export().static_data().iter().map(|(k, v)| (k.clone(), to_value(v).unwrap())).collect(),
+                    StaticDataDestination::Body => {
+                        data.extend(es.export().static_data().iter().map(|(k, v)| (k.to_string(), to_value(v).unwrap_or_default())));
+                        vec![]
+                    }
+                };
 
                 // Cast data
                 cast_data(&mut data, &es.export().cast_map());
@@ -470,7 +476,7 @@ impl SysMaster {
                         "string" => {
                             if let Some(tpl) = es.export().attr_format() {
                                 match interpolate_data(&tpl, &data) {
-                                    Ok(out) => otel_log_json(&json!(&out), None),
+                                    Ok(out) => otel_log_json(&json!(&out), attributes),
                                     Err(err) => {
                                         log::error!("Unable to interpolate telemetry data: {err}");
                                         continue;
@@ -481,7 +487,7 @@ impl SysMaster {
                                 continue;
                             }
                         }
-                        "json" => otel_log_json(&json!(data), None),
+                        "json" => otel_log_json(&json!(data), attributes),
                         _ => {
                             log::error!("Attribute type is set to \"{}\", but can be only \"string\" or \"json\".", es.export().telemetry_type());
                             continue;
