@@ -131,21 +131,21 @@ this selector will be called *for each minion*.
 
     It has the following keys to define:
 
-    - ``attr-name`` - this is the name of the OTLP attribute/field that will be used to export the data.
+    - ``attr-name`` — this is the name of the OTLP attribute/field that will be used to export the data.
       This is usually a string, but it can be anything. It is recommended to use a string
       that is unique and descriptive. For example, typically for logs it is called ``message``.
 
-    - ``attr-type`` - this is the type of the attribute, into which the data needs to be serialised.
+    - ``attr-type`` — this is the type of the attribute, into which the data needs to be serialised.
       By default is is ``json``.
 
-    - ``attr-format`` - an optional :bi:`string format` of the attribute, based on the obtained key-value
+    - ``attr-format`` — an optional :bi:`string format` of the attribute, based on the obtained key-value
       pairs. Using the example above, the format could be:
 
       .. code-block:: yaml
 
           attr-format: "The file {filename} was created at {datetime}."
 
-    - ``data-type`` - this is the type of the data that will be used to export the obtained telemetry.
+    - ``data-type`` — this is the type of the data that will be used to export the obtained telemetry.
       Optionally, explicitly enforce the type of the data per a key. Note, that not all keys needs to be
       converted/casted to any other type.
 
@@ -155,7 +155,7 @@ this selector will be called *for each minion*.
             filename: string
             datetime: string
 
-    - ``telemetry-type`` - this is the type of telemetry data that will be used to export the obtained.
+    - ``telemetry-type`` — this is the type of telemetry data that will be used to export the obtained.
       OpenTelemetry supports several types of telemetry data, such as logs, metrics and traces.
       SysInspect currently supports only logs (metrics are planned in a future releases),therefore default
       value currently is ``log``:
@@ -164,8 +164,22 @@ this selector will be called *for each minion*.
 
          telemetry-type: log # or metric, in a future
 
-    - ``static`` - this is an optional static data that will be added to the telemetry record.
-        This is usually used for markers, namespaces, tags etc. It is a map of key/value pairs.
+    - ``static-destination`` — destination where the telemetry data will be placed within a log message.
+      Valid values are:
+
+        - ``attributes`` — this is the default value. The telemetry data will be placed in the attributes
+          section of the log message. Usually static data is not supposed to often change, so ``attributes``
+          is a default place where to put it.
+        - ``body`` — the telemetry data will be placed in the body of the log message.
+
+        .. note::
+
+          If the ``attr-type`` is set to ``string``, then there is a :bi:`potential data loss``
+          when using ``body`` is a destination. This is because that the ``attr-format`` might
+          not be able to interpolate all the data to a string (e.g. user forgot to take that field).
+
+    - ``static`` — this is an optional static data that will be added to the telemetry record.
+      This is usually used for markers, namespaces, tags etc. It is a map of key/value pairs.
 
         .. code-block:: yaml
 
