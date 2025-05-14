@@ -56,7 +56,7 @@ impl OtelLogger {
             Ok(data) => data,
             Err(err) => {
                 log::debug!("Unable to load data: {err}");
-                return IndexMap::new();
+                IndexMap::new()
             }
         }
     }
