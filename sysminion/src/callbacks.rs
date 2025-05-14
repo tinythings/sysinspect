@@ -1,7 +1,9 @@
 use crate::minion::SysMinion;
 use async_trait::async_trait;
 use libsysinspect::{
-    SysinspectError, intp::actproc::response::ActionResponse, mdescr::telemetry::TelemetrySpec,
+    SysinspectError,
+    intp::actproc::response::{ActionModResponse, ActionResponse, ConstraintResponse},
+    mdescr::telemetry::TelemetrySpec,
     reactor::callback::EventProcessorCallback,
 };
 use std::sync::Arc;
@@ -53,12 +55,24 @@ impl ModelResponseCallback {
 
 #[async_trait]
 impl EventProcessorCallback for ModelResponseCallback {
-    async fn on_action_response(&mut self, mut ar: ActionResponse) -> Result<(), SysinspectError> {
-        ar.set_cid(self.cid.to_owned());
+    async fn on_action_response(&mut self, ar: ActionResponse) -> Result<(), SysinspectError> {
+        // Reset the data in the final response,
+        // because we need to carry only telemetry
+        // configuration data.
+        let mut fin = ActionResponse::new(
+            ar.eid().to_owned(),
+            ar.aid().to_owned(),
+            ar.sid().to_owned(),
+            ActionModResponse::default(),
+            ConstraintResponse::default(),
+        );
+
+        fin.set_cid(self.cid.to_owned());
         if let Some(tcfg) = &self.telemetry_config {
-            ar.set_telemetry_config(tcfg.model());
+            fin.set_telemetry_config(tcfg.model());
         }
-        self.minion.clone().send_fin_callback(ar).await
+
+        self.minion.clone().send_fin_callback(fin).await
     }
 
     fn set_telemetry_config(&mut self, _telemetry_config: Option<TelemetrySpec>) {
