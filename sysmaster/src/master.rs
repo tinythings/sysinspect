@@ -1,5 +1,6 @@
 use crate::{
     dataserv::fls,
+    otel::OtelLogger,
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
@@ -328,7 +329,8 @@ impl SysMaster {
                                         }
                                     };
 
-                                    m.on_event_otel(&mrec, &pl, DataExportType::Action);
+                                    // Sent OTEL log entry
+                                    OtelLogger::new().log(&mrec, &pl, DataExportType::Action);
 
                                     let sid = match m
                                         .evtipc
@@ -395,17 +397,16 @@ impl SysMaster {
                                     //
                                     // XXX: Aggregation for the current call is not implemented yet.
                                     //libtelemetry::otel_log(">>>>> CURRENT CALL AGGREGATED DATA");
-                                    log::debug!("Telemetry raw config after current call aggregation: {:#?}", pl);
-                                    log::debug!("mrec: {:?}", mrec);
+
+                                    let mut otel = OtelLogger::new();
 
                                     for mn in master.evtipc.get_minions(sid.sid()).await.unwrap_or_default() {
-                                        log::info!("Minion {:#?} is registered in session", mn.get_trait("system.hostname"));
                                         if let Ok(events) = master.evtipc.get_events(sid.sid(), mn.id()).await {
-                                            for e in events {
-                                                log::info!("Event {:#?} is registered in session", e.get_timestamp());
-                                            }
+                                            otel.feed(events);
                                         }
                                     }
+
+                                    otel.log(&mrec, &pl, DataExportType::Model);
                                 });
                             }
 
@@ -419,85 +420,6 @@ impl SysMaster {
                 }
             }
         });
-    }
-
-    fn on_event_otel(&self, mrec: &MinionRecord, pl: &HashMap<String, serde_json::Value>, export_type: DataExportType) {
-        let tcf = match pl.get("telemetry").cloned() {
-            Some(value) => match serde_json::from_value::<Vec<EventSelector>>(value) {
-                Ok(selectors) => selectors,
-                Err(err) => {
-                    log::error!("Unable to parse telemetry config: {err}");
-                    return;
-                }
-            },
-            None => {
-                log::error!("Telemetry config not found");
-                return;
-            }
-        };
-
-        log::debug!("Telemetry config: {:#?}", tcf);
-
-        for es in tcf {
-            if es.is_model_event() {
-                continue;
-            }
-            if es.export().event_type() != export_type {
-                continue;
-            }
-            if !mrec.matches_selectors(es.select()) {
-                log::debug!("Minion does not match traits selectors: {:#?}", es.dataspec());
-                continue;
-            }
-
-            if let Some(response) = pl.get("response") {
-                let mut data = match load_data(es.dataspec(), response.clone()) {
-                    Ok(data) => data,
-                    Err(err) => {
-                        log::debug!("Unable to load data: {err}");
-                        continue;
-                    }
-                };
-
-                // Add static data
-                let attributes: Vec<(String, Value)> = match es.export().static_destination() {
-                    StaticDataDestination::Attribute => es.export().static_data().iter().map(|(k, v)| (k.clone(), to_value(v).unwrap())).collect(),
-                    StaticDataDestination::Body => {
-                        data.extend(es.export().static_data().iter().map(|(k, v)| (k.to_string(), to_value(v).unwrap_or_default())));
-                        vec![]
-                    }
-                };
-
-                // Cast data
-                cast_data(&mut data, &es.export().cast_map());
-
-                if es.export().telemetry_type().eq("log") {
-                    match es.export().attr_type().as_str() {
-                        "string" => {
-                            if let Some(tpl) = es.export().attr_format() {
-                                match interpolate_data(&tpl, &data) {
-                                    Ok(out) => otel_log_json(&json!(&out), attributes),
-                                    Err(err) => {
-                                        log::error!("Unable to interpolate telemetry data: {err}");
-                                        continue;
-                                    }
-                                }
-                            } else {
-                                log::error!("Attribute type is set to \"string\", but no formatting template is provided.");
-                                continue;
-                            }
-                        }
-                        "json" => otel_log_json(&json!(data), attributes),
-                        _ => {
-                            log::error!("Attribute type is set to \"{}\", but can be only \"string\" or \"json\".", es.export().telemetry_type());
-                            continue;
-                        }
-                    };
-                } else {
-                    log::error!("Telemetry type {} is not supported or not yet implemented", es.export().telemetry_type());
-                }
-            }
-        }
     }
 
     pub async fn on_traits(&mut self, mid: String, payload: String) {
