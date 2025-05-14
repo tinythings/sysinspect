@@ -4,7 +4,6 @@ use crate::{
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
-        rec::MinionRecord,
         session::{self, SessionKeeper},
     },
 };
@@ -18,19 +17,15 @@ use libsysinspect::{
     cfg::mmconf::MasterConfig,
     mdescr::{
         mspec::MODEL_FILE_EXT,
-        telemetry::{DataExportType, EventSelector, StaticDataDestination},
+        telemetry::DataExportType,
     },
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType,
     },
     util::{self, iofs::scan_files_sha256},
 };
-use libtelemetry::{
-    otel_log_json,
-    query::{cast_data, interpolate_data, load_data},
-};
 use once_cell::sync::Lazy;
-use serde_json::{Value, json, to_value};
+use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
