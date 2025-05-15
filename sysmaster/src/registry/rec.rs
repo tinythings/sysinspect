@@ -19,6 +19,11 @@ impl MinionRecord {
         self.traits.get(attr).map(|f| f.eq(&v)).unwrap_or(false)
     }
 
+    // Get minion id
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     pub fn matches_selectors(&self, set: Vec<String>) -> bool {
         if set.is_empty() || set.contains(&"*".to_string()) {
             return true;
