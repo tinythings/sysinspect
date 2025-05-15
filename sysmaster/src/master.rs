@@ -15,10 +15,7 @@ use libeventreg::{
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::MasterConfig,
-    mdescr::{
-        mspec::MODEL_FILE_EXT,
-        telemetry::DataExportType,
-    },
+    mdescr::{mspec::MODEL_FILE_EXT, telemetry::DataExportType},
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType,
     },

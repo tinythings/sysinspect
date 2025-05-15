@@ -1,11 +1,6 @@
-use std::{
-    error::Error,
-    ffi::NulError,
-    io,
-};
-
 use jsonpath_rust::parser::errors::JsonPathError;
 use mdescr::mspec;
+use std::{error::Error, ffi::NulError, io};
 use thiserror::Error;
 
 pub mod cfg;
