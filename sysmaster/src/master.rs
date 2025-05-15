@@ -1,11 +1,11 @@
 use crate::{
     dataserv::fls,
-    otel::OtelLogger,
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
         session::{self, SessionKeeper},
     },
+    telemetry::otel::OtelLogger,
 };
 use indexmap::IndexMap;
 use libeventreg::{
@@ -322,7 +322,7 @@ impl SysMaster {
                                     };
 
                                     // Sent OTEL log entry
-                                    OtelLogger::new().log(&mrec, &pl, DataExportType::Action);
+                                    OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
 
                                     let sid = match m
                                         .evtipc
@@ -390,15 +390,28 @@ impl SysMaster {
                                     // XXX: Aggregation for the current call is not implemented yet.
                                     //libtelemetry::otel_log(">>>>> CURRENT CALL AGGREGATED DATA");
 
-                                    let mut otel = OtelLogger::new();
+                                    let mut otel = OtelLogger::new(&pl);
 
                                     for mn in master.evtipc.get_minions(sid.sid()).await.unwrap_or_default() {
-                                        if let Ok(events) = master.evtipc.get_events(sid.sid(), mn.id()).await {
-                                            otel.feed(events);
+                                        match master.evtipc.get_events(sid.sid(), mn.id()).await {
+                                            Ok(events) => match master.mreg.get(mn.id()) {
+                                                Ok(Some(mrec)) => {
+                                                    otel.feed(events, mrec);
+                                                }
+                                                Ok(None) => {
+                                                    log::error!("Unable to get minion record for {}", mn.id());
+                                                }
+                                                Err(err) => {
+                                                    log::error!("Error retrieving minion record for {}: {}", mn.id(), err);
+                                                }
+                                            },
+                                            Err(err) => {
+                                                log::error!("Error retrieving events for minion {}: {}", mn.id(), err);
+                                            }
                                         }
                                     }
 
-                                    otel.log(&mrec, &pl, DataExportType::Model);
+                                    otel.log(&mrec, DataExportType::Model);
                                 });
                             }
 

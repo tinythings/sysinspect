@@ -1,8 +1,8 @@
 mod clidef;
 mod dataserv;
 mod master;
-mod otel;
 mod registry;
+mod telemetry;
 
 use clap::{ArgMatches, Command};
 use clidef::cli;

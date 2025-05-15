@@ -1,7 +1,10 @@
-use crate::registry::rec::MinionRecord;
+use crate::{registry::rec::MinionRecord, telemetry::map::MapReducer};
 use indexmap::IndexMap;
 use libeventreg::kvdb::EventData;
-use libsysinspect::mdescr::telemetry::{DataExportType, EventSelector, StaticDataDestination};
+use libsysinspect::{
+    SysinspectError,
+    mdescr::telemetry::{DataExportType, EventSelector, StaticDataDestination},
+};
 use libtelemetry::{
     otel_log_json,
     query::{cast_data, interpolate_data, load_data},
@@ -9,23 +12,50 @@ use libtelemetry::{
 use serde_json::{Value, json, to_value};
 use std::collections::HashMap;
 
+/// Eventmap is a placeholder struct for telemetry event mapping.
+/// This is merely done to avoid monstrosity constructions like
+/// map of maps of maps...
+#[derive(Debug, Clone)]
+struct Eventmap {
+    mrec: MinionRecord,
+    events: Vec<HashMap<String, serde_json::Value>>,
+}
+
+impl Eventmap {
+    pub fn new(mrec: MinionRecord, events: Vec<HashMap<String, serde_json::Value>>) -> Self {
+        Eventmap { mrec, events }
+    }
+
+    /// Get minion record
+    pub fn minion_record(&self) -> &MinionRecord {
+        &self.mrec
+    }
+
+    /// Get events
+    pub fn events(&self) -> &Vec<HashMap<String, serde_json::Value>> {
+        &self.events
+    }
+}
+
 /// OtelLogger is a struct that handles telemetry logging
-/// using OpenTelemetry. It is responsible for processing telemetry data
-/// and sending it to the OpenTelemetry collector.
+/// using OpenTelemetry. It is responsible for creating, aggregating
+/// and further processing telemetry data, sending it to the OpenTelemetry collector.
 ///
-/// It implements the `on_event` method to handle events and
+/// It implements the `on_event` and `on_model` methods to handle events and
 /// log them using OpenTelemetry. It also provides methods to get telemetry selectors, response data,
-/// attributes, and check if the telemetry data is compliant with the spec.
+/// attributes, and check if the telemetry data is compliant with the model spec.
 pub struct OtelLogger {
-    buff: Vec<HashMap<String, serde_json::Value>>,
+    buff: Vec<Eventmap>,
+    selectors: Vec<EventSelector>,
+    payload: HashMap<String, serde_json::Value>,
 }
 
 impl OtelLogger {
-    pub fn new() -> Self {
-        OtelLogger { buff: Vec::new() }
+    pub fn new(payload: &HashMap<String, serde_json::Value>) -> Self {
+        OtelLogger { buff: Vec::new(), selectors: Self::get_selectors(payload), payload: payload.clone() }
     }
 
-    fn get_selectors(&self, pl: &HashMap<String, serde_json::Value>) -> Vec<EventSelector> {
+    fn get_selectors(pl: &HashMap<String, serde_json::Value>) -> Vec<EventSelector> {
         let tcf = match pl.get("telemetry").cloned() {
             Some(value) => match serde_json::from_value::<Vec<EventSelector>>(value) {
                 Ok(selectors) => selectors,
@@ -47,7 +77,7 @@ impl OtelLogger {
         let response = match pl.get("response").cloned() {
             Some(resp) => resp,
             None => {
-                log::debug!("No response found");
+                log::error!("No response found");
                 return IndexMap::new();
             }
         };
@@ -55,7 +85,14 @@ impl OtelLogger {
         match load_data(es.dataspec(), response.clone()) {
             Ok(data) => data,
             Err(err) => {
-                log::debug!("Unable to load data: {err}");
+                match err {
+                    SysinspectError::JsonPathInfo(err) => {
+                        log::debug!("Data does not match selector: {:#?}, error: {}", es.dataspec(), err);
+                    }
+                    _ => {
+                        log::error!("Unable to load selector data: {}", err);
+                    }
+                }
                 IndexMap::new()
             }
         }
@@ -72,34 +109,53 @@ impl OtelLogger {
     }
 
     /// Add data to the buffer for later processing with map/reduce.
-    pub fn feed(&mut self, data: Vec<EventData>) {
-        for e in data {
-            let x = e.get_response();
-            self.buff.push(x);
-        }
+    pub fn feed(&mut self, data: Vec<EventData>, mrec: MinionRecord) {
+        self.buff.push(Eventmap::new(mrec, data.into_iter().map(|e| e.get_response()).collect()));
     }
 
     // Emit log, depending on the type of event and the setup.
-    pub fn log(&mut self, mrec: &MinionRecord, pl: &HashMap<String, serde_json::Value>, export_type: DataExportType) {
+    pub fn log(&mut self, mrec: &MinionRecord, export_type: DataExportType) {
         if self.buff.is_empty() {
-            self.on_event(mrec, pl, export_type);
+            self.on_event(mrec, export_type);
         } else {
-            self.on_model(mrec, pl, export_type);
+            self.on_model(mrec, export_type);
         }
     }
 
-    fn on_model(&mut self, mrec: &MinionRecord, pl: &HashMap<String, serde_json::Value>, _export_type: DataExportType) {
-        log::info!("Event on model. Payload: {:#?}", pl);
-        log::info!("Data: {:#?}", self.buff);
+    /// on_model is called when a *minion model* event occurs (`RequestType::Model`).
+    fn on_model(&mut self, mrec: &MinionRecord, _export_type: DataExportType) {
+        // Map
+        for s in &self.selectors {
+            for em in &self.buff {
+                if em.minion_record().matches_selectors(s.select()) {
+                    // Get the data using given selector. Drop messages if data is not matching it.
+                    for pl in em.events() {
+                        match load_data(s.dataspec(), serde_json::Value::Object(pl.clone().into_iter().collect())) {
+                            Ok(data) => {
+                                let mut r = MapReducer::new(s.map());
+                                let data = r.set_data(data).map().reduce().data();
+                                log::info!("Data for selector: {:#?}", data);
+                            }
+                            Err(err) => match err {
+                                SysinspectError::JsonPathInfo(err) => {
+                                    log::debug!("Data does not match selector: {:#?}, error: {}", s.dataspec(), err);
+                                }
+                                _ => {
+                                    log::error!("Unable to load selector data: {}", err);
+                                }
+                            },
+                        }
+                    }
+                }
+            }
+        }
+
         self.buff.clear();
     }
 
     /// on_event is called when an a *minion action event* occurs (`RequestType::Event`).
-    fn on_event(&self, mrec: &MinionRecord, pl: &HashMap<String, serde_json::Value>, export_type: DataExportType) {
-        let tcf = self.get_selectors(pl);
-        log::debug!("Telemetry config: {:#?}", tcf);
-
-        for es in tcf {
+    fn on_event(&self, mrec: &MinionRecord, export_type: DataExportType) {
+        for es in &self.selectors {
             if es.is_model_event() {
                 continue;
             }
@@ -111,11 +167,11 @@ impl OtelLogger {
                 continue;
             }
 
-            let mut rspdata = self.get_response_data(&es, pl);
-            let attributes = self.get_attrs(&es, &mut rspdata);
+            let mut rspdata = self.get_response_data(es, &self.payload);
+            let attributes = self.get_attrs(es, &mut rspdata);
 
             // Skip records if they do not match the telemetry data spec (i.e. no data for that particular selector)
-            if !self.spec_compliant(&es, &rspdata) {
+            if !self.spec_compliant(es, &rspdata) {
                 log::debug!("Event does not match telemetry spec: {:#?}", es.dataspec());
                 continue;
             }
