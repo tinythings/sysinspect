@@ -2466,9 +2466,9 @@ dependencies = [
 
 [[package]]
 name = "jsonpath-rust"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a37c2c87b8d16e788ce359660fead0ea5f4ed29ff400d55be74a4e01d1817d9"
+checksum = "5b37465feaf9d41f74df7da98c6c1c31ca8ea06d11b5bf7869c8f1ccc51a793f"
 dependencies = [
  "pest",
  "pest_derive",
@@ -2750,6 +2750,8 @@ dependencies = [
  "hex",
  "if-addrs",
  "indexmap 2.9.0",
+ "jsonpath-rust",
+ "jsonpath_lib",
  "lazy_static",
  "log",
  "nix",
@@ -2773,6 +2775,7 @@ dependencies = [
  "sysinfo 0.34.2",
  "tera",
  "textwrap",
+ "thiserror 2.0.12",
  "tokio",
  "unicode-segmentation",
  "uuid",
