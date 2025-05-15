@@ -8,13 +8,7 @@ use serde_json::Value;
 /// Select data using JSONPath RFC9535
 /// https://www.rfc-editor.org/rfc/rfc9535.html
 pub fn select(jpath: &str, data: &Value) -> Result<Vec<Value>, SysinspectError> {
-    let res = match data.query(jpath) {
-        Ok(z) => z,
-        Err(e) => {
-            return Err(SysinspectError::JsonPathError(e.to_string()));
-        }
-    };
-
+    let res = data.query(jpath)?;
     Ok(res.into_iter().map(|v| v.to_owned()).collect())
 }
 
@@ -26,9 +20,9 @@ pub fn load_data(paths: IndexMap<String, String>, data: Value) -> Result<IndexMa
         let jpath = jpath.trim().to_string();
         let res = select(&jpath, &data)?;
         if res.is_empty() {
-            return Err(SysinspectError::JsonPathError(format!("No data found for path: {}", k)));
+            return Err(SysinspectError::JsonPathInfo(format!("No data found for path: {}", k)));
         } else if res.len() > 1 {
-            return Err(SysinspectError::JsonPathError(format!("Multiple data found for path: {}", k)));
+            return Err(SysinspectError::JsonPathInfo(format!("Multiple data found for path: {}", k)));
         } else {
             out.insert(k, res[0].clone());
         }
