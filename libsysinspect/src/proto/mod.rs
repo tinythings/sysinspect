@@ -135,6 +135,11 @@ impl MinionMessage {
         &self.id
     }
 
+    /// Get session Id
+    pub fn sid(&self) -> &str {
+        &self.sid
+    }
+
     /// Get payload
     pub fn payload(&self) -> &str {
         &self.data
