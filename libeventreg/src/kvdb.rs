@@ -262,9 +262,7 @@ impl EventsRegistry {
     }
 
     /// Add an event
-    pub fn add_event(
-        &mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>,
-    ) -> Result<(), SysinspectError> {
+    pub fn add_event(&mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>) -> Result<(), SysinspectError> {
         let events = self.get_tree(&Self::to_tree_id(sid.sid(), mid.id()))?;
         if let Err(err) = events.insert(
             format!(
@@ -300,9 +298,7 @@ impl EventsRegistry {
     }
 
     /// Ensure that the minion data is there.
-    pub fn ensure_minion(
-        &mut self, sid: &EventSession, mid: String, traits: HashMap<String, Value>,
-    ) -> Result<String, SysinspectError> {
+    pub fn ensure_minion(&mut self, sid: &EventSession, mid: String, traits: HashMap<String, Value>) -> Result<String, SysinspectError> {
         let session_minions = self.get_tree(sid.sid())?;
         if !session_minions.contains_key(&mid)? {
             log::debug!("Adding minion: {mid} at {}", sid.sid().green());
@@ -348,11 +344,7 @@ impl EventsRegistry {
                 Ok(m) => serde_json::from_str::<HashMap<String, Value>>(&String::from_utf8(m.to_vec()).unwrap_or_default())?,
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Error getting minions: {err}"))),
             };
-            ms.push(EventMinion {
-                mid: util::dataconv::as_str(traits.get("system.id").cloned()),
-                cycles_id: Some(sid.to_string()),
-                traits,
-            });
+            ms.push(EventMinion { mid: util::dataconv::as_str(traits.get("system.id").cloned()), cycles_id: Some(sid.to_string()), traits });
         }
         Ok(ms)
     }

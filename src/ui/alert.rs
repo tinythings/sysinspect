@@ -13,6 +13,12 @@ enum AlertButtons {
     Quit,
 }
 
+impl Default for AlertButtons {
+    fn default() -> Self {
+        Self::Ok
+    }
+}
+
 static YES_LABEL: &str = "Yes";
 static NO_LABEL: &str = "No";
 static OK_LABEL: &str = "OK";
@@ -30,10 +36,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Error"),
-            &format!(
-                "An unexpected error occurred:\n{}\n\nPlease check the logs for more information.",
-                self.error_alert_message
-            ),
+            &format!("An unexpected error occurred:\n{}\n\nPlease check the logs for more information.", self.error_alert_message),
             Alignment::Center,
             Some(Color::Red),
             AlertResult::Quit,
@@ -90,32 +93,30 @@ impl SysInspectUX {
 
     /// Draws quit popup area
     fn quit_popup(
-        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, text_align: Alignment, background: Option<Color>,
-        choice: AlertResult, width: Option<u16>,
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, text_align: Alignment, background: Option<Color>, choice: AlertResult,
+        width: Option<u16>,
     ) {
         Self::_popup(parent, buf, title, text, background, text_align, choice, AlertButtons::Quit, width);
     }
 
     /// Draws ok/cancel popup area
     fn okcancel_popup(
-        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
-        width: Option<u16>,
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult, width: Option<u16>,
     ) {
         Self::_popup(parent, buf, title, text, background, Alignment::Center, choice, AlertButtons::OkCancel, width);
     }
 
     /// Draws yes/no popup area
     fn yesno_popup(
-        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult,
-        width: Option<u16>,
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, choice: AlertResult, width: Option<u16>,
     ) {
         Self::_popup(parent, buf, title, text, background, Alignment::Center, choice, AlertButtons::YesNo, width);
     }
 
     /// Draws a popup area
     fn _popup(
-        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment,
-        choice: AlertResult, buttons: AlertButtons, width: Option<u16>,
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
+        buttons: AlertButtons, width: Option<u16>,
     ) {
         let background = background.unwrap_or(Color::Red);
 
@@ -147,10 +148,8 @@ impl SysInspectUX {
         let popup_inner = popup_block.inner(canvas);
         popup_block.render(canvas, buf);
 
-        let vertical_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(text_lines), Constraint::Length(1)])
-            .split(popup_inner);
+        let vertical_chunks =
+            Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_lines), Constraint::Length(1)]).split(popup_inner);
 
         let text_area = vertical_chunks[0];
         let button_area = vertical_chunks[1];
