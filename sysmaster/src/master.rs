@@ -360,7 +360,6 @@ impl SysMaster {
                             }
 
                             RequestType::ModelEvent => {
-                                log::info!("Minion {} finished sending events", req.id());
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
                                     let mut master = c_master.lock().await;
@@ -381,36 +380,24 @@ impl SysMaster {
                                         }
                                     };
 
-                                    // Here is essentially the selector
-                                    // This is happening on every minion.
-                                    // Since we do not know what minion will respond and which don't,
-                                    // we only collect what we know. Therefore aggregator must
-                                    // aggregate per-minion at the model call.
-                                    //
-                                    // XXX: Aggregation for the current call is not implemented yet.
-                                    //libtelemetry::otel_log(">>>>> CURRENT CALL AGGREGATED DATA");
-
                                     let mut otel = OtelLogger::new(&pl);
-
-                                    for mn in master.evtipc.get_minions(sid.sid()).await.unwrap_or_default() {
-                                        match master.evtipc.get_events(sid.sid(), mn.id()).await {
-                                            Ok(events) => match master.mreg.get(mn.id()) {
-                                                Ok(Some(mrec)) => {
-                                                    otel.feed(events, mrec);
-                                                }
-                                                Ok(None) => {
-                                                    log::error!("Unable to get minion record for {}", mn.id());
-                                                }
-                                                Err(err) => {
-                                                    log::error!("Error retrieving minion record for {}: {}", mn.id(), err);
-                                                }
-                                            },
-                                            Err(err) => {
-                                                log::error!("Error retrieving events for minion {}: {}", mn.id(), err);
+                                    otel.set_map(true); // Use mapper (only)
+                                    match master.evtipc.get_events(sid.sid(), req.id()).await {
+                                        Ok(events) => match master.mreg.get(req.id()) {
+                                            Ok(Some(mrec)) => {
+                                                otel.feed(events, mrec);
                                             }
+                                            Ok(None) => {
+                                                log::error!("Unable to get minion record for {}", req.id());
+                                            }
+                                            Err(err) => {
+                                                log::error!("Error retrieving minion record for {}: {}", req.id(), err);
+                                            }
+                                        },
+                                        Err(err) => {
+                                            log::error!("Error retrieving events for minion {}: {}", req.id(), err);
                                         }
                                     }
-
                                     otel.log(&mrec, DataExportType::Model);
                                 });
                             }

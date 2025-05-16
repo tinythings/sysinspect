@@ -1,4 +1,4 @@
-use crate::{registry::rec::MinionRecord, telemetry::map::MapReducer};
+use crate::{registry::rec::MinionRecord, telemetry::map::FunctionMapper};
 use indexmap::IndexMap;
 use libeventreg::kvdb::EventData;
 use libsysinspect::{
@@ -48,11 +48,13 @@ pub struct OtelLogger {
     buff: Vec<Eventmap>,
     selectors: Vec<EventSelector>,
     payload: HashMap<String, serde_json::Value>,
+    map: bool,
+    reduce: bool,
 }
 
 impl OtelLogger {
     pub fn new(payload: &HashMap<String, serde_json::Value>) -> Self {
-        OtelLogger { buff: Vec::new(), selectors: Self::get_selectors(payload), payload: payload.clone() }
+        OtelLogger { buff: Vec::new(), selectors: Self::get_selectors(payload), payload: payload.clone(), map: false, reduce: false }
     }
 
     fn get_selectors(pl: &HashMap<String, serde_json::Value>) -> Vec<EventSelector> {
@@ -108,6 +110,16 @@ impl OtelLogger {
         }
     }
 
+    /// Set map flag
+    pub fn set_map(&mut self, map: bool) {
+        self.map = map;
+    }
+
+    /// Set reduce flag
+    pub fn set_reduce(&mut self, reduce: bool) {
+        self.reduce = reduce;
+    }
+
     /// Add data to the buffer for later processing with map/reduce.
     pub fn feed(&mut self, data: Vec<EventData>, mrec: MinionRecord) {
         self.buff.push(Eventmap::new(mrec, data.into_iter().map(|e| e.get_response()).collect()));
@@ -118,12 +130,26 @@ impl OtelLogger {
         if self.buff.is_empty() {
             self.on_event(mrec, export_type);
         } else {
-            self.on_model(mrec, export_type);
+            if self.map {
+                self.on_map();
+            }
+
+            if self.reduce {
+                self.on_reduce();
+            }
         }
     }
 
-    /// on_model is called when a *minion model* event occurs (`RequestType::Model`).
-    fn on_model(&mut self, mrec: &MinionRecord, _export_type: DataExportType) {
+    fn on_reduce(&self) {
+        for es in &self.selectors {
+            // TODO: Implement reduce logic
+            // This is a placeholder for the reduce logic.
+        }
+        log::warn!("Reduce is not implemented yet.");
+    }
+
+    /// on_map is called when a *minion model* event occurs (`RequestType::Model`).
+    fn on_map(&mut self) {
         // Map
         for s in &self.selectors {
             for em in &self.buff {
@@ -132,9 +158,13 @@ impl OtelLogger {
                     for pl in em.events() {
                         match load_data(s.dataspec(), serde_json::Value::Object(pl.clone().into_iter().collect())) {
                             Ok(data) => {
-                                let mut r = MapReducer::new(s.map());
-                                let data = r.set_data(data).map().reduce().data(); // map/reduce data
-                                log::info!("Data for selector: {:#?}", data);
+                                let mut mdata = FunctionMapper::new(s.map()).set_data(data).map();
+                                let attributes = self.get_attrs(s, &mut mdata);
+                                if self.spec_compliant(s, &mdata) {
+                                    self.emit(s, &mut mdata, attributes);
+                                } else {
+                                    log::warn!("Data does not match telemetry spec: {:#?}", s.dataspec());
+                                }
                             }
                             Err(err) => match err {
                                 SysinspectError::JsonPathInfo(err) => {
@@ -176,34 +206,38 @@ impl OtelLogger {
                 continue;
             }
 
-            // Cast data
-            cast_data(&mut rspdata, &es.export().cast_map());
+            self.emit(es, &mut rspdata, attributes);
+        }
+    }
 
-            if es.export().telemetry_type().eq("log") {
-                match es.export().attr_type().as_str() {
-                    "string" => {
-                        if let Some(tpl) = es.export().attr_format() {
-                            match interpolate_data(&tpl, &rspdata) {
-                                Ok(out) => otel_log_json(&json!(&out), attributes),
-                                Err(err) => {
-                                    log::error!("Unable to interpolate telemetry data: {err}");
-                                    continue;
-                                }
+    /// Emit telemetry data to OpenTelemetry collector.
+    fn emit(&self, es: &EventSelector, rspdata: &mut IndexMap<String, Value>, attributes: Vec<(String, Value)>) {
+        cast_data(rspdata, &es.export().cast_map());
+
+        if es.export().telemetry_type().eq("log") {
+            match es.export().attr_type().as_str() {
+                "string" => {
+                    if let Some(tpl) = es.export().attr_format() {
+                        match interpolate_data(&tpl, &rspdata) {
+                            Ok(out) => otel_log_json(&json!(&out), attributes),
+                            Err(err) => {
+                                log::error!("Unable to interpolate telemetry data: {err}");
+                                return;
                             }
-                        } else {
-                            log::error!("Attribute type is set to \"string\", but no formatting template is provided.");
-                            continue;
                         }
+                    } else {
+                        log::error!("Attribute type is set to \"string\", but no formatting template is provided.");
+                        return;
                     }
-                    "json" => otel_log_json(&json!(rspdata), attributes),
-                    _ => {
-                        log::error!("Attribute type is set to \"{}\", but can be only \"string\" or \"json\".", es.export().telemetry_type());
-                        continue;
-                    }
-                };
-            } else {
-                log::error!("Telemetry type {} is not supported or not yet implemented", es.export().telemetry_type());
-            }
+                }
+                "json" => otel_log_json(&json!(rspdata), attributes),
+                _ => {
+                    log::error!("Attribute type is set to \"{}\", but can be only \"string\" or \"json\".", es.export().telemetry_type());
+                    return;
+                }
+            };
+        } else {
+            log::error!("Telemetry type {} is not supported or not yet implemented", es.export().telemetry_type());
         }
     }
 

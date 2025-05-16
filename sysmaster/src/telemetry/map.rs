@@ -3,46 +3,39 @@ use libsysinspect::util;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
-pub struct MapReducer {
+pub struct FunctionMapper {
     fmap: IndexMap<String, String>,
     data: IndexMap<String, Value>,
 }
 
-impl MapReducer {
-    pub fn new(functionmap: IndexMap<String, String>) -> Self {
-        MapReducer { fmap: functionmap, data: IndexMap::new() }
+impl FunctionMapper {
+    pub fn new(map: IndexMap<String, String>) -> Self {
+        FunctionMapper { fmap: map, data: IndexMap::new() }
     }
 
-    pub(crate) fn set_data(&mut self, data: IndexMap<String, Value>) -> &mut Self {
+    pub(crate) fn set_data(mut self, data: IndexMap<String, Value>) -> Self {
         self.data = data;
-        self
-    }
-
-    pub fn data(&self) -> &IndexMap<String, Value> {
-        &self.data
-    }
-
-    pub fn reduce(&mut self) -> &mut Self {
         self
     }
 
     /// Run the function over values.
     /// Consume self, apply each mapping in-place to `self.data`, and return it.
-    pub(crate) fn map(&mut self) -> &mut Self {
+    pub(crate) fn map(&self) -> IndexMap<String, Value> {
+        let mut out = self.data.clone();
         for (k, f) in &self.fmap {
-            if let Some(val) = self.data.get_mut(k) {
-                match f.as_str() {
+            if let Some(val) = self.data.get(k) {
+                let new_val = match f.as_str() {
                     "round" => {
                         let num = val.as_f64().unwrap_or(0.0).round();
-                        *val = Value::from(num as i64);
+                        Value::from(num as i64)
                     }
                     "as-int" => {
                         let i = val.as_i64().unwrap_or(0);
-                        *val = Value::from(i);
+                        Value::from(i)
                     }
                     "as-float" => {
                         let fnum = val.as_f64().unwrap_or(0.0);
-                        *val = Value::from(fnum);
+                        Value::from(fnum)
                     }
                     "as-bool" => {
                         let truthy = match val {
@@ -59,15 +52,14 @@ impl MapReducer {
                             Value::Object(o) => !o.is_empty(),
                             Value::Null => false,
                         };
-                        *val = Value::Bool(truthy);
+                        Value::Bool(truthy)
                     }
-                    "as-str" => {
-                        *val = Value::from(util::dataconv::to_string(Some(val.clone())));
-                    }
-                    _ => {}
-                }
+                    "as-str" => Value::from(util::dataconv::to_string(Some(val.clone()))),
+                    _ => val.clone(),
+                };
+                out.insert(k.clone(), new_val);
             }
         }
-        self
+        out
     }
 }
