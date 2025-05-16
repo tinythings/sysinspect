@@ -133,7 +133,7 @@ impl OtelLogger {
                         match load_data(s.dataspec(), serde_json::Value::Object(pl.clone().into_iter().collect())) {
                             Ok(data) => {
                                 let mut r = MapReducer::new(s.map());
-                                let data = r.set_data(data).map().reduce().data();
+                                let data = r.set_data(data).map().reduce().data(); // map/reduce data
                                 log::info!("Data for selector: {:#?}", data);
                             }
                             Err(err) => match err {

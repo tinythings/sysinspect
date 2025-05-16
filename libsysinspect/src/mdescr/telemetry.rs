@@ -129,6 +129,9 @@ pub struct EventSelector {
     // Reduce: reduce with key of data and a function expression
     reduce: Option<IndexMap<String, String>>,
 
+    #[serde(rename = "use-map")]
+    use_map: Option<bool>,
+
     export: DataExport,
 }
 
@@ -152,6 +155,11 @@ impl EventSelector {
             out.insert(k.clone(), s);
         }
         out
+    }
+
+    /// Get the configuration usage of the map/reduce functions
+    pub fn use_map(&self) -> bool {
+        if let Some(u) = &self.use_map { *u } else { false }
     }
 
     /// Get the map
