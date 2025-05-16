@@ -4,19 +4,25 @@ use serde_yaml::Value;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetrySpec {
-    model: Option<Vec<EventSelector>>,
     minion: Option<Vec<EventSelector>>,
+    action: Option<Vec<EventSelector>>,
+    cycle: Option<Vec<EventSelector>>,
 }
 
 impl TelemetrySpec {
     /// Get the model telemetry spec
-    pub fn model(&self) -> Vec<EventSelector> {
-        if let Some(m) = &self.model { m.clone() } else { vec![] }
-    }
-
-    /// Get the minion telemetry spec
     pub fn minion(&self) -> Vec<EventSelector> {
         if let Some(m) = &self.minion { m.clone() } else { vec![] }
+    }
+
+    /// Get the action telemetry spec
+    pub fn action(&self) -> Vec<EventSelector> {
+        if let Some(m) = &self.action { m.clone() } else { vec![] }
+    }
+
+    /// Get the cycle telemetry spec
+    pub fn cycle(&self) -> Vec<EventSelector> {
+        if let Some(m) = &self.cycle { m.clone() } else { vec![] }
     }
 }
 

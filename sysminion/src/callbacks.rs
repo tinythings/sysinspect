@@ -29,7 +29,7 @@ impl EventProcessorCallback for ActionResponseCallback {
     async fn on_action_response(&mut self, mut ar: ActionResponse) -> Result<(), SysinspectError> {
         ar.set_cid(self.cid.to_owned());
         if let Some(tcfg) = &self.telemetry_config {
-            ar.set_telemetry_config(tcfg.minion());
+            ar.set_telemetry_config(tcfg.action());
         }
         self.minion.clone().send_callback(ar).await
     }
@@ -69,7 +69,7 @@ impl EventProcessorCallback for ModelResponseCallback {
 
         fin.set_cid(self.cid.to_owned());
         if let Some(tcfg) = &self.telemetry_config {
-            fin.set_telemetry_config(tcfg.model());
+            fin.set_telemetry_config(tcfg.minion());
         }
 
         self.minion.clone().send_fin_callback(fin).await
