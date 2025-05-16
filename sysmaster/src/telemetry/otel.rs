@@ -218,24 +218,21 @@ impl OtelLogger {
             match es.export().attr_type().as_str() {
                 "string" => {
                     if let Some(tpl) = es.export().attr_format() {
-                        match interpolate_data(&tpl, &rspdata) {
+                        match interpolate_data(&tpl, rspdata) {
                             Ok(out) => otel_log_json(&json!(&out), attributes),
                             Err(err) => {
                                 log::error!("Unable to interpolate telemetry data: {err}");
-                                return;
                             }
                         }
                     } else {
                         log::error!("Attribute type is set to \"string\", but no formatting template is provided.");
-                        return;
                     }
                 }
                 "json" => otel_log_json(&json!(rspdata), attributes),
                 _ => {
                     log::error!("Attribute type is set to \"{}\", but can be only \"string\" or \"json\".", es.export().telemetry_type());
-                    return;
                 }
-            };
+            }
         } else {
             log::error!("Telemetry type {} is not supported or not yet implemented", es.export().telemetry_type());
         }
