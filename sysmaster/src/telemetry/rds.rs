@@ -19,7 +19,7 @@ impl FunctionReducer {
     /// Run the function over values.
     /// Consume self, apply each mapping in-place to `self.data`, and return it.
     pub(crate) fn reduce(&self) -> IndexMap<String, Value> {
-        let mut out = IndexMap::new();
+        let out = IndexMap::new();
         log::info!("Data for reduction: {:#?}", self.data);
         out
     }

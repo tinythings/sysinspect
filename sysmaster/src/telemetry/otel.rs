@@ -12,7 +12,6 @@ use libtelemetry::{
 use serde_json::{Value, json, to_value};
 use std::collections::HashMap;
 
-use super::rds::FunctionReducer;
 
 /// Eventmap is a placeholder struct for telemetry event mapping.
 /// This is merely done to avoid monstrosity constructions like
@@ -131,10 +130,8 @@ impl OtelLogger {
     pub fn log(&mut self, mrec: &MinionRecord, export_type: DataExportType) {
         if self.buff.is_empty() {
             self.on_event(mrec, export_type);
-        } else {
-            if self.map {
-                self.on_map();
-            }
+        } else if self.map {
+            self.on_map();
         }
     }
 
