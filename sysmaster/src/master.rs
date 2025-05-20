@@ -14,7 +14,7 @@ use libeventreg::{
 };
 use libsysinspect::{
     SysinspectError,
-    cfg::mmconf::MasterConfig,
+    cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     mdescr::{mspec::MODEL_FILE_EXT, telemetry::DataExportType},
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType,
@@ -112,15 +112,42 @@ impl SysMaster {
         &mut self.mkr
     }
 
-    /// Construct a Command message to the minion
-    fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+    async fn on_log_previous_query(&self, msg: &MasterMessage) {
+        // XXX: Implement on log previous query
         // Here is the entire model selector.
         // Telemetry is sent to the collector for the entire *previous* call,
         // since now we are constructing a new model call that will happen in a future.
         //
-        // XXX: Aggregation for the previous call is not implemented yet.
-        libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), vec![("model".into(), "myquery here".into())]);
+        // libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), vec![("model".into(), "myquery here".into())]);
+        //        OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
+        //
+        // 1. Get the current called model
+        // 2. Read/parse it, and get Telemetry section from it per "cycle"
+        // 3. based on that config, process the reduce
 
+        let fsroot = self.cfg().fileserver_root();
+        println!(">>> Master Message: {:#?}", msg);
+        println!(">>> FS root: {:?}", fsroot);
+        let scheme = msg.get_target().scheme();
+        if scheme.contains("/") {
+            let s = format!("{}/{}/model.cfg", CFG_MODELS_ROOT, scheme.split('/').next().unwrap_or_default());
+            println!(">>> Scheme: {}", s);
+        }
+
+        if let Ok(s) = self.evtipc.get_last_session().await {
+            for m in self.evtipc.get_minions(s.sid()).await.unwrap_or_default() {
+                log::info!(">>> Minion {}: {:#?}", m.id(), m.get_trait("system.hostname").unwrap_or(&serde_json::Value::Null));
+                if let Ok(events) = self.evtipc.get_events(s.sid(), m.id()).await {
+                    for e in events {
+                        log::info!("    >>> Event: {:#?}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Construct a Command message to the minion
+    fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
 
         if let [querypath, query, traits, mid] = query.as_slice() {
@@ -459,6 +486,15 @@ impl SysMaster {
                                                 let c_master = Arc::clone(&master);
                                                 let c_msg = msg.clone();
                                                 tokio::spawn(async move {c_master.lock().await.on_fifo_commands(&c_msg).await;});
+
+                                                // Fire map/reduce logger for the previous query cycle
+                                                let c_master = Arc::clone(&master);
+                                                let c_msg = msg.clone();
+                                                tokio::spawn(async move {
+                                                    c_master.lock().await.on_log_previous_query(&c_msg).await;
+                                                });
+
+                                                // Send the fifo query message to all minions
                                                 let _ = bcast.send(msg.sendable().unwrap());
                                             }
                                         }
@@ -603,7 +639,11 @@ impl SysMaster {
                     async move {
                         let (bcast, msg) = {
                             let mut master = master.lock().await;
-                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()))
+                            let msg = master.msg_query(tdef.query().as_str());
+                            if let Some(msg) = &msg {
+                                //master.on_log_previous_query(msg).await;
+                            }
+                            (master.broadcast().clone(), msg)
                         };
 
                         if let Some(m) = msg {
