@@ -12,6 +12,8 @@ use libtelemetry::{
 use serde_json::{Value, json, to_value};
 use std::collections::HashMap;
 
+use super::rds::FunctionReducer;
+
 /// Eventmap is a placeholder struct for telemetry event mapping.
 /// This is merely done to avoid monstrosity constructions like
 /// map of maps of maps...
@@ -133,14 +135,10 @@ impl OtelLogger {
             if self.map {
                 self.on_map();
             }
-
-            if self.reduce {
-                self.on_reduce();
-            }
         }
     }
 
-    fn on_reduce(&self) {
+    async fn on_reduce(&self) {
         for es in &self.selectors {
             // TODO: Implement reduce logic
             // This is a placeholder for the reduce logic.
@@ -160,6 +158,7 @@ impl OtelLogger {
                             Ok(data) => {
                                 let mut mdata = FunctionMapper::new(s.map()).set_data(data).map();
                                 let attributes = self.get_attrs(s, &mut mdata);
+
                                 if self.spec_compliant(s, &mdata) {
                                     self.emit(s, &mut mdata, attributes);
                                 } else {
