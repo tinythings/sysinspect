@@ -310,6 +310,20 @@ impl EventsRegistry {
         Ok(mid)
     }
 
+    /// Get the last session from the database.
+    ///
+    /// > **NOTE:** Not ideal, because we need to get the *entire* list of sessions and sort them.
+    ///       On the other hand not entirely critical, because the database meant to be periodically purged
+    ///       and the number of sessions is expected to be small enough.
+    pub fn get_last_session(&self) -> Result<EventSession, SysinspectError> {
+        let mut sessions = self.get_sessions()?;
+        sessions.sort_by_key(|s| s.get_ts_unix());
+        if let Some(last) = sessions.last() {
+            return Ok(last.clone());
+        }
+        Err(SysinspectError::MasterGeneralError("No sessions found".to_string()))
+    }
+
     /// Return existing recorded sessions
     pub fn get_sessions(&self) -> Result<Vec<EventSession>, SysinspectError> {
         let mut ks = Vec::<EventSession>::new();
