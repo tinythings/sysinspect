@@ -5,7 +5,7 @@ use crate::{
         mreg::MinionRegistry,
         session::{self, SessionKeeper},
     },
-    telemetry::otel::OtelLogger,
+    telemetry::{otel::OtelLogger, rds::FunctionReducer},
 };
 use indexmap::IndexMap;
 use libeventreg::{
@@ -15,7 +15,7 @@ use libeventreg::{
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
-    mdescr::{mspec::MODEL_FILE_EXT, telemetry::DataExportType},
+    mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType,
     },
@@ -25,7 +25,7 @@ use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     vec,
 };
@@ -41,6 +41,7 @@ use tokio::{
 
 // Session singleton
 static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
+static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Debug)]
 pub struct SysMaster {
@@ -112,7 +113,7 @@ impl SysMaster {
         &mut self.mkr
     }
 
-    async fn on_log_previous_query(&self, msg: &MasterMessage) {
+    async fn on_log_previous_query(&mut self, msg: &MasterMessage) {
         // XXX: Implement on log previous query
         // Here is the entire model selector.
         // Telemetry is sent to the collector for the entire *previous* call,
@@ -120,30 +121,52 @@ impl SysMaster {
         //
         // libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), vec![("model".into(), "myquery here".into())]);
         //        OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
-        //
-        // 1. Get the current called model
-        // 2. Read/parse it, and get Telemetry section from it per "cycle"
-        // 3. based on that config, process the reduce
 
-        let fsroot = self.cfg().fileserver_root();
-        println!(">>> Master Message: {:#?}", msg);
-        println!(">>> FS root: {:?}", fsroot);
         let scheme = msg.get_target().scheme();
-        if scheme.contains("/") {
-            let s = format!("{}/{}/model.cfg", CFG_MODELS_ROOT, scheme.split('/').next().unwrap_or_default());
-            println!(">>> Scheme: {}", s);
+        if !scheme.contains("/") {
+            log::debug!("No model scheme found");
+            return;
         }
+
+        let mut reducer = match FunctionReducer::new(
+            self.cfg().fileserver_root().join(format!("{}/{}/model.cfg", CFG_MODELS_ROOT, scheme.split('/').next().unwrap_or_default())),
+            scheme.to_string(),
+        )
+        .load_model(&MODEL_CACHE)
+        .await
+        {
+            Ok(reducer) => reducer,
+            Err(err) => {
+                log::error!("Unable to load model: {err}");
+                return;
+            }
+        };
 
         if let Ok(s) = self.evtipc.get_last_session().await {
             for m in self.evtipc.get_minions(s.sid()).await.unwrap_or_default() {
+                let mrec = match self.mreg.get(m.id()) {
+                    Ok(Some(mrec)) => mrec,
+                    Ok(None) => {
+                        log::error!("Unable to get minion record");
+                        continue;
+                    }
+                    Err(err) => {
+                        log::error!("Unable to get minion record: {}", err);
+                        continue;
+                    }
+                };
+
+                reducer.set_current_minion(&mrec);
+
                 log::info!(">>> Minion {}: {:#?}", m.id(), m.get_trait("system.hostname").unwrap_or(&serde_json::Value::Null));
                 if let Ok(events) = self.evtipc.get_events(s.sid(), m.id()).await {
                     for e in events {
-                        log::info!("    >>> Event: {:#?}", e);
+                        reducer.feed(e);
                     }
                 }
             }
         }
+        reducer.reduce();
     }
 
     /// Construct a Command message to the minion
