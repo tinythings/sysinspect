@@ -13,9 +13,10 @@ use tokio::sync::Mutex;
 
 pub struct FunctionReducer {
     fmap: IndexMap<String, String>,
-    mrecbuff: IndexMap<String, MinionRecord>,             // Minion traits
-    rdata: IndexMap<String, Vec<HashMap<String, Value>>>, // response data, temporary buff
-    mdata: IndexMap<String, HashMap<String, Vec<Value>>>, // Mapped data
+    mrecbuff: IndexMap<String, MinionRecord>,                // Minion traits
+    raw_data: IndexMap<String, Vec<HashMap<String, Value>>>, // response data, temporary buff
+    rdata: IndexMap<String, Value>,                          // reduced data
+    mdata: IndexMap<String, HashMap<String, Vec<Value>>>,    // Mapped data
     model: Option<ModelSpec>,
     model_path: PathBuf,
     query: String,
@@ -26,6 +27,7 @@ impl FunctionReducer {
         FunctionReducer {
             fmap: IndexMap::new(),
             mrecbuff: IndexMap::new(),
+            raw_data: IndexMap::new(),
             rdata: IndexMap::new(),
             model: None,
             model_path: model,
@@ -59,10 +61,7 @@ impl FunctionReducer {
 
     /// Run the function over values.
     /// Consume self, apply each mapping in-place to `self.data`, and return it.
-    pub(crate) fn reduce(&self) {
-        log::info!("Reducing data");
-        log::info!("Data: {:?}", self.mdata);
-
+    pub(crate) fn reduce(&mut self) {
         let tspec = match self.get_tspec() {
             Some(tspec) => tspec,
             None => {
@@ -71,7 +70,6 @@ impl FunctionReducer {
             }
         };
 
-        let mut out: HashMap<String, Value> = HashMap::new();
         for selector in tspec.cycle() {
             for (rkey, rfunc) in selector.reduce() {
                 match rfunc.as_str() {
@@ -85,7 +83,6 @@ impl FunctionReducer {
                                 }
                             };
                             if let Some(data) = data.get(&rkey) {
-                                log::info!(">> {} => sum data: {:?}", rkey, data);
                                 let mut sum = 0;
                                 for v in data {
                                     if let Some(i) = v.as_i64() {
@@ -94,7 +91,7 @@ impl FunctionReducer {
                                         sum += f as i64;
                                     }
                                 }
-                                out.insert(mrec.id().to_string(), json!({"sum": sum}));
+                                self.rdata.insert(mrec.id().to_string(), json!({"sum": sum}));
                             }
                         }
                     }
@@ -109,20 +106,19 @@ impl FunctionReducer {
                                 }
                             };
                             if let Some(data) = data.get(&rkey) {
-                                log::info!(">> {} => average data: {:?}", rkey, data);
-                                let mut sum = 0;
+                                let mut sum = 0.0;
                                 let mut count = 0;
                                 for v in data {
                                     if let Some(i) = v.as_i64() {
-                                        sum += i;
+                                        sum += i as f64;
                                         count += 1;
                                     } else if let Some(f) = v.as_f64() {
-                                        sum += f as i64;
+                                        sum += f;
                                         count += 1;
                                     }
                                 }
                                 if count > 0 {
-                                    out.insert(mrec.id().to_string(), json!({"average": sum / count}));
+                                    self.rdata.insert(mrec.id().to_string(), json!({"average": sum / count as f64}));
                                 }
                             }
                         }
@@ -138,7 +134,6 @@ impl FunctionReducer {
                                 }
                             };
                             if let Some(data) = data.get(&rkey) {
-                                log::info!(">> {} => min data: {:?}", rkey, data);
                                 let mut min = i64::MAX;
                                 for v in data {
                                     if let Some(i) = v.as_i64() {
@@ -148,7 +143,7 @@ impl FunctionReducer {
                                     }
                                 }
                                 if min != i64::MAX {
-                                    out.insert(mrec.id().to_string(), json!({"min": min}));
+                                    self.rdata.insert(mrec.id().to_string(), json!({"min": min}));
                                 }
                             }
                         }
@@ -164,7 +159,6 @@ impl FunctionReducer {
                                 }
                             };
                             if let Some(data) = data.get(&rkey) {
-                                log::info!(">> {} => max data: {:?}", rkey, data);
                                 let mut max = i64::MIN;
                                 for v in data {
                                     if let Some(i) = v.as_i64() {
@@ -174,7 +168,7 @@ impl FunctionReducer {
                                     }
                                 }
                                 if max != i64::MIN {
-                                    out.insert(mrec.id().to_string(), json!({"max": max}));
+                                    self.rdata.insert(mrec.id().to_string(), json!({"max": max}));
                                 }
                             }
                         }
@@ -193,7 +187,9 @@ impl FunctionReducer {
             return;
         }
         let tspec = tspec.unwrap();
-        for (mid, v_rdata) in &self.rdata {
+
+        // Select data for mapping
+        for (mid, v_rdata) in &self.raw_data {
             let mrec = match self.mrecbuff.get(mid) {
                 Some(mrec) => mrec,
                 None => {
@@ -217,12 +213,91 @@ impl FunctionReducer {
             }
             self.mdata.insert(mid.clone(), mdata);
         }
-        self.rdata.clear();
+
+        // Purge original data and free memory
+        self.raw_data.clear();
+
+        // Map the data
+        for (mkey, data) in &mut self.mdata {
+            log::info!(">> {} => data to map: {:#?}", mkey, data);
+            for selector in tspec.cycle() {
+                for (mkey, mfunc) in selector.map() {
+                    match mfunc.as_str() {
+                        "round" => {
+                            if let Some(values) = data.get_mut(&mkey) {
+                                for value in values {
+                                    *value = json!(value.as_f64().map(|v| v.round()).unwrap_or(0.0));
+                                }
+                            }
+                        }
+                        "as-int" => {
+                            if let Some(values) = data.get_mut(&mkey) {
+                                for value in values {
+                                    *value = json!(match value {
+                                        Value::String(s) => s.parse::<i64>().unwrap_or(0),
+                                        Value::Number(n) => n.as_i64().unwrap_or(0),
+                                        _ => value.as_i64().unwrap_or(0),
+                                    });
+                                }
+                            }
+                        }
+
+                        "as-float" => {
+                            if let Some(values) = data.get_mut(&mkey) {
+                                for value in values {
+                                    *value = json!(match value {
+                                        Value::String(s) => s.parse::<f64>().unwrap_or(0.0),
+                                        Value::Number(n) => n.as_f64().unwrap_or(0.0),
+                                        _ => value.as_f64().unwrap_or(0.0),
+                                    });
+                                }
+                            }
+                        }
+
+                        "as-bool" => {
+                            if let Some(values) = data.get_mut(&mkey) {
+                                for value in values {
+                                    *value = json!(match value {
+                                        Value::String(s) => s.parse::<bool>().unwrap_or(false),
+                                        Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
+                                        Value::Bool(b) => *b,
+                                        _ => false,
+                                    });
+                                }
+                            }
+                        }
+
+                        "as-str" => {
+                            if let Some(values) = data.get_mut(&mkey) {
+                                for value in values {
+                                    *value = json!(match value {
+                                        Value::String(s) => s.clone(),
+                                        Value::Number(n) => n.to_string(),
+                                        _ => value.to_string(),
+                                    });
+                                }
+                            }
+                        }
+                        _ => {} // noop
+                    }
+                }
+            }
+        }
     }
 
     /// Add data to the reducer.
     pub(crate) fn feed(&mut self, mrec: MinionRecord, rdata: HashMap<String, Value>) {
         self.mrecbuff.entry(mrec.id().to_string()).or_insert_with(|| mrec.clone());
-        self.rdata.entry(mrec.id().to_string()).and_modify(|vec| vec.push(rdata.clone())).or_insert(vec![rdata.clone()]);
+        self.raw_data.entry(mrec.id().to_string()).and_modify(|vec| vec.push(rdata.clone())).or_insert(vec![rdata.clone()]);
+    }
+
+    /// Get the reduced data
+    pub fn get_reduced_data(&self) -> &IndexMap<String, Value> {
+        &self.rdata
+    }
+
+    /// Get the mapped data
+    pub fn get_mapped_data(&self) -> &IndexMap<String, HashMap<String, Vec<Value>>> {
+        &self.mdata
     }
 }

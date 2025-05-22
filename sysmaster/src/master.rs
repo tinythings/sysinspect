@@ -165,7 +165,10 @@ impl SysMaster {
         }
         reducer.map();
         reducer.reduce();
+
         // XXX: Format log entries with the meaningful data. Minion traits are in the reducer
+        let r = reducer.get_reduced_data();
+        let m = reducer.get_mapped_data();
     }
 
     /// Construct a Command message to the minion
