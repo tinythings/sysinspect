@@ -468,6 +468,16 @@ impl MinionConfig {
         self.modules_check = Some(mode.to_string());
     }
 
+    /// Set reconnection policy to the master
+    pub fn set_reconnect_freq(&mut self, freq: u32) {
+        self.master_reconnect_freq = Some(freq);
+    }
+
+    /// Set reconnection interval to the master
+    pub fn set_reconnect_interval(&mut self, interval: &str) {
+        self.master_reconnect_interval = Some(interval.to_string());
+    }
+
     /// Reconnect policy
     pub fn reconnect(&self) -> bool {
         self.master_reconnect.unwrap_or(CFG_RECONNECT_DEFAULT)

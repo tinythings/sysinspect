@@ -1,8 +1,8 @@
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::{
-        CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT,
-        MinionConfig, SysInspectConfig,
+        CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
+        SysInspectConfig,
     },
 };
 use std::{
@@ -63,10 +63,7 @@ impl MinionSetup {
         }
 
         if !self.alt_dir.is_empty() && !Self::is_dir_w(Path::new(&self.alt_dir)) {
-            return Err(SysinspectError::ConfigError(format!(
-                "Given alternative directory {} appears to be read-only",
-                self.alt_dir
-            )));
+            return Err(SysinspectError::ConfigError(format!("Given alternative directory {} appears to be read-only", self.alt_dir)));
         }
 
         if self.alt_dir.is_empty() {
@@ -125,8 +122,7 @@ impl MinionSetup {
 
         for d in dirs {
             if !Path::new(&d).exists() {
-                std::fs::create_dir_all(&d)
-                    .map_err(|_| SysinspectError::ConfigError(format!("Unable to create directory {}", d)))?;
+                std::fs::create_dir_all(&d).map_err(|_| SysinspectError::ConfigError(format!("Unable to create directory {}", d)))?;
             }
         }
 
@@ -139,6 +135,8 @@ impl MinionSetup {
         self.cfg.set_sharelib_path(&self.get_sharelib().to_string());
         self.cfg.set_pid_path(PathBuf::from(self.get_run()).join("sysinspect.pid").to_str().unwrap_or_default());
         self.cfg.set_autosync(CFG_AUTOSYNC_SHALLOW);
+        self.cfg.set_reconnect_freq(0);
+        self.cfg.set_reconnect_interval("1"); // String, because it can be an expression like "1-5" (random between 1 and 5)
 
         let cfp = PathBuf::from(self.get_etc()).join("sysinspect.conf");
         log::info!("Writing configuration file to {}", cfp.to_str().unwrap_or_default());
@@ -150,8 +148,7 @@ impl MinionSetup {
 
     /// Cleanup everything after the setup
     fn cleanup(&self) -> Result<(), SysinspectError> {
-        let self_name = std::env::current_exe()
-            .map_err(|e| SysinspectError::ConfigError(format!("Failed to get current executable: {}", e)))?;
+        let self_name = std::env::current_exe().map_err(|e| SysinspectError::ConfigError(format!("Failed to get current executable: {}", e)))?;
         self_name
             .file_name()
             .and_then(|name| name.to_str())
@@ -162,8 +159,7 @@ impl MinionSetup {
         for fname in ["sysinspect.conf", self_name.to_str().unwrap_or_default()] {
             let tmpcfg = PathBuf::from(fname);
             if tmpcfg.exists() {
-                fs::remove_file(tmpcfg)
-                    .map_err(|e| SysinspectError::ConfigError(format!("Failed to remove temporary file: {}", e)))?;
+                fs::remove_file(tmpcfg).map_err(|e| SysinspectError::ConfigError(format!("Failed to remove temporary file: {}", e)))?;
             }
         }
 
@@ -174,9 +170,8 @@ impl MinionSetup {
     fn copy_binaries(&self) -> Result<(), SysinspectError> {
         let bin = std::env::current_exe()?;
         let dst = PathBuf::from(self.get_bin()).join(bin.file_name().unwrap_or_default());
-        fs::copy(&bin, &dst).map_err(|e| {
-            SysinspectError::ConfigError(format!("Failed to copy executable to {}: {}", dst.to_str().unwrap_or_default(), e))
-        })?;
+        fs::copy(&bin, &dst)
+            .map_err(|e| SysinspectError::ConfigError(format!("Failed to copy executable to {}: {}", dst.to_str().unwrap_or_default(), e)))?;
 
         Ok(())
     }
