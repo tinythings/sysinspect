@@ -158,7 +158,7 @@ impl EventSelector {
             if s.is_empty() {
                 continue;
             }
-            out.insert(k.clone(), s);
+            out.insert(k.clone(), s.trim().to_string());
         }
         out
     }

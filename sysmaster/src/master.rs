@@ -156,17 +156,16 @@ impl SysMaster {
                     }
                 };
 
-                reducer.set_current_minion(&mrec);
-
-                log::info!(">>> Minion {}: {:#?}", m.id(), m.get_trait("system.hostname").unwrap_or(&serde_json::Value::Null));
                 if let Ok(events) = self.evtipc.get_events(s.sid(), m.id()).await {
                     for e in events {
-                        reducer.feed(e);
+                        reducer.feed(mrec.clone(), e.get_response());
                     }
                 }
             }
         }
+        reducer.map();
         reducer.reduce();
+        // XXX: Format log entries with the meaningful data. Minion traits are in the reducer
     }
 
     /// Construct a Command message to the minion
