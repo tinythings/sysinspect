@@ -16,7 +16,7 @@ const TR_SESSIONS: &str = "sessions";
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct EventData {
-    data: HashMap<String, Value>,
+    pub data: HashMap<String, Value>,
 }
 impl EventData {
     fn new(payload: HashMap<String, Value>) -> Self {
@@ -50,6 +50,10 @@ impl EventData {
     pub fn get_response(&self) -> HashMap<String, Value> {
         // Should work... :-)
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
+    }
+
+    pub fn get_response_mut(&mut self) -> &mut serde_json::Map<String, Value> {
+        self.data.get_mut("response").unwrap().as_object_mut().unwrap()
     }
 
     /// Get the timestamp
