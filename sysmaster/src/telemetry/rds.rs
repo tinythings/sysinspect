@@ -273,10 +273,10 @@ impl FunctionReducer {
                         continue;
                     }
 
-                    if !mdata.get("entity").map_or(false, |v| v.contains(&json!(rdata.get_entity_id()))) {
+                    if !mdata.get("entity").is_some_and(|v| v.contains(&json!(rdata.get_entity_id()))) {
                         mdata.entry("entity".to_string()).or_default().push(json!(rdata.get_entity_id()));
                     }
-                    if !mdata.get("action").map_or(false, |v| v.contains(&json!(rdata.get_action_id()))) {
+                    if !mdata.get("action").is_some_and(|v| v.contains(&json!(rdata.get_action_id()))) {
                         mdata.entry("action".to_string()).or_default().push(json!(rdata.get_action_id()));
                     }
 
