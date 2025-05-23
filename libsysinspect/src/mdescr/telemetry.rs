@@ -125,6 +125,24 @@ impl DataExport {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DataFilter {
+    entity: Option<String>,
+    actions: Option<Vec<String>>,
+}
+
+impl DataFilter {
+    /// Get the event type
+    pub fn entity(&self) -> String {
+        if let Some(e) = &self.entity { e.clone() } else { "".to_string() }
+    }
+
+    /// Get the action list
+    pub fn actions(&self) -> Vec<String> {
+        if let Some(a) = &self.actions { a.clone() } else { vec![] }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EventSelector {
     select: Option<Vec<String>>, // Or ["*"]
     data: IndexMap<String, Value>,
@@ -139,6 +157,7 @@ pub struct EventSelector {
     use_map: Option<bool>,
 
     export: DataExport,
+    filter: Option<DataFilter>,
 }
 
 impl EventSelector {
@@ -161,6 +180,11 @@ impl EventSelector {
             out.insert(k.clone(), s.trim().to_string());
         }
         out
+    }
+
+    /// Get the filter
+    pub fn filter(&self) -> DataFilter {
+        if let Some(f) = &self.filter { f.clone() } else { DataFilter::default() }
     }
 
     /// Get the configuration usage of the map/reduce functions

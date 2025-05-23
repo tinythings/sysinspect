@@ -158,7 +158,7 @@ impl SysMaster {
 
                 if let Ok(events) = self.evtipc.get_events(s.sid(), m.id()).await {
                     for e in events {
-                        reducer.feed(mrec.clone(), e.get_response());
+                        reducer.feed(mrec.clone(), e);
                     }
                 }
             }
@@ -169,6 +169,16 @@ impl SysMaster {
         // XXX: Format log entries with the meaningful data. Minion traits are in the reducer
         let r = reducer.get_reduced_data();
         let m = reducer.get_mapped_data();
+
+        // Emit reduced data
+        for (mid, res) in r {
+            if let Ok(Some(mrec)) = self.mreg.get(mid) {
+                let fqdn = mrec.get_traits().get("system.hostname.fqdn").unwrap_or(&serde_json::Value::String("".to_string())).to_string();
+                libtelemetry::otel_log_json(res, vec![("hostname".into(), fqdn.into())]);
+            } else {
+                log::error!("Minion {mid} has a data, but no minion record found");
+            }
+        }
     }
 
     /// Construct a Command message to the minion
