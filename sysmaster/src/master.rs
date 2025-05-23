@@ -113,12 +113,8 @@ impl SysMaster {
         &mut self.mkr
     }
 
+    /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
     async fn on_log_previous_query(&mut self, msg: &MasterMessage) {
-        // XXX: Implement on log previous query
-        // Here is the entire model selector.
-        // Telemetry is sent to the collector for the entire *previous* call,
-        // since now we are constructing a new model call that will happen in a future.
-        //
         // libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), vec![("model".into(), "myquery here".into())]);
         //        OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
 
