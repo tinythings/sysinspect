@@ -291,10 +291,10 @@ impl EventsRegistry {
             if let Err(err) = sessions.insert(&sid, es.as_bytes()?) {
                 return Err(SysinspectError::MasterGeneralError(format!("Error opening events session: {err}")));
             }
-            log::info!("Session {} for {} registered", sid.yellow(), model.bright_yellow());
+            log::trace!("Session {} for {} registered", sid.yellow(), model.bright_yellow());
             return Ok(es);
         } else if let Some(sb) = sessions.get(&sid)? {
-            log::debug!("Returning an existing session: {sid}");
+            log::trace!("Returning an existing session: {sid}");
             return EventSession::from_bytes(sb.to_vec());
         }
 
