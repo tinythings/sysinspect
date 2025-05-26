@@ -106,7 +106,7 @@ pub const CFG_TASK_INTERVAL_DAYS: &str = "days";
 pub static CFG_OTLP_COLLECTOR: &str = "127.0.0.1:4317"; // Default collector address
 pub static CFG_OTLP_SERVICE_NAME: &str = "sysinspect";
 pub static CFG_OTLP_SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub static CFG_OTLP_COMPRESSION: &str = "zstd"; // or "gzip"
+pub static CFG_OTLP_COMPRESSION: &str = "gzip"; // or "zstd"
 
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
