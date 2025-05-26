@@ -12,18 +12,17 @@ use libtelemetry::{
 use serde_json::{Value, json, to_value};
 use std::collections::HashMap;
 
-
 /// Eventmap is a placeholder struct for telemetry event mapping.
 /// This is merely done to avoid monstrosity constructions like
 /// map of maps of maps...
 #[derive(Debug, Clone)]
 struct Eventmap {
     mrec: MinionRecord,
-    events: Vec<HashMap<String, serde_json::Value>>,
+    events: Vec<EventData>,
 }
 
 impl Eventmap {
-    pub fn new(mrec: MinionRecord, events: Vec<HashMap<String, serde_json::Value>>) -> Self {
+    pub fn new(mrec: MinionRecord, events: Vec<EventData>) -> Self {
         Eventmap { mrec, events }
     }
 
@@ -33,7 +32,7 @@ impl Eventmap {
     }
 
     /// Get events
-    pub fn events(&self) -> &Vec<HashMap<String, serde_json::Value>> {
+    pub fn events(&self) -> &Vec<EventData> {
         &self.events
     }
 }
@@ -50,12 +49,11 @@ pub struct OtelLogger {
     selectors: Vec<EventSelector>,
     payload: HashMap<String, serde_json::Value>,
     map: bool,
-    reduce: bool,
 }
 
 impl OtelLogger {
     pub fn new(payload: &HashMap<String, serde_json::Value>) -> Self {
-        OtelLogger { buff: Vec::new(), selectors: Self::get_selectors(payload), payload: payload.clone(), map: false, reduce: false }
+        OtelLogger { buff: Vec::new(), selectors: Self::get_selectors(payload), payload: payload.clone(), map: false }
     }
 
     fn get_selectors(pl: &HashMap<String, serde_json::Value>) -> Vec<EventSelector> {
@@ -116,14 +114,9 @@ impl OtelLogger {
         self.map = map;
     }
 
-    /// Set reduce flag
-    pub fn set_reduce(&mut self, reduce: bool) {
-        self.reduce = reduce;
-    }
-
     /// Add data to the buffer for later processing with map/reduce.
     pub fn feed(&mut self, data: Vec<EventData>, mrec: MinionRecord) {
-        self.buff.push(Eventmap::new(mrec, data.into_iter().map(|e| e.get_response()).collect()));
+        self.buff.push(Eventmap::new(mrec, data.into_iter().map(|e| e).collect()));
     }
 
     // Emit log, depending on the type of event and the setup.
@@ -151,7 +144,17 @@ impl OtelLogger {
                 if em.minion_record().matches_selectors(s.select()) {
                     // Get the data using given selector. Drop messages if data is not matching it.
                     for pl in em.events() {
-                        match load_data(s.dataspec(), serde_json::Value::Object(pl.clone().into_iter().collect())) {
+                        let actions = s.filter().actions();
+                        if !actions.is_empty() && !actions.iter().any(|a| a.eq(&pl.get_action_id())) {
+                            log::debug!("Action {} not in {}, skipping", pl.get_action_id(), actions.join(", "));
+                            continue;
+                        }
+                        if !pl.get_entity_id().eq(&s.filter().entity()) {
+                            log::debug!("Entity ID {} does not match {}, skipping", pl.get_entity_id(), s.filter().entity());
+                            continue;
+                        }
+
+                        match load_data(s.dataspec(), serde_json::Value::Object(pl.clone().get_response().into_iter().collect())) {
                             Ok(data) => {
                                 let mut mdata = FunctionMapper::new(s.map()).set_data(data).map();
                                 let attributes = self.get_attrs(s, &mut mdata);
