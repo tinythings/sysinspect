@@ -20,7 +20,6 @@ use std::collections::HashMap;
 use std::{io, time::SystemTime};
 use tokio::sync::OnceCell;
 
-pub mod aggregate;
 pub mod expr;
 pub mod logevt;
 pub mod query;
