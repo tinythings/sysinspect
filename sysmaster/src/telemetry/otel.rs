@@ -116,7 +116,7 @@ impl OtelLogger {
 
     /// Add data to the buffer for later processing with map/reduce.
     pub fn feed(&mut self, data: Vec<EventData>, mrec: MinionRecord) {
-        self.buff.push(Eventmap::new(mrec, data.into_iter().map(|e| e).collect()));
+        self.buff.push(Eventmap::new(mrec, data.into_iter().collect()));
     }
 
     // Emit log, depending on the type of event and the setup.
