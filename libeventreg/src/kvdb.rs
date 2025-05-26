@@ -52,8 +52,12 @@ impl EventData {
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
     }
 
-    pub fn get_response_mut(&mut self) -> &mut serde_json::Map<String, Value> {
-        self.data.get_mut("response").unwrap().as_object_mut().unwrap()
+    pub fn get_response_mut(&mut self) -> Result<&mut serde_json::Map<String, Value>, String> {
+        self.data
+            .get_mut("response")
+            .ok_or_else(|| "Key 'response' not found in data".to_string())?
+            .as_object_mut()
+            .ok_or_else(|| "Value for 'response' is not an object".to_string())
     }
 
     /// Get the timestamp
