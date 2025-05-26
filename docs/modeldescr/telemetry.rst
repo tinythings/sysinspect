@@ -76,7 +76,7 @@ this selector will be called *for each minion*.
     First, you need to define what minions to select and what to ignore for you specific situation.
     To do so, use ``select`` section in the Model Description, which is a list of selectors.
     Selector is basically either in a form of trait key-value pair or a Unix regular expression,
-    appliccable to the minion's hostname(s).
+    applicable to the minion's hostname(s).
 
     Example:
 
