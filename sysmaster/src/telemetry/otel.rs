@@ -128,14 +128,6 @@ impl OtelLogger {
         }
     }
 
-    async fn on_reduce(&self) {
-        for es in &self.selectors {
-            // TODO: Implement reduce logic
-            // This is a placeholder for the reduce logic.
-        }
-        log::warn!("Reduce is not implemented yet.");
-    }
-
     /// on_map is called when a *minion model* event occurs (`RequestType::Model`).
     fn on_map(&mut self) {
         // Map
@@ -193,6 +185,18 @@ impl OtelLogger {
             }
             if !mrec.matches_selectors(es.select()) {
                 log::debug!("Minion does not match traits selectors: {:#?}", es.dataspec());
+                continue;
+            }
+
+            let entity_id = self.payload.get("eid").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            if !entity_id.is_empty() && !es.filter().entity().is_empty() && !es.filter().entity().eq(&entity_id) {
+                log::debug!("Event ID {} does not match entity filter: {}", entity_id, es.filter().entity());
+                continue;
+            }
+
+            let action_id = self.payload.get("aid").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            if !action_id.is_empty() && !es.filter().actions().is_empty() && !es.filter().actions().iter().any(|a| a.eq(&action_id)) {
+                log::debug!("Action ID {} does not match filter: {}", action_id, es.filter().actions().join(", "));
                 continue;
             }
 
