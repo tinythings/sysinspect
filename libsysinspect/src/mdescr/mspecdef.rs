@@ -60,10 +60,6 @@ impl ModelSpec {
 
     /// Get telemetry spec
     pub fn telemetry(&self) -> Option<TelemetrySpec> {
-        if let Some(t) = &self.telemetry {
-            return Some(t.clone());
-        }
-
-        None
+        self.telemetry.clone()
     }
 }
