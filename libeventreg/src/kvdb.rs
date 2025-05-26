@@ -16,7 +16,7 @@ const TR_SESSIONS: &str = "sessions";
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct EventData {
-    pub data: HashMap<String, Value>,
+    data: HashMap<String, Value>,
 }
 impl EventData {
     fn new(payload: HashMap<String, Value>) -> Self {
