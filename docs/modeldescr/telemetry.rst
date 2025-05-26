@@ -124,6 +124,26 @@ this selector will be called *for each minion*.
             "filename": "/tmp/test.txt"
         }
 
+``filter`` (optional, map)
+
+    This is an optional section that can be used to filter-out the data that is obtained from the minion.
+    It is a map of key/value pairs, where key is the name of the attribute and value is the value
+    that should be matched. If the value is a list, then it will match any of the values in the list.
+
+    It has the following keys to define:
+    - ``entity`` — this is the name of the entity that will be filtered.
+    - ``actions`` — this is a list of actions that will be filtered.
+
+    Example:
+
+    .. code-block:: yaml
+
+      filter:
+        entity: file-ops
+        actions:
+          - info-netconfig
+          - info-groups
+
 ``export`` (required, map)
 
     At this point you need to define how the data should be exported. This is done by
