@@ -113,12 +113,6 @@ impl EventListItem {
         Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
     }
 
-    /// Get events additional table.
-    /// This method basically flattens everything into a key/value turning into strings.
-    pub fn get_additional_table(&self, keywidth: usize) -> Vec<Row> {
-        vec![]
-    }
-
     /// Get events data table
     pub fn get_event_table(&self, keywidth: usize) -> Vec<Row> {
         vec![
