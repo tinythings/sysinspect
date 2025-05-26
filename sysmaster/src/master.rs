@@ -115,9 +115,6 @@ impl SysMaster {
 
     /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
     async fn on_log_previous_query(&mut self, msg: &MasterMessage) {
-        // libtelemetry::otel_log_json(&json!("PREVIOUS AGGREGATED DATA"), vec![("model".into(), "myquery here".into())]);
-        //        OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
-
         let scheme = msg.get_target().scheme();
         if !scheme.contains("/") {
             log::debug!("No model scheme found");
@@ -162,12 +159,8 @@ impl SysMaster {
         reducer.map();
         reducer.reduce();
 
-        // XXX: Format log entries with the meaningful data. Minion traits are in the reducer
-        let r = reducer.get_reduced_data();
-        let m = reducer.get_mapped_data();
-
         // Emit reduced data
-        for (mid, res) in r {
+        for (mid, res) in reducer.get_reduced_data() {
             if let Ok(Some(mrec)) = self.mreg.get(mid) {
                 let fqdn = mrec.get_traits().get("system.hostname.fqdn").unwrap_or(&serde_json::Value::String("".to_string())).to_string();
                 libtelemetry::otel_log_json(res, vec![("hostname".into(), fqdn.into())]);
@@ -669,12 +662,17 @@ impl SysMaster {
                     let tdef = tdef.clone();
                     async move {
                         let (bcast, msg) = {
-                            let mut master = master.lock().await;
-                            let msg = master.msg_query(tdef.query().as_str());
+                            let mut grd_master = master.lock().await;
+                            let msg = grd_master.msg_query(tdef.query().as_str());
+
                             if let Some(msg) = &msg {
-                                //master.on_log_previous_query(msg).await;
+                                let c_msg = msg.clone();
+                                let c_master = Arc::clone(&master);
+                                tokio::spawn(async move {
+                                    c_master.lock().await.on_log_previous_query(&c_msg).await;
+                                });
                             }
-                            (master.broadcast().clone(), msg)
+                            (grd_master.broadcast().clone(), msg)
                         };
 
                         if let Some(m) = msg {
