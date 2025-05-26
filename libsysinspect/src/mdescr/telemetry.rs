@@ -71,8 +71,8 @@ pub struct DataExport {
 
 impl DataExport {
     /// Get the OTEL message attribute name
-    pub fn attr_name(&self) -> String {
-        self.attr_name.clone()
+    pub fn attr_name(&self) -> &str {
+        &self.attr_name
     }
 
     /// Get the attribute format
