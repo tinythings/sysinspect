@@ -99,15 +99,22 @@ impl DbIPCService {
     }
 
     /// Add an event for the minion
-    pub async fn add_event(
-        &self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>,
-    ) -> Result<(), SysinspectError> {
+    pub async fn add_event(&self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>) -> Result<(), SysinspectError> {
         self.evtreg.lock().await.add_event(sid, mid, payload)
     }
 
     /// Get sessions
     pub async fn get_sessions(&self) -> Result<Vec<EventSession>, SysinspectError> {
         self.evtreg.lock().await.get_sessions()
+    }
+
+    pub async fn get_session(&self, sid: &str) -> Result<EventSession, SysinspectError> {
+        self.evtreg.lock().await.get_session(sid)
+    }
+
+    /// Get last session
+    pub async fn get_last_session(&self) -> Result<EventSession, SysinspectError> {
+        self.evtreg.lock().await.get_last_session()
     }
 
     /// Get minions

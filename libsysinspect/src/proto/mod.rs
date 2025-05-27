@@ -33,13 +33,7 @@ pub struct MasterMessage {
 impl MasterMessage {
     /// Master message constructor
     pub fn new(rtype: RequestType, data: Value) -> MasterMessage {
-        MasterMessage {
-            target: Default::default(),
-            request: rtype,
-            data,
-            retcode: ProtoErrorCode::Undef as usize,
-            cycle: Uuid::new_v4().to_string(),
-        }
+        MasterMessage { target: Default::default(), request: rtype, data, retcode: ProtoErrorCode::Undef as usize, cycle: Uuid::new_v4().to_string() }
     }
 
     /// Add a target.
@@ -139,6 +133,11 @@ impl MinionMessage {
     /// Get minion Id
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Get session Id
+    pub fn sid(&self) -> &str {
+        &self.sid
     }
 
     /// Get payload

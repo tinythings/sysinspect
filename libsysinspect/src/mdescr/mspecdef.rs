@@ -3,13 +3,15 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::path::PathBuf;
 
+use super::telemetry::TelemetrySpec;
+
 /// Model Specification
 /// ===================
 ///
 /// This module's job is to read all the model files and put them together
 /// into one tree, resolving all interpolative points to one single
 /// configuration (spec)
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ModelSpec {
     // These are fields of model.cfg init config
     //
@@ -27,6 +29,8 @@ pub struct ModelSpec {
     maintainer: String,
 
     inherits: Option<String>,
+
+    telemetry: Option<TelemetrySpec>,
 
     // The rest of the system structure
     #[serde(flatten)]
@@ -52,5 +56,10 @@ impl ModelSpec {
         }
 
         None
+    }
+
+    /// Get telemetry spec
+    pub fn telemetry(&self) -> Option<TelemetrySpec> {
+        self.telemetry.clone()
     }
 }

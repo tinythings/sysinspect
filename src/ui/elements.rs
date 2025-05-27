@@ -68,9 +68,9 @@ impl DbListItem for CycleListItem {
         let ttl_fg = if hl { Color::Cyan } else { Color::LightCyan };
         let ts_fg = if hl { Color::Blue } else { Color::LightBlue };
         Line::from(vec![
-            Span::styled(self.event().query().to_string(), Style::default().fg(ttl_fg)),
-            Span::raw(" "),
             Span::styled(self.event().get_ts_mask(None), Style::default().fg(ts_fg)),
+            Span::raw(" "),
+            Span::styled(self.event().query().to_string(), Style::default().fg(ttl_fg)),
         ])
     }
 }
@@ -113,19 +113,10 @@ impl EventListItem {
         Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
     }
 
-    /// Get events additional table.
-    /// This method basically flattens everything into a key/value turning into strings.
-    pub fn get_additional_table(&self, keywidth: usize) -> Vec<Row> {
-        vec![]
-    }
-
     /// Get events data table
     pub fn get_event_table(&self, keywidth: usize) -> Vec<Row> {
         vec![
-            Row::new(vec![
-                Self::yc("Info:".to_string(), keywidth),
-                Self::gc(as_str(self.event.get_response().get("message").cloned())),
-            ]),
+            Row::new(vec![Self::yc("Info:".to_string(), keywidth), Self::gc(as_str(self.event.get_response().get("message").cloned()))]),
             Row::new(vec![
                 Self::yc("Return code:".to_string(), keywidth),
                 if as_int(self.event.get_response().get("retcode").cloned()) == 0 {
@@ -161,6 +152,11 @@ impl DbListItem for EventListItem {
     }
 }
 
+pub struct HostInfo {
+    pub hostname: String,
+    pub ipaddr: String,
+}
+
 /// Minion
 /// ------
 #[derive(Debug, Clone)]
@@ -172,20 +168,20 @@ impl MinionListItem {
     pub fn new(event: EventMinion) -> Self {
         MinionListItem { event }
     }
-}
 
-impl DbListItem for MinionListItem {
-    type EventType = EventMinion;
-
-    /// Return title
-    fn title(&self) -> String {
+    /// Return (IP address, hostname)
+    fn hostname(&self) -> HostInfo {
         let ipaddr = as_str(self.event.get_trait(SYS_NET_HOSTNAME_IP).cloned());
         let mut hostname = as_str(self.event.get_trait(SYS_NET_HOSTNAME_FQDN).cloned());
         if hostname.is_empty() {
             hostname = as_str(self.event.get_trait(SYS_NET_HOSTNAME).cloned());
         }
-        format!("{} - {}", hostname, if !ipaddr.is_empty() { ipaddr } else { "127.0.0.1".to_string() })
+        HostInfo { ipaddr: if !ipaddr.is_empty() { ipaddr } else { "127.0.0.1".to_string() }, hostname }
     }
+}
+
+impl DbListItem for MinionListItem {
+    type EventType = EventMinion;
 
     /// Return event object
     fn event(&self) -> EventMinion {
@@ -194,7 +190,14 @@ impl DbListItem for MinionListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let fg = if hl { Color::White } else { Color::Gray };
-        Line::from(vec![Span::styled(self.title(), Style::default().fg(fg))])
+        let ttl_fg = if hl { Color::Cyan } else { Color::LightCyan };
+        let ts_fg = if hl { Color::Blue } else { Color::LightBlue };
+        let HostInfo { ipaddr, hostname } = self.hostname();
+        Line::from(vec![Span::styled(ipaddr, Style::default().fg(ts_fg)), Span::raw(" "), Span::styled(hostname, Style::default().fg(ttl_fg))])
+    }
+
+    fn title(&self) -> String {
+        let HostInfo { ipaddr, hostname } = self.hostname();
+        format!("{} ({})", ipaddr, hostname)
     }
 }

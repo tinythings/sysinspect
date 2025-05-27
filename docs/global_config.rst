@@ -16,7 +16,7 @@
 .. role:: bi
    :class: bolditalic
 
-.. _configuration:
+.. _global_configuration:
 
 Configuration
 =============
@@ -162,9 +162,89 @@ Below are directives for the configuration of the File Server service:
 
     Type: **string**
 
-    Location of the telemetry local database. This is a directory, where the
-    key/value database is located and records all results, coming from the minion
-    when processing a given query. Default is set to ``/var/tmp/sysinspect/telemetry``.
+    Location of the telemetry local database *(do not mix with the OTEL or OTEL collector)*.
+    This is a directory, where the key/value database is located and records all results,
+    coming from the minion when processing a given query. Default is set to ``/var/tmp/sysinspect/telemetry``.
+
+``telemetry``
+#############
+
+    Type: **key/value**
+
+    The following keys are supported:
+
+    ``collector.grpc``
+        Type: **string**
+
+        This is the location of the telemetry collector. It is a string in format
+        ``<IP>:<PORT>``. This is the location of the telemetry collector, which is
+        used to send all telemetry data to. This is a string and can be one of the following:
+        URI of the telemetry collector in format ``<IP>:<PORT>``. Default value is
+        ``127.0.0.1:4317`` assuming that the collector is running on the same machine.
+
+    ``collector.compression``
+        Type: **string**
+
+        Compression algorithm to be used for the telemetry collector. This is a string
+        and can be one of the following:
+
+            - ``gzip`` (default)
+            - ``zstd``
+            - ``none``
+
+        Which algorithm to choose?
+
+            - ``gzip`` is a good choice for most of the cases. It is most backward compatible but it does
+              not have a good compression ratio and is using more CPU power. On large metric, ratio is
+              about 33.8 and throughput is about 131 MB/s, resulting to about 52K ns/op.
+            - ``zstd`` is a much better choice for the embedded systems, where the CPU power is limited.
+              It has a better compression ratio, and is also faster than ``gzip``, but is too new.
+              On large metric, ratio is about 47.2 and throughput is about 476 MB/s, resulting to about 14K ns/op.
+            - ``none`` no compression at all. This is a good choice for the embedded systems, where the
+              CPU power is limited and the network bandwidth is not an issue.
+
+        .. attention::
+
+            The compression algorithm must be supported by the telemetry collector.
+            Far not all collectors supports ``zstd`` compression algorithm.
+
+    ``exporter-resources``
+        Type: **key/value**
+
+        This is a key/value pair, which is used to set the resources for the telemetry exporter. This element
+        can contain any kind of static values. A resource describes the entity producing telemetry (e.g. a process,
+        container, or service). It is immutable and shared by all signals (traces, metrics, logs) coming from that entity.
+
+        The default included keys are the following:
+
+            - ``service.name`` (string) — name of the telemetry service. Default value is ``sysinspect``.
+            - ``service.namespace`` (string) — namespace of the telemetry service. Default value is ``sysinspect``.
+            - ``service.version`` (string) — version of the telemetry service. Default value is the current SysInspect version.
+            - ``host.name`` (string) — name of the host. Default value is the hostname of the machine.
+            - ``os.type`` (string) — type of the operating system. Default value is ``linux``.
+            - ``deployment.environment`` (string) — deployment environment of the operating system. Default value is ``production``.
+            - ``os.version`` (string) — version of the operating system. Default value is the current OS version.
+
+        .. attention::
+
+            To turn off a specific resource from being exported (redefined or default), not specifying it will lead to a default
+            value. In order to explicitly disable a default resource, set the value to ``false``.
+
+    ``exporter-scope``
+        Type: **key/value**
+
+        This is a key/value pair, which is used to set the queue for the telemetry exporter. Scope are typically a name, version,
+        schema_url attributes etc. The attributes here are optional, build-time metadata that further qualify the scope—e.g.
+        the URL of the instrumentation’s repo, a feature-flag, or other static info about that library.
+
+        The default included keys are the following:
+
+            - ``name`` — name of the scope. Default value is model name and the entry point.
+
+        More *typically* used keys might be as following (but not limited to and not included by default):
+
+            - ``build.commit`` — commit hash of the build.
+            - ``build.date`` — build date of the build.
 
 ``scheduler``
 #############

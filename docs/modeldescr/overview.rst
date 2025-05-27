@@ -28,6 +28,7 @@ This document explains each part of the Model Description.
    events
    functions
    inheritance
+   telemetry
 
 Model Description is written in YAML format, using **declarative method**. Declarative approach
 is considered better than imperative approach for several reasons.

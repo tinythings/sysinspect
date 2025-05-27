@@ -158,17 +158,15 @@ impl SysInspectUX {
     /// Redraw the screen on every event
     fn draw(&self, frame: &mut Frame) {
         // Split the entire area into main UI and a one-line status bar.
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
-            .split(frame.area());
+        let chunks =
+            Layout::default().direction(Direction::Vertical).constraints([Constraint::Min(0), Constraint::Length(1)].as_ref()).split(frame.area());
         let main_area = chunks[0];
         let status_area = chunks[1];
 
         frame.render_widget(self, main_area);
 
-        let status_paragraph = Paragraph::new(self.status_text.clone())
-            .style(Style::default().fg(Color::Yellow).bg(Color::Blue).add_modifier(Modifier::BOLD));
+        let status_paragraph =
+            Paragraph::new(self.status_text.clone()).style(Style::default().fg(Color::Yellow).bg(Color::Blue).add_modifier(Modifier::BOLD));
         frame.render_widget(status_paragraph, status_area);
     }
 
@@ -348,12 +346,6 @@ impl SysInspectUX {
         }
     }
 
-    /// Update minions on up/down keystrokes
-    fn on_update_minions(&mut self, down: bool) {}
-
-    /// Update events on up/down keystrokes
-    fn on_update_events(&mut self, down: bool) {}
-
     fn on_key(&mut self, e: event::KeyEvent) {
         if self.on_help_popup(e) {
             return;
@@ -391,24 +383,22 @@ impl SysInspectUX {
             KeyCode::PageDown => {
                 match self.active_box {
                     ActiveBox::Cycles => {
-                        self.selected_cycle =
-                            (self.selected_cycle + self.size.get().table_cycles).min(self.cycles_buf.len().saturating_sub(1));
+                        self.selected_cycle = (self.selected_cycle + self.size.get().table_cycles).min(self.cycles_buf.len().saturating_sub(1));
                     }
                     ActiveBox::Minions => {
                         if !self.li_events.is_empty() {
-                            self.selected_minion = (self.selected_minion + self.size.get().table_minions)
-                                .min(self.li_minions.len().saturating_sub(1));
+                            self.selected_minion =
+                                (self.selected_minion + self.size.get().table_minions).min(self.li_minions.len().saturating_sub(1));
                         }
                     }
                     ActiveBox::Events => {
                         if !self.li_events.is_empty() {
-                            self.selected_event =
-                                (self.selected_event + self.size.get().table_events).min(self.li_events.len().saturating_sub(1));
+                            self.selected_event = (self.selected_event + self.size.get().table_events).min(self.li_events.len().saturating_sub(1));
                         }
                     }
                     ActiveBox::Info => {
-                        self.actdt_info_offset = (self.actdt_info_offset + self.size.get().table_info)
-                            .min(self.info_rows.borrow().len().saturating_sub(1));
+                        self.actdt_info_offset =
+                            (self.actdt_info_offset + self.size.get().table_info).min(self.info_rows.borrow().len().saturating_sub(1));
                     }
                 };
             }
@@ -592,9 +582,7 @@ impl SysInspectUX {
                         .records
                         .into_iter()
                         .map(|rec| {
-                            let s =
-                                EventSession::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec())
-                                    .unwrap();
+                            let s = EventSession::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec()).unwrap();
                             CycleListItem::new(s.get_ts_mask(None).as_str(), s)
                         })
                         .collect();
@@ -625,9 +613,7 @@ impl SysInspectUX {
                         .records
                         .into_iter()
                         .map(|rec| {
-                            let mut s =
-                                EventMinion::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec())
-                                    .unwrap();
+                            let mut s = EventMinion::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec()).unwrap();
                             s.set_cid(rec.tree);
                             MinionListItem::new(s)
                         })
@@ -660,10 +646,7 @@ impl SysInspectUX {
                         .records
                         .into_iter()
                         .map(|rec| {
-                            EventListItem::new(
-                                EventData::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec())
-                                    .unwrap(),
-                            )
+                            EventListItem::new(EventData::from_bytes(String::from_utf8(rec.value).unwrap_or_default().as_bytes().to_vec()).unwrap())
                         })
                         .collect();
                     Ok(events)

@@ -1,5 +1,5 @@
 use crate::{
-    arcb::ActionResponseCallback,
+    callbacks::{ActionResponseCallback, ModelResponseCallback},
     filedata::MinionFiledata,
     proto::{
         self,
@@ -98,38 +98,25 @@ impl SysMinion {
 
         // Place for models
         if !self.cfg.models_dir().exists() {
-            log::debug!(
-                "Creating directory for the models at {}",
-                self.cfg.models_dir().as_os_str().to_str().unwrap_or_default()
-            );
+            log::debug!("Creating directory for the models at {}", self.cfg.models_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.models_dir())?;
         }
 
         // Place for traits.d
         if !self.cfg.traits_dir().exists() {
-            log::debug!(
-                "Creating directory for the drop-in traits at {}",
-                self.cfg.traits_dir().as_os_str().to_str().unwrap_or_default()
-            );
+            log::debug!("Creating directory for the drop-in traits at {}", self.cfg.traits_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.traits_dir())?;
         }
 
         // Place for trait functions
         if !self.cfg.functions_dir().exists() {
-            log::debug!(
-                "Creating directory for the custom trait functions at {}",
-                self.cfg.functions_dir().as_os_str().to_str().unwrap_or_default()
-            );
+            log::debug!("Creating directory for the custom trait functions at {}", self.cfg.functions_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.functions_dir())?;
         }
 
         let mut out: Vec<String> = vec![];
         for t in traits::get_minion_traits(Some(&self.cfg)).items() {
-            out.push(format!(
-                "{}: {}",
-                t.to_owned(),
-                dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()
-            ));
+            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
 
@@ -285,8 +272,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r =
-            MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_string()?);
+        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_string()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().unwrap()).await; // XXX: make a better error handling for Tokio
         Ok(())
@@ -294,11 +280,8 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(
-            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
-            RequestType::Ehlo,
-            MINION_SID.to_string(),
-        );
+        let mut r =
+            MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Ehlo, MINION_SID.to_string());
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
@@ -308,8 +291,7 @@ impl SysMinion {
 
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
-        let r =
-            MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, pbk_pem);
+        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, pbk_pem);
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
@@ -318,18 +300,22 @@ impl SysMinion {
 
     /// Send callback to the master on the results
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
-        log::info!("Sending sync callback on {}", ar.aid());
+        log::debug!("Sending sync callback on {}", ar.aid());
+        log::debug!("Callback: {:#?}", ar);
         self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar).to_string()).sendable()?).await;
+        Ok(())
+    }
+
+    /// Send finalisation marker callback to the master on the results
+    pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
+        log::debug!("Sending fin sync callback on {}", ar.aid());
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar).to_string()).sendable()?).await;
         Ok(())
     }
 
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
-        let r = MinionMessage::new(
-            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
-            RequestType::Bye,
-            MINION_SID.to_string(),
-        );
+        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Bye, MINION_SID.to_string());
 
         log::info!("Goodbye to {}", self.cfg.master());
         self.request(r.sendable().unwrap()).await;
@@ -402,7 +388,7 @@ impl SysMinion {
             if self.as_ptr().filedata.lock().await.check_sha256(uri_file.to_owned(), fcs.to_owned(), true) {
                 continue;
             }
-            log::debug!("File {uri_file} has different checksum");
+            log::info!("Auto-updating {uri_file}");
 
             match self.as_ptr().download_file(uri_file).await {
                 Ok(data) => {
@@ -442,7 +428,8 @@ impl SysMinion {
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
 
-        sr.add_async_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
+        sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
+        sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
 
         sr.start().await;
 
@@ -667,8 +654,5 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
         }
     }
 
-    libsetup::mnsetup::MinionSetup::new()
-        .set_config(get_minion_config(None)?)
-        .set_alt_dir(dir.to_str().unwrap_or_default().to_string())
-        .setup()
+    libsetup::mnsetup::MinionSetup::new().set_config(get_minion_config(None)?).set_alt_dir(dir.to_str().unwrap_or_default().to_string()).setup()
 }

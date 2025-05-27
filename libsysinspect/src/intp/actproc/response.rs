@@ -1,4 +1,7 @@
-use crate::intp::constraints::{ConstraintKind, ExprRes};
+use crate::{
+    intp::constraints::{ConstraintKind, ExprRes},
+    mdescr::telemetry::EventSelector,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -175,13 +178,14 @@ pub struct ActionResponse {
     // Module response
     pub response: ActionModResponse,
     pub constraints: ConstraintResponse,
+
+    // Telemetry processing configuration
+    telemetry: Vec<EventSelector>,
 }
 
 impl ActionResponse {
-    pub(crate) fn new(
-        eid: String, aid: String, sid: String, response: ActionModResponse, constraints: ConstraintResponse,
-    ) -> Self {
-        Self { eid, aid, sid, response, constraints, cid: "".to_string(), timestamp: Utc::now() }
+    pub fn new(eid: String, aid: String, sid: String, response: ActionModResponse, constraints: ConstraintResponse) -> Self {
+        Self { eid, aid, sid, response, constraints, cid: "".to_string(), timestamp: Utc::now(), telemetry: vec![] }
     }
 
     /// Return an Entity Id to which this action was bound to
@@ -241,8 +245,16 @@ impl ActionResponse {
             && (self.aid().eq(p_eid[0]) || p_eid[0] == "$")
             && (self.eid().eq(p_eid[1]) || p_eid[1] == "$")
             && (self.sid().eq(p_eid[2]) || p_eid[2] == "$")
-            && ((p_eid[3] == "$")
-                || (p_eid[3].eq("E") && self.response.retcode() > 0)
-                || p_eid[3].eq(&self.response.retcode().to_string()))
+            && ((p_eid[3] == "$") || (p_eid[3].eq("E") && self.response.retcode() > 0) || p_eid[3].eq(&self.response.retcode().to_string()))
+    }
+
+    /// Set telemetry configuration for data processing
+    pub fn set_telemetry_config(&mut self, telemetry: Vec<EventSelector>) {
+        self.telemetry = telemetry;
+    }
+
+    /// Get telemetry configuration for data processing
+    pub fn telemetry_config(&self) -> Vec<EventSelector> {
+        self.telemetry.to_owned()
     }
 }

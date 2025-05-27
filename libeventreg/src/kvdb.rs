@@ -52,6 +52,14 @@ impl EventData {
         serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
     }
 
+    pub fn get_response_mut(&mut self) -> Result<&mut serde_json::Map<String, Value>, String> {
+        self.data
+            .get_mut("response")
+            .ok_or_else(|| "Key 'response' not found in data".to_string())?
+            .as_object_mut()
+            .ok_or_else(|| "Value for 'response' is not an object".to_string())
+    }
+
     /// Get the timestamp
     pub fn get_timestamp(&self) -> String {
         util::dataconv::as_str(self.data.get("timestamp").cloned())
@@ -262,9 +270,7 @@ impl EventsRegistry {
     }
 
     /// Add an event
-    pub fn add_event(
-        &mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>,
-    ) -> Result<(), SysinspectError> {
+    pub fn add_event(&mut self, sid: &EventSession, mid: EventMinion, payload: HashMap<String, Value>) -> Result<(), SysinspectError> {
         let events = self.get_tree(&Self::to_tree_id(sid.sid(), mid.id()))?;
         if let Err(err) = events.insert(
             format!(
@@ -289,10 +295,10 @@ impl EventsRegistry {
             if let Err(err) = sessions.insert(&sid, es.as_bytes()?) {
                 return Err(SysinspectError::MasterGeneralError(format!("Error opening events session: {err}")));
             }
-            log::info!("Session {} for {} registered", sid.yellow(), model.bright_yellow());
+            log::trace!("Session {} for {} registered", sid.yellow(), model.bright_yellow());
             return Ok(es);
         } else if let Some(sb) = sessions.get(&sid)? {
-            log::debug!("Returning an existing session: {sid}");
+            log::trace!("Returning an existing session: {sid}");
             return EventSession::from_bytes(sb.to_vec());
         }
 
@@ -300,9 +306,7 @@ impl EventsRegistry {
     }
 
     /// Ensure that the minion data is there.
-    pub fn ensure_minion(
-        &mut self, sid: &EventSession, mid: String, traits: HashMap<String, Value>,
-    ) -> Result<String, SysinspectError> {
+    pub fn ensure_minion(&mut self, sid: &EventSession, mid: String, traits: HashMap<String, Value>) -> Result<String, SysinspectError> {
         let session_minions = self.get_tree(sid.sid())?;
         if !session_minions.contains_key(&mid)? {
             log::debug!("Adding minion: {mid} at {}", sid.sid().green());
@@ -312,6 +316,20 @@ impl EventsRegistry {
         }
 
         Ok(mid)
+    }
+
+    /// Get the last session from the database.
+    ///
+    /// > **NOTE:** Not ideal, because we need to get the *entire* list of sessions and sort them.
+    /// > On the other hand not entirely critical, because the database meant to be periodically purged
+    /// > and the number of sessions is expected to be small enough.
+    pub fn get_last_session(&self) -> Result<EventSession, SysinspectError> {
+        let mut sessions = self.get_sessions()?;
+        sessions.sort_by_key(|s| s.get_ts_unix());
+        if let Some(last) = sessions.last() {
+            return Ok(last.clone());
+        }
+        Err(SysinspectError::MasterGeneralError("No sessions found".to_string()))
     }
 
     /// Return existing recorded sessions
@@ -329,6 +347,16 @@ impl EventsRegistry {
         Ok(ks)
     }
 
+    pub fn get_session(&self, sid: &str) -> Result<EventSession, SysinspectError> {
+        let sessions = self.get_tree(TR_SESSIONS)?;
+        if let Some(v) = sessions.get(sid)? {
+            let v = String::from_utf8(v.to_vec()).unwrap_or_default();
+            return EventSession::from_bytes(v.as_bytes().to_vec());
+        }
+
+        Err(SysinspectError::MasterGeneralError(format!("Session {} not found", sid)))
+    }
+
     /// Return all minions within the session
     pub fn get_minions(&self, sid: &str) -> Result<Vec<EventMinion>, SysinspectError> {
         let mut ms = Vec::<EventMinion>::new();
@@ -338,11 +366,7 @@ impl EventsRegistry {
                 Ok(m) => serde_json::from_str::<HashMap<String, Value>>(&String::from_utf8(m.to_vec()).unwrap_or_default())?,
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Error getting minions: {err}"))),
             };
-            ms.push(EventMinion {
-                mid: util::dataconv::as_str(traits.get("system.id").cloned()),
-                cycles_id: Some(sid.to_string()),
-                traits,
-            });
+            ms.push(EventMinion { mid: util::dataconv::as_str(traits.get("system.id").cloned()), cycles_id: Some(sid.to_string()), traits });
         }
         Ok(ms)
     }

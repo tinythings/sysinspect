@@ -1,4 +1,5 @@
-use crate::{SysinspectError, intp::functions::get_by_namespace};
+use crate::{SysinspectError, intp::functions::get_by_namespace, util};
+use indexmap::IndexMap;
 use nix::libc;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Value, from_str, from_value};
@@ -101,6 +102,12 @@ pub const CFG_TASK_INTERVAL_MINUTES: &str = "minutes";
 pub const CFG_TASK_INTERVAL_HOURS: &str = "hours";
 pub const CFG_TASK_INTERVAL_DAYS: &str = "days";
 
+// Telemetry (OTLP)
+pub static CFG_OTLP_COLLECTOR: &str = "127.0.0.1:4317"; // Default collector address
+pub static CFG_OTLP_SERVICE_NAME: &str = "sysinspect";
+pub static CFG_OTLP_SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub static CFG_OTLP_COMPRESSION: &str = "gzip"; // or "zstd"
+
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
     let mut home = String::from("");
@@ -120,6 +127,87 @@ fn _logfile_path() -> PathBuf {
         }
     }
     PathBuf::from("")
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct TelemetryConfig {
+    #[serde(rename = "collector.grpc")]
+    collector: Option<String>, // Default localhost
+
+    #[serde(rename = "collector.compression")]
+    compression: Option<String>,
+
+    #[serde(rename = "exporter-resources")]
+    exporter_resources: Option<IndexMap<String, Value>>,
+
+    #[serde(rename = "exporter-scope")]
+    exporter_scope: Option<IndexMap<String, String>>,
+}
+
+impl TelemetryConfig {
+    /// Get collector address
+    pub fn collector(&self) -> String {
+        self.collector.clone().unwrap_or(CFG_OTLP_COLLECTOR.to_string())
+    }
+
+    /// Get compression mode
+    pub fn compression(&self) -> String {
+        self.compression.clone().unwrap_or(CFG_OTLP_COMPRESSION.to_string())
+    }
+
+    /// Get exporter resources
+    pub fn resources(&self) -> IndexMap<String, String> {
+        let mut resources = IndexMap::new();
+        let mut skipped = vec![];
+        for (key, value) in self.exporter_resources.clone().unwrap_or_default() {
+            if let Some(v) = value.as_bool() {
+                if !v {
+                    skipped.push(key);
+                    continue;
+                }
+            }
+
+            let value = util::dataconv::to_string(Some(value)).unwrap_or_default().trim().to_string();
+            if value.is_empty() {
+                continue;
+            }
+
+            resources.insert(key, value);
+        }
+
+        for (k, v) in vec![
+            ("service.name", CFG_OTLP_SERVICE_NAME),
+            ("service.namespace", CFG_OTLP_SERVICE_NAME),
+            ("service.version", CFG_OTLP_SERVICE_VERSION),
+            ("host.name", sysinfo::System::host_name().unwrap_or_default().as_str()),
+            ("os.type", sysinfo::System::distribution_id().as_str()),
+            ("deployment.environment", "production"),
+            ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str()),
+        ] {
+            if !resources.contains_key(k) && !skipped.contains(&k.to_string()) {
+                resources.insert(k.to_string(), v.to_string());
+            }
+        }
+
+        resources
+    }
+
+    /// Get exporter scope
+    pub fn scope(&self) -> IndexMap<String, String> {
+        let mut scope = IndexMap::new();
+        for (k, v) in self.exporter_scope.clone().unwrap_or_default() {
+            scope.insert(k, v);
+        }
+
+        // XXX: Fix the model name getting from an actual query
+        for (k, v) in [("name", "model")] {
+            if !scope.contains_key(k) {
+                scope.insert(k.to_string(), v.to_string());
+            }
+        }
+
+        scope
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -380,6 +468,16 @@ impl MinionConfig {
         self.modules_check = Some(mode.to_string());
     }
 
+    /// Set reconnection policy to the master
+    pub fn set_reconnect_freq(&mut self, freq: u32) {
+        self.master_reconnect_freq = Some(freq);
+    }
+
+    /// Set reconnection interval to the master
+    pub fn set_reconnect_interval(&mut self, interval: &str) {
+        self.master_reconnect_interval = Some(interval.to_string());
+    }
+
     /// Reconnect policy
     pub fn reconnect(&self) -> bool {
         self.master_reconnect.unwrap_or(CFG_RECONNECT_DEFAULT)
@@ -445,7 +543,7 @@ pub struct MasterConfig {
     #[serde(rename = "pidfile")]
     pidfile: Option<String>,
 
-    // Telemetry database location
+    // Telemetry database location (local key/value storage)
     #[serde(rename = "telemetry.location")]
     telemetry_location: Option<String>,
 
@@ -453,6 +551,9 @@ pub struct MasterConfig {
     // sysinspect and sysmaster
     #[serde(rename = "telemetry.socket")]
     telemetry_socket: Option<String>,
+
+    // OpenTelemetry (OTLP) configuration
+    telemetry: Option<TelemetryConfig>,
 
     // Scheduler for recurring queries to all the minions
     scheduler: Option<Vec<TaskConfig>>,
@@ -472,6 +573,40 @@ impl MasterConfig {
         Err(SysinspectError::ConfigError(format!("Unable to read config at: {}", cp)))
     }
 
+    /// Get OTLP collector endpoint
+    pub fn otlp_collector_endpoint(&self) -> String {
+        let mut uri = String::new();
+        if let Some(cfg) = &self.telemetry {
+            uri = cfg.collector.clone().unwrap_or(CFG_OTLP_COLLECTOR.to_string());
+        }
+        format!("http://{}", uri.split("://").last().unwrap_or(&uri))
+    }
+
+    /// Get OTLP compression mode. Usually should be default.
+    pub fn otlp_compression(&self) -> String {
+        let mut cpr = CFG_OTLP_COMPRESSION.to_string();
+        if let Some(cfg) = &self.telemetry {
+            if let Some(compression) = &cfg.compression {
+                cpr = compression.clone();
+            }
+        }
+
+        if !cpr.eq("gzip") && !cpr.eq("zstd") {
+            return CFG_OTLP_COMPRESSION.to_string();
+        }
+
+        cpr
+    }
+
+    /// Get OTLP configuration
+    pub fn otlp_cfg(&self) -> TelemetryConfig {
+        if let Some(cfg) = &self.telemetry {
+            return cfg.clone();
+        }
+
+        TelemetryConfig::default()
+    }
+
     /// Get scheduler tasks
     pub fn scheduler(&self) -> Vec<TaskConfig> {
         self.scheduler.clone().unwrap_or_default()
@@ -489,11 +624,7 @@ impl MasterConfig {
 
     /// Return fileserver addr
     pub fn fileserver_bind_addr(&self) -> String {
-        format!(
-            "{}:{}",
-            self.fsr_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()),
-            self.fsr_port.unwrap_or(DEFAULT_FILESERVER_PORT)
-        )
+        format!("{}:{}", self.fsr_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string()), self.fsr_port.unwrap_or(DEFAULT_FILESERVER_PORT))
     }
 
     /// Get a list of exported models from the fileserver

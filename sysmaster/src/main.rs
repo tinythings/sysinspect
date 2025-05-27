@@ -2,7 +2,7 @@ mod clidef;
 mod dataserv;
 mod master;
 mod registry;
-mod rmt;
+mod telemetry;
 
 use clap::{ArgMatches, Command};
 use clidef::cli;
@@ -105,10 +105,7 @@ fn main() -> Result<(), SysinspectError> {
                 sout
             }
             Err(err) => {
-                log::error!(
-                    "Unable to create main log file at {}: {err}, terminating",
-                    cfg.logfile_std().to_str().unwrap_or_default()
-                );
+                log::error!("Unable to create main log file at {}: {err}, terminating", cfg.logfile_std().to_str().unwrap_or_default());
                 exit(1);
             }
         };

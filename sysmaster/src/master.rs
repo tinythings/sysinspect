@@ -5,6 +5,7 @@ use crate::{
         mreg::MinionRegistry,
         session::{self, SessionKeeper},
     },
+    telemetry::{otel::OtelLogger, rds::FunctionReducer},
 };
 use indexmap::IndexMap;
 use libeventreg::{
@@ -13,11 +14,10 @@ use libeventreg::{
 };
 use libsysinspect::{
     SysinspectError,
-    cfg::mmconf::MasterConfig,
-    mdescr::mspec::MODEL_FILE_EXT,
+    cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
+    mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     proto::{
-        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload,
-        rqtypes::RequestType,
+        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, rqtypes::RequestType,
     },
     util::{self, iofs::scan_files_sha256},
 };
@@ -25,8 +25,9 @@ use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
+    vec,
 };
 use tokio::net::TcpListener;
 use tokio::select;
@@ -40,6 +41,7 @@ use tokio::{
 
 // Session singleton
 static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
+static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Debug)]
 pub struct SysMaster {
@@ -111,6 +113,63 @@ impl SysMaster {
         &mut self.mkr
     }
 
+    /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
+    async fn on_log_previous_query(&mut self, msg: &MasterMessage) {
+        let scheme = msg.get_target().scheme();
+        if !scheme.contains("/") {
+            log::debug!("No model scheme found");
+            return;
+        }
+
+        let mut reducer = match FunctionReducer::new(
+            self.cfg().fileserver_root().join(format!("{}/{}/model.cfg", CFG_MODELS_ROOT, scheme.split('/').next().unwrap_or_default())),
+            scheme.to_string(),
+        )
+        .load_model(&MODEL_CACHE)
+        .await
+        {
+            Ok(reducer) => reducer,
+            Err(err) => {
+                log::error!("Unable to load model: {err}");
+                return;
+            }
+        };
+
+        if let Ok(s) = self.evtipc.get_last_session().await {
+            for m in self.evtipc.get_minions(s.sid()).await.unwrap_or_default() {
+                let mrec = match self.mreg.get(m.id()) {
+                    Ok(Some(mrec)) => mrec,
+                    Ok(None) => {
+                        log::error!("Unable to get minion record");
+                        continue;
+                    }
+                    Err(err) => {
+                        log::error!("Unable to get minion record: {}", err);
+                        continue;
+                    }
+                };
+
+                if let Ok(events) = self.evtipc.get_events(s.sid(), m.id()).await {
+                    for e in events {
+                        reducer.feed(mrec.clone(), e);
+                    }
+                }
+            }
+        }
+        reducer.map();
+        reducer.reduce();
+
+        // Emit reduced data
+        for (mid, res) in reducer.get_reduced_data() {
+            if let Ok(Some(mrec)) = self.mreg.get(mid) {
+                let fqdn = mrec.get_traits().get("system.hostname.fqdn").unwrap_or(&serde_json::Value::String("".to_string())).to_string();
+                libtelemetry::otel_log_json(res, vec![("hostname".into(), fqdn.into())]);
+            } else {
+                log::error!("Minion {mid} has a data, but no minion record found");
+            }
+        }
+    }
+
     /// Construct a Command message to the minion
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
@@ -126,10 +185,7 @@ impl SysMaster {
             let mut out: IndexMap<String, String> = IndexMap::default();
             for em in self.cfg.fileserver_models() {
                 for (n, cs) in scan_files_sha256(self.cfg.fileserver_mdl_root(false).join(em), Some(MODEL_FILE_EXT)) {
-                    out.insert(
-                        format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()),
-                        cs,
-                    );
+                    out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()), cs);
                 }
             }
 
@@ -177,8 +233,7 @@ impl SysMaster {
 
     /// Bounce message
     fn msg_not_registered(&mut self, mid: String) -> MasterMessage {
-        let mut m =
-            MasterMessage::new(RequestType::AgentUnknown, json!(self.mkr().get_master_key_pem().clone().unwrap().to_string()));
+        let mut m = MasterMessage::new(RequestType::AgentUnknown, json!(self.mkr().get_master_key_pem().clone().unwrap().to_string()));
         m.set_target(MinionTarget::new(&mid, ""));
         m.set_retcode(ProtoErrorCode::Success);
 
@@ -259,14 +314,11 @@ impl SysMaster {
                                     } else if guard.get_session().lock().await.exists(&c_id) {
                                         log::info!("Minion at {minion_addr} ({}) is already connected", req.id());
                                         guard.to_drop.insert(minion_addr);
-                                        _ = c_bcast.send(
-                                            guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap(),
-                                        );
+                                        _ = c_bcast.send(guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap());
                                     } else {
                                         log::info!("{} connected successfully", c_id);
                                         guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
-                                        _ = c_bcast
-                                            .send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
+                                        _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
                                         log::info!("Syncing traits with minion at {}", c_id);
                                     }
                                 });
@@ -279,11 +331,7 @@ impl SysMaster {
                                     let guard = c_master.lock().await;
                                     guard.get_session().lock().await.ping(&c_id, None);
                                     let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
-                                    log::trace!(
-                                        "Update last contacted for {} (alive for {:.2} min)",
-                                        req.id(),
-                                        uptime as f64 / 60.0
-                                    );
+                                    log::trace!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
                                 });
                             }
 
@@ -324,6 +372,9 @@ impl SysMaster {
                                         }
                                     };
 
+                                    // Sent OTEL log entry
+                                    OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
+
                                     let sid = match m
                                         .evtipc
                                         .open_session(
@@ -340,11 +391,7 @@ impl SysMaster {
                                         }
                                     };
 
-                                    let mid = match m
-                                        .evtipc
-                                        .ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned())
-                                        .await
-                                    {
+                                    let mid = match m.evtipc.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).await {
                                         Ok(mid) => mid,
                                         Err(err) => {
                                             log::error!("Unable to record a minion {}: {err}", req.id());
@@ -360,6 +407,49 @@ impl SysMaster {
                                             log::error!("Unable to add event: {err}");
                                         }
                                     };
+                                });
+                            }
+
+                            RequestType::ModelEvent => {
+                                let c_master = Arc::clone(&master);
+                                tokio::spawn(async move {
+                                    let mut master = c_master.lock().await;
+                                    let mrec = master.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
+
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
+                                        Ok(pl) => pl,
+                                        Err(err) => {
+                                            log::error!("An event message with the bogus payload: {err}");
+                                            return;
+                                        }
+                                    };
+                                    let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get("cid").cloned())).await {
+                                        Ok(sid) => sid,
+                                        Err(err) => {
+                                            log::error!("Unable to acquire session for this iteration: {err}");
+                                            return;
+                                        }
+                                    };
+
+                                    let mut otel = OtelLogger::new(&pl);
+                                    otel.set_map(true); // Use mapper (only)
+                                    match master.evtipc.get_events(sid.sid(), req.id()).await {
+                                        Ok(events) => match master.mreg.get(req.id()) {
+                                            Ok(Some(mrec)) => {
+                                                otel.feed(events, mrec);
+                                            }
+                                            Ok(None) => {
+                                                log::error!("Unable to get minion record for {}", req.id());
+                                            }
+                                            Err(err) => {
+                                                log::error!("Error retrieving minion record for {}: {}", req.id(), err);
+                                            }
+                                        },
+                                        Err(err) => {
+                                            log::error!("Error retrieving events for minion {}: {}", req.id(), err);
+                                        }
+                                    }
+                                    otel.log(&mrec, DataExportType::Model);
                                 });
                             }
 
@@ -420,6 +510,15 @@ impl SysMaster {
                                                 let c_master = Arc::clone(&master);
                                                 let c_msg = msg.clone();
                                                 tokio::spawn(async move {c_master.lock().await.on_fifo_commands(&c_msg).await;});
+
+                                                // Fire map/reduce logger for the previous query cycle
+                                                let c_master = Arc::clone(&master);
+                                                let c_msg = msg.clone();
+                                                tokio::spawn(async move {
+                                                    c_master.lock().await.on_log_previous_query(&c_msg).await;
+                                                });
+
+                                                // Send the fifo query message to all minions
                                                 let _ = bcast.send(msg.sendable().unwrap());
                                             }
                                         }
@@ -563,8 +662,17 @@ impl SysMaster {
                     let tdef = tdef.clone();
                     async move {
                         let (bcast, msg) = {
-                            let mut master = master.lock().await;
-                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()))
+                            let mut grd_master = master.lock().await;
+                            let msg = grd_master.msg_query(tdef.query().as_str());
+
+                            if let Some(msg) = &msg {
+                                let c_msg = msg.clone();
+                                let c_master = Arc::clone(&master);
+                                tokio::spawn(async move {
+                                    c_master.lock().await.on_log_previous_query(&c_msg).await;
+                                });
+                            }
+                            (grd_master.broadcast().clone(), msg)
                         };
 
                         if let Some(m) = msg {
@@ -599,7 +707,7 @@ impl SysMaster {
 }
 
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
-    let master = Arc::new(Mutex::new(SysMaster::new(cfg.to_owned())?));
+    let master = Arc::new(Mutex::new(SysMaster::new(cfg.clone())?));
     {
         let mut m = master.lock().await;
         m.init().await?;
@@ -608,11 +716,12 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let (client_tx, client_rx) = mpsc::channel::<(Vec<u8>, String)>(100);
 
     // Start internal fileserver for minions
-    fls::start(cfg).await?;
+    fls::start(cfg.clone()).await?;
 
     // Start services
     let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;
     let scheduler = SysMaster::do_scheduler_service(Arc::clone(&master)).await;
+    libtelemetry::init_otel_collector(cfg).await?;
 
     // Task to read from the FIFO and broadcast messages to clients
     SysMaster::do_fifo(Arc::clone(&master)).await;

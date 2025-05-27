@@ -4,11 +4,11 @@
 #
 # Welcome to the 21st century.
 
-max_width = 130
-fn_call_width = 130
-chain_width = 130
-single_line_let_else_max_width = 130
-single_line_if_else_max_width = 130
+max_width = 150
+fn_call_width = 150
+chain_width = 150
+single_line_let_else_max_width = 150
+single_line_if_else_max_width = 150
 use_small_heuristics = "Max"
 
 # Parser version
