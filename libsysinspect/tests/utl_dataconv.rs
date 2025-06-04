@@ -9,7 +9,7 @@ mod dataconv_test {
         let m = serde_yaml::from_str::<HashMap<String, Value>>("foo: 1").unwrap();
         let v = m.get("foo").unwrap();
         let i = dataconv::as_int(Some(v).cloned());
-        assert!(i == 1);
+        assert_eq!(i, 1);
     }
 
     #[test]
@@ -52,7 +52,7 @@ mod dataconv_test {
         let v = m.get("foo").unwrap();
         let i = dataconv::as_int_opt(Some(v).cloned());
         assert!(i.is_some(), "Data must contain something");
-        assert!(i.unwrap_or(0) == 1, "Data must be 1");
+        assert_eq!(i.unwrap_or(0), 1, "Data must be 1");
     }
 
     #[test]
@@ -60,7 +60,7 @@ mod dataconv_test {
         let m = serde_yaml::from_str::<HashMap<String, Value>>("foo: \"bar,spam,baz,toto\"").unwrap();
         let v = m.get("foo").unwrap();
         let l = dataconv::as_str_list(Some(v).cloned());
-        assert!(l.len() == 4, "Data length must be 4");
+        assert_eq!(l.len(), 4, "Data length must be 4");
         assert!(
             l == vec!["bar".to_string(), "spam".to_string(), "baz".to_string(), "toto".to_string()],
             "Vector must be the same"
@@ -73,7 +73,7 @@ mod dataconv_test {
         let v = m.get("foo").unwrap();
         let l = dataconv::as_str_list_opt(Some(v).cloned());
         assert!(l.is_some(), "Data must contain something");
-        assert!(l.clone().unwrap().len() == 4, "Data length must be 4");
+        assert_eq!(l.clone().unwrap().len(), 4, "Data length must be 4");
         assert!(
             l.unwrap() == vec!["bar".to_string(), "spam".to_string(), "baz".to_string(), "toto".to_string()],
             "Vector must be the same"
@@ -87,6 +87,6 @@ mod dataconv_test {
         let s = dataconv::to_string(Some(v).cloned());
         assert!(s.is_some(), "Data must contain something");
         let s = s.unwrap();
-        assert!(s.eq("bar,spam,baz,toto"));
+        assert_eq!(s, "bar,spam,baz,toto");
     }
 }

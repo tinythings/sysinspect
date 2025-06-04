@@ -50,7 +50,7 @@ impl MinionSetup {
     }
 
     fn check_my_permissions(&self) -> Result<(), SysinspectError> {
-        if unsafe { libc::getuid() } == 0 {
+        if unsafe { libc::getuid() } != 0 {
             return Err(SysinspectError::ConfigError("SysMinion must be run as root".to_string()));
         }
         Ok(())
@@ -96,13 +96,13 @@ impl MinionSetup {
         if self.alt_dir.is_empty() { "/var/run".to_string() } else { format!("{}/run", self.alt_dir) }
     }
 
-    /// Get /var/tmp
+    /// Get /var/tmp/sysinspect
     /// This is the directory where the temporary files are stored
     fn get_tmp(&self) -> String {
         if self.alt_dir.is_empty() { "/var/tmp/sysinspect".to_string() } else { format!("{}/tmp/db", self.alt_dir) }
     }
 
-    /// Get /var/tmp/db
+    /// Get /tmp
     /// This is the directory where the database files are stored
     fn get_db(&self) -> String {
         if self.alt_dir.is_empty() { "/tmp".to_string() } else { format!("{}/tmp", self.alt_dir) }
