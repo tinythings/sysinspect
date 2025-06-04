@@ -14,7 +14,6 @@ use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf, sync::Mutex};
 use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
-const QUERY_CYCLES_LIMIT: usize = 100;
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct EventData {
