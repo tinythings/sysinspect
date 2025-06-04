@@ -10,7 +10,7 @@ use libsysinspect::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sled::{Db, Tree};
-use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf};
+use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf, sync::Mutex};
 use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
@@ -193,11 +193,12 @@ pub struct EventsRegistry {
     conn: Db,
     cloned: Option<PathBuf>,
     cfg: HistoryConfig,
+    trimlock: Mutex<()>,
 }
 
 impl Default for EventsRegistry {
     fn default() -> Self {
-        Self { conn: sled::Config::new().temporary(true).open().unwrap(), cloned: None, cfg: HistoryConfig::default() } // open in memory
+        Self { conn: sled::Config::new().temporary(true).open().unwrap(), cloned: None, cfg: HistoryConfig::default(), trimlock: Mutex::new(()) } // open in memory
     }
 }
 
@@ -215,6 +216,7 @@ impl EventsRegistry {
             },
             cloned: None,
             cfg,
+            trimlock: Mutex::new(()),
         })
     }
 
@@ -258,6 +260,7 @@ impl EventsRegistry {
             },
             cloned: Some(tmpdir),
             cfg: HistoryConfig::default(),
+            trimlock: Mutex::new(()),
         })
     }
 
@@ -329,9 +332,7 @@ impl EventsRegistry {
     /// > On the other hand not entirely critical, because the database meant to be periodically purged
     /// > and the number of sessions is expected to be small enough.
     pub fn get_last_session(&self) -> Result<EventSession, SysinspectError> {
-        let mut sessions = self.get_sessions()?;
-        sessions.sort_by_key(|s| s.get_ts_unix());
-        if let Some(last) = sessions.last() {
+        if let Some(last) = self.get_sessions()?.last() {
             return Ok(last.clone());
         }
         Err(SysinspectError::MasterGeneralError("No sessions found".to_string()))
@@ -340,7 +341,9 @@ impl EventsRegistry {
     /// Return existing recorded sessions
     pub fn get_sessions(&self) -> Result<Vec<EventSession>, SysinspectError> {
         if self.cfg.rotate() {
-            self.trim_data()?;
+            if let Ok(_) = self.trimlock.try_lock() {
+                self.trim_data()?;
+            }
         }
 
         let mut ks = Vec::<EventSession>::new();
@@ -352,6 +355,9 @@ impl EventsRegistry {
             };
             ks.push(EventSession::from_bytes(v.as_bytes().to_vec())?);
         }
+
+        // Always sort them by date/time, ascending
+        ks.sort_by_key(|x| x.get_ts_unix());
 
         Ok(ks)
     }
@@ -398,7 +404,28 @@ impl EventsRegistry {
 
     /// Trim the database data to the specific amount of records.
     pub fn trim_data(&self) -> Result<(), SysinspectError> {
-        log::info!("Trimming database data. Age: {:?}, Limit: {}", self.cfg.age(), self.cfg.limit());
+        log::debug!("Trimming database data. Age: {:?}, Limit: {}", self.cfg.age(), self.cfg.limit());
+        let sessions = self.get_sessions()?;
+        let age = if let Ok(d) = chrono::Duration::from_std(self.cfg.age()) { Utc::now().checked_sub_signed(d) } else { None };
+        let tree = self.get_tree(TR_SESSIONS)?;
+
+        // Delete sessions exceeding the limit
+        if sessions.len() > self.cfg.limit() {
+            for session in &sessions[..sessions.len() - self.cfg.limit()] {
+                log::debug!("Deleting session {} due to exceeding limit", session.sid());
+                tree.remove(session.sid())?;
+            }
+        }
+
+        // Delete sessions older than the age limit
+        if let Some(age) = age {
+            for session in &sessions {
+                if session.ts < age {
+                    log::debug!("Deleting session {} due to age limit", session.sid());
+                    tree.remove(session.sid())?;
+                }
+            }
+        }
 
         Ok(())
     }
