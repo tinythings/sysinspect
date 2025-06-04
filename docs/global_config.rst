@@ -83,7 +83,7 @@ and contains the following directives:
     Path for a FIFO socket to communicate with the ``sysinspect`` command,
     which is issuing commands over the network.
 
-    Default value is ``/tmp/sysinspect-master.socket``.
+    Default value is ``/var/run/sysinspect-master.socket``.
 
 ``bind.ip``
 ###########
