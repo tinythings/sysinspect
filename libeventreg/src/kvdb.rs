@@ -4,15 +4,17 @@ use fs_extra::dir::{CopyOptions, copy};
 use indexmap::IndexMap;
 use libsysinspect::{
     SysinspectError,
+    cfg::mmconf::HistoryConfig,
     util::{self},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sled::{Db, Tree};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf};
 use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
+const QUERY_CYCLES_LIMIT: usize = 100;
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct EventData {
@@ -190,16 +192,17 @@ impl EventSession {
 pub struct EventsRegistry {
     conn: Db,
     cloned: Option<PathBuf>,
+    cfg: HistoryConfig,
 }
 
 impl Default for EventsRegistry {
     fn default() -> Self {
-        Self { conn: sled::Config::new().temporary(true).open().unwrap(), cloned: None } // open in memory
+        Self { conn: sled::Config::new().temporary(true).open().unwrap(), cloned: None, cfg: HistoryConfig::default() } // open in memory
     }
 }
 
 impl EventsRegistry {
-    pub fn new(p: PathBuf) -> Result<EventsRegistry, SysinspectError> {
+    pub fn new(p: PathBuf, cfg: HistoryConfig) -> Result<EventsRegistry, SysinspectError> {
         log::info!("Opening database registry at {}", p.to_str().unwrap_or_default());
         if !p.exists() {
             fs::create_dir_all(&p)?;
@@ -211,6 +214,7 @@ impl EventsRegistry {
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
             },
             cloned: None,
+            cfg,
         })
     }
 
@@ -253,6 +257,7 @@ impl EventsRegistry {
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
             },
             cloned: Some(tmpdir),
+            cfg: HistoryConfig::default(),
         })
     }
 
@@ -334,6 +339,10 @@ impl EventsRegistry {
 
     /// Return existing recorded sessions
     pub fn get_sessions(&self) -> Result<Vec<EventSession>, SysinspectError> {
+        if self.cfg.rotate() {
+            self.trim_data()?;
+        }
+
         let mut ks = Vec::<EventSession>::new();
         let sessions = self.get_tree(TR_SESSIONS)?;
         for v in sessions.iter().values() {
@@ -385,6 +394,13 @@ impl EventsRegistry {
         }
 
         Ok(es)
+    }
+
+    /// Trim the database data to the specific amount of records.
+    pub fn trim_data(&self) -> Result<(), SysinspectError> {
+        log::info!("Trimming database data. Age: {:?}, Limit: {}", self.cfg.age(), self.cfg.limit());
+
+        Ok(())
     }
 
     /// Delete everything from the database (flush it out completely).

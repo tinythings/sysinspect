@@ -1,4 +1,5 @@
 use libsysinspect::SysinspectError;
+use libsysinspect::cfg::mmconf::CFG_OTLP_COMPRESSION;
 use libsysinspect::cfg::mmconf::MasterConfig;
 use opentelemetry::Key;
 use opentelemetry::logs::AnyValue;
@@ -30,7 +31,7 @@ pub async fn init_otel_collector(cfg: MasterConfig) -> Result<(), SysinspectErro
     let exporter = LogExporter::builder()
         .with_tonic()
         .with_protocol(Protocol::Grpc)
-        .with_compression(if cfg.otlp_compression().eq(cfg.otlp_compression().as_str()) { Compression::Gzip } else { Compression::Zstd })
+        .with_compression(if cfg.otlp_compression().eq(CFG_OTLP_COMPRESSION) { Compression::Gzip } else { Compression::Zstd })
         .with_endpoint(cfg.otlp_collector_endpoint())
         .build()
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;

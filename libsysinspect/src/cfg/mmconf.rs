@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use nix::libc;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Value, from_str, from_value};
-use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
+use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
 
 // Network
 // -------
@@ -108,6 +108,10 @@ pub static CFG_OTLP_SERVICE_NAME: &str = "sysinspect";
 pub static CFG_OTLP_SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub static CFG_OTLP_COMPRESSION: &str = "gzip"; // or "zstd"
 
+// History keeping
+pub static CFG_HISTORY_LIMIT: usize = 100;
+pub static CFG_HISTORY_AGE: usize = 86400; // 1 day in seconds
+
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
     let mut home = String::from("");
@@ -127,6 +131,37 @@ fn _logfile_path() -> PathBuf {
         }
     }
     PathBuf::from("")
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct HistoryConfig {
+    // Max number of history records to keep
+    limit: Option<usize>,
+
+    // Max age in units of seconds, minutes, hours, or days
+    #[serde(default)]
+    #[serde(with = "humantime_serde::option")]
+    age: Option<Duration>,
+
+    // Rotate history records
+    rotate: Option<bool>,
+}
+
+impl HistoryConfig {
+    /// Get max number of history records to keep
+    pub fn limit(&self) -> usize {
+        self.limit.unwrap_or(CFG_HISTORY_LIMIT)
+    }
+
+    /// Get max age in seconds, minutes, hours, or days
+    pub fn age(&self) -> Duration {
+        self.age.unwrap_or_else(|| Duration::from_secs(CFG_HISTORY_AGE as u64))
+    }
+
+    /// Rotate history records
+    pub fn rotate(&self) -> bool {
+        self.rotate.unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -557,6 +592,9 @@ pub struct MasterConfig {
 
     // Scheduler for recurring queries to all the minions
     scheduler: Option<Vec<TaskConfig>>,
+
+    // Configuration of history keeping in the database per each cycle call
+    history: Option<HistoryConfig>,
 }
 
 impl MasterConfig {
@@ -596,6 +634,15 @@ impl MasterConfig {
         }
 
         cpr
+    }
+
+    /// Get history configuration
+    pub fn history(&self) -> HistoryConfig {
+        if let Some(cfg) = &self.history {
+            return cfg.clone();
+        }
+
+        HistoryConfig::default()
     }
 
     /// Get OTLP configuration
