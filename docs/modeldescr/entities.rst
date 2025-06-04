@@ -14,7 +14,7 @@ call specific modules, and constraints that process them.
 
 .. important::
 
-   Entities the the following rules:
+   Entities follow the following rules:
 
    - An entity is independent of the specific architecture of a system
    - An entity may contain only self-applied claims, describing only that particular entity.
@@ -24,7 +24,7 @@ call specific modules, and constraints that process them.
 Synopsis
 --------
 
-Entitles describe claims and relations within the architecture. These expectations should
+Entities describe claims and relations within the architecture. These expectations should
 be aligned with constraints. Each entity has a **true** or **false** state. A "true" state is when
 all constraints and checks produce the expected result.
 
