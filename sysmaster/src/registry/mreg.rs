@@ -1,6 +1,6 @@
 use super::rec::MinionRecord;
 use libsysinspect::SysinspectError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sled::{Db, Tree};
 use std::{collections::HashMap, fs, path::PathBuf};
 
@@ -114,9 +114,7 @@ impl MinionRegistry {
                     let mrec = serde_json::from_str::<MinionRecord>(&String::from_utf8(v_ent.to_vec()).unwrap_or_default());
                     let mrec = match mrec {
                         Ok(mrec) => mrec,
-                        Err(err) => {
-                            return Err(SysinspectError::MasterGeneralError(format!("Unable to read minion record: {err}")))
-                        }
+                        Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Unable to read minion record: {err}"))),
                     };
 
                     let mut matches = false;
@@ -125,7 +123,7 @@ impl MinionRegistry {
                             if vreq.eq(v) {
                                 matches = true;
                             } else {
-                                matches = true;
+                                matches = false;
                                 break;
                             }
                         } else {
