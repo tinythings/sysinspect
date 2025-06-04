@@ -33,6 +33,7 @@ use libsysinspect::{
 use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
     sync::Arc,
@@ -655,4 +656,19 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
     }
 
     libsetup::mnsetup::MinionSetup::new().set_config(get_minion_config(None)?).set_alt_dir(dir.to_str().unwrap_or_default().to_string()).setup()
+}
+
+/// Launch a module
+pub(crate) fn launch_module(args: &ArgMatches) -> Result<(), SysinspectError> {
+    let name = args.get_one::<String>("name").ok_or(SysinspectError::ConfigError("Module name is required".to_string()))?;
+
+    let kw: HashMap<String, String> =
+        args.get_many::<(String, String)>("args").unwrap_or_default().map(|(key, value)| (key.clone(), value.clone())).collect();
+    let opts = args.get_many::<Vec<String>>("opts").unwrap_or_default().flatten().cloned().collect::<Vec<String>>();
+
+    println!("Module name: {}", name);
+    println!("{:#?}", kw);
+    println!("{:#?}", opts);
+
+    Ok(())
 }
