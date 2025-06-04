@@ -64,15 +64,13 @@ fn call(mrg: ModArgs) -> ModResponse {
             resp.set_message("RSA key or a password must be supplied");
             return resp;
         }
-    } else if let Err(err) =
-        sess.userauth_pubkey_file(&mrg.user, None, mrg.rsa_prk.unwrap().as_path(), mrg.password.as_deref()).with_context(|| {
-            if mrg.password.is_some() {
-                "SSH key authentication failed: Incorrect passphrase or key."
-            } else {
-                "SSH key authentication failed: Incorrect key or permissions."
-            }
-        })
-    {
+    } else if let Err(err) = sess.userauth_pubkey_file(&mrg.user, None, mrg.rsa_prk.unwrap().as_path(), mrg.password.as_deref()).with_context(|| {
+        if mrg.password.is_some() {
+            "SSH key authentication failed: Incorrect passphrase or key."
+        } else {
+            "SSH key authentication failed: Incorrect key or permissions."
+        }
+    }) {
         resp.set_message(&format!("Authentication error: {err}"));
         return resp;
     }
@@ -158,7 +156,7 @@ fn run_mod(rt: &ModRequest) -> ModResponse {
         host: get_arg(rt, "host"),
         port: get_arg(rt, "port").parse::<usize>().unwrap_or(22),
         rsa_prk: Some(get_arg(rt, "rsakey")).filter(|p| !p.is_empty()).map(PathBuf::from),
-        password: Some(get_arg(rt, "user")).filter(|p| !p.is_empty()),
+        password: Some(get_arg(rt, "password")).filter(|p| !p.is_empty()),
         cmd: get_arg(rt, "cmd"),
         locale: get_arg(rt, "locale"),
         env: get_arg(rt, "env"),
