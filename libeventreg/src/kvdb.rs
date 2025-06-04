@@ -339,8 +339,10 @@ impl EventsRegistry {
 
     /// Return existing recorded sessions
     pub fn get_sessions(&self) -> Result<Vec<EventSession>, SysinspectError> {
-        if self.cfg.rotate() && self.trimlock.try_lock().is_ok() {
-            self.trim_data()?;
+        if self.cfg.rotate() {
+            if let Ok(_lock) = self.trimlock.try_lock() {
+                self.trim_data()?;
+            }
         }
 
         let mut ks = Vec::<EventSession>::new();
