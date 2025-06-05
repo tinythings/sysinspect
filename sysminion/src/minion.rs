@@ -660,16 +660,22 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
 }
 
 /// Launch a module
-pub(crate) fn launch_module(args: &ArgMatches) -> Result<(), SysinspectError> {
+pub(crate) async fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), SysinspectError> {
     let name = args.get_one::<String>("name").ok_or(SysinspectError::ConfigError("Module name is required".to_string()))?;
 
-    let kw: HashMap<String, String> =
+    let kw: IndexMap<String, String> =
         args.get_many::<(String, String)>("args").unwrap_or_default().map(|(key, value)| (key.clone(), value.clone())).collect();
     let opts = args.get_many::<Vec<String>>("opts").unwrap_or_default().flatten().cloned().collect::<Vec<String>>();
+    let mut x = ModCall::default().set_module(PathBuf::from(name));
+    for (k, v) in &kw {
+        x.add_kwargs(k.to_string(), v.to_string());
+    }
 
-    println!("Module name: {}", name);
-    println!("{:#?}", kw);
-    println!("{:#?}", opts);
+    for o in opts {
+        x.add_opt(o);
+    }
+
+    println!("\n\nResult of {}:\n{}", name, KeyValueFormatter::new(x.run()?.unwrap_or_default().response.data().unwrap_or_default()).format());
 
     Ok(())
 }
