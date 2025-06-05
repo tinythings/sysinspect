@@ -207,9 +207,8 @@ impl ModCall {
 
     /// Evaluate constraints
     fn eval_constraints(&self, ar: &ActionModResponse) -> ConstraintResponse {
-        fn eval<F>(
-            mc: &ModCall, cret: &mut ConstraintResponse, c: &Constraint, kind: ConstraintKind, eval_fn: F, ar: &ActionModResponse,
-        ) where
+        fn eval<F>(mc: &ModCall, cret: &mut ConstraintResponse, c: &Constraint, kind: ConstraintKind, eval_fn: F, ar: &ActionModResponse)
+        where
             F: Fn(&ModCall, &Constraint, &ActionModResponse) -> (Option<bool>, Option<Vec<String>>, Vec<ExprRes>),
         {
             let (res, msgs, expr) = eval_fn(mc, c, ar);
@@ -223,8 +222,7 @@ impl ModCall {
             }
         }
 
-        let mut cret =
-            ConstraintResponse::new(format!("{} with {}", self.aid, self.get_mod_ns().unwrap_or("(unknown)".to_string())));
+        let mut cret = ConstraintResponse::new(format!("{} with {}", self.aid, self.get_mod_ns().unwrap_or("(unknown)".to_string())));
         for c in &self.constraints {
             eval(self, &mut cret, c, ConstraintKind::All, Self::eval_cst_all, ar);
             eval(self, &mut cret, c, ConstraintKind::Any, Self::eval_cst_any, ar);
@@ -251,13 +249,11 @@ impl ModCall {
         let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<IndexMap<String, serde_json::Value>>();
 
         // TODO: Add libpath and modpath here! Must come from MinionConfig
-        match pylang::pvm::PyVm::new(
-            get_cfg_sharelib().join(DEFAULT_MODULES_LIB_DIR),
-            get_cfg_sharelib().join(DEFAULT_MODULES_DIR),
-        )
-        .as_ptr()
-        .call(&self.module, Some(opts), Some(args))
-        {
+        match pylang::pvm::PyVm::new(get_cfg_sharelib().join(DEFAULT_MODULES_LIB_DIR), get_cfg_sharelib().join(DEFAULT_MODULES_DIR)).as_ptr().call(
+            &self.module,
+            Some(opts),
+            Some(args),
+        ) {
             Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
                 Ok(r) => Ok(Some(ActionResponse::new(
                     self.eid.to_owned(),

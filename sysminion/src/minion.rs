@@ -9,6 +9,7 @@ use crate::{
 };
 use clap::ArgMatches;
 use colored::Colorize;
+use indexmap::IndexMap;
 use libmodpak::MODPAK_SYNC_STATE;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
@@ -18,7 +19,7 @@ use libsysinspect::{
         mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
     inspector::SysInspectRunner,
-    intp::actproc::response::ActionResponse,
+    intp::actproc::{modfinder::ModCall, response::ActionResponse},
     proto::{
         MasterMessage, MinionMessage, ProtoConversion,
         errcodes::ProtoErrorCode,
@@ -26,6 +27,7 @@ use libsysinspect::{
         query::{MinionQuery, SCHEME_COMMAND},
         rqtypes::RequestType,
     },
+    reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     rsa,
     traits::{self},
     util::{self, dataconv},
@@ -33,7 +35,6 @@ use libsysinspect::{
 use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
-    collections::HashMap,
     fs,
     path::PathBuf,
     sync::Arc,
