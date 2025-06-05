@@ -63,7 +63,7 @@ Output should be something like this:
     [15/12/2024 21:47:03] - WARN: Preferred config at  does not exist, falling back
     [15/12/2024 21:47:03] - INFO: Initialising minion
     [15/12/2024 21:47:03] - INFO: Loading system traits data
-    [15/12/2024 21:47:04] - INFO: Lading network traits data
+    [15/12/2024 21:47:04] - INFO: Loading network traits data
     [15/12/2024 21:47:04] - INFO: Loading trait functions
     [15/12/2024 21:47:04] - INFO: Registration request to 10.10.2.75:4200
     [15/12/2024 21:47:04] - INFO: Minion registration has been accepted

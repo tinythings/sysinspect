@@ -18,7 +18,11 @@ use libsysinspect::{
         mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
     inspector::SysInspectRunner,
-    intp::actproc::response::ActionResponse,
+    intp::{
+        actproc::{modfinder::ModCall, response::ActionResponse},
+        inspector::SysInspector,
+    },
+    mdescr::mspecdef::ModelSpec,
     proto::{
         MasterMessage, MinionMessage, ProtoConversion,
         errcodes::ProtoErrorCode,
@@ -26,6 +30,7 @@ use libsysinspect::{
         query::{MinionQuery, SCHEME_COMMAND},
         rqtypes::RequestType,
     },
+    reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     rsa,
     traits::{self},
     util::{self, dataconv},
@@ -655,4 +660,34 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
     }
 
     libsetup::mnsetup::MinionSetup::new().set_config(get_minion_config(None)?).set_alt_dir(dir.to_str().unwrap_or_default().to_string()).setup()
+}
+
+/// Launch a module
+pub(crate) fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), SysinspectError> {
+    let name = args.get_one::<String>("name").ok_or(SysinspectError::ConfigError("Module name is required".to_string()))?;
+    let mut modcaller = ModCall::default().set_module_ns(name, cfg.sharelib_dir());
+    let _ = SysInspector::new(ModelSpec::default(), Some(cfg.sharelib_dir())); // That will fail (and it is OK), but it will set sharelib for the module caller
+
+    for (k, v) in args
+        .get_many::<(String, String)>("args")
+        .unwrap_or_default()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<Vec<(String, String)>>()
+    {
+        modcaller.add_kwargs(k.to_string(), v.to_string());
+    }
+
+    for o in args.get_many::<Vec<String>>("opts").unwrap_or_default().flatten().cloned().collect::<Vec<String>>() {
+        modcaller.add_opt(o);
+    }
+
+    let out = modcaller.run()?.unwrap_or_default().response.data().unwrap_or_default();
+    if !out.is_null() {
+        println!("\n{}", KeyValueFormatter::new(out).format());
+        return Ok(());
+    } else {
+        log::debug!("No data returned from the module {}", name);
+    }
+
+    Ok(())
 }

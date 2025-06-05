@@ -59,6 +59,24 @@ impl ModCall {
         self
     }
 
+    /// Set unresolved module by its namespace.
+    pub fn set_module_ns(self, ns: &str, sharelib: PathBuf) -> Self {
+        let modpath = sharelib
+            .join(DEFAULT_MODULES_DIR)
+            .join(ns.trim_start_matches('.').trim_end_matches('.').trim().split('.').map(|s| s.to_string()).collect::<Vec<String>>().join("/"));
+        let pymodpath = modpath.parent().unwrap().join(format!("{}.py", modpath.file_name().unwrap().to_os_string().to_str().unwrap_or_default()));
+        if pymodpath.exists() {
+            log::debug!("Path to a Python module: {}", pymodpath.to_str().unwrap_or_default());
+            self.set_module(pymodpath)
+        } else if modpath.exists() {
+            log::debug!("Path to a native module: {}", modpath.to_str().unwrap_or_default());
+            self.set_module(modpath)
+        } else {
+            log::error!("Module {} was not found in {}", ns, modpath.to_str().unwrap_or_default());
+            self.set_module(PathBuf::default())
+        }
+    }
+
     /// Add a pair of kwargs
     pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
         self.args.insert(kw, arg);
@@ -207,9 +225,8 @@ impl ModCall {
 
     /// Evaluate constraints
     fn eval_constraints(&self, ar: &ActionModResponse) -> ConstraintResponse {
-        fn eval<F>(
-            mc: &ModCall, cret: &mut ConstraintResponse, c: &Constraint, kind: ConstraintKind, eval_fn: F, ar: &ActionModResponse,
-        ) where
+        fn eval<F>(mc: &ModCall, cret: &mut ConstraintResponse, c: &Constraint, kind: ConstraintKind, eval_fn: F, ar: &ActionModResponse)
+        where
             F: Fn(&ModCall, &Constraint, &ActionModResponse) -> (Option<bool>, Option<Vec<String>>, Vec<ExprRes>),
         {
             let (res, msgs, expr) = eval_fn(mc, c, ar);
@@ -223,8 +240,7 @@ impl ModCall {
             }
         }
 
-        let mut cret =
-            ConstraintResponse::new(format!("{} with {}", self.aid, self.get_mod_ns().unwrap_or("(unknown)".to_string())));
+        let mut cret = ConstraintResponse::new(format!("{} with {}", self.aid, self.get_mod_ns().unwrap_or("(unknown)".to_string())));
         for c in &self.constraints {
             eval(self, &mut cret, c, ConstraintKind::All, Self::eval_cst_all, ar);
             eval(self, &mut cret, c, ConstraintKind::Any, Self::eval_cst_any, ar);
@@ -251,13 +267,11 @@ impl ModCall {
         let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<IndexMap<String, serde_json::Value>>();
 
         // TODO: Add libpath and modpath here! Must come from MinionConfig
-        match pylang::pvm::PyVm::new(
-            get_cfg_sharelib().join(DEFAULT_MODULES_LIB_DIR),
-            get_cfg_sharelib().join(DEFAULT_MODULES_DIR),
-        )
-        .as_ptr()
-        .call(&self.module, Some(opts), Some(args))
-        {
+        match pylang::pvm::PyVm::new(get_cfg_sharelib().join(DEFAULT_MODULES_LIB_DIR), get_cfg_sharelib().join(DEFAULT_MODULES_DIR)).as_ptr().call(
+            &self.module,
+            Some(opts),
+            Some(args),
+        ) {
             Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
                 Ok(r) => Ok(Some(ActionResponse::new(
                     self.eid.to_owned(),

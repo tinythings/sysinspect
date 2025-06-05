@@ -59,6 +59,24 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
             .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help on this command"))
         )
 
+        .subcommand(Command::new("module").about("Local module invocation").styles(styles.clone()).disable_help_flag(true)
+            .arg(Arg::new("name").short('n').long("name").help("Module name to invoke"))
+            .arg(Arg::new("args").short('a').long("args").action(ArgAction::Append).value_parser(clap::builder::ValueParser::new(|s: &str|
+                {
+                    let parts: Vec<&str> = s.splitn(2, '=').collect();
+                    if parts.len() == 2 {
+                        Ok((parts[0].to_string(), parts[1].to_string()))
+                    } else {
+                        Err(String::from("Key-value argument pair, translates to --key=value. Specify this pair multiple times for multiple pairs."))
+                    }
+                })).help("Key-value argument pairs to pass to the module (format: key=value)"))
+            .arg(Arg::new("opts").short('o').long("opts").num_args(1..).value_parser(clap::builder::ValueParser::new(|s: &str|
+                {
+                    Ok::<Vec<String>, String>(s.split(',').map(|item| item.trim().to_string()).collect())
+                })).help("Options to pass to the module (comma-separated)"))
+            .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help on this command"))
+        )
+
         // Other
         .next_help_heading("Other")
         .arg(

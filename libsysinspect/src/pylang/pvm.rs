@@ -2,17 +2,17 @@
 Python virtual machine
  */
 
-use crate::{pylang::PY_MAIN_FUNC, SysinspectError};
+use crate::{SysinspectError, pylang::PY_MAIN_FUNC};
 use colored::Colorize;
 use indexmap::IndexMap;
 use rustpython_vm::{
+    AsObject, PyResult,
     compiler::Mode::Exec,
     function::{FuncArgs, KwArgs},
-    AsObject, PyResult,
 };
 use rustpython_vm::{Interpreter, Settings};
 use rustpython_vm::{PyObjectRef, VirtualMachine};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -47,8 +47,7 @@ impl PyVm {
     /// Load main script of a module by a regular namespace
     fn load_by_ns(&self, ns: &str) -> Result<String, SysinspectError> {
         // XXX: util::get_namespace() ? Because something similar exists for the binaries
-        let pbuff = PathBuf::from(&self.modpath)
-            .join(format!("{}.py", ns.replace(".", "/").trim_start_matches("/").trim_end_matches("/")));
+        let pbuff = PathBuf::from(&self.modpath).join(format!("{}.py", ns.replace(".", "/").trim_start_matches("/").trim_end_matches("/")));
         self.load_by_path(&pbuff)
     }
 
@@ -61,6 +60,7 @@ impl PyVm {
     }
 
     fn load_pylib(&self, vm: &VirtualMachine) -> Result<(), SysinspectError> {
+        log::debug!("Loading Python library from {}", self.libpath);
         match vm.import("sys", 0) {
             Ok(sysmod) => match sysmod.get_attr("path", vm) {
                 Ok(syspath) => {
@@ -100,10 +100,9 @@ impl PyVm {
                 }
             }
             Value::String(s) => vm.ctx.new_str(s).into(),
-            Value::Array(arr) => vm
-                .ctx
-                .new_list(arr.into_iter().map(|item| self.from_json(vm, item).expect("Failed to convert JSON")).collect())
-                .into(),
+            Value::Array(arr) => {
+                vm.ctx.new_list(arr.into_iter().map(|item| self.from_json(vm, item).expect("Failed to convert JSON")).collect()).into()
+            }
             Value::Object(obj) => {
                 let py_dict = vm.ctx.new_dict();
                 for (key, val) in obj {
@@ -165,10 +164,8 @@ impl PyVm {
                 py_args.set_item(py_key.as_object(), py_val, vm).unwrap();
             }
 
-            let kwargs: KwArgs = py_args
-                .into_iter()
-                .map(|(k, v)| (k.downcast::<rustpython_vm::builtins::PyStr>().unwrap().as_str().to_string(), v))
-                .collect();
+            let kwargs: KwArgs =
+                py_args.into_iter().map(|(k, v)| (k.downcast::<rustpython_vm::builtins::PyStr>().unwrap().as_str().to_string(), v)).collect();
 
             let fref = match scope.globals.get_item(PY_MAIN_FUNC, vm) {
                 Ok(fref) => fref,

@@ -59,15 +59,18 @@ fn get_config(params: &ArgMatches) -> MinionConfig {
 
 // Print help?
 fn help(cli: &mut Command, params: ArgMatches) -> bool {
-    if let Some(sub) = params.subcommand_matches("setup") {
-        if sub.get_flag("help") {
-            if let Some(s_cli) = cli.find_subcommand_mut("setup") {
-                _ = s_cli.print_help();
-                return true;
+    for sc in ["setup", "module"] {
+        if let Some(sub) = params.subcommand_matches(sc) {
+            if sub.get_flag("help") {
+                if let Some(s_cli) = cli.find_subcommand_mut(sc) {
+                    _ = s_cli.print_help();
+                    return true;
+                }
+                return false;
             }
-            return false;
         }
     }
+
     if params.get_flag("help") {
         _ = &cli.print_long_help();
         return true;
@@ -123,10 +126,7 @@ fn main() -> std::io::Result<()> {
                 sout
             }
             Err(err) => {
-                log::error!(
-                    "Unable to create main log file at {}: {err}, terminating",
-                    cfg.logfile_std().to_str().unwrap_or_default()
-                );
+                log::error!("Unable to create main log file at {}: {err}, terminating", cfg.logfile_std().to_str().unwrap_or_default());
                 exit(1);
             }
         };
@@ -163,6 +163,10 @@ fn main() -> std::io::Result<()> {
     } else if let Some(sub) = params.subcommand_matches("setup") {
         if let Err(err) = minion::setup(sub) {
             log::error!("Error running setup: {err}");
+        }
+    } else if let Some(sub) = params.subcommand_matches("module") {
+        if let Err(err) = minion::launch_module(get_config(&params), sub) {
+            log::error!("Error launching module: {err}");
         }
     } else {
         cli.print_help()?;

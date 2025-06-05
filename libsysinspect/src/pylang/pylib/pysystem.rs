@@ -6,8 +6,6 @@ use rustpython_vm::pymodule;
 
 #[pymodule]
 pub mod syscore {
-    use std::sync::Arc;
-
     use crate::{
         cfg::{get_minion_config, mmconf::MinionConfig},
         inspector::SysInspectRunner,
@@ -16,11 +14,14 @@ pub mod syscore {
     };
     use rustpython_vm::PyResult;
     use rustpython_vm::{
+        PyObjectRef, PyPayload, PyRef, VirtualMachine,
         builtins::{PyDict, PyList},
         common::lock::PyMutex,
         convert::ToPyObject,
-        pyclass, PyObjectRef, PyPayload, PyRef, VirtualMachine,
+        pyclass,
     };
+    use serde_json::Value;
+    use std::sync::Arc;
 
     #[derive(Debug, Clone)]
     struct StrVec(Vec<String>);
@@ -84,7 +85,7 @@ pub mod syscore {
         #[pymethod]
         fn get(&self, key: String, _vm: &VirtualMachine) -> PyObjectRef {
             if self.traits.is_some() {
-                return dataconv::to_pyobjectref(self.traits.clone().and_then(|v| v.get(&key)), _vm).unwrap();
+                return dataconv::to_pyobjectref(Some(self.traits.clone().and_then(|v| v.get(&key)).unwrap_or(Value::Null)), _vm).unwrap();
             }
             _vm.ctx.none()
         }
@@ -164,9 +165,7 @@ pub mod syscore {
     #[pyclass]
     impl SysinspectReturn {
         fn new(_vm: &VirtualMachine) -> SysinspectReturn {
-            SysinspectReturn {
-                inner: PyMutex::new(Inner { retcode: 0, data: _vm.ctx.new_dict(), warnings: vec![], message: "".to_string() }),
-            }
+            SysinspectReturn { inner: PyMutex::new(Inner { retcode: 0, data: _vm.ctx.new_dict(), warnings: vec![], message: "".to_string() }) }
         }
 
         #[pygetset]

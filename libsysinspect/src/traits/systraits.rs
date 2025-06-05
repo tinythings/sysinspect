@@ -151,7 +151,7 @@ impl SystemTraits {
 
     /// Load network data
     fn get_network(&mut self) {
-        log::info!("Lading network traits data");
+        log::info!("Loading network traits data");
         let net = sysinfo::Networks::new_with_refreshed_list();
         for (ifs, data) in net.iter() {
             self.put(format!("system.net.{}.mac", ifs), json!(data.mac_address().to_string()));
