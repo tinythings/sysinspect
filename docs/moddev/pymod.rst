@@ -140,3 +140,41 @@ Python script like so:
         print(dir(cfg))
 
         return "{}"
+
+Running Python Modules Locally
+==============================
+
+To test your Python module locally, you can use the ``sysminion`` command. This is particularly useful for debugging and
+testing purposes. The ``sysminion`` command includes a special sub-command, ``module``, which allows you to invoke your
+modules directly:
+
+.. code-block:: shell
+
+    sysminion module --help
+
+Synopsis:
+
+.. code-block:: shell
+
+    Local module invocation
+
+    Usage: module [OPTIONS]
+
+    Options:
+    -n, --name <name>     Name of the module to invoke
+    -a, --args <args>     Key-value argument pairs to pass to the module (format: key=value)
+    -o, --opts <opts>...  Options to pass to the module (comma-separated)
+    -h, --help            Display help for this command
+
+Although this feature can launch any module, it is primarily designed for testing and debugging Python modules. These
+modules are executed by the Minion's embedded Python interpreter, which differs from the standard Python environment.
+
+Currently, the Minion cannot list all available modules. However, you can manually check the module files located in the
+`$ROOT/share/modules` directory. To list all available modules, you can use the ``sysinspect`` utility on a Master machine
+as follows:
+
+.. code-block:: shell
+
+    sysinspect module -L
+
+This command will display all available modules on the Master, which can be helpful for identifying what is accessible.
