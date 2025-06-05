@@ -678,7 +678,7 @@ pub(crate) async fn launch_module(args: &ArgMatches) -> Result<(), SysinspectErr
 
     let out = modcaller.run()?.unwrap_or_default().response.data().unwrap_or_default();
     if !out.is_null() {
-        println!("\n\nResult of {}:\n{}", name, KeyValueFormatter::new(out).format());
+        println!("\n{}", KeyValueFormatter::new(out).format());
         return Ok(());
     } else {
         log::debug!("No data returned from the module {}", name);
