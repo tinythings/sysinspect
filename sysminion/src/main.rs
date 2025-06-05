@@ -166,7 +166,7 @@ async fn main() -> std::io::Result<()> {
             log::error!("Error running setup: {err}");
         }
     } else if let Some(sub) = params.subcommand_matches("module") {
-        if let Err(err) = minion::launch_module(get_config(&params), sub).await {
+        if let Err(err) = minion::launch_module(sub).await {
             log::error!("Error launching module: {err}");
         }
     } else {
