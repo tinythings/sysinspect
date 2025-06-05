@@ -18,7 +18,11 @@ use libsysinspect::{
         mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
     inspector::SysInspectRunner,
-    intp::actproc::{modfinder::ModCall, response::ActionResponse},
+    intp::{
+        actproc::{modfinder::ModCall, response::ActionResponse},
+        inspector::SysInspector,
+    },
+    mdescr::mspecdef::ModelSpec,
     proto::{
         MasterMessage, MinionMessage, ProtoConversion,
         errcodes::ProtoErrorCode,
@@ -659,9 +663,10 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
 }
 
 /// Launch a module
-pub(crate) async fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), SysinspectError> {
+pub(crate) fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), SysinspectError> {
     let name = args.get_one::<String>("name").ok_or(SysinspectError::ConfigError("Module name is required".to_string()))?;
     let mut modcaller = ModCall::default().set_module_ns(name, cfg.sharelib_dir());
+    let _ = SysInspector::new(ModelSpec::default(), Some(cfg.sharelib_dir())); // That will fail (and it is OK), but it will set sharelib for the module caller
 
     for (k, v) in args
         .get_many::<(String, String)>("args")
