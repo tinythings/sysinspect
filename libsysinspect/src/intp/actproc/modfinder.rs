@@ -59,6 +59,24 @@ impl ModCall {
         self
     }
 
+    /// Set unresolved module by its namespace.
+    pub fn set_module_ns(self, ns: &str, sharelib: PathBuf) -> Self {
+        let modpath = sharelib
+            .join(DEFAULT_MODULES_DIR)
+            .join(ns.trim_start_matches('.').trim_end_matches('.').trim().split('.').map(|s| s.to_string()).collect::<Vec<String>>().join("/"));
+        let pymodpath = modpath.parent().unwrap().join(format!("{}.py", modpath.file_name().unwrap().to_os_string().to_str().unwrap_or_default()));
+        if pymodpath.exists() {
+            log::debug!("Path to a Python module: {}", pymodpath.to_str().unwrap_or_default());
+            self.set_module(pymodpath)
+        } else if modpath.exists() {
+            log::debug!("Path to a native module: {}", modpath.to_str().unwrap_or_default());
+            self.set_module(modpath)
+        } else {
+            log::error!("Module {} was not found in {}", ns, modpath.to_str().unwrap_or_default());
+            self.set_module(PathBuf::default())
+        }
+    }
+
     /// Add a pair of kwargs
     pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
         self.args.insert(kw, arg);

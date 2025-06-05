@@ -659,9 +659,9 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
 }
 
 /// Launch a module
-pub(crate) async fn launch_module(args: &ArgMatches) -> Result<(), SysinspectError> {
+pub(crate) async fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), SysinspectError> {
     let name = args.get_one::<String>("name").ok_or(SysinspectError::ConfigError("Module name is required".to_string()))?;
-    let mut modcaller = ModCall::default().set_module(PathBuf::from(name));
+    let mut modcaller = ModCall::default().set_module_ns(name, cfg.sharelib_dir());
 
     for (k, v) in args
         .get_many::<(String, String)>("args")
