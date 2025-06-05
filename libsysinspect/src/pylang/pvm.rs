@@ -60,6 +60,7 @@ impl PyVm {
     }
 
     fn load_pylib(&self, vm: &VirtualMachine) -> Result<(), SysinspectError> {
+        log::debug!("Loading Python library from {}", self.libpath);
         match vm.import("sys", 0) {
             Ok(sysmod) => match sysmod.get_attr("path", vm) {
                 Ok(syspath) => {
