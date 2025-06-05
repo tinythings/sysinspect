@@ -248,9 +248,9 @@ impl EventsRegistry {
             }
         }
 
-        let tmpdir = Builder::new().prefix(prefix).tempdir()?.into_path();
+        let tmpdir = Builder::new().prefix(prefix).tempdir()?.keep();
         log::info!("Cloned database to {}", tmpdir.to_str().unwrap_or_default());
-        copy(p, &tmpdir, &options).map(|_| ()).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        copy(p, &tmpdir, &options).map(|_| ()).map_err(std::io::Error::other)?;
 
         Ok(EventsRegistry {
             conn: match sled::open(&tmpdir) {

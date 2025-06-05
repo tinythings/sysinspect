@@ -55,7 +55,7 @@ pub async fn init_otel_collector(cfg: MasterConfig) -> Result<(), SysinspectErro
         .logger_with_scope(scope);
     OTEL_LOGGER
         .set(logger)
-        .map_err(|_| SysinspectError::DynError(Box::new(io::Error::new(io::ErrorKind::Other, "Collector already initialized"))))?;
+        .map_err(|_| SysinspectError::DynError(Box::new(io::Error::other("Collector already initialized"))))?;
 
     Ok(())
 }

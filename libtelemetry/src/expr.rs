@@ -96,8 +96,7 @@ impl ExpressionParser {
         .map_err(|e| SysinspectError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
 
         let caps = re.captures(input).ok_or_else(|| {
-            SysinspectError::from(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            SysinspectError::from(Box::new(std::io::Error::other(
                 format!("invalid expression: {:?}", input),
             )) as Box<dyn std::error::Error + Send + Sync>)
         })?;
