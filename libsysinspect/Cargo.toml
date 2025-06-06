@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 base64 = "0.22.1"
-chrono = { version = "0.4.40", features = ["serde"] }
+chrono = { version = "0.4.41", features = ["serde"] }
 colored = "3.0.0"
 hex = "0.4.3"
-indexmap = { version = "2.8.0", features = ["serde"] }
+indexmap = { version = "2.9.0", features = ["serde"] }
 lazy_static = "1.5.0"
 log = "0.4.27"
 nix = { version = "0.29.0", features = ["net", "user"] }
@@ -33,20 +33,20 @@ rustpython-vm = { git = "https://github.com/RustPython/RustPython.git", features
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_yaml = "0.9.34"
-sha2 = "0.10.8"
+sha2 = "0.10.9"
 sysinfo = { version = "0.34.2", features = ["linux-tmpfs"] }
 tera = { version = "1.20.0", features = ["preserve_order", "date-locale"] }
 textwrap = { version = "0.16.2", features = ["hyphenation", "terminal_size"] }
-tokio = { version = "1.44.1", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 unicode-segmentation = "1.12.0"
-uuid = { version = "1.16.0", features = ["v4"] }
+uuid = { version = "1.17.0", features = ["v4"] }
 walkdir = "2.5.0"
 shlex = "1.3.0"
 async-trait = "0.1.88"
 dashmap = "6.1.0"
 sled = "0.34.7"
 if-addrs = "0.13.4"
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 thiserror = "2.0.12"
 jsonpath_lib = "0.3.0"
 jsonpath-rust = "1.0.2"

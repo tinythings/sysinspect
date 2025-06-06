@@ -57,21 +57,19 @@ impl OtelLogger {
     }
 
     fn get_selectors(pl: &HashMap<String, serde_json::Value>) -> Vec<EventSelector> {
-        let tcf = match pl.get("telemetry").cloned() {
+        match pl.get("telemetry").cloned() {
             Some(value) => match serde_json::from_value::<Vec<EventSelector>>(value) {
                 Ok(selectors) => selectors,
                 Err(err) => {
                     log::error!("Unable to parse telemetry config: {err}");
-                    return Vec::new();
+                    Vec::new()
                 }
             },
             None => {
                 log::error!("Telemetry config not found");
-                return Vec::new();
+                Vec::new()
             }
-        };
-
-        tcf
+        }
     }
 
     fn get_response_data(&self, es: &EventSelector, pl: &HashMap<String, serde_json::Value>) -> IndexMap<String, Value> {

@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-tokio = { version = "1.44.2", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 tracing = "0.1.41"
 libsysinspect = { path = "../libsysinspect" }
 log = "0.4.27"
@@ -17,6 +17,6 @@ opentelemetry-appender-log = "0.29.0"
 byte-unit = { version = "5.1.6", features = ["serde"] }
 regex = "1.11.1"
 globset = "0.4.16"
-jsonpath-rust = "1.0.1"
+jsonpath-rust = "1.0.2"
 indexmap = { version = "2.9.0", features = ["serde"] }
 strfmt = "0.2.4"
