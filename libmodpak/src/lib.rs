@@ -210,11 +210,9 @@ impl SysInspectModPakMinion {
                     log::error!("Failed to download library {}: {}", lf.file().display(), resp.status());
                     continue;
                 }
-                let buff = resp
-                    .bytes()
-                    .await
-                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
-                let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_LIB_DIR).join(lf.file());
+                let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
+                //let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_LIB_DIR).join(lf.file());
+                let dst = self.cfg.sharelib_dir().join(lf.file());
 
                 log::debug!("Writing library to {} ({} bytes)", dst.display().to_string().bright_yellow(), buff.len());
 
