@@ -74,9 +74,7 @@ impl SysInspectModPakMinion {
         Ok(idx)
     }
 
-    async fn verify_artefact_by_subpath(
-        &self, section: &str, subpath: &str, checksum: &str,
-    ) -> Result<(bool, Option<String>), SysinspectError> {
+    async fn verify_artefact_by_subpath(&self, section: &str, subpath: &str, checksum: &str) -> Result<(bool, Option<String>), SysinspectError> {
         let path = self.cfg.sharelib_dir().join(section).join(subpath);
         if !path.exists() {
             log::debug!("Required module {} is missing, needs sync", path.display().to_string().bright_yellow());
@@ -163,8 +161,7 @@ impl SysInspectModPakMinion {
 
         for attrs in ridx.modules().values() {
             unknown.swap_remove(attrs.subpath());
-            unknown
-                .swap_remove(&PathBuf::from(attrs.subpath()).with_extension(REPO_MOD_SHA256_EXT).to_string_lossy().to_string());
+            unknown.swap_remove(&PathBuf::from(attrs.subpath()).with_extension(REPO_MOD_SHA256_EXT).to_string_lossy().to_string());
         }
 
         for rfile in ridx.library().values() {
@@ -267,10 +264,8 @@ impl SysInspectModPakMinion {
             let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_DIR).join(attrs.subpath());
             let dst_cs = dst.with_extension(REPO_MOD_SHA256_EXT);
 
-            let (verified, fsc) = self
-                .verify_artefact_by_subpath(DEFAULT_MODULES_DIR, attrs.subpath(), attrs.checksum())
-                .await
-                .unwrap_or((false, None));
+            let (verified, fsc) =
+                self.verify_artefact_by_subpath(DEFAULT_MODULES_DIR, attrs.subpath(), attrs.checksum()).await.unwrap_or((false, None));
             if !verified {
                 log::debug!("Downloading module {} from {}", name.bright_yellow(), path);
                 let resp = reqwest::Client::new()
@@ -282,10 +277,7 @@ impl SysInspectModPakMinion {
                     log::error!("Failed to download module {}: {} on url {}", name, resp.status(), path);
                     continue;
                 }
-                let buff = resp
-                    .bytes()
-                    .await
-                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
+                let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
 
                 // Check if we need to write that
                 log::debug!("Writing module to {}", dst.display().to_string().bright_yellow());
@@ -380,8 +372,7 @@ impl SysInspectModPak {
         options.content_only = true; // Copy only the contents of the directory
 
         log::info!("Copying library from {} to {}", p.display(), path.display());
-        fs_extra::dir::copy(&p, &path, &options)
-            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {}", e)))?;
+        fs_extra::dir::copy(&p, &path, &options).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {}", e)))?;
         self.idx.index_library(&path)?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
         fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
@@ -411,9 +402,7 @@ impl SysInspectModPak {
                         "ARM64"
                     }
                     _ => {
-                        return Err(SysinspectError::MasterGeneralError(
-                            "Module is not a supported ELF architecture".to_string(),
-                        ));
+                        return Err(SysinspectError::MasterGeneralError("Module is not a supported ELF architecture".to_string()));
                     }
                 };
                 (true, x, Self::get_osabi_label(elf.header.e_ident[header::EI_OSABI]))
@@ -425,10 +414,8 @@ impl SysInspectModPak {
         };
 
         log::info!("Platform: {}", p);
-        let module_subpath = PathBuf::from(Self::after(
-            meta.get_path().to_str().unwrap_or_default(),
-            meta.get_subpath().to_str().unwrap_or_default(),
-        ));
+        let module_subpath =
+            PathBuf::from(Self::after(meta.get_path().to_str().unwrap_or_default(), meta.get_subpath().to_str().unwrap_or_default()));
         let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(&module_subpath);
         log::debug!("Subpath: {}", subpath.display().to_string().bright_yellow());
         if let Some(p) = self.root.join(&subpath).parent() {
@@ -472,14 +459,7 @@ impl SysInspectModPak {
             let mut attrs = [("descr", attrs.descr()), ("type", attrs.mod_type())];
             attrs.sort_by_key(|(k, _)| *k);
             if let Some((first_key, first_value)) = attrs.first() {
-                println!(
-                    "    {:<mw$}  {:>kw$}: {}",
-                    mname.bright_white().bold(),
-                    first_key.yellow(),
-                    first_value,
-                    mw = mw,
-                    kw = kw,
-                );
+                println!("    {:<mw$}  {:>kw$}: {}", mname.bright_white().bold(), first_key.yellow(), first_value, mw = mw, kw = kw,);
                 for (k, v) in attrs.iter().skip(1) {
                     println!("    {:<mw$}  {:>kw$}: {}", "", k.yellow(), v, mw = mw, kw = kw,);
                 }
