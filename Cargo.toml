@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.41"
-clap = { version = "4.5.39", features = ["unstable-styles"] }
+clap = { version = "4.5.40", features = ["unstable-styles"] }
 colored = "3.0.0"
 libsysinspect = { path = "./libsysinspect" }
 libeventreg = { path = "./libeventreg" }
