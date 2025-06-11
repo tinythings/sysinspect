@@ -1,4 +1,5 @@
 use colored::Colorize;
+use cruet::Inflector;
 use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
@@ -6,6 +7,8 @@ use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAUL
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use once_cell::sync::Lazy;
+use prettytable::Table;
+use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -59,6 +62,7 @@ impl SysInspectModPakMinion {
         Self { cfg }
     }
 
+    /// Gets the module repository index from the fileserver.
     async fn get_modpak_idx(&self) -> Result<ModPakRepoIndex, SysinspectError> {
         let resp = reqwest::Client::new()
             .get(format!("http://{}/repo/{}", self.cfg.fileserver(), REPO_MOD_INDEX))
@@ -74,6 +78,7 @@ impl SysInspectModPakMinion {
         Ok(idx)
     }
 
+    /// Verifies an artefact by its subpath and checksum.
     async fn verify_artefact_by_subpath(&self, section: &str, subpath: &str, checksum: &str) -> Result<(bool, Option<String>), SysinspectError> {
         let path = self.cfg.sharelib_dir().join(section).join(subpath);
         if !path.exists() {
@@ -119,6 +124,7 @@ impl SysInspectModPakMinion {
         Ok(())
     }
 
+    /// Gets all shared files in the module repository.
     fn get_all_shared(&self) -> Result<IndexMap<String, PathBuf>, SysinspectError> {
         fn collect_files(root: &PathBuf, dir: &PathBuf, shared: &mut IndexMap<String, PathBuf>) -> Result<(), SysinspectError> {
             for e in fs::read_dir(dir).map_err(|e| {
@@ -211,8 +217,8 @@ impl SysInspectModPakMinion {
                     continue;
                 }
                 let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
-                //let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_LIB_DIR).join(lf.file());
-                let dst = self.cfg.sharelib_dir().join(lf.file());
+                let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_LIB_DIR).join(lf.file());
+                //let dst = self.cfg.sharelib_dir().join(lf.file());
 
                 log::debug!("Writing library to {} ({} bytes)", dst.display().to_string().bright_yellow(), buff.len());
 
@@ -357,6 +363,24 @@ impl SysInspectModPak {
         }
     }
 
+    /// Parses an object file and returns its architecture and OS ABI.
+    fn parse_obj(buff: &[u8]) -> Result<(bool, &str, &str), SysinspectError> {
+        match Object::parse(buff).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to parse object: {}", e)))? {
+            Object::Elf(elf) => {
+                let arch = match elf.header.e_machine {
+                    goblin::elf::header::EM_X86_64 => "x86_64",
+                    goblin::elf::header::EM_ARM => "ARM",
+                    goblin::elf::header::EM_AARCH64 => "ARM64",
+                    _ => return Err(SysinspectError::MasterGeneralError("Module is not a supported ELF architecture".to_string())),
+                };
+                let osabi = Self::get_osabi_label(elf.header.e_ident[header::EI_OSABI]);
+                Ok((true, arch, osabi))
+            }
+            _ => Ok((false, "noarch", "any")),
+        }
+    }
+
+    /// Adds a library to the repository.
     pub fn add_library(&mut self, p: PathBuf) -> Result<(), SysinspectError> {
         let path = self.root.join("lib");
         if !path.exists() {
@@ -379,37 +403,18 @@ impl SysInspectModPak {
     }
 
     /// Add an existing binary module.
-    pub fn add_module(&mut self, meta: ModPakMetadata) -> Result<(), SysinspectError> {
+    pub fn add_module(&mut self, mut meta: ModPakMetadata) -> Result<(), SysinspectError> {
         let path = fs::canonicalize(meta.get_path())?;
         log::info!("Adding module {}", path.display().to_string().bright_yellow());
 
         let buff = fs::read(path)?;
-        let (is_bin, arch, p) = match Object::parse(&buff).unwrap() {
-            Object::Elf(elf) => {
-                let x = match elf.header.e_machine {
-                    goblin::elf::header::EM_X86_64 => {
-                        log::info!("Architecture: x86_64 ELF");
-                        "x86_64"
-                    }
-                    goblin::elf::header::EM_ARM => {
-                        log::info!("Architecture: ARM ELF");
-                        "ARM"
-                    }
-                    goblin::elf::header::EM_AARCH64 => {
-                        log::info!("Architecture: ARM64 ELF");
-                        "ARM64"
-                    }
-                    _ => {
-                        return Err(SysinspectError::MasterGeneralError("Module is not a supported ELF architecture".to_string()));
-                    }
-                };
-                (true, x, Self::get_osabi_label(elf.header.e_ident[header::EI_OSABI]))
-            }
-            _ => {
-                log::info!("Module is not an executable ELF file");
-                (false, "noarch", "any")
-            }
+        let (is_bin, arch, p) = match Self::parse_obj(&buff) {
+            Ok((true, arch, osabi)) => (true, arch.to_string(), osabi.to_string()),
+            Ok((false, _, _)) => (false, "noarch".to_string(), "any".to_string()),
+            Err(e) => return Err(e),
         };
+
+        meta.set_arch(&arch);
 
         log::info!("Platform: {}", p);
         let module_subpath =
@@ -430,8 +435,8 @@ impl SysInspectModPak {
             .index_module(
                 meta.get_name().as_str(),
                 module_subpath.to_str().unwrap_or_default(),
-                p,
-                arch,
+                &p,
+                &arch,
                 meta.get_descr(),
                 subpath.to_str().unwrap_or_default().starts_with("bin/"),
                 &checksum,
@@ -447,6 +452,7 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    /// Prints a table of modules with their attributes.
     fn print_table(modules: &IndexMap<String, ModAttrs>) {
         let mw = modules.keys().map(|s| s.len()).max().unwrap_or(0);
         let kw = "descr".len().max("type".len());
@@ -468,6 +474,44 @@ impl SysInspectModPak {
         }
     }
 
+    /// Lists all libraries in the repository.
+    pub fn list_libraries(&self) -> Result<(), SysinspectError> {
+        let mut table = Table::new();
+        table.set_format(
+            FormatBuilder::new().borders(' ').padding(0, 2).separators(&[LinePosition::Title], LineSeparator::new('─', ' ', ' ', ' ')).build(),
+        );
+
+        table.set_titles(prettytable::Row::new(vec![
+            prettytable::Cell::new("Type").style_spec("Fy"),
+            prettytable::Cell::new("File Path").style_spec("Fy"),
+            prettytable::Cell::new("OS").style_spec("Fy"),
+            prettytable::Cell::new("Arch").style_spec("Fy"),
+            prettytable::Cell::new("Checksum").style_spec("Fy"),
+        ]));
+
+        for (_, mpklf) in self.idx.library() {
+            let buff = fs::read(self.root.join(PathBuf::from(DEFAULT_MODULES_LIB_DIR)).join(mpklf.file()))?;
+            let (is_bin, arch, p) = match Self::parse_obj(&buff) {
+                Ok((true, arch, osabi)) => (true, arch.to_string(), osabi.to_string()),
+                Ok((false, _, _)) => (false, "noarch".to_string(), "any".to_string()),
+                Err(e) => return Err(e),
+            };
+
+            table.add_row(prettytable::Row::new(vec![
+                prettytable::Cell::new(if is_bin { "binary" } else { "script" }).style_spec("Fw"),
+                prettytable::Cell::new(&PathBuf::from("lib").join(mpklf.file()).display().to_string()).style_spec("FY"),
+                prettytable::Cell::new(&p.to_title_case()).style_spec("FW"),
+                prettytable::Cell::new(&arch).style_spec("FG"),
+                prettytable::Cell::new(mpklf.checksum()).style_spec("Fg"),
+            ]));
+        }
+
+        table.print_tty(true)?;
+
+        Ok(())
+    }
+
+    /// Lists all modules in the repository.
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
         let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
         for (p, archset) in self.idx.all_modules(None, None) {
