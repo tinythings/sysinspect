@@ -486,7 +486,7 @@ impl SysInspectModPak {
             prettytable::Cell::new("File Path").style_spec("Fy"),
             prettytable::Cell::new("OS").style_spec("Fy"),
             prettytable::Cell::new("Arch").style_spec("Fy"),
-            prettytable::Cell::new("Checksum").style_spec("Fy"),
+            prettytable::Cell::new("SHA256").style_spec("Fy"),
         ]));
 
         for (_, mpklf) in self.idx.library() {
@@ -502,7 +502,7 @@ impl SysInspectModPak {
                 prettytable::Cell::new(&PathBuf::from("lib").join(mpklf.file()).display().to_string()).style_spec("FY"),
                 prettytable::Cell::new(&p.to_title_case()).style_spec("FW"),
                 prettytable::Cell::new(&arch).style_spec("FG"),
-                prettytable::Cell::new(mpklf.checksum()).style_spec("Fg"),
+                prettytable::Cell::new(&format!("{}...{}", &mpklf.checksum()[..4], &mpklf.checksum()[mpklf.checksum().len() - 4..])).style_spec("Fg"),
             ]));
         }
 
