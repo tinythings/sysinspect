@@ -483,23 +483,33 @@ impl SysInspectModPak {
 
         table.set_titles(prettytable::Row::new(vec![
             prettytable::Cell::new("Type").style_spec("Fy"),
-            prettytable::Cell::new("File Path").style_spec("Fy"),
+            prettytable::Cell::new("Name").style_spec("Fy"),
             prettytable::Cell::new("OS").style_spec("Fy"),
             prettytable::Cell::new("Arch").style_spec("Fy"),
             prettytable::Cell::new("SHA256").style_spec("Fy"),
         ]));
 
         for (_, mpklf) in self.idx.library() {
-            let buff = fs::read(self.root.join(PathBuf::from(DEFAULT_MODULES_LIB_DIR)).join(mpklf.file()))?;
+            let buff = match fs::read(self.root.join(PathBuf::from(DEFAULT_MODULES_LIB_DIR)).join(mpklf.file())) {
+                Ok(data) => data,
+                Err(e) => {
+                    log::error!("Failed to read library file {}: {}", mpklf.file().display(), e);
+                    continue;
+                }
+            };
+
             let (is_bin, arch, p) = match Self::parse_obj(&buff) {
                 Ok((true, arch, osabi)) => (true, arch.to_string(), osabi.to_string()),
                 Ok((false, _, _)) => (false, "noarch".to_string(), "any".to_string()),
-                Err(e) => return Err(e),
+                Err(e) => {
+                    log::error!("Failed to parse object for {}: {}", mpklf.file().display(), e);
+                    continue;
+                }
             };
 
             table.add_row(prettytable::Row::new(vec![
                 prettytable::Cell::new(if is_bin { "binary" } else { "script" }).style_spec("Fw"),
-                prettytable::Cell::new(&PathBuf::from("lib").join(mpklf.file()).display().to_string()).style_spec("FY"),
+                prettytable::Cell::new(&mpklf.file().display().to_string()).style_spec("FY"),
                 prettytable::Cell::new(&p.to_title_case()).style_spec("FW"),
                 prettytable::Cell::new(&arch).style_spec("FG"),
                 prettytable::Cell::new(&format!("{}...{}", &mpklf.checksum()[..4], &mpklf.checksum()[mpklf.checksum().len() - 4..])).style_spec("Fg"),
@@ -521,6 +531,30 @@ impl SysInspectModPak {
                 Self::print_table(&modules);
             }
         }
+        Ok(())
+    }
+
+    pub fn remove_library(&mut self, names: Vec<String>) -> Result<(), SysinspectError> {
+        let mut c = 0;
+        log::info!("Removing {} librar{}", names.len(), if names.len() > 1 { "ies" } else { "y" });
+        for subp in names {
+            self.root.join(PathBuf::from(DEFAULT_MODULES_LIB_DIR).join(&subp)).exists().then(|| {
+                fs::remove_file(self.root.join(PathBuf::from(DEFAULT_MODULES_LIB_DIR).join(&subp))).unwrap_or_else(|err| {
+                    log::error!("Failed to remove library {}: {}", subp.bright_yellow(), err);
+                });
+            });
+            self.idx.remove_library(&subp)?;
+            log::info!("{} has been removed", subp.bright_yellow());
+            c += 1;
+        }
+
+        if c > 0 {
+            fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
+            log::info!("{} librar{} removed", c, if c > 1 { "ies" } else { "y" });
+        } else {
+            log::error!("No libraries found to remove");
+        }
+
         Ok(())
     }
 

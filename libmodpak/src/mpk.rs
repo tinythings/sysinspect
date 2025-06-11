@@ -142,6 +142,12 @@ impl ModPakRepoIndex {
         Ok(())
     }
 
+    /// Lists all modules in the index.
+    pub fn remove_library(&mut self, name: &str) -> Result<(), SysinspectError> {
+        self.library.shift_remove(name);
+        Ok(())
+    }
+
     /// Returns scanned library data
     pub fn library(&self) -> &IndexMap<String, ModPakRepoLibFile> {
         &self.library

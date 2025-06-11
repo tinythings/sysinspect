@@ -179,7 +179,21 @@ async fn main() {
             }
         } else if sub.get_flag("remove") {
             if sub.get_flag("lib") {
-                println!("Removing libraries is not supported yet.");
+                let names: Vec<String> = sub
+                    .get_one::<String>("name")
+                    .unwrap_or(&String::new())
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if names.is_empty() {
+                    log::error!("No library names provided for removal.");
+                    exit(1);
+                }
+                repo.remove_library(names).unwrap_or_else(|err| {
+                    log::error!("Failed to remove libraries: {}", err);
+                    exit(1);
+                });
             } else {
                 let s = "".to_string();
                 if let Err(err) = repo.remove_module(sub.get_one::<String>("name").unwrap_or(&s).split(',').map(|s| s.trim()).collect()) {
