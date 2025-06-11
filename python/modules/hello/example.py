@@ -19,7 +19,7 @@ def main(args, **kw) -> str:
     # See lib/sysinspect.py for more details.
     r = SysinspectReturn()
 
-    out = {}
+    out = {"changed": False}
 
     if "help" in args:
         print(help())

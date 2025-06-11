@@ -21,15 +21,16 @@ pub fn cli(version: &'static str) -> Command {
         .subcommand(Command::new("module").about("Add, remove, or list modules").styles(styles.clone()).disable_help_flag(true)
             .arg(Arg::new("add").short('A').long("add").action(ArgAction::SetTrue).help("Add a module to the repository").conflicts_with_all(["remove", "list"]))
             .arg(Arg::new("remove").short('R').long("remove").action(ArgAction::SetTrue).help("Remove a module from the repository").conflicts_with_all(["add", "list"]))
-            .arg(Arg::new("list").short('L').long("list").action(ArgAction::SetTrue).help("List all modules in the repository").conflicts_with_all(["add", "remove"]))
-
-            .arg(Arg::new("lib").short('l').long("lib").action(ArgAction::SetTrue).help("Specify that the module is a library (usually Python scripts)").conflicts_with_all(["list"]))
-
-            .arg(Arg::new("name").short('n').long("name").help("Specify the module name"))
+            .arg(Arg::new("list").short('L').long("list").action(ArgAction::SetTrue).help("List all modules in the repository, add --lib to list libraries").conflicts_with_all(["add", "remove"]))
+            .arg(Arg::new("lib").short('l').long("lib").action(ArgAction::SetTrue).help("Specify that the module is a library (usually Python scripts)"))
+            .arg(Arg::new("name")
+            .short('n')
+            .long("name")
+            .help("Specify the module name")
+            .required_unless_present_any(["help", "list", "lib"]))
             .arg(Arg::new("path").short('p').long("path").required_unless_present_any(["help", "list", "remove"]).help("Specify the path to the module (or library)"))
             .arg(Arg::new("descr").short('d').long("descr").help("Provide a description of the module"))
             .arg(Arg::new("arch").short('a').long("arch").help("Specify the module architecture (x86, x64, arm, arm64, noarch)").default_value("noarch"))
-
             .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help for this command"))
         )
 
@@ -168,10 +169,5 @@ pub fn split_by(am: &ArgMatches, id: &str, sep: Option<char>) -> Vec<String> {
         fsep = ',';
     }
 
-    am.get_one::<String>(id)
-        .unwrap_or(&"".to_string())
-        .split(fsep)
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<String>>()
+    am.get_one::<String>(id).unwrap_or(&"".to_string()).split(fsep).map(|s| s.to_string()).filter(|s| !s.is_empty()).collect::<Vec<String>>()
 }

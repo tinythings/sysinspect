@@ -114,12 +114,7 @@ impl ModPakRepoIndex {
             checksum: checksum.to_string(),
         };
 
-        self.platform
-            .entry(platform.to_string())
-            .or_default()
-            .entry(arch.to_string())
-            .or_default()
-            .insert(name.to_string(), attrs);
+        self.platform.entry(platform.to_string()).or_default().entry(arch.to_string()).or_default().insert(name.to_string(), attrs);
 
         Ok(())
     }
@@ -144,6 +139,12 @@ impl ModPakRepoIndex {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Lists all modules in the index.
+    pub fn remove_library(&mut self, name: &str) -> Result<(), SysinspectError> {
+        self.library.shift_remove(name);
         Ok(())
     }
 
@@ -186,9 +187,7 @@ impl ModPakRepoIndex {
     }
 
     /// Returns the modules in the index. Optionally filtered by architecture and names.
-    pub(crate) fn all_modules(
-        &self, arch: Option<&str>, names: Option<Vec<&str>>,
-    ) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
+    pub(crate) fn all_modules(&self, arch: Option<&str>, names: Option<Vec<&str>>) -> IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>> {
         if let Some(arch) = arch {
             self.platform
                 .iter()
@@ -232,9 +231,14 @@ pub struct ModPakMetadata {
     path: PathBuf,
     name: String,
     descr: String,
+    arch: String,
 }
 
 impl ModPakMetadata {
+    pub fn set_arch(&mut self, arch: &str) {
+        self.arch = arch.to_string();
+    }
+
     /// Returns the path to the module.
     pub fn get_path(&self) -> &PathBuf {
         &self.path
@@ -246,7 +250,8 @@ impl ModPakMetadata {
     }
 
     pub fn get_subpath(&self) -> PathBuf {
-        self.get_name().trim_start_matches('.').trim_end_matches('.').to_string().replace('.', "/").into()
+        let p = self.get_name().trim_start_matches('.').trim_end_matches('.').to_string().replace('.', "/");
+        if self.arch.eq("noarch") { PathBuf::from(format!("{}.py", p)) } else { PathBuf::from(p) }
     }
 
     pub fn from_cli_matches(matches: &clap::ArgMatches) -> Result<Self, SysinspectError> {
@@ -258,12 +263,8 @@ impl ModPakMetadata {
 
         let spec = PathBuf::from(format!("{}.spec", &mpm.path.display()));
         let mi: ModInterface = if spec.exists() {
-            serde_yaml::from_str(
-                std::fs::read_to_string(&spec)
-                    .with_context(|| format!("Unable to read spec file at {}", spec.display()))?
-                    .as_str(),
-            )
-            .with_context(|| "Gibberish in spec file?")?
+            serde_yaml::from_str(std::fs::read_to_string(&spec).with_context(|| format!("Unable to read spec file at {}", spec.display()))?.as_str())
+                .with_context(|| "Gibberish in spec file?")?
         } else {
             ModInterface::default()
         };
@@ -275,8 +276,7 @@ impl ModPakMetadata {
         }
         if mpm.name.is_empty() {
             return Err(SysinspectError::InvalidModuleName(
-                format!("name was not obtained. Either add a spec file or use the {} option.", "--name".bright_yellow())
-                    .to_string(),
+                format!("name was not obtained. Either add a spec file or use the {} option.", "--name".bright_yellow()).to_string(),
             ));
         }
 
@@ -287,8 +287,7 @@ impl ModPakMetadata {
         }
         if mpm.descr.is_empty() {
             return Err(SysinspectError::InvalidModuleName(
-                format!("description was not obtained. Either add a spec file or use the {} option.", "--descr".bright_yellow())
-                    .to_string(),
+                format!("description was not obtained. Either add a spec file or use the {} option.", "--descr".bright_yellow()).to_string(),
             ));
         }
 

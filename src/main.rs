@@ -44,9 +44,7 @@ fn print_event_handlers() {
 }
 
 /// Call master via FIFO
-fn call_master_fifo(
-    model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, fifo: &str,
-) -> Result<(), SysinspectError> {
+fn call_master_fifo(model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, fifo: &str) -> Result<(), SysinspectError> {
     let payload = format!("{model};{query};{};{}\n", traits.unwrap_or(&"".to_string()), mid.unwrap_or_default());
     OpenOptions::new().write(true).open(fifo)?.write_all(payload.as_bytes())?;
 
@@ -56,11 +54,8 @@ fn call_master_fifo(
 
 /// Set logger
 fn set_logger(p: &ArgMatches) {
-    let log: &'static dyn log::Log = if *p.get_one::<bool>("ui").unwrap_or(&false) {
-        &MEM_LOGGER as &'static dyn log::Log
-    } else {
-        &LOGGER as &'static dyn log::Log
-    };
+    let log: &'static dyn log::Log =
+        if *p.get_one::<bool>("ui").unwrap_or(&false) { &MEM_LOGGER as &'static dyn log::Log } else { &LOGGER as &'static dyn log::Log };
 
     if let Err(err) = log::set_logger(log).map(|()| {
         log::set_max_level(match p.get_count("debug") {
@@ -171,17 +166,40 @@ async fn main() {
                 }
             }
         } else if sub.get_flag("list") {
-            repo.list_modules().unwrap_or_else(|err| {
-                log::error!("Failed to list modules: {}", err);
-                exit(1);
-            });
+            if sub.get_flag("lib") {
+                repo.list_libraries().unwrap_or_else(|err| {
+                    log::error!("Failed to list libraries: {}", err);
+                    exit(1);
+                });
+            } else {
+                repo.list_modules().unwrap_or_else(|err| {
+                    log::error!("Failed to list modules: {}", err);
+                    exit(1);
+                });
+            }
         } else if sub.get_flag("remove") {
-            let s = "".to_string();
-            if let Err(err) =
-                repo.remove_module(sub.get_one::<String>("name").unwrap_or(&s).split(',').map(|s| s.trim()).collect())
-            {
-                log::error!("Failed to remove modules: {}", err);
-                exit(1);
+            if sub.get_flag("lib") {
+                let names: Vec<String> = sub
+                    .get_one::<String>("name")
+                    .unwrap_or(&String::new())
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if names.is_empty() {
+                    log::error!("No library names provided for removal.");
+                    exit(1);
+                }
+                repo.remove_library(names).unwrap_or_else(|err| {
+                    log::error!("Failed to remove libraries: {}", err);
+                    exit(1);
+                });
+            } else {
+                let s = "".to_string();
+                if let Err(err) = repo.remove_module(sub.get_one::<String>("name").unwrap_or(&s).split(',').map(|s| s.trim()).collect()) {
+                    log::error!("Failed to remove modules: {}", err);
+                    exit(1);
+                }
             }
         };
         exit(0)
@@ -221,9 +239,7 @@ async fn main() {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mid) = params.get_one::<String>("unregister") {
-        if let Err(err) =
-            call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_REMOVE_MINION), "", None, Some(mid), &cfg.socket())
-        {
+        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_REMOVE_MINION), "", None, Some(mid), &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
