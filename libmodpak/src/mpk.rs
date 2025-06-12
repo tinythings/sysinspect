@@ -44,7 +44,7 @@ impl ModAttrs {
         &self.checksum
     }
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModPakRepoLibFile {
     file: PathBuf,
     checksum: String,
@@ -149,8 +149,12 @@ impl ModPakRepoIndex {
     }
 
     /// Returns scanned library data
-    pub fn library(&self) -> &IndexMap<String, ModPakRepoLibFile> {
-        &self.library
+    pub fn library(&self) -> IndexMap<String, ModPakRepoLibFile> {
+        {
+            let mut sorted_library = self.library.clone();
+            sorted_library.sort_keys();
+            sorted_library
+        }
     }
 
     /// Serializes the index to a YAML string.

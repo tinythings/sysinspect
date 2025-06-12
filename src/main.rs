@@ -167,7 +167,7 @@ async fn main() {
             }
         } else if sub.get_flag("list") {
             if sub.get_flag("lib") {
-                repo.list_libraries().unwrap_or_else(|err| {
+                repo.list_libraries(sub.get_one::<String>("match").map(String::as_str)).unwrap_or_else(|err| {
                     log::error!("Failed to list libraries: {}", err);
                     exit(1);
                 });
