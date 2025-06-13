@@ -121,19 +121,24 @@ impl SysMaster {
             return;
         }
 
-        let mut reducer = match FunctionReducer::new(
-            self.cfg().fileserver_root().join(format!("{}/{}/model.cfg", CFG_MODELS_ROOT, scheme.split('/').next().unwrap_or_default())),
-            scheme.to_string(),
-        )
-        .load_model(&MODEL_CACHE)
-        .await
-        {
-            Ok(reducer) => reducer,
-            Err(err) => {
-                log::error!("Unable to load model: {err}");
-                return;
-            }
-        };
+        let scheme = scheme.split('/').next().unwrap_or_default();
+
+        // Skip command scheme
+        if scheme.eq("cmd:") {
+            return;
+        }
+
+        let mut reducer =
+            match FunctionReducer::new(self.cfg().fileserver_root().join(format!("{}/{}/model.cfg", CFG_MODELS_ROOT, scheme)), scheme.to_string())
+                .load_model(&MODEL_CACHE)
+                .await
+            {
+                Ok(reducer) => reducer,
+                Err(err) => {
+                    log::error!("Unable to load model: {err}");
+                    return;
+                }
+            };
 
         if let Ok(s) = self.evtipc.get_last_session().await {
             for m in self.evtipc.get_minions(s.sid()).await.unwrap_or_default() {
