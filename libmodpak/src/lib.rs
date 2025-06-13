@@ -475,7 +475,8 @@ impl SysInspectModPak {
     }
 
     /// Lists all libraries in the repository.
-    pub fn list_libraries(&self) -> Result<(), SysinspectError> {
+    pub fn list_libraries(&self, expr: Option<&str>) -> Result<(), SysinspectError> {
+        let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {}", e)))?;
         let mut table = Table::new();
         table.set_format(
             FormatBuilder::new().borders(' ').padding(0, 2).separators(&[LinePosition::Title], LineSeparator::new('─', ' ', ' ', ' ')).build(),
@@ -489,7 +490,14 @@ impl SysInspectModPak {
             prettytable::Cell::new("SHA256").style_spec("Fy"),
         ]));
 
+        let mut lines = 0;
         for (_, mpklf) in self.idx.library() {
+            if !expr.matches(&mpklf.file().display().to_string()) {
+                continue;
+            }
+
+            lines += 1;
+
             let buff = match fs::read(self.root.join(PathBuf::from(DEFAULT_MODULES_LIB_DIR)).join(mpklf.file())) {
                 Ok(data) => data,
                 Err(e) => {
@@ -498,12 +506,16 @@ impl SysInspectModPak {
                 }
             };
 
-            let (is_bin, arch, p) = match Self::parse_obj(&buff) {
-                Ok((true, arch, osabi)) => (true, arch.to_string(), osabi.to_string()),
-                Ok((false, _, _)) => (false, "noarch".to_string(), "any".to_string()),
-                Err(e) => {
-                    log::error!("Failed to parse object for {}: {}", mpklf.file().display(), e);
-                    continue;
+            let (is_bin, arch, p) = if buff.is_empty() {
+                (false, "noarch".to_string(), "any".to_string())
+            } else {
+                match Self::parse_obj(&buff) {
+                    Ok((true, arch, osabi)) => (true, arch.to_string(), osabi.to_string()),
+                    Ok((false, _, _)) => (false, "noarch".to_string(), "any".to_string()),
+                    Err(e) => {
+                        log::error!("Failed to parse object for {}: {}", mpklf.file().display(), e);
+                        continue;
+                    }
                 }
             };
 
@@ -514,6 +526,11 @@ impl SysInspectModPak {
                 prettytable::Cell::new(&arch).style_spec("FG"),
                 prettytable::Cell::new(&format!("{}...{}", &mpklf.checksum()[..4], &mpklf.checksum()[mpklf.checksum().len() - 4..])).style_spec("Fg"),
             ]));
+        }
+
+        if lines == 0 {
+            log::warn!("No libraries found matching the pattern: {}", expr.as_str().bright_yellow());
+            return Ok(());
         }
 
         table.print_tty(true)?;
