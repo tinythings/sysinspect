@@ -54,7 +54,7 @@ clean:
 	cargo clean
 
 check:
-	cargo clippy --all -- -Dwarnings -Aunused-variables -Adead-code
+	cargo clippy --no-deps --all -- -Dwarnings -Aunused-variables -Adead-code
 
 fix:
 	cargo clippy --fix --allow-dirty --allow-staged --all
