@@ -5,8 +5,16 @@ setup:
 
 clean:
 	echo "Cleaning up"
-	rm -f meminfo
+	rm -f meminfo src/*.o
 
-build:
-	$(MAKE) clean
-	clang++ -v -std=c++17 meminfo.cpp -o meminfo
+SRC := $(wildcard src/*.cpp)
+OBJS := $(SRC:.cpp=.o)
+INCLUDE := -Iinclude
+
+build: $(OBJS)
+	clang++ -v -std=c++17 $(OBJS) -o meminfo
+
+%.o: %.cpp
+	clang++ -v -std=c++17 -c $< -o $@ $(INCLUDE)
+
+.PHONY: setup clean build
