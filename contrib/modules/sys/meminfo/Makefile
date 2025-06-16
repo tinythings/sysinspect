@@ -4,8 +4,8 @@ BINDIR := bin/$(PLATFORM)
 
 setup:
 	@sudo apt install g++-12 libstdc++-12-dev libc++-dev build-essential \
-	     clang clangd gdb musl-tools g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
-
+	clang clangd gdb musl-tools g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
+	libyaml-cpp-dev
 clean:
 	@echo "Cleaning up"
 	@rm -rf bin build
@@ -14,7 +14,7 @@ SRC := $(wildcard src/*.cpp)
 OBJDIR := build
 OBJS := $(patsubst src/%.cpp, $(OBJDIR)/%.o, $(SRC))
 INCLUDE := -Iinclude
-CXXFLAGS := -std=c++17 -O3 -flto -fdata-sections -ffunction-sections
+CXXFLAGS := -std=c++17 -O3 -flto -fdata-sections -ffunction-sections -lyaml-cpp
 LDFLAGS := -static -flto -Wl,--gc-sections -Wl,--strip-all -s
 
 build: $(OBJS)
@@ -35,6 +35,8 @@ static-arm64:
 $(OBJDIR)/%.o: src/%.cpp
 	@echo "Building $@"
 	@mkdir -p $(OBJDIR)
+	@xxd -i mod_doc.yaml > include/mod_doc.hpp
+	@echo "Refreshing mod_doc.h"
 	clang++ -v $(CXXFLAGS) -c $< -o $@ $(INCLUDE)
 
 .PHONY: setup clean build

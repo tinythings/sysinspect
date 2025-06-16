@@ -1,10 +1,19 @@
 #include "meminfo.hpp"
+#include "mod_doc.hpp"
 #include "nlohmann/json.hpp"
 #include <iostream>
 #include <sstream>
+#include <termcolor/termcolor.hpp>
+#include <yaml-cpp/yaml.h>
+
 using json = nlohmann::json;
 
+std::string spec_yaml((char *)mod_doc_yaml, mod_doc_yaml_len);
+YAML::Node spec = YAML::Load(spec_yaml);
+
 int main() {
+    // std::cout << termcolor::yellow << "hello\n" << termcolor::reset;
+
     // Get the JSON input from stdin
     std::stringstream buff;
     buff << std::cin.rdbuf();
@@ -78,7 +87,7 @@ int main() {
         }
     }
 
-    std::cout << jout.dump(2) << std::endl;
+    std::cout << jout.dump() << std::endl;
 
     return 0;
 }

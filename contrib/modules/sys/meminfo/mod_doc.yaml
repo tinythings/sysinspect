@@ -1,0 +1,45 @@
+name: "sys.meminfo"
+version: "0.0.1"
+author: "Bo Maryniuk"
+description: Plugin to read memory information
+
+options:
+  - name: free
+    description: "Return free memory"
+
+  - name: total
+    description: "Return total memory"
+
+  - name: avail
+    description: "Return available memory"
+
+# Keyword arguments
+arguments:
+  - name: unit
+    type: string
+    required: false
+    description: "Memory unit: bt (bytes), kb, mb and gb. Default: kb"
+
+examples:
+  - description: "Return free memory in bytes"
+    code: |
+      {
+        "opts": ["free"],
+        "arguments": {
+          "unit": "bt",
+        }
+      }
+
+# Description of additional data format
+returns:
+  # Output data structure as a sample
+  # Happens by default
+  fill:
+    :description: |
+      Returns memory data
+    retcode: 0
+    message: "Data has been collected successfully"
+    data:
+      changed: true
+      mem-free: 1234567
+      unit: bt
