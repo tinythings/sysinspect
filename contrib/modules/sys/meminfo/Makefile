@@ -3,7 +3,8 @@ PLATFORM := $(shell uname -sm | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
 BINDIR := bin/$(PLATFORM)
 
 setup:
-	sudo apt install g++-12 libstdc++-12-dev libc++-dev build-essential clang clangd gdb
+	@sudo apt install g++-12 libstdc++-12-dev libc++-dev build-essential \
+	     clang clangd gdb musl-tools g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
 
 clean:
 	@echo "Cleaning up"
@@ -13,7 +14,7 @@ SRC := $(wildcard src/*.cpp)
 OBJDIR := build
 OBJS := $(patsubst src/%.cpp, $(OBJDIR)/%.o, $(SRC))
 INCLUDE := -Iinclude
-CXXFLAGS := -std=c++17 -Os -flto -fdata-sections -ffunction-sections
+CXXFLAGS := -std=c++17 -O3 -flto -fdata-sections -ffunction-sections
 LDFLAGS := -static -flto -Wl,--gc-sections -Wl,--strip-all -s
 
 build: $(OBJS)
@@ -21,11 +22,15 @@ build: $(OBJS)
 	mkdir -p $(BINDIR)
 	clang++ -v $(CXXFLAGS) $(OBJS) -o $(BINDIR)/meminfo
 
-static-$(PLATFORM): $(OBJS)
+static-x86_64: $(OBJS)
 	@echo "Building static meminfo for $(PLATFORM)"
 	mkdir -p $(BINDIR)
-	clang++ $(CXXFLAGS) $(LDFLAGS) $(OBJS) -o $(BINDIR)/meminfo.static
+	clang++ -v $(CXXFLAGS) $(LDFLAGS) $(OBJS) -o $(BINDIR)/meminfo.static
 	@echo "Static build complete. You can find the binary at $(BINDIR)/meminfo.static"
+
+static-arm64:
+	mkdir -p bin/linux-arm64
+	clang++ -v --target=aarch64-linux-gnu $(CXXFLAGS) $(LDFLAGS) $(INCLUDE) $(SRC) -o bin/linux-arm64/meminfo.static
 
 $(OBJDIR)/%.o: src/%.cpp
 	@echo "Building $@"
