@@ -38,10 +38,10 @@ int main() {
     if (jin.contains("args")) {
         if (jin["args"].contains("unit")) {
             unit = jin["args"]["unit"].get<std::string>();
+            std::transform(unit.begin(), unit.end(), unit.begin(), ::tolower);
             if (!(unit == "bt" || unit == "kb" || unit == "mb" || unit == "gb")) {
                 unit = "kb";
             }
-            std::transform(unit.begin(), unit.end(), unit.begin(), ::tolower);
         }
     }
 
