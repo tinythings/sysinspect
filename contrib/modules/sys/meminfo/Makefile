@@ -4,17 +4,22 @@ setup:
 	sudo apt install g++-12 libstdc++-12-dev libc++-dev build-essential clang clangd gdb
 
 clean:
-	echo "Cleaning up"
-	rm -f meminfo src/*.o
+	@echo "Cleaning up"
+	@rm -rf bin build
 
 SRC := $(wildcard src/*.cpp)
-OBJS := $(SRC:.cpp=.o)
+OBJDIR := build
+OBJS := $(patsubst src/%.cpp, $(OBJDIR)/%.o, $(SRC))
 INCLUDE := -Iinclude
 
 build: $(OBJS)
-	clang++ -v -std=c++17 $(OBJS) -o meminfo
+	@echo "Building meminfo"
+	mkdir -p bin
+	clang++ -v -std=c++17 $(OBJS) -o bin/meminfo
 
-%.o: %.cpp
+$(OBJDIR)/%.o: src/%.cpp
+	@echo "Building $@"
+	@mkdir -p $(OBJDIR)
 	clang++ -v -std=c++17 -c $< -o $@ $(INCLUDE)
 
 .PHONY: setup clean build
