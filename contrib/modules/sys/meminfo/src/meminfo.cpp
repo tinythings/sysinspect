@@ -1,12 +1,13 @@
 #include "meminfo.hpp"
 #include "nlohmann/json.hpp"
+#include <charconv>
 #include <fstream>
 #include <iostream>
 #include <string>
 
 using json = nlohmann::json;
 
-MemInfo::MemInfo() : memavail_kb(0), memtotal_kb(0), memfree_kb(0) { parseMemInfo("/proc/meminfo"); }
+MemInfo::MemInfo() : memavail_kb(-1), memtotal_kb(-1), memfree_kb(-1) { parseMemInfo("/proc/meminfo"); }
 MemInfo::~MemInfo() {
     if (meminfo_.is_open()) {
         meminfo_.close();
@@ -15,12 +16,18 @@ MemInfo::~MemInfo() {
 
 // Parse memory information from a specific line
 long MemInfo::parseMemKey(const std::string &line, const std::string &key) {
-    size_t pos = line.find(key);
-    if (pos != std::string::npos) {
-        size_t start = line.find_first_of("0123456789", pos + key.length());
+    size_t offset = line.find(key);
+    if (offset != std::string::npos) {
+        size_t start = line.find_first_of("0123456789", offset + key.length());
         if (start != std::string::npos) {
-            size_t end = line.find_first_not_of("0123456789", start);
-            return std::stol(line.substr(start, end - start));
+            std::string nstr = line.substr(start, line.find_first_not_of("0123456789", start) - start);
+            long value = 0;
+            auto [ptr, ec] = std::from_chars(nstr.data(), nstr.data() + nstr.size(), value);
+            if (ec == std::errc()) {
+                return value;
+            } else {
+                return -1;
+            }
         }
     }
     return -1;
