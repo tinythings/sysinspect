@@ -69,7 +69,7 @@ pub struct SysMinion {
 
 impl SysMinion {
     pub async fn new(cfg: MinionConfig, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
-        log::debug!("Configuration: {:#?}", cfg);
+        log::debug!("Configuration: {cfg:#?}");
         log::debug!("Trying to connect at {}", cfg.master());
 
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
@@ -147,17 +147,17 @@ impl SysMinion {
         let mut stm = self.wstm.lock().await;
 
         if let Err(e) = stm.write_all(&(msg.len() as u32).to_be_bytes()).await {
-            log::error!("Failed to send message length to master: {}", e);
+            log::error!("Failed to send message length to master: {e}");
             return;
         }
 
         if let Err(e) = stm.write_all(&msg).await {
-            log::error!("Failed to send message to master: {}", e);
+            log::error!("Failed to send message to master: {e}");
             return;
         }
 
         if let Err(e) = stm.flush().await {
-            log::error!("Failed to flush writer to master: {}", e);
+            log::error!("Failed to flush writer to master: {e}");
         } else {
             log::trace!("To master: {}", String::from_utf8_lossy(&msg));
         }
@@ -189,14 +189,14 @@ impl SysMinion {
             loop {
                 let mut buff = [0u8; 4];
                 if let Err(e) = rstm.lock().await.read_exact(&mut buff).await {
-                    log::trace!("Unknown message length from the master: {}", e);
+                    log::trace!("Unknown message length from the master: {e}");
                     break;
                 }
                 let msg_len = u32::from_be_bytes(buff) as usize;
 
                 let mut msg = vec![0u8; msg_len];
                 if let Err(e) = rstm.lock().await.read_exact(&mut msg).await {
-                    log::error!("Invalid message from the master: {}", e);
+                    log::error!("Invalid message from the master: {e}");
                     break;
                 }
 
@@ -208,7 +208,7 @@ impl SysMinion {
                     }
                 };
 
-                log::trace!("Received: {:#?}", msg);
+                log::trace!("Received: {msg:#?}");
 
                 match msg.req_type() {
                     RequestType::Add => {
@@ -240,7 +240,7 @@ impl SysMinion {
                                 }
                             }
                             ret => {
-                                log::debug!("Return code {:?} not yet implemented", ret);
+                                log::debug!("Return code {ret:?} not yet implemented");
                             }
                         }
                     }
@@ -256,7 +256,7 @@ impl SysMinion {
                         let fpt = rsa::keys::get_fingerprint(&pbk.unwrap()).unwrap();
 
                         log::error!("Minion is not registered");
-                        log::info!("Master fingerprint: {}", fpt);
+                        log::info!("Master fingerprint: {fpt}");
                         std::process::exit(1);
                     }
                     RequestType::Ping => {
@@ -306,7 +306,7 @@ impl SysMinion {
     /// Send callback to the master on the results
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
-        log::debug!("Callback: {:#?}", ar);
+        log::debug!("Callback: {ar:#?}");
         self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar).to_string()).sendable()?).await;
         Ok(())
     }
@@ -341,7 +341,7 @@ impl SysMinion {
                 reqwest::StatusCode::OK => match rsp.text().await {
                     Ok(data) => data,
                     Err(err) => {
-                        return Err(SysinspectError::MinionGeneralError(format!("Unable to get text from the file: {}", err)));
+                        return Err(SysinspectError::MinionGeneralError(format!("Unable to get text from the file: {err}")));
                     }
                 },
                 reqwest::StatusCode::NOT_FOUND => return Err(SysinspectError::MinionGeneralError("File not found".to_string())),
@@ -399,16 +399,16 @@ impl SysMinion {
                 Ok(data) => {
                     let dst_dir = dst.parent().unwrap();
                     if !dst_dir.exists() {
-                        log::debug!("Creating directory: {:?}", dst_dir);
+                        log::debug!("Creating directory: {dst_dir:?}");
                         if let Err(err) = fs::create_dir_all(dst_dir) {
                             log::error!("Unable to create directories for model download: {err}");
                             return;
                         }
                     }
 
-                    log::debug!("Saving URI {uri_file} as {:?}", dst_dir);
+                    log::debug!("Saving URI {uri_file} as {dst_dir:?}");
                     if let Err(err) = fs::write(&dst, data) {
-                        log::error!("Unable to save downloaded file to {:?}: {err}", dst);
+                        log::error!("Unable to save downloaded file to {dst:?}: {err}");
                         return;
                     }
                     dirty = true;
@@ -475,7 +475,7 @@ impl SysMinion {
             return;
         }
 
-        log::debug!("Dispatching message: {:#?}", cmd);
+        log::debug!("Dispatching message: {cmd:#?}");
 
         if cmd.get_cycle().is_empty() {
             log::error!("Cycle ID is empty!");
@@ -540,11 +540,11 @@ impl SysMinion {
                 } else {
                     self.as_ptr().launch_sysinspect(cmd.get_cycle(), cmd.get_target().scheme(), &pld).await;
                     log::debug!("Command dispatched");
-                    log::debug!("Command payload: {:#?}", pld);
+                    log::debug!("Command payload: {pld:#?}");
                 }
             }
             Ok(PayloadType::Undef(pld)) => {
-                log::error!("Unknown command: {:#?}", pld);
+                log::error!("Unknown command: {pld:#?}");
             }
             Err(err) => {
                 log::error!("Error dispatching command: {err}");
@@ -593,8 +593,8 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             res = &mut mhdl => {
                 match res {
                     Ok(Ok(_)) => log::info!("Minion instance ended gracefully, reconnecting..."),
-                    Ok(Err(e)) => log::error!("Minion encountered an error: {:?}", e),
-                    Err(e) => log::error!("Minion task panicked or was cancelled: {:?}", e),
+                    Ok(Err(e)) => log::error!("Minion encountered an error: {e:?}"),
+                    Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
                 }
             }
             _ = reconnect_rx.recv() => {
@@ -609,7 +609,7 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             std::process::exit(1);
         } else {
             ra += 1;
-            log::info!("Reconnect attempt: {}", ra);
+            log::info!("Reconnect attempt: {ra}");
             if cfg.reconnect_freq() > 0 && ra > cfg.reconnect_freq() {
                 log::warn!("Too many reconnect attempts, exiting...");
                 std::process::exit(1);
@@ -617,7 +617,7 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
         }
 
         let interval = cfg.reconnect_interval();
-        log::info!("Reconnecting in {} seconds...", interval);
+        log::info!("Reconnecting in {interval} seconds...");
         tokio::time::sleep(Duration::from_secs(interval)).await;
     }
 }
@@ -686,7 +686,7 @@ pub(crate) fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), 
         println!("\n{}", KeyValueFormatter::new(out).format());
         return Ok(());
     } else {
-        log::debug!("No data returned from the module {}", name);
+        log::debug!("No data returned from the module {name}");
     }
 
     Ok(())

@@ -573,7 +573,7 @@ impl SysInspectUX {
                     let rq = match c_ipc.lock().await.query("", "", "", QUERY_CYCLES).await {
                         Ok(rq) => rq,
                         Err(err) => {
-                            return Err(SysinspectError::ProtoError(format!("Error getting data: {}", err)));
+                            return Err(SysinspectError::ProtoError(format!("Error getting data: {err}")));
                         }
                     };
 
@@ -605,7 +605,7 @@ impl SysInspectUX {
                     let r = match c_ipc.lock().await.query("", "", sid, QUERY_MINIONS).await {
                         Ok(r) => r,
                         Err(err) => {
-                            return Err(SysinspectError::ProtoError(format!("Error getting data: {}", err)));
+                            return Err(SysinspectError::ProtoError(format!("Error getting data: {err}")));
                         }
                     };
                     let minions: Vec<MinionListItem> = r
@@ -638,7 +638,7 @@ impl SysInspectUX {
                     let r = match c_ipc.lock().await.query(mid, "", sid, QUERY_EVENTS).await {
                         Ok(r) => r,
                         Err(err) => {
-                            return Err(SysinspectError::ProtoError(format!("Error getting data: {}", err)));
+                            return Err(SysinspectError::ProtoError(format!("Error getting data: {err}")));
                         }
                     };
                     let events: Vec<EventListItem> = r
@@ -663,7 +663,7 @@ impl SysInspectUX {
                 tokio::runtime::Handle::current().block_on(async move {
                     match c_ipc.lock().await.query("", "", "", QUERY_CMD_PURGE_ALL).await {
                         Ok(_) => Ok(()),
-                        Err(err) => Err(SysinspectError::ProtoError(format!("Error purging data: {}", err))),
+                        Err(err) => Err(SysinspectError::ProtoError(format!("Error purging data: {err}"))),
                     }
                 })
             })

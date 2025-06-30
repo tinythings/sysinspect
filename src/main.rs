@@ -48,7 +48,7 @@ fn call_master_fifo(model: &str, query: &str, traits: Option<&String>, mid: Opti
     let payload = format!("{model};{query};{};{}\n", traits.unwrap_or(&"".to_string()), mid.unwrap_or_default());
     OpenOptions::new().write(true).open(fifo)?.write_all(payload.as_bytes())?;
 
-    log::debug!("Message sent to the master via FIFO: {:?}", payload);
+    log::debug!("Message sent to the master via FIFO: {payload:?}");
     Ok(())
 }
 
@@ -64,7 +64,7 @@ fn set_logger(p: &ArgMatches) {
             2.. => LevelFilter::max(),
         })
     }) {
-        println!("{}", err)
+        println!("{err}")
     }
 }
 
@@ -91,7 +91,7 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
 
     // Print a global version?
     if params.get_flag("version") {
-        println!("Version: {}", VERSION);
+        println!("Version: {VERSION}");
         return true;
     }
 
@@ -139,7 +139,7 @@ async fn main() {
                         exit(1);
                     }
                 }
-                log::error!("Unable to open module repository: {}", err);
+                log::error!("Unable to open module repository: {err}");
                 exit(1);
             }
         };
@@ -148,7 +148,7 @@ async fn main() {
             if sub.get_flag("lib") {
                 log::info!("Processing library in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
                 if let Err(err) = repo.add_library(PathBuf::from(sub.get_one::<String>("path").unwrap_or(&"".to_string()))) {
-                    log::error!("Failed to add library: {}", err);
+                    log::error!("Failed to add library: {err}");
                     exit(1);
                 }
             } else {
@@ -156,24 +156,24 @@ async fn main() {
                 let meta = match ModPakMetadata::from_cli_matches(sub) {
                     Ok(m) => m,
                     Err(err) => {
-                        log::error!("{}", err);
+                        log::error!("{err}");
                         exit(1);
                     }
                 };
                 if let Err(err) = repo.add_module(meta) {
-                    log::error!("Failed to add module: {}", err);
+                    log::error!("Failed to add module: {err}");
                     exit(1);
                 }
             }
         } else if sub.get_flag("list") {
             if sub.get_flag("lib") {
                 repo.list_libraries(sub.get_one::<String>("match").map(String::as_str)).unwrap_or_else(|err| {
-                    log::error!("Failed to list libraries: {}", err);
+                    log::error!("Failed to list libraries: {err}");
                     exit(1);
                 });
             } else {
                 repo.list_modules().unwrap_or_else(|err| {
-                    log::error!("Failed to list modules: {}", err);
+                    log::error!("Failed to list modules: {err}");
                     exit(1);
                 });
             }
@@ -191,13 +191,13 @@ async fn main() {
                     exit(1);
                 }
                 repo.remove_library(names).unwrap_or_else(|err| {
-                    log::error!("Failed to remove libraries: {}", err);
+                    log::error!("Failed to remove libraries: {err}");
                     exit(1);
                 });
             } else {
                 let s = "".to_string();
                 if let Err(err) = repo.remove_module(sub.get_one::<String>("name").unwrap_or(&s).split(',').map(|s| s.trim()).collect()) {
-                    log::error!("Failed to remove modules: {}", err);
+                    log::error!("Failed to remove modules: {err}");
                     exit(1);
                 }
             }
@@ -231,15 +231,15 @@ async fn main() {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("shutdown") {
-        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SHUTDOWN), "*", None, None, &cfg.socket()) {
+        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("sync") {
-        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_SYNC), "*", None, None, &cfg.socket()) {
+        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mid) = params.get_one::<String>("unregister") {
-        if let Err(err) = call_master_fifo(&format!("{}{}", SCHEME_COMMAND, CLUSTER_REMOVE_MINION), "", None, Some(mid), &cfg.socket()) {
+        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), &cfg.socket()) {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {

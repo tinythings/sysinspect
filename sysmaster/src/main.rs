@@ -37,7 +37,7 @@ fn help(cli: &mut Command, params: ArgMatches) -> bool {
 
     // Print a global version?
     if params.get_flag("version") {
-        println!("Version: {} {}", APPNAME, VERSION);
+        println!("Version: {APPNAME} {VERSION}");
         return true;
     }
 
@@ -67,7 +67,7 @@ fn main() -> Result<(), SysinspectError> {
             2.. => LevelFilter::max(),
         })
     }) {
-        println!("Error setting logger output: {}", err);
+        println!("Error setting logger output: {err}");
     }
 
     // Get config
@@ -79,7 +79,7 @@ fn main() -> Result<(), SysinspectError> {
                 cfp
             }
             Err(err) => {
-                log::error!("{}", err);
+                log::error!("{err}");
                 std::process::exit(1);
             }
         };
@@ -129,7 +129,7 @@ fn main() -> Result<(), SysinspectError> {
                 }
             }
             Err(e) => {
-                log::error!("Error starting master in daemon mode: {}", e);
+                log::error!("Error starting master in daemon mode: {e}");
                 exit(1)
             }
         }

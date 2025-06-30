@@ -89,7 +89,7 @@ impl MinionsKeyRegistry {
 
     /// Add minion key
     pub fn add_mn_key(&mut self, mid: &str, addr: &str, pbk_pem: &str) -> Result<(), SysinspectError> {
-        let k_pth = self.root.join(format!("{}.rsa.pub", mid));
+        let k_pth = self.root.join(format!("{mid}.rsa.pub"));
         log::debug!("Adding minion key for {mid} at {addr} as {}", k_pth.as_os_str().to_str().unwrap_or_default());
         fs::write(k_pth, pbk_pem)?;
 
@@ -109,7 +109,7 @@ impl MinionsKeyRegistry {
             return Some(pbk);
         }
 
-        let k_pth = self.root.join(format!("{}.rsa.pub", mid));
+        let k_pth = self.root.join(format!("{mid}.rsa.pub"));
         if !k_pth.exists() {
             log::error!("Minion {mid} requests RSA key, but the key is not found!");
             return None;
@@ -129,7 +129,7 @@ impl MinionsKeyRegistry {
 
     /// Remove minion public key from the store
     pub fn remove_mn_key(&mut self, mid: &str) -> Result<(), SysinspectError> {
-        let k_pth = self.root.join(format!("{}.rsa.pub", mid));
+        let k_pth = self.root.join(format!("{mid}.rsa.pub"));
         if k_pth.exists() {
             fs::remove_file(k_pth)?;
             self.keys.remove(mid);

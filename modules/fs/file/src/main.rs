@@ -38,7 +38,7 @@ fn run_mod(rq: &ModRequest) -> ModResponse {
         "delete" => fdel::do_delete(rq, &mut resp, strict),
         "info" => info::info(rq, &mut resp),
         opt => {
-            resp.set_message(&format!("Unknown option: {}", opt));
+            resp.set_message(&format!("Unknown option: {opt}"));
             return resp;
         }
     }
@@ -56,10 +56,10 @@ fn main() {
     match get_call_args() {
         Ok(rq) => match send_call_response(&run_mod(&rq)) {
             Ok(_) => {}
-            Err(err) => println!("Runtime error: {}", err),
+            Err(err) => println!("Runtime error: {err}"),
         },
         Err(err) => {
-            println!("Arguments error: {}", err)
+            println!("Arguments error: {err}")
         }
     }
 }

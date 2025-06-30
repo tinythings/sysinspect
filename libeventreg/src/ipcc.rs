@@ -50,7 +50,7 @@ impl DbIPCClient {
 
     /// **Insert a record into the database**
     pub async fn insert(&mut self, i: i32) -> Result<(), Box<dyn Error>> {
-        self.client.query(QueryRequest::new(&format!("foo-{}", i), "bar", "default", "")).await?;
+        self.client.query(QueryRequest::new(&format!("foo-{i}"), "bar", "default", "")).await?;
         Ok(())
     }
 

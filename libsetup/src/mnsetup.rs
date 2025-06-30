@@ -70,7 +70,7 @@ impl MinionSetup {
             // This is the scenario when SysInspect is not packaged as a system package
             for d in ["/usr/share", "/usr/bin", "/etc", "/var/run", "/var/tmp"] {
                 if !Self::is_dir_w(Path::new(d)) {
-                    return Err(SysinspectError::ConfigError(format!("Directory {} appears to be read-only", d)));
+                    return Err(SysinspectError::ConfigError(format!("Directory {d} appears to be read-only")));
                 }
             }
         }
@@ -122,7 +122,7 @@ impl MinionSetup {
 
         for d in dirs {
             if !Path::new(&d).exists() {
-                std::fs::create_dir_all(&d).map_err(|_| SysinspectError::ConfigError(format!("Unable to create directory {}", d)))?;
+                std::fs::create_dir_all(&d).map_err(|_| SysinspectError::ConfigError(format!("Unable to create directory {d}")))?;
             }
         }
 
@@ -148,7 +148,7 @@ impl MinionSetup {
 
     /// Cleanup everything after the setup
     fn cleanup(&self) -> Result<(), SysinspectError> {
-        let self_name = std::env::current_exe().map_err(|e| SysinspectError::ConfigError(format!("Failed to get current executable: {}", e)))?;
+        let self_name = std::env::current_exe().map_err(|e| SysinspectError::ConfigError(format!("Failed to get current executable: {e}")))?;
         self_name
             .file_name()
             .and_then(|name| name.to_str())
@@ -159,7 +159,7 @@ impl MinionSetup {
         for fname in ["sysinspect.conf", self_name.to_str().unwrap_or_default()] {
             let tmpcfg = PathBuf::from(fname);
             if tmpcfg.exists() {
-                fs::remove_file(tmpcfg).map_err(|e| SysinspectError::ConfigError(format!("Failed to remove temporary file: {}", e)))?;
+                fs::remove_file(tmpcfg).map_err(|e| SysinspectError::ConfigError(format!("Failed to remove temporary file: {e}")))?;
             }
         }
 

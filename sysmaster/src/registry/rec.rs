@@ -31,13 +31,13 @@ impl MinionRecord {
         let mut matched = 0;
         for selector in &set {
             if !selector.contains(":") {
-                log::warn!("Invalid selector format: {}", selector);
+                log::warn!("Invalid selector format: {selector}");
                 continue;
             }
 
             let parts: Vec<&str> = selector.split(':').collect(); // attr:value
             if parts.len() != 2 {
-                log::warn!("Invalid selector format: {}", selector);
+                log::warn!("Invalid selector format: {selector}");
                 continue;
             }
 

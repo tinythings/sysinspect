@@ -20,9 +20,9 @@ pub fn load_data(paths: IndexMap<String, String>, data: Value) -> Result<IndexMa
         let jpath = jpath.trim().to_string();
         let res = select(&jpath, &data)?;
         if res.is_empty() {
-            return Err(SysinspectError::JsonPathInfo(format!("No data found for path: {}", k)));
+            return Err(SysinspectError::JsonPathInfo(format!("No data found for path: {k}")));
         } else if res.len() > 1 {
-            return Err(SysinspectError::JsonPathInfo(format!("Multiple data found for path: {}", k)));
+            return Err(SysinspectError::JsonPathInfo(format!("Multiple data found for path: {k}")));
         } else {
             out.insert(k, res[0].clone());
         }

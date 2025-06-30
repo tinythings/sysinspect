@@ -78,7 +78,7 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     // Set payload
     if let Err(err) = res.set_data(&data) {
         res.set_retcode(1);
-        res.set_message(&format!("{}", err));
+        res.set_message(&format!("{err}"));
         return res;
     }
 

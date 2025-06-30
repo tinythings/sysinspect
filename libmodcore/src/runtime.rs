@@ -135,7 +135,7 @@ pub fn get_arg(rt: &ModRequest, arg: &str) -> String {
         if let Some(s_arg) = s_arg.as_string() {
             return s_arg;
         } else if let Some(s_arg) = s_arg.as_bool() {
-            return format!("{}", s_arg);
+            return format!("{s_arg}");
         }
     }
     "".to_string()

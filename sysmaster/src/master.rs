@@ -71,7 +71,7 @@ impl SysMaster {
             if unsafe { libc::mkfifo(std::ffi::CString::new(path)?.as_ptr(), 0o600) } != 0 {
                 return Err(SysinspectError::ConfigError(format!("{}", std::io::Error::last_os_error())));
             }
-            log::info!("Socket opened at {}", path);
+            log::info!("Socket opened at {path}");
         }
         Ok(())
     }
@@ -133,7 +133,7 @@ impl SysMaster {
         }
 
         let mut reducer =
-            match FunctionReducer::new(self.cfg().fileserver_root().join(format!("{}/{}/model.cfg", CFG_MODELS_ROOT, scheme)), scheme.to_string())
+            match FunctionReducer::new(self.cfg().fileserver_root().join(format!("{CFG_MODELS_ROOT}/{scheme}/model.cfg")), scheme.to_string())
                 .load_model(&MODEL_CACHE)
                 .await
             {
@@ -153,7 +153,7 @@ impl SysMaster {
                         continue;
                     }
                     Err(err) => {
-                        log::error!("Unable to get minion record: {}", err);
+                        log::error!("Unable to get minion record: {err}");
                         continue;
                     }
                 };
@@ -279,7 +279,7 @@ impl SysMaster {
             loop {
                 if let Some((msg, minion_addr)) = rx.recv().await {
                     let msg = String::from_utf8_lossy(&msg).to_string();
-                    log::trace!("Minion response: {}: {}", minion_addr, msg);
+                    log::trace!("Minion response: {minion_addr}: {msg}");
                     if let Some(req) = master.lock().await.to_request(&msg) {
                         match req.req_type() {
                             RequestType::Add => {
@@ -287,7 +287,7 @@ impl SysMaster {
                                 let c_bcast = bcast.clone();
                                 let c_mid = req.id().to_string();
                                 tokio::spawn(async move {
-                                    log::info!("Minion \"{}\" requested registration", minion_addr);
+                                    log::info!("Minion \"{minion_addr}\" requested registration");
                                     let mut guard = c_master.lock().await;
                                     let resp_msg: &str;
                                     if !guard.mkr().is_registered(&c_mid) {
@@ -296,10 +296,10 @@ impl SysMaster {
                                         }
                                         guard.to_drop.insert(minion_addr.to_owned());
                                         resp_msg = "Minion registration has been accepted";
-                                        log::info!("Registered a minion at {minion_addr} ({})", c_mid);
+                                        log::info!("Registered a minion at {minion_addr} ({c_mid})");
                                     } else {
                                         resp_msg = "Minion already registered";
-                                        log::warn!("Minion {minion_addr} ({}) is already registered", c_mid);
+                                        log::warn!("Minion {minion_addr} ({c_mid}) is already registered");
                                     }
                                     _ = c_bcast.send(guard.msg_registered(req.id().to_string(), resp_msg).sendable().unwrap());
                                 });
@@ -325,10 +325,10 @@ impl SysMaster {
                                         guard.to_drop.insert(minion_addr);
                                         _ = c_bcast.send(guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap());
                                     } else {
-                                        log::info!("{} connected successfully", c_id);
+                                        log::info!("{c_id} connected successfully");
                                         guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
                                         _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
-                                        log::info!("Syncing traits with minion at {}", c_id);
+                                        log::info!("Syncing traits with minion at {c_id}");
                                     }
                                 });
                             }
@@ -513,7 +513,7 @@ impl SysMaster {
                                 line = lines.next_line() => {
                                     match line {
                                         Ok(Some(payload)) => {
-                                            log::debug!("Querying minions: {}", payload);
+                                            log::debug!("Querying minions: {payload}");
                                             if let Some(msg) = master.lock().await.msg_query(&payload) {
                                                 // Fire internal checks
                                                 let c_master = Arc::clone(&master);
@@ -533,7 +533,7 @@ impl SysMaster {
                                         }
                                         Ok(None) => break, // End of file, re-open the FIFO
                                         Err(e) => {
-                                            log::error!("Error reading from FIFO: {}", e);
+                                            log::error!("Error reading from FIFO: {e}");
                                             break;
                                         }
                                     }
@@ -542,7 +542,7 @@ impl SysMaster {
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to open FIFO: {}", e);
+                        log::error!("Failed to open FIFO: {e}");
                         sleep(Duration::from_secs(1)).await; // Retry after a sec
                     }
                 }
@@ -585,7 +585,7 @@ impl SysMaster {
                         // Task to send messages to the client
                         tokio::spawn(async move {
                             let mut writer = writer;
-                            log::info!("Minion {} connected. Ready to send messages.", local_addr);
+                            log::info!("Minion {local_addr} connected. Ready to send messages.");
 
                             loop {
                                 if let Ok(msg) = bcast_sub.recv().await {
@@ -691,11 +691,11 @@ impl SysMaster {
                     }
                 }) {
                     Ok(etask) => {
-                        log::info!("Task {} added", tname);
+                        log::info!("Task {tname} added");
                         svc.add_event(etask).await.unwrap();
                     }
                     Err(err) => {
-                        log::error!("Unable to add task {}: {}", tname, err);
+                        log::error!("Unable to add task {tname}: {err}");
                         continue;
                     }
                 };
@@ -709,7 +709,7 @@ impl SysMaster {
         tokio::spawn(async move {
             let evtipc = Arc::clone(&master.lock().await.evtipc.clone());
             if let Err(e) = evtipc.run().await {
-                log::error!("IPC server error: {:?}", e);
+                log::error!("IPC server error: {e:?}");
             }
         })
     }
