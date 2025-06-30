@@ -11,7 +11,7 @@ pub fn kill_process(pidf: PathBuf, wait: Option<u64>) -> io::Result<()> {
     let pid = pid_str
         .trim()
         .parse::<i32>()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid PID file content: {}", e)))?;
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid PID file content: {e}")))?;
 
     unsafe {
         if libc::kill(pid, libc::SIGTERM) != 0 {

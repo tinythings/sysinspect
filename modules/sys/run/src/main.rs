@@ -43,7 +43,7 @@ fn call(cmd: &str, send: &str, locale: &str, env: &str, disown: bool) -> ModResp
         match process.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
             Ok(_) => {
                 resp.set_retcode(0);
-                resp.set_message(&format!("'{}' is running in background", cmd));
+                resp.set_message(&format!("'{cmd}' is running in background"));
             }
             Err(err) => resp.set_message(&err.to_string()),
         }
@@ -74,12 +74,12 @@ fn call(cmd: &str, send: &str, locale: &str, env: &str, disown: bool) -> ModResp
                                     resp.set_message(&err.to_string());
                                 } else {
                                     resp.set_retcode(0);
-                                    resp.set_message(&format!("\"{}\" finished", cmd));
+                                    resp.set_message(&format!("\"{cmd}\" finished"));
                                 }
                                 resp
                             }
                             Err(err) => {
-                                resp.set_message(&format!("Error getting output: {:?}", err));
+                                resp.set_message(&format!("Error getting output: {err:?}"));
                                 resp
                             }
                         }
@@ -104,7 +104,7 @@ fn call(cmd: &str, send: &str, locale: &str, env: &str, disown: bool) -> ModResp
             }
         }
         Err(err) => {
-            resp.set_message(&format!("Error running '{}': {}", cmd, err));
+            resp.set_message(&format!("Error running '{cmd}': {err}"));
             resp
         }
     }
@@ -132,10 +132,10 @@ fn main() {
     match get_call_args() {
         Ok(rt) => match send_call_response(&run_mod(&rt)) {
             Ok(_) => {}
-            Err(err) => println!("Runtime error: {}", err),
+            Err(err) => println!("Runtime error: {err}"),
         },
         Err(err) => {
-            println!("Arguments error: {}", err)
+            println!("Arguments error: {err}")
         }
     }
 }

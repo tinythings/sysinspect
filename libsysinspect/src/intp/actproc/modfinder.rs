@@ -110,7 +110,7 @@ impl ModCall {
         out.insert("config".to_string(), SysInspectRunner::minion_cfg_json());
 
         let x = json!(out).to_string();
-        log::trace!("Params: {}", x);
+        log::trace!("Params: {x}");
         x
     }
 
@@ -296,7 +296,7 @@ impl ModCall {
                 // Send options
                 if let Some(mut stdin) = p.stdin.take() {
                     if let Err(err) = stdin.write_all(self.params_json().as_bytes()) {
-                        return Err(SysinspectError::ModuleError(format!("Error while communicating with the module: {}", err)));
+                        return Err(SysinspectError::ModuleError(format!("Error while communicating with the module: {err}")));
                     }
                 }
 
@@ -312,7 +312,7 @@ impl ModCall {
                                 self.eval_constraints(&r),
                             ))),
                             Err(e) => {
-                                log::debug!("STDOUT: {}", out);
+                                log::debug!("STDOUT: {out}");
                                 Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
                             }
                         },
@@ -322,7 +322,7 @@ impl ModCall {
                     Err(SysinspectError::ModuleError("Module returned no output".to_string()))
                 }
             }
-            Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {}", err))),
+            Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {err}"))),
         }
     }
 

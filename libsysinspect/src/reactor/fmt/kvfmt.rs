@@ -23,13 +23,13 @@ impl KeyValueFormatter {
 
         match v {
             Value::Object(map) => {
-                tbl.add_row(Row::new(vec![Cell::new(&format!("{}{}", space, key)), Cell::new("")]));
+                tbl.add_row(Row::new(vec![Cell::new(&format!("{space}{key}")), Cell::new("")]));
                 for (nkey, nval) in map {
                     self.to_table(tbl, &nkey.yellow().to_string(), nval, offset + 1);
                 }
             }
             Value::Array(arr) => {
-                tbl.add_row(Row::new(vec![Cell::new(&format!("{}{}", space, key)), Cell::new("")]));
+                tbl.add_row(Row::new(vec![Cell::new(&format!("{space}{key}")), Cell::new("")]));
                 for elem in arr.iter() {
                     //self.to_table(table, &format!("{}", i + 1), elem, indent + 1);
                     self.to_table(tbl, "", elem, offset + 1);
@@ -38,28 +38,28 @@ impl KeyValueFormatter {
             Value::String(s) => {
                 let cval = s.bright_green().to_string();
                 tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{}{}", space, key)),
+                    Cell::new(&format!("{space}{key}")),
                     Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
                 ]));
             }
             Value::Number(n) => {
                 let cval = n.to_string().bright_cyan();
                 tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{}{}", space, key)),
+                    Cell::new(&format!("{space}{key}")),
                     Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
                 ]));
             }
             Value::Bool(b) => {
                 let cval = b.to_string().bright_red();
                 tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{}{}", space, key)),
+                    Cell::new(&format!("{space}{key}")),
                     Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
                 ]));
             }
             Value::Null => {
                 let cval = "null".yellow();
                 tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{}{}", space, key)),
+                    Cell::new(&format!("{space}{key}")),
                     Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
                 ]));
             }

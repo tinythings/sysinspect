@@ -83,7 +83,7 @@ pub fn verify_sign(pbk: &RsaPublicKey, data: &[u8], sig: Vec<u8>) -> Result<bool
 pub fn get_fingerprint(pbk: &RsaPublicKey) -> Result<String, Box<dyn Error>> {
     let mut digest = Sha256::new();
     digest.update(pbk.to_pkcs1_der()?.as_bytes());
-    Ok(digest.finalize().iter().map(|byte| format!("{:02x}", byte)).collect())
+    Ok(digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 // Encrypt data
@@ -137,7 +137,7 @@ pub fn key_to_file(prk: &RsaKey, p: &str, name: &str) -> Result<(), SysinspectEr
 pub fn key_from_file(p: &str) -> Result<Option<RsaKey>, SysinspectError> {
     let pth = PathBuf::from(p);
     if !pth.exists() {
-        return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::NotFound, format!("File {} not found", p))));
+        return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::NotFound, format!("File {p} not found"))));
     }
 
     let data = &fs::read_to_string(pth)?;

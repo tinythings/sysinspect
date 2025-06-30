@@ -59,7 +59,7 @@ impl ModArgument {
     fn get_default(&self) -> String {
         if let Some(def) = &self.default {
             // XXX: Crude stupid hack, which is not so bad after all. :-)
-            return Regex::new(r#"\w+\((.*)\)"#).unwrap().replace(&format!("{:?}", def), "$1").to_string().replace('"', "");
+            return Regex::new(r#"\w+\((.*)\)"#).unwrap().replace(&format!("{def:?}"), "$1").to_string().replace('"', "");
         }
         "".to_string()
     }

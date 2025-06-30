@@ -90,7 +90,7 @@ impl EventListItem {
     // Right-alight a string within the width
     fn right_align(s: &str, width: usize) -> String {
         let len = s.chars().count();
-        if len >= width { s.to_string() } else { format!("{:>width$}", s, width = width) }
+        if len >= width { s.to_string() } else { format!("{s:>width$}") }
     }
 
     // Yellow cell
@@ -198,6 +198,6 @@ impl DbListItem for MinionListItem {
 
     fn title(&self) -> String {
         let HostInfo { ipaddr, hostname } = self.hostname();
-        format!("{} ({})", ipaddr, hostname)
+        format!("{ipaddr} ({hostname})")
     }
 }

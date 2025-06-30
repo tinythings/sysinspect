@@ -119,8 +119,7 @@ impl SpecLoader {
                     // therefore cannot be added to the DSL root
                     if !b.is_null() {
                         return Err(SysinspectError::ModelDSLError(format!(
-                            "Mapping expected, but this structure passed: {:?}\n\t > {:?}",
-                            a, b
+                            "Mapping expected, but this structure passed: {a:?}\n\t > {b:?}"
                         )));
                     }
                 }
@@ -164,6 +163,6 @@ impl SpecLoader {
 
 /// Load spec from a given path
 pub fn load(cfg: Arc<MinionConfig>, path: &str, traits: Option<SystemTraits>) -> Result<ModelSpec, SysinspectError> {
-    log::info!("Loading model spec from {}", path);
+    log::info!("Loading model spec from {path}");
     SpecLoader::new(cfg, fs::canonicalize(path)?, traits).load()
 }

@@ -103,18 +103,18 @@ impl SysInspector {
                         }
                         d if d == DSL_DIR_ACTIONS => {
                             let obj = Action::new(obj_id, obj_data)?;
-                            log::trace!("{:#?}", obj);
+                            log::trace!("{obj:#?}");
                             self.actions.insert(obj.id(), obj);
                             amt += 1;
                         }
                         d if d == DSL_DIR_CONSTRAINTS => match Constraint::new(obj_id, obj_data) {
                             Ok(obj) => {
-                                log::trace!("{:#?}", obj);
+                                log::trace!("{obj:#?}");
                                 self.constraints.insert(obj.id(), obj);
                                 amt += 1;
                             }
                             Err(err) => {
-                                log::warn!("Skipping validation rule: {}", err);
+                                log::warn!("Skipping validation rule: {err}");
                             }
                         },
                         d if d == DSL_DIR_RELATIONS => {
@@ -279,7 +279,7 @@ impl SysInspector {
                         }
                     }
                 } else {
-                    return Err(SysinspectError::ModelDSLError(format!("No claims at {}.claims defined", eid)));
+                    return Err(SysinspectError::ModelDSLError(format!("No claims at {eid}.claims defined")));
                 }
             }
         } else if func.fid().eq("static") {

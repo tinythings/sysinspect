@@ -19,7 +19,7 @@ impl Receiver {
     ///   `response` - ActionResponse object
     pub fn register(&mut self, eid: String, response: ActionResponse) {
         // XXX: And process here as well!
-        log::debug!("Registered action response: {:#?}", response);
+        log::debug!("Registered action response: {response:#?}");
         self.actions.entry(eid).or_default().push(response);
     }
 

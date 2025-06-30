@@ -95,7 +95,7 @@ impl ModPakRepoIndex {
 
     pub fn index_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
         for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.to_path_buf(), None) {
-            log::debug!("Adding library file: {} with checksum: {}", fname, cs);
+            log::debug!("Adding library file: {fname} with checksum: {cs}");
             self.library.insert(fname.clone(), ModPakRepoLibFile::new(PathBuf::from(fname), &cs));
         }
 
@@ -182,7 +182,7 @@ impl ModPakRepoIndex {
                             modules.insert(name.clone(), attrs.clone());
                         }
                     } else {
-                        log::warn!("No modules for arch: {}", osarch);
+                        log::warn!("No modules for arch: {osarch}");
                     }
                 }
             }
@@ -255,7 +255,7 @@ impl ModPakMetadata {
 
     pub fn get_subpath(&self) -> PathBuf {
         let p = self.get_name().trim_start_matches('.').trim_end_matches('.').to_string().replace('.', "/");
-        if self.arch.eq("noarch") { PathBuf::from(format!("{}.py", p)) } else { PathBuf::from(p) }
+        if self.arch.eq("noarch") { PathBuf::from(format!("{p}.py")) } else { PathBuf::from(p) }
     }
 
     pub fn from_cli_matches(matches: &clap::ArgMatches) -> Result<Self, SysinspectError> {
@@ -316,7 +316,7 @@ impl ModPackModule {
     /// Creates a new ModPackModule with the given name and architecture.
     pub fn new(name: String, binary: bool) -> Result<Self, SysinspectError> {
         if !name.contains(".") {
-            return Err(SysinspectError::InvalidModuleName(format!("Module \"{}\" must have a namespace", name)));
+            return Err(SysinspectError::InvalidModuleName(format!("Module \"{name}\" must have a namespace")));
         }
 
         Ok(Self { name: name.trim_start_matches('.').trim_end_matches('.').to_string(), binary })

@@ -1,0 +1,15 @@
+BasedOnStyle: LLVM
+ColumnLimit: 150
+IndentWidth: 4
+UseTab: Never
+TabWidth: 4
+BraceWrapping:
+  AfterControlStatement: false
+  AfterFunction: false
+  AfterEnum: false
+  AfterStruct: false
+  AfterNamespace: false
+  AfterClass: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false

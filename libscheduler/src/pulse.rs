@@ -39,7 +39,7 @@ impl EventTask {
             CFG_TASK_INTERVAL_HOURS => b.every_minutes(i * 60),
             CFG_TASK_INTERVAL_DAYS => b.every_minutes(i * 60 * 24),
             _ => {
-                return Err(SysinspectError::MasterGeneralError(format!("Invalid interval unit: {}", u)));
+                return Err(SysinspectError::MasterGeneralError(format!("Invalid interval unit: {u}")));
             }
         };
 

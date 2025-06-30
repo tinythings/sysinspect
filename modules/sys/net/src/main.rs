@@ -13,11 +13,11 @@ fn main() {
         Ok(rt) => match runtime::send_call_response(&run(&rt)) {
             Ok(_) => {}
             Err(err) => {
-                println!("Error: {}", err)
+                println!("Error: {err}")
             }
         },
         Err(err) => {
-            println!("Arguments error: {}", err)
+            println!("Arguments error: {err}")
         }
     }
 }

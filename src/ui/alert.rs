@@ -120,7 +120,7 @@ impl SysInspectUX {
     ) {
         let background = background.unwrap_or(Color::Red);
 
-        let text = format!("\n{}", text);
+        let text = format!("\n{text}");
         let text_lines = Self::get_text_lines(&text);
         let height = text_lines + 3;
 

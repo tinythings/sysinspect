@@ -213,7 +213,7 @@ pub mod syscore {
         #[pymethod(name = "__repr__")]
         fn str(this: PyObjectRef, _vm: &VirtualMachine) -> String {
             if let Some(x) = this.downcast_ref::<SysinspectReturn>() {
-                return format!("<SysinspectReturn: {:?}>", x);
+                return format!("<SysinspectReturn: {x:?}>");
             }
 
             "".to_string()

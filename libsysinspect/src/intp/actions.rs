@@ -125,7 +125,7 @@ impl Action {
                 match inspector.call_function(Some(eid), &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
-                    Err(err) => log::error!("Data function error: {}", err),
+                    Err(err) => log::error!("Data function error: {err}"),
                 }
             }
             out.push(expr);

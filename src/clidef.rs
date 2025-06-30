@@ -15,7 +15,7 @@ pub fn cli(version: &'static str) -> Command {
     Command::new(APPNAME)
         .version(version)
         .about(format!("{} - {}", APPNAME.bright_magenta().bold(), "is a tool for anomaly detection and root cause analysis in a known system"))
-        .override_usage(format!("{} [OPTIONS] [FILTERS]", APPNAME))
+        .override_usage(format!("{APPNAME} [OPTIONS] [FILTERS]"))
 
         // Module management
         .subcommand(Command::new("module").about("Add, remove, or list modules").styles(styles.clone()).disable_help_flag(true)

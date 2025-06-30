@@ -68,11 +68,11 @@ mod rsa_test {
         let (pr, pb) = keygen(DEFAULT_KEY_SIZE).unwrap();
 
         if let Err(err) = key_to_file(&Private(pr), "", "priv.key.pem") {
-            assert!(false, "Private key error: {}", err);
+            assert!(false, "Private key error: {err}");
         };
 
         if let Err(err) = key_to_file(&Public(pb), "", "pub.key.pem") {
-            assert!(false, "Public key error: {}", err);
+            assert!(false, "Public key error: {err}");
         };
 
         match key_from_file("priv.key.pem").unwrap().unwrap() {

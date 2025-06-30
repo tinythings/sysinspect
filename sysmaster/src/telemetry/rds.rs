@@ -77,7 +77,7 @@ impl FunctionReducer {
                             let mrec = match self.mrecbuff.get(mid) {
                                 Some(mrec) => mrec,
                                 None => {
-                                    log::error!("Minion ID {} was not found in correlation to the map/reduce. This should not have happened.", mid);
+                                    log::error!("Minion ID {mid} was not found in correlation to the map/reduce. This should not have happened.");
                                     continue;
                                 }
                             };
@@ -124,7 +124,7 @@ impl FunctionReducer {
                             let mrec = match self.mrecbuff.get(mid) {
                                 Some(mrec) => mrec,
                                 None => {
-                                    log::error!("Minion ID {} was not found in correlation to the map/reduce. This should not have happened.", mid);
+                                    log::error!("Minion ID {mid} was not found in correlation to the map/reduce. This should not have happened.");
                                     continue;
                                 }
                             };
@@ -166,7 +166,7 @@ impl FunctionReducer {
                             let mrec = match self.mrecbuff.get(mid) {
                                 Some(mrec) => mrec,
                                 None => {
-                                    log::error!("Minion ID {} was not found in correlation to the map/reduce. This should not have happened.", mid);
+                                    log::error!("Minion ID {mid} was not found in correlation to the map/reduce. This should not have happened.");
                                     continue;
                                 }
                             };
@@ -203,7 +203,7 @@ impl FunctionReducer {
                             let mrec = match self.mrecbuff.get(mid) {
                                 Some(mrec) => mrec,
                                 None => {
-                                    log::error!("Minion ID {} was not found in correlation to the map/reduce. This should not have happened.", mid);
+                                    log::error!("Minion ID {mid} was not found in correlation to the map/reduce. This should not have happened.");
                                     continue;
                                 }
                             };
@@ -254,7 +254,7 @@ impl FunctionReducer {
             let mrec = match self.mrecbuff.get(mid) {
                 Some(mrec) => mrec,
                 None => {
-                    log::error!("Minion ID {} was not found in correlation to the map/reduce. This should not have happened.", mid);
+                    log::error!("Minion ID {mid} was not found in correlation to the map/reduce. This should not have happened.");
                     continue;
                 }
             };

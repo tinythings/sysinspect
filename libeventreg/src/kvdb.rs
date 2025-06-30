@@ -84,13 +84,13 @@ impl EventData {
         match value {
             Value::Object(map) => {
                 for (k, v) in map {
-                    let new_prefix = if prefix.is_empty() { k.clone() } else { format!("{}.{}", prefix, k) };
+                    let new_prefix = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
                     Self::_flatten(v, &new_prefix, result);
                 }
             }
             Value::Array(arr) => {
                 for (i, v) in arr.iter().enumerate() {
-                    let new_prefix = format!("{}[{}]", prefix, i);
+                    let new_prefix = format!("{prefix}[{i}]");
                     Self::_flatten(v, &new_prefix, result);
                 }
             }
@@ -236,15 +236,15 @@ impl EventsRegistry {
         options.copy_inside = true;
 
         let prefix = "sysinspect-db-clone-";
-        let pattern = format!("/tmp/{}*", prefix);
+        let pattern = format!("/tmp/{prefix}*");
         for entry in glob::glob(&pattern).unwrap() {
             match entry {
                 Ok(path) if path.is_dir() => {
-                    log::info!("Cleanup stale clone: {:?}", path);
+                    log::info!("Cleanup stale clone: {path:?}");
                     fs::remove_dir_all(path)?;
                 }
                 Ok(_) => {} // Not a directory, skip it.
-                Err(e) => eprintln!("Error matching path: {:?}", e),
+                Err(e) => eprintln!("Error matching path: {e:?}"),
             }
         }
 
@@ -273,7 +273,7 @@ impl EventsRegistry {
 
     /// Return a tree Id out of sid and mid
     fn to_tree_id(sid: &str, mid: &str) -> String {
-        format!("{}@{}", sid, mid)
+        format!("{sid}@{mid}")
     }
 
     /// Add an event
@@ -368,7 +368,7 @@ impl EventsRegistry {
             return EventSession::from_bytes(v.as_bytes().to_vec());
         }
 
-        Err(SysinspectError::MasterGeneralError(format!("Session {} not found", sid)))
+        Err(SysinspectError::MasterGeneralError(format!("Session {sid} not found")))
     }
 
     /// Return all minions within the session
@@ -439,14 +439,14 @@ impl EventsRegistry {
             // skip internal trees, they aren't purgeable anyway even if hit
             if !name.starts_with("__sled__") {
                 if let Err(err) = self.conn.drop_tree(tree.clone()) {
-                    log::error!("Error purging tree {}: {}", name, err);
+                    log::error!("Error purging tree {name}: {err}");
                 } else {
-                    log::debug!("Purged tree {}", name);
+                    log::debug!("Purged tree {name}");
                     c += 1;
                 }
             }
         }
-        log::info!("Purged {} trees", c);
+        log::info!("Purged {c} trees");
 
         Ok(())
     }

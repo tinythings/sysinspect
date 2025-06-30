@@ -89,8 +89,7 @@ impl SysInspectRunner {
         for c in a.if_false() {
             if !self.cstr_s.contains(&c) && !self.cstr_f.contains(&c) {
                 return Err(SysinspectError::ModelDSLError(format!(
-                    "Constraint {} expected to be already failed. Please fix your model.",
-                    c
+                    "Constraint {c} expected to be already failed. Please fix your model."
                 )));
             }
 
@@ -102,8 +101,7 @@ impl SysInspectRunner {
         for c in a.if_true() {
             if !self.cstr_s.contains(&c) && !self.cstr_f.contains(&c) {
                 return Err(SysinspectError::ModelDSLError(format!(
-                    "Constraint {} expected to be already succeeded. Please fix your model.",
-                    c
+                    "Constraint {c} expected to be already succeeded. Please fix your model."
                 )));
             }
 
@@ -177,7 +175,7 @@ impl SysInspectRunner {
                                 }
                             }
                             Err(err) => {
-                                log::error!("{}", err);
+                                log::error!("{err}");
                             }
                         }
                         log::info!("Starting event processor cycle");
@@ -188,7 +186,7 @@ impl SysInspectRunner {
                 }
                 log::debug!("Done");
             }
-            Err(err) => log::error!("Error loading mspec: {}", err),
+            Err(err) => log::error!("Error loading mspec: {err}"),
         };
     }
 
