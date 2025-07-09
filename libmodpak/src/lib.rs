@@ -68,7 +68,7 @@ impl SysInspectModPakMinion {
             .get(format!("http://{}/repo/{}", self.cfg.fileserver(), REPO_MOD_INDEX))
             .send()
             .await
-            .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {e}")))?;
         if resp.status() != reqwest::StatusCode::OK {
             return Err(SysinspectError::MasterGeneralError(format!("Failed to get modpak index: {}", resp.status())));
         }
@@ -128,18 +128,18 @@ impl SysInspectModPakMinion {
     fn get_all_shared(&self) -> Result<IndexMap<String, PathBuf>, SysinspectError> {
         fn collect_files(root: &PathBuf, dir: &PathBuf, shared: &mut IndexMap<String, PathBuf>) -> Result<(), SysinspectError> {
             for e in fs::read_dir(dir).map_err(|e| {
-                log::error!("Failed to read directory: {}", e);
-                SysinspectError::MasterGeneralError(format!("Failed to read directory: {}", e))
+                log::error!("Failed to read directory: {e}");
+                SysinspectError::MasterGeneralError(format!("Failed to read directory: {e}"))
             })? {
                 let e = e.map_err(|e| {
-                    log::error!("Failed to read entry: {}", e);
-                    SysinspectError::MasterGeneralError(format!("Failed to read entry: {}", e))
+                    log::error!("Failed to read entry: {e}");
+                    SysinspectError::MasterGeneralError(format!("Failed to read entry: {e}"))
                 })?;
                 let p = e.path();
                 if p.is_file() {
                     shared.insert(
                         p.strip_prefix(root)
-                            .map_err(|e| SysinspectError::MasterGeneralError(format!("Strip prefix error: {}", e)))?
+                            .map_err(|e| SysinspectError::MasterGeneralError(format!("Strip prefix error: {e}")))?
                             .to_string_lossy()
                             .to_string(),
                         p,
@@ -211,12 +211,12 @@ impl SysInspectModPakMinion {
                     .get(format!("http://{}/repo/lib/{}", self.cfg.fileserver(), lf.file().display()))
                     .send()
                     .await
-                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {e}")))?;
                 if resp.status() != reqwest::StatusCode::OK {
                     log::error!("Failed to download library {}: {}", lf.file().display(), resp.status());
                     continue;
                 }
-                let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
+                let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))?;
                 let dst = self.cfg.sharelib_dir().join(DEFAULT_MODULES_LIB_DIR).join(lf.file());
                 //let dst = self.cfg.sharelib_dir().join(lf.file());
 
@@ -248,7 +248,7 @@ impl SysInspectModPakMinion {
         let osarch = env!("THIS_ARCH");
 
         let modt = ridx.modules().len();
-        log::info!("Syncing {} modules", modt);
+        log::info!("Syncing {modt} modules");
         let mut synced = 0;
         if modt > 0 {
             log::warn!("{}% of modules synced", (synced * 100) / modt);
@@ -276,12 +276,12 @@ impl SysInspectModPakMinion {
                     .get(&path)
                     .send()
                     .await
-                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {}", e)))?;
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {e}")))?;
                 if resp.status() != reqwest::StatusCode::OK {
                     log::error!("Failed to download module {}: {} on url {}", name, resp.status(), path);
                     continue;
                 }
-                let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {}", e)))?;
+                let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))?;
 
                 // Check if we need to write that
                 log::debug!("Writing module to {}", dst.display().to_string().bright_yellow());
@@ -365,7 +365,7 @@ impl SysInspectModPak {
 
     /// Parses an object file and returns its architecture and OS ABI.
     fn parse_obj(buff: &[u8]) -> Result<(bool, &str, &str), SysinspectError> {
-        match Object::parse(buff).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to parse object: {}", e)))? {
+        match Object::parse(buff).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to parse object: {e}")))? {
             Object::Elf(elf) => {
                 let arch = match elf.header.e_machine {
                     goblin::elf::header::EM_X86_64 => "x86_64",
@@ -394,7 +394,7 @@ impl SysInspectModPak {
         options.content_only = true; // Copy only the contents of the directory
 
         log::info!("Copying library from {} to {}", p.display(), path.display());
-        fs_extra::dir::copy(&p, &path, &options).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {}", e)))?;
+        fs_extra::dir::copy(&p, &path, &options).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {e}")))?;
         self.idx.index_library(&path)?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
         fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
@@ -416,7 +416,7 @@ impl SysInspectModPak {
 
         meta.set_arch(&arch);
 
-        log::info!("Platform: {}", p);
+        log::info!("Platform: {p}");
         let module_subpath =
             PathBuf::from(Self::after(meta.get_path().to_str().unwrap_or_default(), meta.get_subpath().to_str().unwrap_or_default()));
         let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(&module_subpath);
@@ -441,7 +441,7 @@ impl SysInspectModPak {
                 subpath.to_str().unwrap_or_default().starts_with("bin/"),
                 &checksum,
             )
-            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {}", e)))?;
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {e}")))?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
 
         fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
@@ -468,7 +468,7 @@ impl SysInspectModPak {
                     println!("    {:<mw$}  {:>kw$}: {}", "", k.yellow(), v, mw = mw, kw = kw,);
                 }
             } else {
-                println!("    {:<mw$}", mname, mw = mw);
+                println!("    {mname:<mw$}");
             }
             println!();
         }
@@ -476,7 +476,7 @@ impl SysInspectModPak {
 
     /// Lists all libraries in the repository.
     pub fn list_libraries(&self, expr: Option<&str>) -> Result<(), SysinspectError> {
-        let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {}", e)))?;
+        let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {e}")))?;
         let mut table = Table::new();
         table.set_format(
             FormatBuilder::new().borders(' ').padding(0, 2).separators(&[LinePosition::Title], LineSeparator::new('─', ' ', ' ', ' ')).build(),
@@ -587,7 +587,7 @@ impl SysInspectModPak {
                     );
                     if path.exists() {
                         if let Err(err) = fs::remove_file(&path) {
-                            log::error!("Failed to remove module: {}", err);
+                            log::error!("Failed to remove module: {err}");
                         }
 
                         // Also remove the whole directory if it's empty already

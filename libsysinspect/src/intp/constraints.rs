@@ -222,11 +222,11 @@ impl Expression {
                 let claim = claim.unwrap();
 
                 match op {
-                    OpType::Equals => ExprRes::new(Some(fact == claim), Some(format!("{} should be equal to {}", fact, claim)))
+                    OpType::Equals => ExprRes::new(Some(fact == claim), Some(format!("{fact} should be equal to {claim}")))
                         .set_event_id(self.event.clone()),
-                    OpType::Less => ExprRes::new(Some(fact < claim), Some(format!("{} should be less than {}", fact, claim)))
+                    OpType::Less => ExprRes::new(Some(fact < claim), Some(format!("{fact} should be less than {claim}")))
                         .set_event_id(self.event.clone()),
-                    OpType::More => ExprRes::new(Some(fact > claim), Some(format!("{} should be more than {}", fact, claim)))
+                    OpType::More => ExprRes::new(Some(fact > claim), Some(format!("{fact} should be more than {claim}")))
                         .set_event_id(self.event.clone()),
                     _ => ExprRes::new(None, Some("Unknown expression operator".to_string())),
                 }
@@ -240,30 +240,30 @@ impl Expression {
                 let claim = claim.unwrap_or_default();
 
                 match op {
-                    OpType::Equals => ExprRes::new(Some(claim.eq(&fact)), Some(format!("{} should be equal to {}", claim, fact)))
+                    OpType::Equals => ExprRes::new(Some(claim.eq(&fact)), Some(format!("{claim} should be equal to {fact}")))
                         .set_event_id(self.event.clone()),
                     OpType::Less | OpType::More => {
-                        ExprRes::new(Some(claim.ne(&fact)), Some(format!("{} should not be equal to {}", claim, fact)))
+                        ExprRes::new(Some(claim.ne(&fact)), Some(format!("{claim} should not be equal to {fact}")))
                             .set_event_id(self.event.clone())
                     }
                     OpType::Matches => {
                         if let Ok(r) = Regex::new(&claim) {
-                            ExprRes::new(Some(r.is_match(&fact)), Some(format!("{} should match {}", fact, claim)))
+                            ExprRes::new(Some(r.is_match(&fact)), Some(format!("{fact} should match {claim}")))
                                 .set_event_id(self.event.clone())
                         } else {
                             ExprRes::new(None, Some("Bad regexp syntax".to_string()))
                         }
                     }
                     OpType::Contains => {
-                        ExprRes::new(Some(claim.contains(&fact)), Some(format!("{} should contain {}", fact, claim)))
+                        ExprRes::new(Some(claim.contains(&fact)), Some(format!("{fact} should contain {claim}")))
                             .set_event_id(self.event.clone())
                     }
                     OpType::Starts => {
-                        ExprRes::new(Some(claim.starts_with(&fact)), Some(format!("{} should start with {}", fact, claim)))
+                        ExprRes::new(Some(claim.starts_with(&fact)), Some(format!("{fact} should start with {claim}")))
                             .set_event_id(self.event.clone())
                     }
                     OpType::Ends => {
-                        ExprRes::new(Some(claim.ends_with(&fact)), Some(format!("{} should ends with {}", fact, claim)))
+                        ExprRes::new(Some(claim.ends_with(&fact)), Some(format!("{fact} should ends with {claim}")))
                             .set_event_id(self.event.clone())
                     }
                     _ => ExprRes::new(None, None),

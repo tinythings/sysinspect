@@ -89,7 +89,7 @@ impl OtelLogger {
                         log::debug!("Data does not match selector: {:#?}, error: {}", es.dataspec(), err);
                     }
                     _ => {
-                        log::error!("Unable to load selector data: {}", err);
+                        log::error!("Unable to load selector data: {err}");
                     }
                 }
                 IndexMap::new()
@@ -160,7 +160,7 @@ impl OtelLogger {
                                     log::debug!("Data does not match selector: {:#?}, error: {}", s.dataspec(), err);
                                 }
                                 _ => {
-                                    log::error!("Unable to load selector data: {}", err);
+                                    log::error!("Unable to load selector data: {err}");
                                 }
                             },
                         }
@@ -242,7 +242,7 @@ impl OtelLogger {
     fn spec_compliant(&self, es: &EventSelector, rspdata: &IndexMap<String, Value>) -> bool {
         for k in es.dataspec().keys() {
             if !rspdata.contains_key(k) {
-                log::debug!("Missing key in telemetry data: {}", k);
+                log::debug!("Missing key in telemetry data: {k}");
                 return false;
             }
         }

@@ -128,8 +128,7 @@ impl ModArgFunction {
         // XXX: This check is probably not needed in a future
         if namespace.len() < 2 {
             return Err(SysinspectError::ModelDSLError(format!(
-                "Function {} does not have at least two fold namespace: {}",
-                fid, ns
+                "Function {fid} does not have at least two fold namespace: {ns}"
             )));
         }
 

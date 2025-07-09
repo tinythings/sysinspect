@@ -76,7 +76,7 @@ pub(crate) fn info(rq: &ModRequest, rsp: &mut ModResponse) {
         Ok(m) => m,
         Err(err) => {
             rsp.set_retcode(1);
-            rsp.set_message(&format!("Error obtaining file data: {}", err));
+            rsp.set_message(&format!("Error obtaining file data: {err}"));
             return;
         }
     };
@@ -106,13 +106,13 @@ pub(crate) fn info(rq: &ModRequest, rsp: &mut ModResponse) {
         Ok(j) => {
             if let Err(err) = rsp.set_data(j) {
                 rsp.set_retcode(1);
-                rsp.set_message(&format!("Error sending file data: {}", err));
+                rsp.set_message(&format!("Error sending file data: {err}"));
                 return;
             };
         }
         Err(err) => {
             rsp.set_retcode(1);
-            rsp.set_message(&format!("Error getting file data: {}", err));
+            rsp.set_message(&format!("Error getting file data: {err}"));
             return;
         }
     };

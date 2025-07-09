@@ -174,10 +174,10 @@ fn main() {
     match get_call_args() {
         Ok(rt) => match send_call_response(&run_mod(&rt)) {
             Ok(_) => {}
-            Err(err) => println!("Runtime error: {}", err),
+            Err(err) => println!("Runtime error: {err}"),
         },
         Err(err) => {
-            println!("Arguments error: {}", err)
+            println!("Arguments error: {err}")
         }
     }
 }

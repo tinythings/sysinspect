@@ -97,7 +97,7 @@ impl ExpressionParser {
 
         let caps = re.captures(input).ok_or_else(|| {
             SysinspectError::from(Box::new(std::io::Error::other(
-                format!("invalid expression: {:?}", input),
+                format!("invalid expression: {input:?}"),
             )) as Box<dyn std::error::Error + Send + Sync>)
         })?;
 
@@ -135,7 +135,7 @@ impl ExpressionParser {
         let (op, size) = match Self::get_expr(&self.expr) {
             Ok((op, size)) => (op, size),
             Err(e) => {
-                log::error!("Error parsing expression: {}", e);
+                log::error!("Error parsing expression: {e}");
                 return false;
             }
         };

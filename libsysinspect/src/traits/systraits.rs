@@ -93,7 +93,7 @@ impl SystemTraits {
         match result {
             Ok(v) => Some(v),
             Err(err) => {
-                log::error!("{}: {}", context, err);
+                log::error!("{context}: {err}");
                 None
             }
         }
@@ -154,10 +154,10 @@ impl SystemTraits {
         log::info!("Loading network traits data");
         let net = sysinfo::Networks::new_with_refreshed_list();
         for (ifs, data) in net.iter() {
-            self.put(format!("system.net.{}.mac", ifs), json!(data.mac_address().to_string()));
+            self.put(format!("system.net.{ifs}.mac"), json!(data.mac_address().to_string()));
             for ipn in data.ip_networks() {
                 let tp = if ipn.addr.is_ipv4() { "4" } else { "6" };
-                self.put(format!("system.net.{}.ipv{}", ifs, tp), json!(ipn.addr.to_string()));
+                self.put(format!("system.net.{ifs}.ipv{tp}"), json!(ipn.addr.to_string()));
             }
         }
     }
@@ -170,7 +170,7 @@ impl SystemTraits {
             let fname = f.file_name();
             let fname = fname.to_str().unwrap_or_default();
             if fname.ends_with(".cfg") {
-                let content = Self::proxy_log_error(fs::read_to_string(f.path()), format!("Unable to read custom trait file at {}", fname).as_str())
+                let content = Self::proxy_log_error(fs::read_to_string(f.path()), format!("Unable to read custom trait file at {fname}").as_str())
                     .unwrap_or_default();
 
                 if content.is_empty() {
@@ -226,7 +226,7 @@ impl SystemTraits {
                 let out = Command::new(f.path()).output()?;
                 if out.status.success() {
                     let data =
-                        Self::proxy_log_error(String::from_utf8(out.stdout), format!("Unable to load content from the function {}", fname).as_str());
+                        Self::proxy_log_error(String::from_utf8(out.stdout), format!("Unable to load content from the function {fname}").as_str());
                     if data.is_none() {
                         log::error!("Function {fname} returned no content");
                         continue;

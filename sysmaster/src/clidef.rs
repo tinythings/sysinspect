@@ -13,7 +13,7 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
     Command::new(appname)
         .version(version)
         .about(format!("{} - {}", appname.bright_magenta().bold(), "is a master node to operate minion agents"))
-        .override_usage(format!("{} [OPTIONS]", appname))
+        .override_usage(format!("{appname} [OPTIONS]"))
 
         // Config
         .arg(

@@ -36,7 +36,7 @@ fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectE
             match h.await {
                 Ok(_) => println!("Minion task completed."),
                 Err(e) if e.is_cancelled() => println!("Minion task was aborted."),
-                Err(e) => println!("Minion task failed: {:?}", e),
+                Err(e) => println!("Minion task failed: {e:?}"),
             }
 
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -78,7 +78,7 @@ fn help(cli: &mut Command, params: ArgMatches) -> bool {
 
     // Print a global version?
     if params.get_flag("version") {
-        println!("Version: {} {}", APPNAME, VERSION);
+        println!("Version: {APPNAME} {VERSION}");
         return true;
     }
 
@@ -107,7 +107,7 @@ fn main() -> std::io::Result<()> {
             2.. => LevelFilter::max(),
         })
     }) {
-        println!("Error setting logger output: {}", err);
+        println!("Error setting logger output: {err}");
     }
 
     // Start

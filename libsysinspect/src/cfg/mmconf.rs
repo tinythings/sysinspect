@@ -379,14 +379,14 @@ impl MinionConfig {
     pub fn new(p: PathBuf) -> Result<MinionConfig, SysinspectError> {
         let cp = p.as_os_str().to_str().unwrap_or_default();
         if !p.exists() {
-            return Err(SysinspectError::ConfigError(format!("File not found: {}", cp)));
+            return Err(SysinspectError::ConfigError(format!("File not found: {cp}")));
         }
 
         if let Some(cfgv) = get_by_namespace(Some(from_str::<Value>(&fs::read_to_string(&p)?)?), "config.minion") {
             return Ok(from_value::<MinionConfig>(cfgv)?);
         }
 
-        Err(SysinspectError::ConfigError(format!("Unable to read config at: {}", cp)))
+        Err(SysinspectError::ConfigError(format!("Unable to read config at: {cp}")))
     }
 
     /// Set Master IP
@@ -601,14 +601,14 @@ impl MasterConfig {
     pub fn new(p: PathBuf) -> Result<MasterConfig, SysinspectError> {
         let cp = p.as_os_str().to_str().unwrap_or_default();
         if !p.exists() {
-            return Err(SysinspectError::ConfigError(format!("File not found: {}", cp)));
+            return Err(SysinspectError::ConfigError(format!("File not found: {cp}")));
         }
 
         if let Some(cfgv) = get_by_namespace(Some(from_str::<Value>(&fs::read_to_string(&p)?)?), "config.master") {
             return Ok(from_value::<MasterConfig>(cfgv)?);
         }
 
-        Err(SysinspectError::ConfigError(format!("Unable to read config at: {}", cp)))
+        Err(SysinspectError::ConfigError(format!("Unable to read config at: {cp}")))
     }
 
     /// Get OTLP collector endpoint

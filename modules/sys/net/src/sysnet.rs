@@ -32,7 +32,7 @@ impl NetInfo {
     }
 
     fn format_mac(mac: &[u8]) -> String {
-        mac.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(":")
+        mac.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":")
     }
 
     /// Checks if interface is accepted
@@ -194,18 +194,18 @@ pub fn run(rt: &ModRequest) -> ModResponse {
             Ok(ret) => {
                 if let Err(err) = res.set_data(json!(ret)) {
                     res.set_retcode(1);
-                    res.add_warning(&format!("{}", err));
+                    res.add_warning(&format!("{err}"));
                 } else {
                     res.set_message("Network data obtained");
                 }
             }
             Err(err) => {
                 res.set_retcode(1);
-                res.set_message(&format!("{}", err));
+                res.set_message(&format!("{err}"));
             }
         },
         Err(err) => {
-            res.set_message(&format!("Error obtaining networking data: {}", err));
+            res.set_message(&format!("Error obtaining networking data: {err}"));
         }
     }
 

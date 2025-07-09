@@ -65,15 +65,15 @@ impl PyVm {
             Ok(sysmod) => match sysmod.get_attr("path", vm) {
                 Ok(syspath) => {
                     if let Err(err) = vm.call_method(&syspath, "append", (&self.libpath,)) {
-                        return Err(SysinspectError::ModuleError(format!("{:?}", err)));
+                        return Err(SysinspectError::ModuleError(format!("{err:?}")));
                     }
                 }
                 Err(err) => {
-                    return Err(SysinspectError::ModuleError(format!("{:?}", err)));
+                    return Err(SysinspectError::ModuleError(format!("{err:?}")));
                 }
             },
             Err(err) => {
-                return Err(SysinspectError::ModuleError(format!("{:?}", err)));
+                return Err(SysinspectError::ModuleError(format!("{err:?}")));
             }
         };
         Ok(())

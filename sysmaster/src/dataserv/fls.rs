@@ -12,11 +12,11 @@ use std::{
 // Separate handler on every HTTP call
 async fn serve_file(path: web::Path<PathBuf>, _cfg: web::Data<MasterConfig>) -> impl Responder {
     let pth = Path::new(DEFAULT_SYSINSPECT_ROOT).join(CFG_FILESERVER_ROOT).join(path.into_inner());
-    log::debug!("Requested local file: {:?}", pth);
+    log::debug!("Requested local file: {pth:?}");
     if pth.is_file() {
         return HttpResponse::Ok().body(fs::read(pth).unwrap());
     }
-    log::error!("File {:?} was not found", pth);
+    log::error!("File {pth:?} was not found");
     HttpResponse::NotFound().body("File not found")
 }
 

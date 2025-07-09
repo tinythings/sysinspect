@@ -75,13 +75,13 @@ pub fn do_create(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
     rsp.set_retcode(0);
 
     if let Err(error) = rsp.cm_set_changed(true) {
-        rsp.set_message(&format!("Data error: {}", error));
+        rsp.set_message(&format!("Data error: {error}"));
         rsp.set_retcode(255);
         return;
     }
 
     let pn = rq.args().get("name").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default();
-    rsp.set_message(&format!("File {} created", pn));
+    rsp.set_message(&format!("File {pn} created"));
 
     let fsr_addr = format!(
         "http://{}:{}",
@@ -101,7 +101,7 @@ pub fn do_create(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
                     if strict {
                         rsp.set_retcode(1);
                     }
-                    rsp.set_message(&format!("Error copying the file \"{}\": {}", pull_src, err));
+                    rsp.set_message(&format!("Error copying the file \"{pull_src}\": {err}"));
                     return;
                 }
             }
@@ -110,7 +110,7 @@ pub fn do_create(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
                     if strict {
                         rsp.set_retcode(1);
                     }
-                    rsp.set_message(&format!("Error pulling the file: {}", err));
+                    rsp.set_message(&format!("Error pulling the file: {err}"));
                     return;
                 }
             }
@@ -119,7 +119,7 @@ pub fn do_create(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
         if strict {
             rsp.set_retcode(1);
         }
-        rsp.set_message(&format!("Touch error: {}", err));
+        rsp.set_message(&format!("Touch error: {err}"));
 
         return;
     }
