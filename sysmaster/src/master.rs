@@ -168,13 +168,15 @@ impl SysMaster {
         reducer.map();
         reducer.reduce();
 
-        // Emit reduced data
-        for (mid, res) in reducer.get_reduced_data() {
-            if let Ok(Some(mrec)) = self.mreg.get(mid) {
-                let fqdn = mrec.get_traits().get("system.hostname.fqdn").unwrap_or(&serde_json::Value::String("".to_string())).to_string();
-                libtelemetry::otel_log_json(res, vec![("hostname".into(), fqdn.into())]);
-            } else {
-                log::error!("Minion {mid} has a data, but no minion record found");
+        if self.cfg.telemetry_enabled() {
+            // Emit reduced data
+            for (mid, res) in reducer.get_reduced_data() {
+                if let Ok(Some(mrec)) = self.mreg.get(mid) {
+                    let fqdn = mrec.get_traits().get("system.hostname.fqdn").unwrap_or(&serde_json::Value::String("".to_string())).to_string();
+                    libtelemetry::otel_log_json(res, vec![("hostname".into(), fqdn.into())]);
+                } else {
+                    log::error!("Minion {mid} has a data, but no minion record found");
+                }
             }
         }
     }
@@ -381,8 +383,10 @@ impl SysMaster {
                                         }
                                     };
 
-                                    // Sent OTEL log entry
-                                    OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
+                                    if m.cfg().telemetry_enabled() {
+                                        // Sent OTEL log entry
+                                        OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
+                                    }
 
                                     let sid = match m
                                         .evtipc
@@ -440,25 +444,27 @@ impl SysMaster {
                                         }
                                     };
 
-                                    let mut otel = OtelLogger::new(&pl);
-                                    otel.set_map(true); // Use mapper (only)
-                                    match master.evtipc.get_events(sid.sid(), req.id()).await {
-                                        Ok(events) => match master.mreg.get(req.id()) {
-                                            Ok(Some(mrec)) => {
-                                                otel.feed(events, mrec);
-                                            }
-                                            Ok(None) => {
-                                                log::error!("Unable to get minion record for {}", req.id());
-                                            }
+                                    if master.cfg().telemetry_enabled() {
+                                        let mut otel = OtelLogger::new(&pl);
+                                        otel.set_map(true); // Use mapper (only)
+                                        match master.evtipc.get_events(sid.sid(), req.id()).await {
+                                            Ok(events) => match master.mreg.get(req.id()) {
+                                                Ok(Some(mrec)) => {
+                                                    otel.feed(events, mrec);
+                                                }
+                                                Ok(None) => {
+                                                    log::error!("Unable to get minion record for {}", req.id());
+                                                }
+                                                Err(err) => {
+                                                    log::error!("Error retrieving minion record for {}: {}", req.id(), err);
+                                                }
+                                            },
                                             Err(err) => {
-                                                log::error!("Error retrieving minion record for {}: {}", req.id(), err);
+                                                log::error!("Error retrieving events for minion {}: {}", req.id(), err);
                                             }
-                                        },
-                                        Err(err) => {
-                                            log::error!("Error retrieving events for minion {}: {}", req.id(), err);
                                         }
+                                        otel.log(&mrec, DataExportType::Model);
                                     }
-                                    otel.log(&mrec, DataExportType::Model);
                                 });
                             }
 
@@ -521,11 +527,13 @@ impl SysMaster {
                                                 tokio::spawn(async move {c_master.lock().await.on_fifo_commands(&c_msg).await;});
 
                                                 // Fire map/reduce logger for the previous query cycle
-                                                let c_master = Arc::clone(&master);
-                                                let c_msg = msg.clone();
-                                                tokio::spawn(async move {
-                                                    c_master.lock().await.on_log_previous_query(&c_msg).await;
-                                                });
+                                                if cfg.telemetry_enabled() {
+                                                    let c_master = Arc::clone(&master);
+                                                    let c_msg = msg.clone();
+                                                    tokio::spawn(async move {
+                                                        c_master.lock().await.on_log_previous_query(&c_msg).await;
+                                                    });
+                                                }
 
                                                 // Send the fifo query message to all minions
                                                 let _ = bcast.send(msg.sendable().unwrap());
@@ -674,7 +682,9 @@ impl SysMaster {
                             let mut grd_master = master.lock().await;
                             let msg = grd_master.msg_query(tdef.query().as_str());
 
-                            if let Some(msg) = &msg {
+                            if let Some(msg) = &msg
+                                && grd_master.cfg().telemetry_enabled()
+                            {
                                 let c_msg = msg.clone();
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
@@ -720,12 +730,14 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     {
         let mut m = master.lock().await;
         m.init().await?;
+        log::info!("SysMaster initialized");
     }
 
     let (client_tx, client_rx) = mpsc::channel::<(Vec<u8>, String)>(100);
 
     // Start internal fileserver for minions
     fls::start(cfg.clone()).await?;
+    log::info!("Fileserver started on directory {}", cfg.fileserver_root().to_str().unwrap_or_default());
 
     // Start services
     let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;
@@ -734,14 +746,18 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
 
     // Task to read from the FIFO and broadcast messages to clients
     SysMaster::do_fifo(Arc::clone(&master)).await;
+    log::info!("Local command channel initialized");
 
     // Handle incoming messages from minions
     SysMaster::do_incoming(Arc::clone(&master), client_rx).await;
+    log::info!("Incoming channel initialized");
 
     // Accept connections and spawn tasks for each client
     SysMaster::do_outgoing(Arc::clone(&master), client_tx).await?;
+    log::info!("Outgoing channel initialized");
 
     SysMaster::do_heartbeat(Arc::clone(&master)).await;
+    log::info!("Heartbeat service started");
 
     // Listen for shutdown signal and cancel tasks
     tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c");

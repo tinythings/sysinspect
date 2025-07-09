@@ -747,6 +747,11 @@ impl MasterConfig {
     pub fn get_mod_repo_root(&self) -> PathBuf {
         self.fileserver_root().join(CFG_MODREPO_ROOT)
     }
+
+    /// Returns true if telemetry is enabled
+    pub fn telemetry_enabled(&self) -> bool {
+        self.telemetry.is_some() && self.telemetry.as_ref().unwrap().collector.is_some()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
