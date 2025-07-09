@@ -1,7 +1,7 @@
-use actix_web::{rt::System, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{App, HttpResponse, HttpServer, Responder, rt::System, web};
 use libsysinspect::{
-    cfg::mmconf::{MasterConfig, CFG_FILESERVER_ROOT, DEFAULT_SYSINSPECT_ROOT},
     SysinspectError,
+    cfg::mmconf::{CFG_FILESERVER_ROOT, DEFAULT_SYSINSPECT_ROOT, MasterConfig},
 };
 use std::{
     fs,
@@ -22,13 +22,13 @@ async fn serve_file(path: web::Path<PathBuf>, _cfg: web::Data<MasterConfig>) -> 
 
 /// Start fileserver
 pub async fn start(cfg: MasterConfig) -> Result<(), SysinspectError> {
+    let cfg_clone = cfg.clone();
     thread::spawn(move || {
-        let c_cfg = cfg.clone();
+        let c_cfg = cfg_clone.clone();
         System::new().block_on(async move {
-            let server = HttpServer::new(move || {
-                App::new().app_data(web::Data::new(cfg.clone())).service(web::resource("/{path:.*}").to(serve_file))
-            })
-            .bind(c_cfg.fileserver_bind_addr());
+            let server =
+                HttpServer::new(move || App::new().app_data(web::Data::new(cfg_clone.clone())).service(web::resource("/{path:.*}").to(serve_file)))
+                    .bind(c_cfg.fileserver_bind_addr());
 
             match server {
                 Ok(server) => {
@@ -42,6 +42,6 @@ pub async fn start(cfg: MasterConfig) -> Result<(), SysinspectError> {
             }
         })
     });
-
+    log::info!("Fileserver started at address {}", cfg.fileserver_bind_addr());
     Ok(())
 }

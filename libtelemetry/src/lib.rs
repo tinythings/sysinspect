@@ -1,3 +1,4 @@
+use colored::Colorize;
 use libsysinspect::SysinspectError;
 use libsysinspect::cfg::mmconf::CFG_OTLP_COMPRESSION;
 use libsysinspect::cfg::mmconf::MasterConfig;
@@ -28,6 +29,11 @@ pub mod query;
 static OTEL_LOGGER: OnceCell<SdkLogger> = OnceCell::const_new();
 
 pub async fn init_otel_collector(cfg: MasterConfig) -> Result<(), SysinspectError> {
+    if !cfg.telemetry_enabled() {
+        log::info!("{} Skipping initialization", "OpenTelemetry is disabled in configuration.".yellow());
+        return Ok(());
+    }
+
     let exporter = LogExporter::builder()
         .with_tonic()
         .with_protocol(Protocol::Grpc)
@@ -53,9 +59,9 @@ pub async fn init_otel_collector(cfg: MasterConfig) -> Result<(), SysinspectErro
         .with_log_processor(BatchLogProcessor::builder(exporter).build())
         .build()
         .logger_with_scope(scope);
-    OTEL_LOGGER
-        .set(logger)
-        .map_err(|_| SysinspectError::DynError(Box::new(io::Error::other("Collector already initialized"))))?;
+    OTEL_LOGGER.set(logger).map_err(|_| SysinspectError::DynError(Box::new(io::Error::other("Collector already initialized"))))?;
+
+    log::info!("Telemetry collector initialized");
 
     Ok(())
 }

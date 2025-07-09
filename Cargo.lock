@@ -2845,6 +2845,7 @@ name = "libtelemetry"
 version = "0.1.0"
 dependencies = [
  "byte-unit",
+ "colored",
  "globset",
  "indexmap 2.10.0",
  "jsonpath-rust",

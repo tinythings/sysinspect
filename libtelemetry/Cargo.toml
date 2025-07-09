@@ -20,3 +20,4 @@ globset = "0.4.16"
 jsonpath-rust = "1.0.3"
 indexmap = { version = "2.10.0", features = ["serde"] }
 strfmt = "0.2.4"
+colored = "3.0.0"
