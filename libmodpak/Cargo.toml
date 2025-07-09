@@ -13,10 +13,10 @@ log = "0.4.27"
 clap = { version = "4.5.40", features = ["unstable-styles"] }
 goblin = "0.9.3"
 colored = "3.0.0"
-indexmap = { version = "2.9.0", features = ["serde"] }
-reqwest = "0.12.20"
+indexmap = { version = "2.10.0", features = ["serde"] }
+reqwest = "0.12.22"
 fs_extra = "1.3.0"
-tokio = { version = "1.45.1", features = ["full"] }
+tokio = { version = "1.46.1", features = ["full"] }
 once_cell = "1.21.3"
 anyhow = "1.0.98"
 cruet = "0.15.0"
