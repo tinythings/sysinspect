@@ -4,3 +4,4 @@ man/*8
 package/
 .tmp/
 /vendor
+*code-workspace
