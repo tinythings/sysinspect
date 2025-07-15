@@ -125,11 +125,8 @@ impl ModArgFunction {
     pub fn new(ns: String, fid: String) -> Result<Self, SysinspectError> {
         let namespace = ns.split('.').map(|s| s.to_string()).collect::<Vec<String>>();
 
-        // XXX: This check is probably not needed in a future
-        if namespace.len() < 2 {
-            return Err(SysinspectError::ModelDSLError(format!(
-                "Function {fid} does not have at least two fold namespace: {ns}"
-            )));
+        if namespace.len() < 2 && !fid.eq("context") {
+            return Err(SysinspectError::ModelDSLError(format!("Function {fid} does not have at least two fold namespace: {ns}")));
         }
 
         Ok(ModArgFunction { namespace, fid })

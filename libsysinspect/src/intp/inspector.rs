@@ -12,15 +12,15 @@ use crate::{
     cfg::mmconf::DEFAULT_MODULES_SHARELIB,
     intp::functions,
     mdescr::{
-        DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG, DSL_IDX_CHECKBOOK,
-        DSL_IDX_EVENTS_CFG, mspecdef::ModelSpec,
+        DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CFG, DSL_IDX_CHECKBOOK, DSL_IDX_EVENTS_CFG,
+        mspecdef::ModelSpec,
     },
     reactor::handlers,
 };
 use colored::Colorize;
 use indexmap::IndexMap;
 use once_cell::sync::OnceCell;
-use serde_yaml::Value;
+use serde_yaml::{Value, to_value};
 use std::{collections::HashSet, path::PathBuf};
 
 static _SHARELIB: OnceCell<PathBuf> = OnceCell::new();
@@ -49,10 +49,11 @@ pub struct SysInspector {
     checkbook: Vec<CheckbookSection>,
     config: Config,
     spec: ModelSpec,
+    context: IndexMap<String, serde_json::Value>,
 }
 
 impl SysInspector {
-    pub fn new(spec: ModelSpec, sharelib: Option<PathBuf>) -> Result<Self, SysinspectError> {
+    pub fn new(spec: ModelSpec, sharelib: Option<PathBuf>, context: IndexMap<String, serde_json::Value>) -> Result<Self, SysinspectError> {
         // Set sharelib
         set_sharelib(sharelib);
 
@@ -65,6 +66,7 @@ impl SysInspector {
             checkbook: Vec::default(),
             config: Config::default(),
             spec,
+            context,
         };
 
         sr.load()?;
@@ -78,15 +80,9 @@ impl SysInspector {
 
     /// Load all objects.
     fn load(&mut self) -> Result<&mut Self, SysinspectError> {
-        for directive in [
-            DSL_DIR_ENTITIES,
-            DSL_DIR_ACTIONS,
-            DSL_DIR_CONSTRAINTS,
-            DSL_DIR_RELATIONS,
-            DSL_IDX_CHECKBOOK,
-            DSL_IDX_CFG,
-            DSL_IDX_EVENTS_CFG,
-        ] {
+        for directive in
+            [DSL_DIR_ENTITIES, DSL_DIR_ACTIONS, DSL_DIR_CONSTRAINTS, DSL_DIR_RELATIONS, DSL_IDX_CHECKBOOK, DSL_IDX_CFG, DSL_IDX_EVENTS_CFG]
+        {
             let v_obj = &self.spec.top(directive);
             if !directive.eq(DSL_DIR_CONSTRAINTS) && v_obj.is_none() {
                 return Err(SysinspectError::ModelDSLError(format!("Directive '{directive}' is not defined")));
@@ -259,11 +255,13 @@ impl SysInspector {
                     return Err(SysinspectError::ModelDSLError(format!("A {} function is missing namespace", func.fid())));
                 }
             }
+            "context" => {
+                if func.ns().len() != 1 {
+                    return Err(SysinspectError::ModelDSLError(format!("A {} function cannot use a dot-notation namespace", func.fid())));
+                }
+            }
             _ => {
-                return Err(SysinspectError::ModelDSLError(format!(
-                    "Unknown claim function: {}",
-                    format!("{}(...)", func.fid()).bright_red()
-                )));
+                return Err(SysinspectError::ModelDSLError(format!("Unknown function: {}", format!("{}(...)", func.fid()).bright_red())));
             }
         };
 
@@ -282,52 +280,45 @@ impl SysInspector {
                     return Err(SysinspectError::ModelDSLError(format!("No claims at {eid}.claims defined")));
                 }
             }
+        } else if func.fid().eq("context") {
+            if let Some(v) = self.context.get(func.ns()[0].as_str()) {
+                return Ok(Some(to_value(v).map_err(|e| SysinspectError::ModelDSLError(format!("Conversion error: {}", e)))?));
+            } else {
+                return Err(SysinspectError::ModelDSLError(format!("Value '{}' in the context function was not found or defined", func.ns()[0])));
+            }
         } else if func.fid().eq("static") {
             match func.ns().get(StaticNamespace::SECTION as usize).unwrap_or(&"".to_string()).as_str() {
                 "entities" => {
-                    if let Some(e) = self.entities.get(func.ns().get(StaticNamespace::ENTITY as usize).unwrap_or(&"".to_string()))
-                    {
+                    if let Some(e) = self.entities.get(func.ns().get(StaticNamespace::ENTITY as usize).unwrap_or(&"".to_string())) {
                         // Get function state
                         let state = func.ns().get(StaticNamespace::STATE as usize).cloned();
                         if state.is_none() {
-                            return Err(SysinspectError::ModelDSLError(
-                                "Static function doesn't reach state of a claim".to_string(),
-                            ));
+                            return Err(SysinspectError::ModelDSLError("Static function doesn't reach state of a claim".to_string()));
                         }
                         let state = state.unwrap();
 
                         // Get label
                         let label = func.ns().get(StaticNamespace::LABEL as usize).cloned();
                         if label.is_none() {
-                            return Err(SysinspectError::ModelDSLError(
-                                "Static function doesn't reach label of a claim".to_string(),
-                            ));
+                            return Err(SysinspectError::ModelDSLError("Static function doesn't reach label of a claim".to_string()));
                         }
                         let label = label.unwrap();
 
                         if let Some(claims) = e.claims() {
                             if let Some(claims) = claims.get(&state) {
                                 for claim in claims {
-                                    let ret = functions::get_by_namespace(
-                                        claim.get(&label).cloned(),
-                                        func.ns()[5..].join(".").as_str(),
-                                    );
+                                    let ret = functions::get_by_namespace(claim.get(&label).cloned(), func.ns()[5..].join(".").as_str());
                                     if ret.is_some() {
                                         return Ok(ret);
                                     }
                                 }
-                                return Err(SysinspectError::ModelDSLError(format!(
-                                    "Static namespace \"{}\" is unreachable",
-                                    func.namespace()
-                                )));
+                                return Err(SysinspectError::ModelDSLError(format!("Static namespace \"{}\" is unreachable", func.namespace())));
                             }
                         }
                     }
                 }
                 _ => {
-                    return Err(SysinspectError::ModelDSLError(
-                        "Static functions currently can take data only from entities".to_string(),
-                    ));
+                    return Err(SysinspectError::ModelDSLError("Static functions currently can take data only from entities".to_string()));
                 }
             }
         }

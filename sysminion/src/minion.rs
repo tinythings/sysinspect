@@ -9,6 +9,7 @@ use crate::{
 };
 use clap::ArgMatches;
 use colored::Colorize;
+use indexmap::IndexMap;
 use libmodpak::MODPAK_SYNC_STATE;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
@@ -668,7 +669,7 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
 pub(crate) fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), SysinspectError> {
     let name = args.get_one::<String>("name").ok_or(SysinspectError::ConfigError("Module name is required".to_string()))?;
     let mut modcaller = ModCall::default().set_module_ns(name, cfg.sharelib_dir());
-    let _ = SysInspector::new(ModelSpec::default(), Some(cfg.sharelib_dir())); // That will fail (and it is OK), but it will set sharelib for the module caller
+    let _ = SysInspector::new(ModelSpec::default(), Some(cfg.sharelib_dir()), IndexMap::new()); // That will fail (and it is OK), but it will set sharelib for the module caller
 
     for (k, v) in args
         .get_many::<(String, String)>("args")
