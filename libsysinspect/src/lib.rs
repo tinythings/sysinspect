@@ -4,6 +4,7 @@ use std::{error::Error, ffi::NulError, io};
 use thiserror::Error;
 
 pub mod cfg;
+pub mod context;
 pub mod inspector;
 pub mod intp;
 pub mod logger;

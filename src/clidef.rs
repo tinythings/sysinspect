@@ -51,6 +51,13 @@ pub fn cli(version: &'static str) -> Command {
                 .long("traits")
                 .help("Specify traits to select remote systems")
         )
+        .arg(
+            Arg::new("context")
+                .short('x')
+                .long("context")
+                .help(format!("Provide context data as comma-separated key-value pairs to minions when evaluating and running the model.\n{}",
+                              "Example: --context='myvar:123,myothervar:\"John Smith\"'".yellow()))
+        )
 
         // Local
         .next_help_heading("Local")

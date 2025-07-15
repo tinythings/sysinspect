@@ -116,7 +116,7 @@ impl SysMaster {
 
     /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
     async fn on_log_previous_query(&mut self, msg: &MasterMessage) {
-        let scheme = msg.get_target().scheme();
+        let scheme = msg.target().scheme();
         if !scheme.contains("/") {
             log::debug!("No model scheme found");
             return;
@@ -184,11 +184,12 @@ impl SysMaster {
     /// Construct a Command message to the minion
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
-
-        if let [querypath, query, traits, mid] = query.as_slice() {
+        if let [querypath, query, traits, mid, context] = query.as_slice() {
+            log::debug!("Context: {}", context);
             let mut tgt = MinionTarget::new(mid, "");
             tgt.set_scheme(querypath);
             tgt.set_traits_query(traits);
+            tgt.set_context_query(context);
             for hostname in query.split(",") {
                 tgt.add_hostname(hostname);
             }
@@ -492,12 +493,12 @@ impl SysMaster {
     }
 
     pub async fn on_fifo_commands(&mut self, msg: &MasterMessage) {
-        if msg.get_target().scheme().eq("cmd://cluster/minion/remove") && !msg.get_target().id().is_empty() {
-            log::info!("Removing minion {}", msg.get_target().id());
-            if let Err(err) = self.mreg.remove(msg.get_target().id()) {
-                log::error!("Unable to remove minion {}: {err}", msg.get_target().id());
+        if msg.target().scheme().eq("cmd://cluster/minion/remove") && !msg.target().id().is_empty() {
+            log::info!("Removing minion {}", msg.target().id());
+            if let Err(err) = self.mreg.remove(msg.target().id()) {
+                log::error!("Unable to remove minion {}: {err}", msg.target().id());
             }
-            if let Err(err) = self.mkr().remove_mn_key(msg.get_target().id()) {
+            if let Err(err) = self.mkr().remove_mn_key(msg.target().id()) {
                 log::error!("Unable to unregister minion: {err}");
             }
         }
