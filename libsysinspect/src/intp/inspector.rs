@@ -282,7 +282,7 @@ impl SysInspector {
             }
         } else if func.fid().eq("context") {
             if let Some(v) = self.context.get(func.ns()[0].as_str()) {
-                return Ok(Some(to_value(v).map_err(|e| SysinspectError::ModelDSLError(format!("Conversion error: {}", e)))?));
+                return Ok(Some(to_value(v).map_err(|e| SysinspectError::ModelDSLError(format!("Conversion error: {e}")))?));
             } else {
                 return Err(SysinspectError::ModelDSLError(format!("Value '{}' in the context function was not found or defined", func.ns()[0])));
             }
