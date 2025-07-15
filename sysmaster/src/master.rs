@@ -185,7 +185,7 @@ impl SysMaster {
     fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
         if let [querypath, query, traits, mid, context] = query.as_slice() {
-            log::debug!("Context: {}", context);
+            log::debug!("Context: {context}");
             let mut tgt = MinionTarget::new(mid, "");
             tgt.set_scheme(querypath);
             tgt.set_traits_query(traits);
