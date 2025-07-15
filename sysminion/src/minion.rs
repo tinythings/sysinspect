@@ -9,6 +9,7 @@ use crate::{
 };
 use clap::ArgMatches;
 use colored::Colorize;
+use indexmap::IndexMap;
 use libmodpak::MODPAK_SYNC_STATE;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
@@ -17,6 +18,7 @@ use libsysinspect::{
         get_minion_config,
         mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
+    context,
     inspector::SysInspectRunner,
     intp::{
         actproc::{modfinder::ModCall, response::ActionResponse},
@@ -208,7 +210,7 @@ impl SysMinion {
                     }
                 };
 
-                log::trace!("Received: {msg:#?}");
+                log::trace!("Received Master message: {msg:#?}");
 
                 match msg.req_type() {
                     RequestType::Add => {
@@ -371,7 +373,7 @@ impl SysMinion {
     }
 
     /// Launch sysinspect
-    async fn launch_sysinspect(self: Arc<Self>, cycle_id: &str, scheme: &str, msp: &ModStatePayload) {
+    async fn launch_sysinspect(self: Arc<Self>, cycle_id: &str, scheme: &str, msp: &ModStatePayload, context: &str) {
         // Get the query first
         let mqr = match MinionQuery::new(scheme) {
             Ok(mqr) => mqr,
@@ -432,6 +434,7 @@ impl SysMinion {
         sr.set_entities(mqr_l.entities());
         sr.set_checkbook_labels(mqr_l.checkbook_labels());
         sr.set_traits(traits::get_minion_traits(None));
+        sr.set_context(context::get_context(context));
 
         sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
         sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
@@ -477,12 +480,12 @@ impl SysMinion {
 
         log::debug!("Dispatching message: {cmd:#?}");
 
-        if cmd.get_cycle().is_empty() {
+        if cmd.cycle().is_empty() {
             log::error!("Cycle ID is empty!");
             return;
         }
 
-        let tgt = cmd.get_target();
+        let tgt = cmd.target();
 
         // Is command minion-specific?
         if !tgt.id().is_empty() && tgt.id().ne(&self.get_minion_id()) {
@@ -535,10 +538,10 @@ impl SysMinion {
 
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
-                if cmd.get_target().scheme().starts_with(SCHEME_COMMAND) {
-                    self.as_ptr().call_internal_command(cmd.get_target().scheme()).await;
+                if cmd.target().scheme().starts_with(SCHEME_COMMAND) {
+                    self.as_ptr().call_internal_command(cmd.target().scheme()).await;
                 } else {
-                    self.as_ptr().launch_sysinspect(cmd.get_cycle(), cmd.get_target().scheme(), &pld).await;
+                    self.as_ptr().launch_sysinspect(cmd.cycle(), cmd.target().scheme(), &pld, cmd.target().context()).await;
                     log::debug!("Command dispatched");
                     log::debug!("Command payload: {pld:#?}");
                 }
@@ -666,7 +669,7 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
 pub(crate) fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), SysinspectError> {
     let name = args.get_one::<String>("name").ok_or(SysinspectError::ConfigError("Module name is required".to_string()))?;
     let mut modcaller = ModCall::default().set_module_ns(name, cfg.sharelib_dir());
-    let _ = SysInspector::new(ModelSpec::default(), Some(cfg.sharelib_dir())); // That will fail (and it is OK), but it will set sharelib for the module caller
+    let _ = SysInspector::new(ModelSpec::default(), Some(cfg.sharelib_dir()), IndexMap::new()); // That will fail (and it is OK), but it will set sharelib for the module caller
 
     for (k, v) in args
         .get_many::<(String, String)>("args")

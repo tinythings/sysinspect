@@ -70,12 +70,12 @@ impl MasterMessage {
     }
 
     /// Get targeting means
-    pub fn get_target(&self) -> &MinionTarget {
+    pub fn target(&self) -> &MinionTarget {
         &self.target
     }
 
     /// Get cycle ID (message ID)
-    pub fn get_cycle(&self) -> &String {
+    pub fn cycle(&self) -> &String {
         &self.cycle
     }
 }
@@ -165,6 +165,9 @@ pub struct MinionTarget {
 
     #[serde(rename = "h")]
     hostnames: Vec<String>,
+
+    #[serde(rename = "cq")]
+    context_query: String,
 }
 
 impl MinionTarget {
@@ -194,6 +197,11 @@ impl MinionTarget {
         &self.scheme
     }
 
+    /// Get context query
+    pub fn context(&self) -> &String {
+        &self.context_query
+    }
+
     /// Set scheme
     pub fn set_scheme(&mut self, scheme: &str) {
         self.scheme = scheme.to_string();
@@ -202,6 +210,11 @@ impl MinionTarget {
     /// Set traits query
     pub fn set_traits_query(&mut self, traits: &str) {
         self.traits_query = traits.to_string();
+    }
+
+    /// Get context query
+    pub fn set_context_query(&mut self, context: &str) {
+        self.context_query = context.to_string();
     }
 
     /// Traits query itself.

@@ -50,7 +50,8 @@ impl FunctionReducer {
                 self.model = Some(m.clone());
             }
             None => {
-                self.model = Some(mspec::load(MinionConfig::default().into(), self.model_path.to_str().unwrap(), None)?);
+                // XXX: Context-less load!
+                self.model = Some(mspec::load(MinionConfig::default().into(), self.model_path.to_str().unwrap(), None, None)?);
                 c.insert(self.model_path.clone(), self.model.clone().unwrap());
             }
         };

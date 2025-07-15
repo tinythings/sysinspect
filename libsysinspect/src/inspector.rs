@@ -7,6 +7,7 @@ use crate::{
     traits::systraits::SystemTraits,
 };
 use colored::Colorize;
+use indexmap::IndexMap;
 use intp::actproc::response::ActionResponse;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
@@ -24,6 +25,11 @@ pub struct SysInspectRunner {
 
     // Minion traits, if running in distributed mode
     traits: Option<SystemTraits>,
+
+    // Minion context runtime values. These are used to pass additional information
+    // to the model at runtime call. They are typically used to pass
+    // information about the environment or some IDs or any other volatile data.
+    context: Option<IndexMap<String, serde_json::Value>>,
 
     // Constraints evaluation results ID/outcome.
     cstr_f: Vec<String>, // constraints that failed
@@ -88,9 +94,7 @@ impl SysInspectRunner {
 
         for c in a.if_false() {
             if !self.cstr_s.contains(&c) && !self.cstr_f.contains(&c) {
-                return Err(SysinspectError::ModelDSLError(format!(
-                    "Constraint {c} expected to be already failed. Please fix your model."
-                )));
+                return Err(SysinspectError::ModelDSLError(format!("Constraint {c} expected to be already failed. Please fix your model.")));
             }
 
             if !self.cstr_f.contains(&c) {
@@ -100,9 +104,7 @@ impl SysInspectRunner {
 
         for c in a.if_true() {
             if !self.cstr_s.contains(&c) && !self.cstr_f.contains(&c) {
-                return Err(SysinspectError::ModelDSLError(format!(
-                    "Constraint {c} expected to be already succeeded. Please fix your model."
-                )));
+                return Err(SysinspectError::ModelDSLError(format!("Constraint {c} expected to be already succeeded. Please fix your model.")));
             }
 
             if !self.cstr_s.contains(&c) {
@@ -127,10 +129,10 @@ impl SysInspectRunner {
     /// Start the inspector
     pub async fn start(&mut self) {
         log::info!("Starting sysinspect runner");
-        match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone()) {
+        match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone(), self.context.clone()) {
             Ok(spec) => {
                 log::info!("Model spec loaded");
-                match SysInspector::new(spec.clone(), Some(Self::minion_cfg().sharelib_dir().clone())) {
+                match SysInspector::new(spec.clone(), Some(Self::minion_cfg().sharelib_dir().clone()), self.context.clone().unwrap_or_default()) {
                     Ok(isp) => {
                         // Setup event processor
                         let mut evtproc = EventProcessor::new().set_config(isp.cfg(), spec.telemetry());
@@ -190,7 +192,13 @@ impl SysInspectRunner {
         };
     }
 
+    /// Set minion traits
     pub fn set_traits(&mut self, traits: SystemTraits) {
         self.traits = Some(traits);
+    }
+
+    /// Set minion context variables
+    pub fn set_context(&mut self, context: Option<IndexMap<String, serde_json::Value>>) {
+        self.context = context;
     }
 }

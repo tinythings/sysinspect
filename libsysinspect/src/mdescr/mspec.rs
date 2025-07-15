@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 pub const MODEL_INDEX: &str = "model.cfg";
 pub const MODEL_FILE_EXT: &str = ".cfg";
@@ -28,13 +28,16 @@ struct SpecLoader {
     // System traits if running in distributed mode
     traits: Option<IndexMap<String, serde_json::Value>>,
 
+    // Load existing context to the model for Jinja templates rendering and conditions
+    context: Option<IndexMap<String, serde_json::Value>>,
+
     // Minion config
     cfg: Arc<MinionConfig>,
 }
 
 impl SpecLoader {
     // Constructor
-    fn new(cfg: Arc<MinionConfig>, pth: PathBuf, traits: Option<SystemTraits>) -> Self {
+    fn new(cfg: Arc<MinionConfig>, pth: PathBuf, traits: Option<SystemTraits>, context: Option<IndexMap<String, serde_json::Value>>) -> Self {
         let mut ext: Option<IndexMap<String, serde_json::Value>> = None;
         if let Some(traits) = traits {
             let mut et: IndexMap<String, serde_json::Value> = IndexMap::new();
@@ -46,7 +49,7 @@ impl SpecLoader {
             ext = Some(et);
         }
 
-        Self { cfg, pth, init: false, traits: ext }
+        Self { cfg, pth, init: false, traits: ext, context }
     }
 
     /// Collect YAML parts of the model from a different files
@@ -70,19 +73,10 @@ impl SpecLoader {
                         return Err(SysinspectError::ModelMultipleIndex(etr.path().as_os_str().to_str().unwrap().to_string()));
                     } else {
                         self.init = true;
-                        out.insert(0, serde_yaml::from_str::<Value>(&fs::read_to_string(etr.path())?)?);
+                        out.insert(0, self.setup_tera_template(fname, &etr)?);
                     }
                 } else if fname != MODEL_INDEX {
-                    // Get YAML chunks and render them
-                    let mut mtr = ModelTplRender::new(fname, &fs::read_to_string(etr.path())?);
-                    if let Some(traits) = self.traits.clone() {
-                        mtr.set_ns_values("traits", traits);
-                    }
-
-                    match serde_yaml::from_str::<Value>(&mtr.render()?) {
-                        Ok(chunk) => out.push(chunk),
-                        Err(err) => return Err(SysinspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
-                    }
+                    out.push(self.setup_tera_template(fname, &etr)?);
                 } else {
                     log::debug!("Skipping inherited index");
                 }
@@ -90,6 +84,21 @@ impl SpecLoader {
         }
 
         Ok(out)
+    }
+
+    /// Setup Tera template for the given file with the built-in data variables (traits, context etc.)
+    fn setup_tera_template(&mut self, fname: &str, etr: &DirEntry) -> Result<Value, SysinspectError> {
+        //// Render the index file
+        let mut mtr = ModelTplRender::new(fname, &fs::read_to_string(etr.path())?);
+        if let Some(traits) = self.traits.clone() {
+            mtr.set_ns_values("traits", traits);
+            mtr.set_values("context", self.context.clone().unwrap_or_default());
+        }
+
+        match serde_yaml::from_str::<Value>(&mtr.render()?) {
+            Ok(chunk) => Ok(chunk),
+            Err(err) => Err(SysinspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
+        }
     }
 
     /// Merge YAML parts
@@ -118,9 +127,7 @@ impl SpecLoader {
                     // Non-null "b" implies a structure, which is not formed as a key/val,
                     // therefore cannot be added to the DSL root
                     if !b.is_null() {
-                        return Err(SysinspectError::ModelDSLError(format!(
-                            "Mapping expected, but this structure passed: {a:?}\n\t > {b:?}"
-                        )));
+                        return Err(SysinspectError::ModelDSLError(format!("Mapping expected, but this structure passed: {a:?}\n\t > {b:?}")));
                     }
                 }
             }
@@ -162,7 +169,9 @@ impl SpecLoader {
 }
 
 /// Load spec from a given path
-pub fn load(cfg: Arc<MinionConfig>, path: &str, traits: Option<SystemTraits>) -> Result<ModelSpec, SysinspectError> {
+pub fn load(
+    cfg: Arc<MinionConfig>, path: &str, traits: Option<SystemTraits>, context: Option<IndexMap<String, serde_json::Value>>,
+) -> Result<ModelSpec, SysinspectError> {
     log::info!("Loading model spec from {path}");
-    SpecLoader::new(cfg, fs::canonicalize(path)?, traits).load()
+    SpecLoader::new(cfg, fs::canonicalize(path)?, traits, context).load()
 }

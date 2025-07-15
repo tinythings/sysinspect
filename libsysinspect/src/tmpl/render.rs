@@ -105,6 +105,11 @@ impl ModelTplRender {
         self.ctx.insert(objname, &self.namespace_exposer(v));
     }
 
+    /// Same as `set_ns_values`, but without namespacing. Used for direct access and context data.
+    pub fn set_values(&mut self, objname: &str, v: IndexMap<String, Value>) {
+        self.ctx.insert(objname, &v);
+    }
+
     /// Set direct value to be accessed in the template directly.
     pub fn set_value(&mut self, objname: &str, v: Value) {
         self.ctx.insert(objname, &v);
