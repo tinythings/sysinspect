@@ -17,6 +17,9 @@ pub static DEFAULT_PORT: u32 = 4200;
 /// Default fileserver port on the master
 pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
 
+/// Default API port for the web API
+pub static DEFAULT_API_PORT: u32 = 4202;
+
 // Default directories
 // --------------------
 
@@ -566,6 +569,18 @@ pub struct MasterConfig {
     #[serde(rename = "fileserver.models")]
     fsr_models: Vec<String>,
 
+    #[serde(rename = "api.enabled")]
+    api_enabled: Option<bool>,
+
+    #[serde(rename = "api.bind.ip")]
+    api_ip: Option<String>,
+
+    #[serde(rename = "api.bind.port")]
+    api_port: Option<u32>,
+
+    #[serde(rename = "api.version")]
+    api_version: Option<u8>,
+
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
     log_main: Option<String>,
@@ -667,6 +682,26 @@ impl MasterConfig {
     /// Get socket address
     pub fn socket(&self) -> String {
         self.socket.to_owned().unwrap_or(DEFAULT_SOCKET.to_string())
+    }
+
+    /// Get API enabled status (default: true)
+    pub fn api_enabled(&self) -> bool {
+        self.api_enabled.unwrap_or(true)
+    }
+
+    /// Get API bind IP address
+    pub fn api_bind_addr(&self) -> String {
+        self.api_ip.to_owned().unwrap_or(DEFAULT_ADDR.to_string())
+    }
+
+    /// Get API bind port
+    pub fn api_bind_port(&self) -> u32 {
+        self.api_port.unwrap_or(DEFAULT_API_PORT)
+    }
+
+    /// Get API version
+    pub fn api_version(&self) -> u8 {
+        self.api_version.unwrap_or(1)
     }
 
     /// Return fileserver addr
