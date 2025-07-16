@@ -102,6 +102,10 @@ impl SysMaster {
         self.cfg.to_owned()
     }
 
+    pub fn cfg_ref(&self) -> &MasterConfig {
+        &self.cfg
+    }
+
     pub fn broadcast(&self) -> broadcast::Sender<Vec<u8>> {
         self.broadcast.clone()
     }
@@ -183,7 +187,7 @@ impl SysMaster {
     }
 
     /// Construct a Command message to the minion
-    fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+    pub(crate) fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
         if let [querypath, query, traits, mid, context] = query.as_slice() {
             log::debug!("Context: {context}");
@@ -727,13 +731,6 @@ impl SysMaster {
     }
 }
 
-#[async_trait::async_trait]
-impl MasterInterface for SysMaster {
-    async fn cfg(&self) -> &MasterConfig {
-        &self.cfg
-    }
-}
-
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let master = Arc::new(Mutex::new(SysMaster::new(cfg.clone())?));
     {
@@ -749,8 +746,7 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     log::info!("Fileserver started on directory {}", cfg.fileserver_root().to_str().unwrap_or_default());
 
     // Start web API (if configured/enabled)
-    let itf: Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>> = master.clone();
-    libwebapi::start_webapi(cfg.clone(), itf)?;
+    libwebapi::start_webapi(cfg.clone(), master.clone())?;
 
     // Start services
     let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;

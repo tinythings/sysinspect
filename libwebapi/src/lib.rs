@@ -1,6 +1,6 @@
 use crate::api::ApiVersions;
 use actix_web::{App, HttpServer, web};
-use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
+use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig, proto::MasterMessage};
 use std::{sync::Arc, thread};
 use tokio::sync::Mutex;
 
@@ -9,10 +9,10 @@ pub mod api;
 #[async_trait::async_trait]
 pub trait MasterInterface: Send + Sync {
     async fn cfg(&self) -> &MasterConfig;
+    async fn query(&mut self, query: String) -> Result<MasterMessage, SysinspectError>;
 }
 
 pub type MasterInterfaceArc = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
-
 pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceArc) -> Result<(), SysinspectError> {
     if !cfg.api_enabled() {
         log::info!("Web API is disabled in the configuration.");
