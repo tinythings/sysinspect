@@ -2889,6 +2889,7 @@ name = "libwebapi"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "async-trait",
  "hex",
  "libsysinspect",
  "log",
@@ -5605,6 +5606,7 @@ name = "sysmaster"
 version = "0.4.0"
 dependencies = [
  "actix-web",
+ "async-trait",
  "chrono",
  "clap",
  "colored",
