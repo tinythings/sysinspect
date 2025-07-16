@@ -1,8 +1,7 @@
-use std::thread;
-
 use crate::api::ApiVersions;
 use actix_web::{App, HttpServer, web};
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
+use std::thread;
 
 pub mod api;
 
