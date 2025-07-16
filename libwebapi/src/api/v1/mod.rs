@@ -1,3 +1,4 @@
+use crate::MasterInterfaceArc;
 use actix_web::{HttpResponse, Responder, Scope, post, web};
 
 /// API Version 1 implementation
@@ -8,12 +9,23 @@ impl super::ApiVersion for V1 {
     }
 }
 
-#[post("/api/v1/query")]
+#[post("/v1/query")]
 async fn query_handler(_body: web::Bytes) -> impl Responder {
+    log::info!("Query handler called");
     HttpResponse::Ok().json(serde_json::json!({"result": "Done"}))
 }
 
-#[post("/api/v1/health")]
-async fn health_handler(_body: web::Bytes) -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({"status": "healthy"}))
+#[post("/v1/health")]
+pub async fn health_handler(master: web::Data<MasterInterfaceArc>, _body: web::Bytes) -> impl Responder {
+    let lock = master.lock().await;
+    let cfg = lock.cfg().await;
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "healthy",
+        "info": {
+            "telemetry.enabled": cfg.telemetry_enabled(),
+            "scheduler.tasks": cfg.scheduler().len(),
+            "api.version": cfg.api_version(),
+        }
+    }))
 }

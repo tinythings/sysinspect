@@ -22,6 +22,7 @@ use libsysinspect::{
     },
     util::{self, iofs::scan_files_sha256},
 };
+use libwebapi::MasterInterface;
 use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
@@ -726,6 +727,13 @@ impl SysMaster {
     }
 }
 
+#[async_trait::async_trait]
+impl MasterInterface for SysMaster {
+    async fn cfg(&self) -> &MasterConfig {
+        &self.cfg
+    }
+}
+
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let master = Arc::new(Mutex::new(SysMaster::new(cfg.clone())?));
     {
@@ -741,7 +749,8 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     log::info!("Fileserver started on directory {}", cfg.fileserver_root().to_str().unwrap_or_default());
 
     // Start web API (if configured/enabled)
-    libwebapi::start_webapi(cfg.clone())?;
+    let itf: Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>> = master.clone();
+    libwebapi::start_webapi(cfg.clone(), itf)?;
 
     // Start services
     let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;
