@@ -40,7 +40,7 @@ impl QueryRequest {
             self.query,
             self.traits,
             self.mid,
-            self.context.iter().map(|(k, v)| format!("{}:{}", k, v)).collect::<Vec<_>>().join(",")
+            self.context.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",")
         )
     }
 }

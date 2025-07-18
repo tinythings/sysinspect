@@ -19,7 +19,7 @@ impl MasterInterface for SysMaster {
                 return Err(SysinspectError::InvalidQuery("Master pointer is not set".to_string()));
             }
         } else {
-            return Err(SysinspectError::InvalidQuery(format!("Invalid query: {}", query)));
+            return Err(SysinspectError::InvalidQuery(format!("Invalid query: {query}")));
         }
         Ok(())
     }
