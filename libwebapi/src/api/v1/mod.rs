@@ -1,19 +1,29 @@
-use std::collections::HashMap;
-
 use crate::MasterInterfaceArc;
 use actix_web::{HttpResponse, Responder, Scope, post, web};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
+
+const API_VERSION: &str = "0.1.0";
 
 /// API Version 1 implementation
 pub struct V1;
 impl super::ApiVersion for V1 {
     fn load(&self, scope: Scope) -> Scope {
-        scope.service(query_handler).service(health_handler)
+        scope
+            .service(SwaggerUi::new("/api-doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi()))
+            .service(query_handler)
+            .service(health_handler)
     }
 }
 
-#[derive(Deserialize)]
+#[derive(OpenApi)]
+#[openapi(paths(query_handler, health_handler), components(schemas(QueryRequest)), info(title = "SysInspect API", version = API_VERSION))]
+pub struct ApiDoc;
+
+#[derive(Deserialize, ToSchema)]
 pub struct QueryRequest {
     pub model: String,
     pub query: String,
@@ -34,8 +44,16 @@ impl QueryRequest {
         )
     }
 }
-
-#[post("/v1/query")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/query",
+    request_body = QueryRequest,
+    responses(
+        (status = 200, description = "Success", body = String),
+        (status = 400, description = "Bad Request")
+    )
+)]
+#[post("/api/v1/query")]
 async fn query_handler(master: web::Data<MasterInterfaceArc>, body: web::Json<QueryRequest>) -> impl Responder {
     let mut lock = master.lock().await;
     match lock.query(body.to_query()).await {
@@ -47,8 +65,15 @@ async fn query_handler(master: web::Data<MasterInterfaceArc>, body: web::Json<Qu
     }
 }
 
-#[post("/v1/health")]
-pub async fn health_handler(master: web::Data<MasterInterfaceArc>, _body: web::Bytes) -> impl Responder {
+#[utoipa::path(
+    post,
+    path = "/api/v1/health",
+    responses(
+        (status = 200, description = "Health status", body = String)
+    )
+)]
+#[post("/api/v1/health")]
+pub async fn health_handler(master: web::Data<MasterInterfaceArc>, _body: ()) -> impl Responder {
     let lock = master.lock().await;
     let cfg = lock.cfg().await;
 

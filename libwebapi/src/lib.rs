@@ -33,7 +33,7 @@ pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceArc) -> Result<(),
 
         actix_web::rt::System::new().block_on(async move {
             HttpServer::new(move || {
-                let mut scope = web::scope("/api");
+                let mut scope = web::scope("");
                 if let Some(ver) = api::get(version) {
                     scope = ver.load(scope);
                 }
