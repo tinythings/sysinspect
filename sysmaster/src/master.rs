@@ -562,7 +562,6 @@ impl SysMaster {
         });
     }
 
-    // This version does NOT lock inside!
     pub async fn bcast_master_msg(
         bcast: &broadcast::Sender<Vec<u8>>, telemetry_enabled: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
     ) {
@@ -572,7 +571,6 @@ impl SysMaster {
         }
         let msg = msg.unwrap();
 
-        // Fire internal checks (spawned, won't hold the lock in this fn)
         {
             let c_master = Arc::clone(&master);
             let c_msg = msg.clone();
@@ -582,7 +580,6 @@ impl SysMaster {
             });
         }
 
-        // Telemetry (spawned, no lock held here)
         if telemetry_enabled {
             let c_master = Arc::clone(&master);
             let c_msg = msg.clone();
@@ -593,7 +590,6 @@ impl SysMaster {
             log::info!("Telemetry enabled, fired a task");
         }
 
-        // (You could send again if needed)
         let _ = bcast.send(msg.sendable().unwrap());
         log::debug!("Message broadcasted: {}", msg.target().scheme());
     }
