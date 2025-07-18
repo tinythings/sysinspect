@@ -1,6 +1,6 @@
 use crate::api::ApiVersions;
 use actix_web::{App, HttpServer, web};
-use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig, proto::MasterMessage};
+use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use std::{sync::Arc, thread};
 use tokio::sync::Mutex;
 
@@ -8,8 +8,11 @@ pub mod api;
 
 #[async_trait::async_trait]
 pub trait MasterInterface: Send + Sync {
+    /// Returns a reference to the master configuration.
     async fn cfg(&self) -> &MasterConfig;
-    async fn query(&mut self, query: String) -> Result<MasterMessage, SysinspectError>;
+
+    /// Query minions
+    async fn query(&mut self, query: String) -> Result<(), SysinspectError>;
 }
 
 pub type MasterInterfaceArc = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;

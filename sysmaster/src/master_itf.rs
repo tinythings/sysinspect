@@ -1,4 +1,4 @@
-use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig, proto::MasterMessage};
+use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use libwebapi::MasterInterface;
 
 use crate::master::SysMaster;
@@ -11,11 +11,16 @@ impl MasterInterface for SysMaster {
     }
 
     /// Query operation
-    async fn query(&mut self, query: String) -> Result<MasterMessage, SysinspectError> {
+    async fn query(&mut self, query: String) -> Result<(), SysinspectError> {
         if let Some(msg) = self.msg_query(&query) {
-            return Ok(msg);
+            if let Some(master) = self.as_ptr() {
+                SysMaster::bcast_master_msg(&self.broadcast(), self.cfg_ref().telemetry_enabled(), master, Some(msg.clone())).await;
+            } else {
+                return Err(SysinspectError::InvalidQuery("Master pointer is not set".to_string()));
+            }
         } else {
             return Err(SysinspectError::InvalidQuery(format!("Invalid query: {}", query)));
         }
+        Ok(())
     }
 }

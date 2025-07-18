@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::MasterInterfaceArc;
 use actix_web::{HttpResponse, Responder, Scope, post, web};
 use serde::Deserialize;
@@ -13,14 +15,34 @@ impl super::ApiVersion for V1 {
 
 #[derive(Deserialize)]
 pub struct QueryRequest {
+    pub model: String,
     pub query: String,
+    pub traits: String,
+    pub mid: String,
+    pub context: HashMap<String, String>,
 }
+
+impl QueryRequest {
+    pub fn to_query(&self) -> String {
+        format!(
+            "{};{};{};{};{}",
+            self.model,
+            self.query,
+            self.traits,
+            self.mid,
+            self.context.iter().map(|(k, v)| format!("{}:{}", k, v)).collect::<Vec<_>>().join(",")
+        )
+    }
+}
+
 #[post("/v1/query")]
 async fn query_handler(master: web::Data<MasterInterfaceArc>, body: web::Json<QueryRequest>) -> impl Responder {
-    println!("Query handler called");
     let mut lock = master.lock().await;
-    match lock.query(body.query.clone()).await {
-        Ok(msg) => HttpResponse::Ok().json(msg),
+    match lock.query(body.to_query()).await {
+        Ok(()) => HttpResponse::Ok().json(json!({
+            "status": "success",
+            "message": "Query executed successfully",
+        })),
         Err(err) => HttpResponse::Ok().json(json!({"error": err.to_string()})),
     }
 }

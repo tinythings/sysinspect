@@ -22,13 +22,12 @@ use libsysinspect::{
     },
     util::{self, iofs::scan_files_sha256},
 };
-use libwebapi::MasterInterface;
 use once_cell::sync::Lazy;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Weak},
     vec,
 };
 use tokio::net::TcpListener;
@@ -54,6 +53,7 @@ pub struct SysMaster {
     evtipc: Arc<DbIPCService>,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
+    ptr: Option<Weak<Mutex<SysMaster>>>,
 }
 
 impl SysMaster {
@@ -63,7 +63,7 @@ impl SysMaster {
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtipc })
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtipc, ptr: None })
     }
 
     /// Open FIFO socket for command-line communication
@@ -112,6 +112,11 @@ impl SysMaster {
 
     pub async fn listener(&self) -> Result<TcpListener, SysinspectError> {
         Ok(TcpListener::bind(self.cfg.bind_addr()).await?)
+    }
+
+    /// Return a cloned Arc if ptr is set, else None
+    pub fn as_ptr(&self) -> Option<Arc<Mutex<SysMaster>>> {
+        self.ptr.as_ref()?.upgrade()
     }
 
     /// Get Minion key registry
@@ -558,7 +563,7 @@ impl SysMaster {
     }
 
     // This version does NOT lock inside!
-    async fn bcast_master_msg(
+    pub async fn bcast_master_msg(
         bcast: &broadcast::Sender<Vec<u8>>, telemetry_enabled: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
     ) {
         if msg.is_none() {
@@ -747,6 +752,10 @@ impl SysMaster {
 
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let master = Arc::new(Mutex::new(SysMaster::new(cfg.clone())?));
+    {
+        let weak = Arc::downgrade(&master);
+        master.lock().await.ptr = Some(weak);
+    }
     {
         let mut m = master.lock().await;
         m.init().await?;
