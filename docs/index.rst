@@ -16,6 +16,7 @@ Welcome to the Project Sysinspect!
    moddescr/overview
    evthandlers/overview
    uix/ui
+   apidoc/overview
 
 .. toctree::
    :maxdepth: 1

@@ -27,7 +27,7 @@ use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Weak},
     vec,
 };
 use tokio::net::TcpListener;
@@ -53,6 +53,7 @@ pub struct SysMaster {
     evtipc: Arc<DbIPCService>,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
+    ptr: Option<Weak<Mutex<SysMaster>>>,
 }
 
 impl SysMaster {
@@ -62,7 +63,7 @@ impl SysMaster {
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtipc })
+        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtipc, ptr: None })
     }
 
     /// Open FIFO socket for command-line communication
@@ -101,12 +102,21 @@ impl SysMaster {
         self.cfg.to_owned()
     }
 
+    pub fn cfg_ref(&self) -> &MasterConfig {
+        &self.cfg
+    }
+
     pub fn broadcast(&self) -> broadcast::Sender<Vec<u8>> {
         self.broadcast.clone()
     }
 
     pub async fn listener(&self) -> Result<TcpListener, SysinspectError> {
         Ok(TcpListener::bind(self.cfg.bind_addr()).await?)
+    }
+
+    /// Return a cloned Arc if ptr is set, else None
+    pub fn as_ptr(&self) -> Option<Arc<Mutex<SysMaster>>> {
+        self.ptr.as_ref()?.upgrade()
     }
 
     /// Get Minion key registry
@@ -182,7 +192,7 @@ impl SysMaster {
     }
 
     /// Construct a Command message to the minion
-    fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+    pub(crate) fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
         if let [querypath, query, traits, mid, context] = query.as_slice() {
             log::debug!("Context: {context}");
@@ -506,57 +516,83 @@ impl SysMaster {
 
     pub async fn do_fifo(master: Arc<Mutex<Self>>) {
         log::trace!("Init local command channel");
-        tokio::spawn(async move {
-            let bcast = master.lock().await.broadcast();
-            let cfg = master.lock().await.cfg();
-            loop {
-                match OpenOptions::new().read(true).open(cfg.socket()).await {
-                    Ok(file) => {
-                        let reader = TokioBufReader::new(file);
-                        let mut lines = reader.lines();
+        tokio::spawn({
+            let master = Arc::clone(&master); // Don't move master into the closure multiple times.
+            async move {
+                // Only lock to get broadcast and cfg, then drop immediately.
+                let (cfg, bcast) = {
+                    let master = master.lock().await;
+                    (master.cfg(), master.broadcast().clone())
+                };
+                loop {
+                    match OpenOptions::new().read(true).open(cfg.socket()).await {
+                        Ok(file) => {
+                            let reader = TokioBufReader::new(file);
+                            let mut lines = reader.lines();
 
-                        loop {
-                            select! {
-                                line = lines.next_line() => {
-                                    match line {
-                                        Ok(Some(payload)) => {
-                                            log::debug!("Querying minions: {payload}");
-                                            if let Some(msg) = master.lock().await.msg_query(&payload) {
-                                                // Fire internal checks
-                                                let c_master = Arc::clone(&master);
-                                                let c_msg = msg.clone();
-                                                tokio::spawn(async move {c_master.lock().await.on_fifo_commands(&c_msg).await;});
-
-                                                // Fire map/reduce logger for the previous query cycle
-                                                if cfg.telemetry_enabled() {
-                                                    let c_master = Arc::clone(&master);
-                                                    let c_msg = msg.clone();
-                                                    tokio::spawn(async move {
-                                                        c_master.lock().await.on_log_previous_query(&c_msg).await;
-                                                    });
-                                                }
-
-                                                // Send the fifo query message to all minions
-                                                let _ = bcast.send(msg.sendable().unwrap());
+                            loop {
+                                select! {
+                                    line = lines.next_line() => {
+                                        match line {
+                                            Ok(Some(payload)) => {
+                                                log::debug!("Querying minions: {payload}");
+                                                let msg = {
+                                                    let mut guard = master.lock().await;
+                                                    guard.msg_query(&payload)
+                                                };
+                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
                                             }
-                                        }
-                                        Ok(None) => break, // End of file, re-open the FIFO
-                                        Err(e) => {
-                                            log::error!("Error reading from FIFO: {e}");
-                                            break;
+                                            Ok(None) => break, // End of file, re-open the FIFO
+                                            Err(e) => {
+                                                log::error!("Error reading from FIFO: {e}");
+                                                break;
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to open FIFO: {e}");
-                        sleep(Duration::from_secs(1)).await; // Retry after a sec
+                        Err(e) => {
+                            log::error!("Failed to open FIFO: {e}");
+                            sleep(Duration::from_secs(1)).await; // Retry after a sec
+                        }
                     }
                 }
             }
         });
+    }
+
+    /// Broadcast a message to all minions
+    pub async fn bcast_master_msg(
+        bcast: &broadcast::Sender<Vec<u8>>, use_telemetry: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
+    ) {
+        if msg.is_none() {
+            log::error!("No message to broadcast");
+            return;
+        }
+        let msg = msg.unwrap();
+
+        {
+            let c_master = Arc::clone(&master);
+            let c_msg = msg.clone();
+            tokio::spawn(async move {
+                let mut guard = c_master.lock().await;
+                guard.on_fifo_commands(&c_msg).await;
+            });
+        }
+
+        if use_telemetry {
+            let c_master = Arc::clone(&master);
+            let c_msg = msg.clone();
+            tokio::spawn(async move {
+                let mut guard = c_master.lock().await;
+                guard.on_log_previous_query(&c_msg).await;
+            });
+            log::debug!("Telemetry enabled, fired a task");
+        }
+
+        let _ = bcast.send(msg.sendable().unwrap());
+        log::debug!("Message broadcasted: {}", msg.target().scheme());
     }
 
     pub async fn do_heartbeat(master: Arc<Mutex<Self>>) {
@@ -679,26 +715,11 @@ impl SysMaster {
                     let master = Arc::clone(&mtask);
                     let tdef = tdef.clone();
                     async move {
-                        let (bcast, msg) = {
-                            let mut grd_master = master.lock().await;
-                            let msg = grd_master.msg_query(tdef.query().as_str());
-
-                            if let Some(msg) = &msg
-                                && grd_master.cfg().telemetry_enabled()
-                            {
-                                let c_msg = msg.clone();
-                                let c_master = Arc::clone(&master);
-                                tokio::spawn(async move {
-                                    c_master.lock().await.on_log_previous_query(&c_msg).await;
-                                });
-                            }
-                            (grd_master.broadcast().clone(), msg)
+                        let (bcast, msg, cfg) = {
+                            let mut master = master.lock().await;
+                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()), master.cfg().clone())
                         };
-
-                        if let Some(m) = msg {
-                            let _ = bcast.send(m.sendable().unwrap());
-                            log::debug!("Scheduler called minions with {}", tdef.name());
-                        }
+                        SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
                     }
                 }) {
                     Ok(etask) => {
@@ -729,6 +750,10 @@ impl SysMaster {
 pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let master = Arc::new(Mutex::new(SysMaster::new(cfg.clone())?));
     {
+        let weak = Arc::downgrade(&master);
+        master.lock().await.ptr = Some(weak);
+    }
+    {
         let mut m = master.lock().await;
         m.init().await?;
         log::info!("SysMaster initialized");
@@ -739,6 +764,9 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     // Start internal fileserver for minions
     fls::start(cfg.clone()).await?;
     log::info!("Fileserver started on directory {}", cfg.fileserver_root().to_str().unwrap_or_default());
+
+    // Start web API (if configured/enabled)
+    libwebapi::start_webapi(cfg.clone(), master.clone())?;
 
     // Start services
     let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;

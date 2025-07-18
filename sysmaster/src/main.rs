@@ -1,6 +1,7 @@
 mod clidef;
 mod dataserv;
 mod master;
+mod master_itf;
 mod registry;
 mod telemetry;
 
