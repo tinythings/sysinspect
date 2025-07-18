@@ -562,8 +562,9 @@ impl SysMaster {
         });
     }
 
+    /// Broadcast a message to all minions
     pub async fn bcast_master_msg(
-        bcast: &broadcast::Sender<Vec<u8>>, telemetry_enabled: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
+        bcast: &broadcast::Sender<Vec<u8>>, use_telemetry: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
     ) {
         if msg.is_none() {
             log::error!("No message to broadcast");
@@ -580,14 +581,14 @@ impl SysMaster {
             });
         }
 
-        if telemetry_enabled {
+        if use_telemetry {
             let c_master = Arc::clone(&master);
             let c_msg = msg.clone();
             tokio::spawn(async move {
                 let mut guard = c_master.lock().await;
                 guard.on_log_previous_query(&c_msg).await;
             });
-            log::info!("Telemetry enabled, fired a task");
+            log::debug!("Telemetry enabled, fired a task");
         }
 
         let _ = bcast.send(msg.sendable().unwrap());
