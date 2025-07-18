@@ -511,57 +511,86 @@ impl SysMaster {
 
     pub async fn do_fifo(master: Arc<Mutex<Self>>) {
         log::trace!("Init local command channel");
-        tokio::spawn(async move {
-            let bcast = master.lock().await.broadcast();
-            let cfg = master.lock().await.cfg();
-            loop {
-                match OpenOptions::new().read(true).open(cfg.socket()).await {
-                    Ok(file) => {
-                        let reader = TokioBufReader::new(file);
-                        let mut lines = reader.lines();
+        tokio::spawn({
+            let master = Arc::clone(&master); // Don't move master into the closure multiple times.
+            async move {
+                // Only lock to get broadcast and cfg, then drop immediately.
+                let (cfg, bcast) = {
+                    let master = master.lock().await;
+                    (master.cfg(), master.broadcast().clone())
+                };
+                loop {
+                    match OpenOptions::new().read(true).open(cfg.socket()).await {
+                        Ok(file) => {
+                            let reader = TokioBufReader::new(file);
+                            let mut lines = reader.lines();
 
-                        loop {
-                            select! {
-                                line = lines.next_line() => {
-                                    match line {
-                                        Ok(Some(payload)) => {
-                                            log::debug!("Querying minions: {payload}");
-                                            if let Some(msg) = master.lock().await.msg_query(&payload) {
-                                                // Fire internal checks
-                                                let c_master = Arc::clone(&master);
-                                                let c_msg = msg.clone();
-                                                tokio::spawn(async move {c_master.lock().await.on_fifo_commands(&c_msg).await;});
-
-                                                // Fire map/reduce logger for the previous query cycle
-                                                if cfg.telemetry_enabled() {
-                                                    let c_master = Arc::clone(&master);
-                                                    let c_msg = msg.clone();
-                                                    tokio::spawn(async move {
-                                                        c_master.lock().await.on_log_previous_query(&c_msg).await;
-                                                    });
-                                                }
-
-                                                // Send the fifo query message to all minions
-                                                let _ = bcast.send(msg.sendable().unwrap());
+                            loop {
+                                select! {
+                                    line = lines.next_line() => {
+                                        match line {
+                                            Ok(Some(payload)) => {
+                                                log::debug!("Querying minions: {payload}");
+                                                let msg = {
+                                                    let mut guard = master.lock().await;
+                                                    guard.msg_query(&payload)
+                                                };
+                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
                                             }
-                                        }
-                                        Ok(None) => break, // End of file, re-open the FIFO
-                                        Err(e) => {
-                                            log::error!("Error reading from FIFO: {e}");
-                                            break;
+                                            Ok(None) => break, // End of file, re-open the FIFO
+                                            Err(e) => {
+                                                log::error!("Error reading from FIFO: {e}");
+                                                break;
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to open FIFO: {e}");
-                        sleep(Duration::from_secs(1)).await; // Retry after a sec
+                        Err(e) => {
+                            log::error!("Failed to open FIFO: {e}");
+                            sleep(Duration::from_secs(1)).await; // Retry after a sec
+                        }
                     }
                 }
             }
         });
+    }
+
+    // This version does NOT lock inside!
+    async fn bcast_master_msg(
+        bcast: &broadcast::Sender<Vec<u8>>, telemetry_enabled: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
+    ) {
+        if msg.is_none() {
+            log::error!("No message to broadcast");
+            return;
+        }
+        let msg = msg.unwrap();
+
+        // Fire internal checks (spawned, won't hold the lock in this fn)
+        {
+            let c_master = Arc::clone(&master);
+            let c_msg = msg.clone();
+            tokio::spawn(async move {
+                let mut guard = c_master.lock().await;
+                guard.on_fifo_commands(&c_msg).await;
+            });
+        }
+
+        // Telemetry (spawned, no lock held here)
+        if telemetry_enabled {
+            let c_master = Arc::clone(&master);
+            let c_msg = msg.clone();
+            tokio::spawn(async move {
+                let mut guard = c_master.lock().await;
+                guard.on_log_previous_query(&c_msg).await;
+            });
+            log::info!("Telemetry enabled, fired a task");
+        }
+
+        // (You could send again if needed)
+        let _ = bcast.send(msg.sendable().unwrap());
+        log::debug!("Message broadcasted: {}", msg.target().scheme());
     }
 
     pub async fn do_heartbeat(master: Arc<Mutex<Self>>) {
@@ -684,26 +713,11 @@ impl SysMaster {
                     let master = Arc::clone(&mtask);
                     let tdef = tdef.clone();
                     async move {
-                        let (bcast, msg) = {
-                            let mut grd_master = master.lock().await;
-                            let msg = grd_master.msg_query(tdef.query().as_str());
-
-                            if let Some(msg) = &msg
-                                && grd_master.cfg().telemetry_enabled()
-                            {
-                                let c_msg = msg.clone();
-                                let c_master = Arc::clone(&master);
-                                tokio::spawn(async move {
-                                    c_master.lock().await.on_log_previous_query(&c_msg).await;
-                                });
-                            }
-                            (grd_master.broadcast().clone(), msg)
+                        let (bcast, msg, cfg) = {
+                            let mut master = master.lock().await;
+                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()), master.cfg().clone())
                         };
-
-                        if let Some(m) = msg {
-                            let _ = bcast.send(m.sendable().unwrap());
-                            log::debug!("Scheduler called minions with {}", tdef.name());
-                        }
+                        SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
                     }
                 }) {
                     Ok(etask) => {
