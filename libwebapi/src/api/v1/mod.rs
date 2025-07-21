@@ -1,4 +1,6 @@
-use crate::MasterInterfaceArc;
+use crate::{MasterInterfaceArc, api::v1::system::authenticate_handler, sessions::get_session_store};
+pub mod system;
+pub use crate::api::v1::system::health_handler;
 use actix_web::{HttpResponse, Responder, Scope, post, web};
 use serde::Deserialize;
 use serde_json::json;
@@ -16,15 +18,19 @@ impl super::ApiVersion for V1 {
             .service(SwaggerUi::new("/api-doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi()))
             .service(query_handler)
             .service(health_handler)
+            .service(authenticate_handler)
     }
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(query_handler, health_handler), components(schemas(QueryRequest)), info(title = "SysInspect API", version = API_VERSION))]
+#[openapi(paths(query_handler, crate::api::v1::system::health_handler, crate::api::v1::system::authenticate_handler),
+          components(schemas(QueryRequest)), info(title = "SysInspect API",
+version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDoc;
 
 #[derive(Deserialize, ToSchema)]
 pub struct QueryRequest {
+    pub sid: String,
     pub model: String,
     pub query: String,
     pub traits: String,
@@ -55,6 +61,10 @@ impl QueryRequest {
 )]
 #[post("/api/v1/query")]
 async fn query_handler(master: web::Data<MasterInterfaceArc>, body: web::Json<QueryRequest>) -> impl Responder {
+    if get_session_store().lock().unwrap().uid(&body.sid).is_none() {
+        return HttpResponse::BadRequest().json(json!({"error": "Invalid session ID"}));
+    }
+
     let mut lock = master.lock().await;
     match lock.query(body.to_query()).await {
         Ok(()) => HttpResponse::Ok().json(json!({
@@ -63,26 +73,4 @@ async fn query_handler(master: web::Data<MasterInterfaceArc>, body: web::Json<Qu
         })),
         Err(err) => HttpResponse::Ok().json(json!({"error": err.to_string()})),
     }
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/health",
-    responses(
-        (status = 200, description = "Health status", body = String)
-    )
-)]
-#[post("/api/v1/health")]
-pub async fn health_handler(master: web::Data<MasterInterfaceArc>, _body: ()) -> impl Responder {
-    let lock = master.lock().await;
-    let cfg = lock.cfg().await;
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "healthy",
-        "info": {
-            "telemetry.enabled": cfg.telemetry_enabled(),
-            "scheduler.tasks": cfg.scheduler().len(),
-            "api.version": cfg.api_version(),
-        }
-    }))
 }

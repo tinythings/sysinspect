@@ -5,6 +5,8 @@ use std::{sync::Arc, thread};
 use tokio::sync::Mutex;
 
 pub mod api;
+pub mod pamauth;
+pub mod sessions;
 
 #[async_trait::async_trait]
 pub trait MasterInterface: Send + Sync {

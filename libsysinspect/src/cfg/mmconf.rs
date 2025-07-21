@@ -136,6 +136,15 @@ fn _logfile_path() -> PathBuf {
     PathBuf::from("")
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub enum AuthMethod {
+    /// Use PAM authentication
+    Pam,
+
+    /// Use custom authentication method, e.g. LDAP
+    Ldap,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct HistoryConfig {
     // Max number of history records to keep
@@ -581,6 +590,18 @@ pub struct MasterConfig {
     #[serde(rename = "api.version")]
     api_version: Option<u8>,
 
+    // "pam" or any other in a future, e.g. "ldap"
+    #[serde(rename = "api.auth")]
+    pam_enabled: Option<String>,
+
+    /// Disable libsodium crypto and authentication.
+    /// Still need auth, but can be just empty strings passed
+    /// and development mode token used.
+    ///
+    /// WARNING: **DO NOT USE IN PRODUCTION! IT FULLY DISABLES ENCRYPTION!!!**
+    #[serde(rename = "api.devmode")]
+    dev_mode: Option<bool>,
+
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
     log_main: Option<String>,
@@ -702,6 +723,25 @@ impl MasterConfig {
     /// Get API version
     pub fn api_version(&self) -> u8 {
         self.api_version.unwrap_or(1)
+    }
+
+    /// Get API authentication method
+    pub fn api_auth(&self) -> AuthMethod {
+        match self.pam_enabled.as_deref().map(|s| s.to_ascii_lowercase()) {
+            Some(ref s) if s == "pam" => AuthMethod::Pam,
+            Some(ref s) if s == "ldap" => AuthMethod::Ldap,
+            Some(_) | None => AuthMethod::Pam,
+        }
+    }
+
+    /// Get API development mode
+    /// This is a special mode for development purposes only.
+    /// It disables all crypto and authentication, so it is not secure.
+    /// Use it only for development and testing purposes!
+    ///
+    /// WARNING: **DO NOT USE DEVMODE IN PRODUCTION! IT FULLY DISABLES ENCRYPTION!!!**
+    pub fn api_devmode(&self) -> bool {
+        self.dev_mode.unwrap_or(false)
     }
 
     /// Return fileserver addr
