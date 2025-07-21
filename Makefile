@@ -9,7 +9,7 @@ define deps
 	@OS_ID=$$(lsb_release -si 2>/dev/null); \
 	if [ "$$OS_ID" = "Ubuntu" ] || [ "$$OS_ID" = "Debian" ]; then \
 		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev"; \
-		sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libffi-dev; \
+		sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libffi-dev libpam0g-dev; \
 	else \
 		echo "Oops, no fun for $$OS_ID right now. Builds are only possible on Debian/Ubuntu." >&2; \
 		echo "But! You can fix this by sending your PR here: https://github.com/tinythings/sysinspect :-)" >&2; \
