@@ -23,6 +23,12 @@ pub struct SessionStore {
     default_timeout: Duration,
 }
 
+impl Default for SessionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionStore {
     pub fn new() -> Self {
         SessionStore {

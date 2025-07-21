@@ -34,7 +34,7 @@ pub struct AuthRequest {
 
 impl AuthRequest {
     pub fn authenticate(username: String, password: String) -> Result<String, String> {
-        pamauth::authenticate(&username, &password).map_err(|err| format!("Authentication failed: {}", err))?;
+        pamauth::authenticate(&username, &password).map_err(|err| format!("Authentication failed: {err}"))?;
         Ok(get_session_store().lock().unwrap().open(username.clone()))
     }
 }
