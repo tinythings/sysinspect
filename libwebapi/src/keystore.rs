@@ -52,7 +52,7 @@ impl SysInspectAPIKeystore {
     /// * `Err(std::io::Error)` if there was an error saving the key.
     ///
     pub fn save_key(&self, uid: &str, key: &str) -> Result<(), SysinspectError> {
-        let mut f = OpenOptions::new().create(true).write(true).truncate(true).open(self.keystore.join(format!("{}_public_key.pem", uid)))?;
+        let mut f = OpenOptions::new().create(true).write(true).truncate(true).open(self.keystore.join(format!("{uid}_public_key.pem")))?;
         f.write_all(key.as_bytes())?;
 
         Ok(())
@@ -83,12 +83,12 @@ impl SysInspectAPIKeystore {
         )? {
             match prk {
                 Private(prk) => {
-                    prk.decrypt(Pkcs1v15Encrypt, &cipher.to_vec()).map_err(|e| SysinspectError::RSAError(format!("RSA decrypt error: {:?}", e)))
+                    prk.decrypt(Pkcs1v15Encrypt, cipher).map_err(|e| SysinspectError::RSAError(format!("RSA decrypt error: {e:?}")))
                 }
-                _ => return Err(SysinspectError::ObjectNotFound("Master key is not a private key".to_string())),
+                _ => Err(SysinspectError::ObjectNotFound("Master key is not a private key".to_string())),
             }
         } else {
-            return Err(SysinspectError::ObjectNotFound("Master key not found. :-(".to_string()));
+            Err(SysinspectError::ObjectNotFound("Master key not found. :-(".to_string()))
         }
     }
 
@@ -98,7 +98,7 @@ impl SysInspectAPIKeystore {
             return Err(SysinspectError::ObjectNotFound(format!("Master key file not found at {}", keypath.display())));
         }
         let body = read_to_string(&keypath)
-            .map_err(|e| SysinspectError::IoErr(Error::new(ErrorKind::NotFound, format!("Failed to read master key file: {}", e))))?;
+            .map_err(|e| SysinspectError::IoErr(Error::new(ErrorKind::NotFound, format!("Failed to read master key file: {e}"))))?;
         Ok(body)
     }
 }

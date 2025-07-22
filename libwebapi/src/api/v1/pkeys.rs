@@ -77,12 +77,12 @@ pub async fn masterkey_handler(master: web::Data<MasterInterfaceArc>) -> impl Re
     let keystore = match get_webapi_keystore(cfg) {
         Ok(path) => path,
         Err(err) => {
-            return HttpResponse::BadRequest().json(MasterKeyError { error: format!("Internal error. Failed to init keystore: {}", err) });
+            return HttpResponse::BadRequest().json(MasterKeyError { error: format!("Internal error. Failed to init keystore: {err}") });
         }
     };
 
     match keystore.get_master_key() {
         Ok(key) => HttpResponse::Ok().json(MasterKeyResponse { key }),
-        Err(err) => HttpResponse::BadRequest().json(MasterKeyError { error: format!("Failed to retrieve master key: {}", err) }),
+        Err(err) => HttpResponse::BadRequest().json(MasterKeyError { error: format!("Failed to retrieve master key: {err}") }),
     }
 }
