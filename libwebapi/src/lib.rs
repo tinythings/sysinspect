@@ -5,6 +5,7 @@ use std::{sync::Arc, thread};
 use tokio::sync::Mutex;
 
 pub mod api;
+pub mod keystore;
 pub mod pamauth;
 pub mod sessions;
 
