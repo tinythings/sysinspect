@@ -1,12 +1,21 @@
-use crate::{MasterInterfaceArc, api::v1::system::authenticate_handler, sessions::get_session_store};
-pub mod system;
 pub use crate::api::v1::system::health_handler;
+use crate::{
+    MasterInterfaceArc,
+    api::v1::{
+        pkeys::{masterkey_handler, pushkey_handler},
+        system::authenticate_handler,
+    },
+    sessions::get_session_store,
+};
 use actix_web::{HttpResponse, Responder, Scope, post, web};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
+
+pub mod pkeys;
+pub mod system;
 
 const API_VERSION: &str = "0.1.0";
 
@@ -19,11 +28,17 @@ impl super::ApiVersion for V1 {
             .service(query_handler)
             .service(health_handler)
             .service(authenticate_handler)
+            .service(pushkey_handler)
+            .service(masterkey_handler)
     }
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(query_handler, crate::api::v1::system::health_handler, crate::api::v1::system::authenticate_handler),
+#[openapi(paths(query_handler,
+                crate::api::v1::system::health_handler,
+                crate::api::v1::system::authenticate_handler,
+                crate::api::v1::pkeys::pushkey_handler,
+                crate::api::v1::pkeys::masterkey_handler),
           components(schemas(QueryRequest)), info(title = "SysInspect API",
 version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDoc;
@@ -61,12 +76,13 @@ impl QueryRequest {
 )]
 #[post("/api/v1/query")]
 async fn query_handler(master: web::Data<MasterInterfaceArc>, body: web::Json<QueryRequest>) -> impl Responder {
-    if get_session_store().lock().unwrap().uid(&body.sid).is_none() {
+    let mut master = master.lock().await;
+    let cfg = master.cfg().await;
+    if !cfg.api_devmode() && get_session_store().lock().unwrap().uid(&body.sid).is_none() {
         return HttpResponse::BadRequest().json(json!({"error": "Invalid session ID"}));
     }
 
-    let mut lock = master.lock().await;
-    match lock.query(body.to_query()).await {
+    match master.query(body.to_query()).await {
         Ok(()) => HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Query executed successfully",
