@@ -10,7 +10,7 @@ use pam::Client;
 pub fn authenticate(login: &str, password: &str) -> Result<(), pam::PamError> {
     let mut client = Client::with_password("system-auth")?;
     client.conversation_mut().set_credentials(login.to_string(), password.to_string());
-    log::info!("Authenticating user: {login:?}");
+    log::debug!("Authenticating user: {login:?}");
     client.authenticate()?;
 
     Ok(())
