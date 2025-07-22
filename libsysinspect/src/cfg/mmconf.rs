@@ -64,6 +64,7 @@ pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
 // ---------------------------------------------------
 pub static CFG_MINION_KEYS: &str = "minion-keys";
 pub static CFG_MINION_REGISTRY: &str = "minion-registry";
+pub static CFG_API_KEYS: &str = "webapi-keys";
 pub static CFG_FILESERVER_ROOT: &str = "data";
 pub static CFG_DB: &str = "registry";
 
@@ -771,13 +772,17 @@ impl MasterConfig {
     }
 
     /// Get minion keys store
-    pub fn keyman_root(&self) -> PathBuf {
+    pub fn minion_keys_root(&self) -> PathBuf {
         self.root_dir().join(CFG_MINION_KEYS)
     }
 
     /// Get minion registry
     pub fn minion_registry_root(&self) -> PathBuf {
         self.root_dir().join(CFG_MINION_REGISTRY)
+    }
+
+    pub fn api_keys_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_API_KEYS)
     }
 
     /// Return a pidfile. Either from config or default.
