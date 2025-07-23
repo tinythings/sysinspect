@@ -1,3 +1,10 @@
+//! Example Sysinspect Client
+//!
+//! This example demonstrates how to use the Sysinspect client to authenticate a user.
+//! It prompts the user for their username and password, then attempts to authenticate with the Sysinspect
+//! server. If successful, it prints the session ID; otherwise, it indicates that authentication failed.
+//!
+
 use libsysinspect::SysinspectError;
 use rpassword::prompt_password;
 use std::io::{Write, stdin, stdout};
