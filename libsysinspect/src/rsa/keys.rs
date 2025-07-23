@@ -1,12 +1,12 @@
 use crate::SysinspectError;
 use rand::rngs::OsRng;
 use rsa::{
+    Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey,
     pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey, EncodeRsaPrivateKey, EncodeRsaPublicKey},
     pkcs1v15::{Signature, SigningKey, VerifyingKey},
     sha2::{Digest, Sha256},
     signature::SignerMut,
     signature::{Keypair, SignatureEncoding, Verifier},
-    Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey,
 };
 use std::{error::Error, fs, io, path::PathBuf};
 
@@ -29,38 +29,18 @@ pub fn keygen(bits: usize) -> Result<(RsaPrivateKey, RsaPublicKey), Box<dyn Erro
 }
 
 /// Serializes RSA private and public keys to PEM format.
-pub fn to_pem(
-    prk: Option<&RsaPrivateKey>, pbk: Option<&RsaPublicKey>,
-) -> Result<(Option<String>, Option<String>), Box<dyn Error + Send + Sync>> {
+pub fn to_pem(prk: Option<&RsaPrivateKey>, pbk: Option<&RsaPublicKey>) -> Result<(Option<String>, Option<String>), Box<dyn Error + Send + Sync>> {
     Ok((
-        if prk.is_some() {
-            Some(pem::encode(&pem::Pem::new("RSA PRIVATE KEY", prk.unwrap().to_pkcs1_der()?.as_bytes().to_vec())))
-        } else {
-            None
-        },
-        if pbk.is_some() {
-            Some(pem::encode(&pem::Pem::new("RSA PUBLIC KEY", pbk.unwrap().to_pkcs1_der()?.as_bytes().to_vec())))
-        } else {
-            None
-        },
+        if prk.is_some() { Some(pem::encode(&pem::Pem::new("RSA PRIVATE KEY", prk.unwrap().to_pkcs1_der()?.as_bytes().to_vec()))) } else { None },
+        if pbk.is_some() { Some(pem::encode(&pem::Pem::new("RSA PUBLIC KEY", pbk.unwrap().to_pkcs1_der()?.as_bytes().to_vec()))) } else { None },
     ))
 }
 
 /// Deserializes RSA private and public keys from PEM format.
-pub fn from_pem(
-    prk_pem: Option<&str>, pbk_pem: Option<&str>,
-) -> Result<(Option<RsaPrivateKey>, Option<RsaPublicKey>), Box<dyn Error + Send + Sync>> {
+pub fn from_pem(prk_pem: Option<&str>, pbk_pem: Option<&str>) -> Result<(Option<RsaPrivateKey>, Option<RsaPublicKey>), Box<dyn Error + Send + Sync>> {
     Ok((
-        if prk_pem.is_some() {
-            Some(RsaPrivateKey::from_pkcs1_der(pem::parse(prk_pem.unwrap_or_default())?.contents())?)
-        } else {
-            None
-        },
-        if pbk_pem.is_some() {
-            Some(RsaPublicKey::from_pkcs1_der(pem::parse(pbk_pem.unwrap_or_default())?.contents())?)
-        } else {
-            None
-        },
+        if prk_pem.is_some() { Some(RsaPrivateKey::from_pkcs1_der(pem::parse(prk_pem.unwrap_or_default())?.contents())?) } else { None },
+        if pbk_pem.is_some() { Some(RsaPublicKey::from_pkcs1_der(pem::parse(pbk_pem.unwrap_or_default())?.contents())?) } else { None },
     ))
 }
 

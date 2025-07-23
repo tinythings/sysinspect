@@ -59,7 +59,7 @@ pub struct SysMaster {
 impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
-        let mkr = MinionsKeyRegistry::new(cfg.keyman_root())?;
+        let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
         let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);

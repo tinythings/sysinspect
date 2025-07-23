@@ -44,6 +44,9 @@ pub enum SysinspectError {
     #[error("Invalid module name: {0}")]
     InvalidModuleName(String),
 
+    #[error("Object not found: {0}")]
+    ObjectNotFound(String),
+
     // Wrappers for the system errors
     #[error(transparent)]
     IoErr(#[from] io::Error),
@@ -77,4 +80,7 @@ pub enum SysinspectError {
 
     #[error("Invalid query: {0}")]
     InvalidQuery(String),
+
+    #[error("RSA error: {0}")]
+    RSAError(String),
 }
