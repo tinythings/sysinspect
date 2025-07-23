@@ -5,3 +5,6 @@ package/
 .tmp/
 /vendor
 *code-workspace
+/*/.venv/
+/*/.bin/
+/*/html-docs
