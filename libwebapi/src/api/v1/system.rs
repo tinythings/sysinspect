@@ -35,7 +35,7 @@ pub struct AuthRequest {
 }
 
 impl AuthRequest {
-    pub fn authenticate(username: String, password: String) -> Result<String, String> {
+    pub fn pam_auth(username: String, password: String) -> Result<String, String> {
         pamauth::authenticate(&username, &password).map_err(|err| format!("Authentication failed: {err}"))?;
         Ok(get_session_store().lock().unwrap().open(username.clone()))
     }
@@ -156,9 +156,12 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
     }
 
     if cfg.api_auth() == Pam {
-        match AuthRequest::authenticate(creds.username.unwrap(), creds.password.unwrap()) {
+        let uid = creds.username.unwrap();
+        match AuthRequest::pam_auth(uid.clone(), creds.password.unwrap()) {
             Ok(sid) => {
-                log::info!("User authenticated successfully, pubkey: {}", body.pubkey);
+                keystore.save_key(&uid, &body.pubkey).unwrap_or_else(|e| {
+                    log::error!("Failed to save public key: {}", e);
+                });
                 HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid: Some(sid), error: None })
             }
             Err(err) => HttpResponse::BadRequest().json(AuthResponse { status: "error".into(), sid: None, error: Some(err) }),
