@@ -15,24 +15,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Setup Rust Env
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
+      - name: Setup Rust Env
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
 
-    - name: Install Protobuf Compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
+      - name: Install Protobuf Compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
-    - name: Install nextest
-      uses: taiki-e/install-action@nextest
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
-    - name: Build
-      run: make devel
+      - name: Build
+        run: make devel
 
-    - name: Run tests
-      run: make test
+      - name: Run tests
+        run: make test
