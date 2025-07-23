@@ -25,13 +25,10 @@ async fn main() -> Result<(), SysinspectError> {
     let (uid, pwd) = get_credentials()
         .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {e}")))?;
 
-    let client = SysClient::new(SysClientConfiguration::default());
+    let mut client = SysClient::new(SysClientConfiguration::default());
     match client.authenticate(&uid, &pwd).await {
-        Ok(Some(sid)) => {
+        Ok(sid) => {
             println!("Authentication successful, session ID: {sid}");
-        }
-        Ok(None) => {
-            println!("Authentication failed.");
         }
         Err(e) => {
             return Err(SysinspectError::MasterGeneralError(format!("Authentication error: {e}")));

@@ -87,11 +87,12 @@ impl Default for SysClientConfiguration {
 /// It provides methods to set up RSA encryption, manage configurations, and interact with the system.
 pub struct SysClient {
     cfg: SysClientConfiguration,
+    sid: String,
 }
 
 impl SysClient {
     pub fn new(cfg: SysClientConfiguration) -> Self {
-        SysClient { cfg }
+        SysClient { cfg, sid: String::new() }
     }
 
     /// Setup the SysClient by generating RSA keypair and download Master RSA public key.
@@ -163,10 +164,12 @@ impl SysClient {
     /// or `Ok(false)` if authentication fails.
     /// If there is an error during the setup or authentication process, it returns an `Err(SysinspectError)`.
     ///
-    pub async fn authenticate(&self, uid: &str, pwd: &str) -> Result<Option<String>, SysinspectError> {
+    pub async fn authenticate(&mut self, uid: &str, pwd: &str) -> Result<String, SysinspectError> {
         // Setup the client first
         self.setup().await?;
 
+        // Authenticate the user
+        log::debug!("Authenticating user: {uid}");
         let r = authenticate_user(
             &self.cfg.get_api_config(),
             AuthRequest {
@@ -180,6 +183,7 @@ impl SysClient {
         .await
         .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication error: {e}")))?;
 
-        Ok(r.sid.unwrap()) // XXX: wtf? Should be an Option<String>
+        self.sid = r.sid.unwrap().unwrap();
+        Ok(self.sid.clone())
     }
 }
