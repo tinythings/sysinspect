@@ -12,3 +12,5 @@ into `sysinslect-client` sub-directory.
 
 [Re]Generate the client, and then navigate to the `html-docs` directory and open any HTML
 file with your web browser.
+
+See a practical example in `src/main.rs` how to use the client.
