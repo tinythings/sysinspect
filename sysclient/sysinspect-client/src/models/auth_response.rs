@@ -13,19 +13,19 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AuthResponse {
-    #[serde(rename = "error", default, with = "::serde_with::rust::double_option", skip_serializing_if = "Option::is_none")]
-    pub error: Option<Option<String>>,
-    #[serde(rename = "sid", default, with = "::serde_with::rust::double_option", skip_serializing_if = "Option::is_none")]
-    pub sid: Option<Option<String>>,
+    #[serde(rename = "error")]
+    pub error: String,
+    #[serde(rename = "sid")]
+    pub sid: String,
     #[serde(rename = "status")]
     pub status: String,
 }
 
 impl AuthResponse {
-    pub fn new(status: String) -> AuthResponse {
+    pub fn new(error: String, sid: String, status: String) -> AuthResponse {
         AuthResponse {
-            error: None,
-            sid: None,
+            error,
+            sid,
             status,
         }
     }

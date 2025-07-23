@@ -192,20 +192,16 @@
       "AuthResponse": {
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "sid",
+          "error"
         ],
         "properties": {
           "error": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "sid": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "status": {
             "type": "string"

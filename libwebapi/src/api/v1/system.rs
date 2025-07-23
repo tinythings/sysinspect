@@ -50,8 +50,8 @@ struct InnerAuthRequest {
 #[derive(ToSchema, Deserialize, Serialize)]
 pub struct AuthResponse {
     pub status: String,
-    pub sid: Option<String>,
-    pub error: Option<String>,
+    pub sid: String,
+    pub error: String,
 }
 
 #[utoipa::path(
@@ -89,14 +89,14 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
     let cfg = master.cfg().await;
     if cfg.api_devmode() {
         log::warn!("API is in development mode, returning static token!");
-        return HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid: Some("dev-token".into()), error: None });
+        return HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid: "dev-token".into(), error: String::new() });
     }
 
     if body.payload.is_empty() {
         return HttpResponse::BadRequest().json(serde_json::json!(AuthResponse {
             status: "error".into(),
-            sid: None,
-            error: Some("Payload is missing".into())
+            sid: String::new(),
+            error: "Payload is missing".into()
         }));
     }
 
@@ -106,8 +106,8 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
             log::debug!("Failed to decode payload, expecting base64-encoded encrypted data");
             return HttpResponse::BadRequest().json(serde_json::json!(AuthResponse {
                 status: "error".into(),
-                sid: None,
-                error: Some("Invalid payload format".into())
+                sid: String::new(),
+                error: "Invalid payload format".into()
             }));
         }
     };
@@ -117,8 +117,8 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
         Err(e) => {
             return HttpResponse::InternalServerError().json(AuthResponse {
                 status: "error".into(),
-                sid: None,
-                error: Some(format!("Keystore error: {e}")),
+                sid: String::new(),
+                error: format!("Keystore error: {e}"),
             });
         }
     };
@@ -129,8 +129,8 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
             log::error!("Failed to decrypt user data: {e}");
             return HttpResponse::BadRequest().json(AuthResponse {
                 status: "error".into(),
-                sid: None,
-                error: Some(format!("Decryption error: {e}")),
+                sid: String::new(),
+                error: format!("Decryption error: {e}"),
             });
         }
     };
@@ -141,8 +141,8 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
             log::error!("Failed to parse decrypted user data: {e}");
             return HttpResponse::BadRequest().json(AuthResponse {
                 status: "error".into(),
-                sid: None,
-                error: Some(format!("Invalid credentials format: {e}")),
+                sid: String::new(),
+                error: format!("Invalid credentials format: {e}"),
             });
         }
     };
@@ -150,8 +150,8 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
     if creds.username.as_deref().unwrap_or("").is_empty() || creds.password.as_deref().unwrap_or("").is_empty() {
         return HttpResponse::BadRequest().json(AuthResponse {
             status: "error".into(),
-            sid: None,
-            error: Some("Username and/or password are required".into()),
+            sid: String::new(),
+            error: format!("Username and/or password are required"),
         });
     }
 
@@ -162,11 +162,15 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceArc>, body: w
                 keystore.save_key(&uid, &body.pubkey).unwrap_or_else(|e| {
                     log::error!("Failed to save public key: {e}");
                 });
-                HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid: Some(sid), error: None })
+                HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid, error: String::new() })
             }
-            Err(err) => HttpResponse::BadRequest().json(AuthResponse { status: "error".into(), sid: None, error: Some(err) }),
+            Err(err) => HttpResponse::BadRequest().json(AuthResponse { status: "error".into(), sid: String::new(), error: err }),
         }
     } else {
-        HttpResponse::BadRequest().json(AuthResponse { status: "error".into(), sid: None, error: Some("PAM authentication is not enabled".into()) })
+        HttpResponse::BadRequest().json(AuthResponse {
+            status: "error".into(),
+            sid: String::new(),
+            error: "PAM authentication is not enabled".into(),
+        })
     }
 }

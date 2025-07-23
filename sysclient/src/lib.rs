@@ -183,7 +183,7 @@ impl SysClient {
         .await
         .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication error: {e}")))?;
 
-        self.sid = r.sid.unwrap().unwrap();
+        self.sid = r.sid;
         Ok(self.sid.clone())
     }
 }
