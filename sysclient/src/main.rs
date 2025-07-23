@@ -31,20 +31,20 @@ async fn setup_rsa() -> Result<(), SysinspectError> {
         key_to_file(&Private(prk), "./", PRIVKEY)?;
         key_to_file(&Public(pbk), "./", PUBKEY)?;
 
-        println!("Keys generated and saved to {} and {}.", PRIVKEY, PUBKEY);
+        println!("Keys generated and saved to {PRIVKEY} and {PUBKEY}.");
     }
 
     if !Path::new(MASTER_PUBKEY).exists() {
         // Get the master public key from the server
         let r = master_key(&get_config()).await.map_err(|e| {
-            SysinspectError::MasterGeneralError(format!("Failed to retrieve master public key (network): {}", e))
+            SysinspectError::MasterGeneralError(format!("Failed to retrieve master public key (network): {e}"))
         })?;
 
         if r.key.is_empty() {
             return Err(SysinspectError::MasterGeneralError("Master public key is empty".to_string()));
         }
         // Save the master public key to a file
-        fs::write(MASTER_PUBKEY, r.key.as_bytes()).map_err(|e| SysinspectError::IoErr(e))?;
+        fs::write(MASTER_PUBKEY, r.key.as_bytes()).map_err(SysinspectError::IoErr)?;
     }
 
     Ok(())
@@ -62,7 +62,7 @@ fn encrypt_data(data: String, pkey: &str) -> Result<Vec<u8>, SysinspectError> {
         return Ok(x);
     }
 
-    return Err(SysinspectError::RSAError("Failed to encrypt data".to_string()));
+    Err(SysinspectError::RSAError("Failed to encrypt data".to_string()))
 }
 
 /// Get user credentials from STDIN
@@ -77,7 +77,7 @@ fn get_credentials() -> Result<(String, String), SysinspectError> {
 
 /// Get my local public key from a file
 fn get_my_pubkey() -> Result<String, SysinspectError> {
-    fs::read_to_string(PUBKEY).map_err(|e| SysinspectError::IoErr(e))
+    fs::read_to_string(PUBKEY).map_err(SysinspectError::IoErr)
 }
 
 /// Get *client* configuration for syswebclient
@@ -96,9 +96,9 @@ async fn main() -> Result<(), SysinspectError> {
     // Create a request to authenticate a user with an ENCRYPTED username and password.
     // Assuming we have already a master public key to encrypt the credentials.
     let (uid, pwd) = get_credentials()
-        .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {}", e)))?;
+        .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {e}")))?;
     let pbk = get_my_pubkey()
-        .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read public key: {}", e)))?;
+        .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read public key: {e}")))?;
     let r = authenticate_user(
         &get_config(),
         AuthRequest {
@@ -108,9 +108,9 @@ async fn main() -> Result<(), SysinspectError> {
         },
     )
     .await
-    .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication error: {}", e)))?;
+    .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication error: {e}")))?;
 
-    println!("Authentication successful, session ID: {:#?}", r);
+    println!("Authentication successful, session ID: {r:#?}");
 
     Ok(())
 }
