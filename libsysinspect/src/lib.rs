@@ -47,6 +47,15 @@ pub enum SysinspectError {
     #[error("Object not found: {0}")]
     ObjectNotFound(String),
 
+    #[error("Error serialising object: {0}")]
+    SerializationError(String),
+
+    #[error("Error deserialising object: {0}")]
+    DeserializationError(String),
+
+    #[error("Error Web API: {0}")]
+    WebAPIError(String),
+
     // Wrappers for the system errors
     #[error(transparent)]
     IoErr(#[from] io::Error),

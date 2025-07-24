@@ -38,7 +38,11 @@ members = [
     "modules/fs/file",
     "libsetup",
     "libmodpak",
-    "libscheduler", "libmodcore", "libtelemetry", "libwebapi",
+    "libscheduler",
+    "libmodcore",
+    "libtelemetry",
+    "libwebapi",
+    "sysclient"
 ]
 
 [profile.release]

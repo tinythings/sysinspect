@@ -1,0 +1,8 @@
+site_name: "SysInspect Rust Client Docs"
+docs_dir: sysinspect-client/docs
+site_dir: html-docs
+
+theme:
+  name: material
+
+use_directory_urls: false
