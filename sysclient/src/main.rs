@@ -7,6 +7,7 @@
 
 use libsysinspect::SysinspectError;
 use rpassword::prompt_password;
+use serde_json::json;
 use std::io::{Write, stdin, stdout};
 use sysinspect_client_example::{SysClient, SysClientConfiguration};
 
@@ -34,6 +35,9 @@ async fn main() -> Result<(), SysinspectError> {
             return Err(SysinspectError::MasterGeneralError(format!("Authentication error: {e}")));
         }
     };
+
+    let r = client.query("cm/file-ops", "*", "", "", json!({"metaid": "12345", "tgt": "it is alive!"})).await?;
+    println!("Query result: {}", r.message);
 
     Ok(())
 }
