@@ -16,16 +16,16 @@ use serde::{Deserialize, Serialize};
 pub struct PubKeyRequest {
     #[serde(rename = "key")]
     pub key: String,
-    #[serde(rename = "sid")]
-    pub sid: String,
+    #[serde(rename = "sid_cipher")]
+    pub sid_cipher: String,
 }
 
 impl PubKeyRequest {
     /// Push to push a user public key to store on the server.
-    pub fn new(key: String, sid: String) -> PubKeyRequest {
+    pub fn new(key: String, sid_cipher: String) -> PubKeyRequest {
         PubKeyRequest {
             key,
-            sid,
+            sid_cipher,
         }
     }
 }

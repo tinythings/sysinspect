@@ -14,6 +14,10 @@ DOCS_HTML=$(patsubst %.md,%.html,$(DOCS_MD))
 .PHONY: generate clean ensure_codegen docs
 
 generate: $(OPENAPI_JSON) ensure_codegen
+	@if [ -d $(RUST_CLIENT_OUT) ]; then \
+		rm -rf $(RUST_CLIENT_OUT); \
+	fi
+
 	jq '.info.license.identifier = "Apache-2.0"' $(OPENAPI_JSON) > $(OPENAPI_JSON).patched
 	mv $(OPENAPI_JSON).patched $(OPENAPI_JSON)
 	java -jar $(GENERATOR_JAR) generate \

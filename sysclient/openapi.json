@@ -357,14 +357,14 @@
         "type": "object",
         "description": "Push to push a user public key to store on the server.",
         "required": [
-          "sid",
+          "sid_cipher",
           "key"
         ],
         "properties": {
           "key": {
             "type": "string"
           },
-          "sid": {
+          "sid_cipher": {
             "type": "string"
           }
         }
