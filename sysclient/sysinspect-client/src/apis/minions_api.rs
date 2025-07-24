@@ -19,12 +19,12 @@ use super::{Error, configuration, ContentType};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum QueryHandlerError {
-    Status400(),
+    Status400(models::QueryError),
     UnknownValue(serde_json::Value),
 }
 
 
-pub async fn query_handler(configuration: &configuration::Configuration, query_request: models::QueryRequest) -> Result<String, Error<QueryHandlerError>> {
+pub async fn query_handler(configuration: &configuration::Configuration, query_request: models::QueryRequest) -> Result<models::QueryResponse, Error<QueryHandlerError>> {
     // add a prefix to parameters to efficiently prevent name collisions
     let p_query_request = query_request;
 
@@ -51,8 +51,8 @@ pub async fn query_handler(configuration: &configuration::Configuration, query_r
         let content = resp.text().await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => Ok(content),
-            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `String`")))),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::QueryResponse`"))),
+            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::QueryResponse`")))),
         }
     } else {
         let content = resp.text().await?;

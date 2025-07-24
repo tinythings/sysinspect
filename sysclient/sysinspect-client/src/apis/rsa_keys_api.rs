@@ -27,7 +27,7 @@ pub enum MasterKeyError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PushkeyError {
-    Status400(),
+    Status400(models::PubKeyError),
     UnknownValue(serde_json::Value),
 }
 
@@ -68,7 +68,7 @@ pub async fn master_key(configuration: &configuration::Configuration, ) -> Resul
 }
 
 /// Push a public key for a user. Requires an authenticated session ID.
-pub async fn pushkey(configuration: &configuration::Configuration, pub_key_request: models::PubKeyRequest) -> Result<(), Error<PushkeyError>> {
+pub async fn pushkey(configuration: &configuration::Configuration, pub_key_request: models::PubKeyRequest) -> Result<models::PubKeyResponse, Error<PushkeyError>> {
     // add a prefix to parameters to efficiently prevent name collisions
     let p_pub_key_request = pub_key_request;
 
@@ -84,9 +84,20 @@ pub async fn pushkey(configuration: &configuration::Configuration, pub_key_reque
     let resp = configuration.client.execute(req).await?;
 
     let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
 
     if !status.is_client_error() && !status.is_server_error() {
-        Ok(())
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::PubKeyResponse`"))),
+            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::PubKeyResponse`")))),
+        }
     } else {
         let content = resp.text().await?;
         let entity: Option<PushkeyError> = serde_json::from_str(&content).ok();

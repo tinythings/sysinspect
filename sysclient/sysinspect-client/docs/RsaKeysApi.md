@@ -1,11 +1,11 @@
-# \RsaPublicKeysApi
+# \RsaKeysApi
 
 All URIs are relative to *http://localhost*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**master_key**](RsaPublicKeysApi.md#master_key) | **POST** /api/v1/masterkey | 
-[**pushkey**](RsaPublicKeysApi.md#pushkey) | **POST** /api/v1/pushkey | 
+[**master_key**](RsaKeysApi.md#master_key) | **POST** /api/v1/masterkey | 
+[**pushkey**](RsaKeysApi.md#pushkey) | **POST** /api/v1/pushkey | 
 
 
 
@@ -38,7 +38,7 @@ No authorization required
 
 ## pushkey
 
-> pushkey(pub_key_request)
+> models::PubKeyResponse pushkey(pub_key_request)
 
 
 Push a public key for a user. Requires an authenticated session ID.
@@ -52,7 +52,7 @@ Name | Type | Description  | Required | Notes
 
 ### Return type
 
- (empty response body)
+[**models::PubKeyResponse**](PubKeyResponse.md)
 
 ### Authorization
 
@@ -61,7 +61,7 @@ No authorization required
 ### HTTP request headers
 
 - **Content-Type**: application/json
-- **Accept**: Not defined
+- **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

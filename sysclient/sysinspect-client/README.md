@@ -26,21 +26,29 @@ All URIs are relative to *http://localhost*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
-*AuthenticationApi* | [**authenticate_user**](docs/AuthenticationApi.md#authenticate_user) | **POST** /api/v1/authenticate | 
-*CrateApiV1SystemApi* | [**health_handler**](docs/CrateApiV1SystemApi.md#health_handler) | **POST** /api/v1/health | 
-*DefaultApi* | [**query_handler**](docs/DefaultApi.md#query_handler) | **POST** /api/v1/query | 
-*RsaPublicKeysApi* | [**master_key**](docs/RsaPublicKeysApi.md#master_key) | **POST** /api/v1/masterkey | 
-*RsaPublicKeysApi* | [**pushkey**](docs/RsaPublicKeysApi.md#pushkey) | **POST** /api/v1/pushkey | 
+*MinionsApi* | [**query_handler**](docs/MinionsApi.md#query_handler) | **POST** /api/v1/query | 
+*RsaKeysApi* | [**master_key**](docs/RsaKeysApi.md#master_key) | **POST** /api/v1/masterkey | 
+*RsaKeysApi* | [**pushkey**](docs/RsaKeysApi.md#pushkey) | **POST** /api/v1/pushkey | 
+*SystemApi* | [**authenticate_user**](docs/SystemApi.md#authenticate_user) | **POST** /api/v1/authenticate | 
+*SystemApi* | [**health_check**](docs/SystemApi.md#health_check) | **POST** /api/v1/health | 
 
 
 ## Documentation For Models
 
+ - [AuthInnerRequest](docs/AuthInnerRequest.md)
  - [AuthRequest](docs/AuthRequest.md)
  - [AuthResponse](docs/AuthResponse.md)
+ - [HealthInfo](docs/HealthInfo.md)
+ - [HealthResponse](docs/HealthResponse.md)
  - [MasterKeyError](docs/MasterKeyError.md)
  - [MasterKeyResponse](docs/MasterKeyResponse.md)
+ - [PubKeyError](docs/PubKeyError.md)
  - [PubKeyRequest](docs/PubKeyRequest.md)
+ - [PubKeyResponse](docs/PubKeyResponse.md)
+ - [QueryError](docs/QueryError.md)
+ - [QueryPayloadRequest](docs/QueryPayloadRequest.md)
  - [QueryRequest](docs/QueryRequest.md)
+ - [QueryResponse](docs/QueryResponse.md)
 
 
 To get access to the crate's generated documentation, use:

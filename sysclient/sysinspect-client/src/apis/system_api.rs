@@ -23,6 +23,14 @@ pub enum AuthenticateUserError {
     UnknownValue(serde_json::Value),
 }
 
+/// struct for typed errors of method [`health_check`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HealthCheckError {
+    Status500(models::HealthResponse),
+    UnknownValue(serde_json::Value),
+}
+
 
 /// Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields as follows:  ```json { \"username\": \"darth_vader\", \"password\": \"I am your father\", \"pubkey\": \"...\" } ```  If the API is in development mode, it will return a static token without actual authentication.
 pub async fn authenticate_user(configuration: &configuration::Configuration, auth_request: models::AuthRequest) -> Result<models::AuthResponse, Error<AuthenticateUserError>> {
@@ -58,6 +66,41 @@ pub async fn authenticate_user(configuration: &configuration::Configuration, aut
     } else {
         let content = resp.text().await?;
         let entity: Option<AuthenticateUserError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
+    }
+}
+
+/// Checks the health of the SysInspect API. Returns basic information about the API status, telemetry, and scheduler tasks.
+pub async fn health_check(configuration: &configuration::Configuration, ) -> Result<models::HealthResponse, Error<HealthCheckError>> {
+
+    let uri_str = format!("{}/api/v1/health", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::HealthResponse`"))),
+            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::HealthResponse`")))),
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<HealthCheckError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }

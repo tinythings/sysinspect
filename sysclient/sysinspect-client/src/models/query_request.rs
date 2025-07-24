@@ -13,29 +13,20 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueryRequest {
-    #[serde(rename = "context")]
-    pub context: std::collections::HashMap<String, String>,
-    #[serde(rename = "mid")]
-    pub mid: String,
-    #[serde(rename = "model")]
-    pub model: String,
-    #[serde(rename = "query")]
-    pub query: String,
-    #[serde(rename = "sid")]
-    pub sid: String,
-    #[serde(rename = "traits")]
-    pub traits: String,
+    #[serde(rename = "nonce")]
+    pub nonce: String,
+    #[serde(rename = "payload")]
+    pub payload: String,
+    #[serde(rename = "sid_rsa")]
+    pub sid_rsa: String,
 }
 
 impl QueryRequest {
-    pub fn new(context: std::collections::HashMap<String, String>, mid: String, model: String, query: String, sid: String, traits: String) -> QueryRequest {
+    pub fn new(nonce: String, payload: String, sid_rsa: String) -> QueryRequest {
         QueryRequest {
-            context,
-            mid,
-            model,
-            query,
-            sid,
-            traits,
+            nonce,
+            payload,
+            sid_rsa,
         }
     }
 }

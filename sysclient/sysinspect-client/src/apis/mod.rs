@@ -111,9 +111,8 @@ impl From<&str> for ContentType {
     }
 }
 
-pub mod authentication_api;
-pub mod crate_api_v1_system_api;
-pub mod default_api;
-pub mod rsa_public_keys_api;
+pub mod minions_api;
+pub mod rsa_keys_api;
+pub mod system_api;
 
 pub mod configuration;

@@ -1,10 +1,11 @@
-# \AuthenticationApi
+# \SystemApi
 
 All URIs are relative to *http://localhost*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**authenticate_user**](AuthenticationApi.md#authenticate_user) | **POST** /api/v1/authenticate | 
+[**authenticate_user**](SystemApi.md#authenticate_user) | **POST** /api/v1/authenticate | 
+[**health_check**](SystemApi.md#health_check) | **POST** /api/v1/health | 
 
 
 
@@ -33,6 +34,33 @@ No authorization required
 ### HTTP request headers
 
 - **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## health_check
+
+> models::HealthResponse health_check()
+
+
+Checks the health of the SysInspect API. Returns basic information about the API status, telemetry, and scheduler tasks.
+
+### Parameters
+
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::HealthResponse**](HealthResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
 - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

@@ -12,24 +12,18 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AuthResponse {
+pub struct QueryError {
     #[serde(rename = "error")]
     pub error: String,
-    #[serde(rename = "sid_cipher")]
-    pub sid_cipher: String,
     #[serde(rename = "status")]
     pub status: String,
-    #[serde(rename = "symkey_cipher")]
-    pub symkey_cipher: String,
 }
 
-impl AuthResponse {
-    pub fn new(error: String, sid_cipher: String, status: String, symkey_cipher: String) -> AuthResponse {
-        AuthResponse {
+impl QueryError {
+    pub fn new(error: String, status: String) -> QueryError {
+        QueryError {
             error,
-            sid_cipher,
             status,
-            symkey_cipher,
         }
     }
 }
