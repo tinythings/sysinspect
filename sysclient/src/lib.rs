@@ -159,6 +159,7 @@ impl SysClient {
     /// or an `Err(SysinspectError)` if there is an error during the decoding process.
     /// # Errors
     /// * Returns `SysinspectError::SerializationError` if the provided data is not valid Base64.
+    ///
     /// This function will return an error if the input string cannot be decoded into valid Base64 data.
     pub(crate) fn b64decode(&self, data: &str) -> Result<Vec<u8>, SysinspectError> {
         STANDARD
@@ -378,8 +379,7 @@ impl SysClient {
     ///
     /// # Errors
     /// * Returns `SysinspectError::MasterGeneralError` if the client is not authenticated (i.e., `sid` is empty),
-    /// * Returns `SysinspectError::MasterGeneralError` if there is an error during the query process,
-    /// such as network issues or server errors.
+    /// * Returns `SysinspectError::MasterGeneralError` if there is an error during the query process, such as network issues or server errors.
     ///
     /// This function constructs a JSON payload containing the session ID and the query,
     /// encodes it, and sends it to the SysInspect system using the `query_handler` API.

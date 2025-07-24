@@ -70,7 +70,7 @@ pub struct AuthRequest {
 impl AuthRequest {
     pub fn pam_auth(username: String, password: String) -> Result<String, String> {
         pamauth::authenticate(&username, &password).map_err(|err| format!("Authentication failed: {err}"))?;
-        Ok(get_session_store().lock().unwrap().open(username.clone()).map_err(|e| format!("Session error: {e}"))?)
+        get_session_store().lock().unwrap().open(username.clone()).map_err(|e| format!("Session error: {e}"))
     }
 }
 

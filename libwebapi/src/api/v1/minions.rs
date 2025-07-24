@@ -55,17 +55,17 @@ impl QueryRequest {
         */
 
         let sid = keystore.decrypt_user_data(
-            &STANDARD.decode(&self.sid_rsa).map_err(|e| SysinspectError::RSAError(format!("Failed to decode sid_rsa from base64: {}", e)))?,
+            &STANDARD.decode(&self.sid_rsa).map_err(|e| SysinspectError::RSAError(format!("Failed to decode sid_rsa from base64: {e}")))?,
         )?;
-        Ok(sessions.decrypt(
+        sessions.decrypt(
             from_utf8(&sid).map_err(|_| SysinspectError::WebAPIError("Session ID is not valid UTF-8".to_string()))?,
             &Nonce::from_slice(
-                &STANDARD.decode(&self.nonce).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode nonce from base64: {}", e)))?,
+                &STANDARD.decode(&self.nonce).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode nonce from base64: {e}")))?,
             )
             .ok_or(SysinspectError::WebAPIError("Invalid nonce length".to_string()))?
             .0,
-            &STANDARD.decode(&self.payload).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode payload from base64: {}", e)))?,
-        )?)
+            &STANDARD.decode(&self.payload).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode payload from base64: {e}")))?,
+        )
     }
 }
 #[derive(Serialize, ToSchema)]
