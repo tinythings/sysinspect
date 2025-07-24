@@ -18,8 +18,8 @@ pub trait MasterInterface: Send + Sync {
     async fn query(&mut self, query: String) -> Result<(), SysinspectError>;
 }
 
-pub type MasterInterfaceArc = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
-pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceArc) -> Result<(), SysinspectError> {
+pub type MasterInterfaceType = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
+pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<(), SysinspectError> {
     if !cfg.api_enabled() {
         log::info!("Web API is disabled in the configuration.");
         return Ok(());

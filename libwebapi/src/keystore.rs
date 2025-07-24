@@ -1,9 +1,11 @@
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB, MasterConfig},
-    rsa::keys::{RsaKey::Private, key_from_file},
+    rsa::keys::{
+        RsaKey::{Private, Public},
+        decrypt, encrypt, key_from_file,
+    },
 };
-use rsa::Pkcs1v15Encrypt;
 use std::{
     fs::read_to_string,
     io::{ErrorKind, Write},
@@ -59,6 +61,7 @@ impl SysInspectAPIKeystore {
     }
 
     /// Decrypt user data using the master private key.
+    /// User supposed to send encrypted data to the server, using the master public key.
     ///
     /// # Arguments
     /// * `cipher` - The encrypted data to decrypt.
@@ -82,9 +85,7 @@ impl SysInspectAPIKeystore {
                 .ok_or_else(|| SysinspectError::ObjectNotFound("Master key not found. :-(".to_string()))?,
         )? {
             match prk {
-                Private(prk) => {
-                    prk.decrypt(Pkcs1v15Encrypt, cipher).map_err(|e| SysinspectError::RSAError(format!("RSA decrypt error: {e:?}")))
-                }
+                Private(prk) => decrypt(prk, cipher.to_vec()).map_err(|_| SysinspectError::RSAError("Failed to decrypt data".to_string())),
                 _ => Err(SysinspectError::ObjectNotFound("Master key is not a private key".to_string())),
             }
         } else {
@@ -92,6 +93,48 @@ impl SysInspectAPIKeystore {
         }
     }
 
+    /// Encrypt user data using the user's public key.
+    /// # Arguments
+    /// * `uid` - The user ID for which the public key is used.
+    /// * `data` - The data to encrypt.
+    /// # Returns
+    /// * `Ok(Vec<u8>)` containing the encrypted data.
+    /// * `Err(SysinspectError)` if there was an error encrypting the data.
+    ///
+    /// This function retrieves the user's public key from the keystore and uses it to encrypt the provided data.
+    /// If the public key is not found or is not a public key, it returns an error.
+    ///
+    /// # Errors
+    /// * Returns `SysinspectError::ObjectNotFound` if the public key file is not found or is not a public key.
+    /// * Returns `SysinspectError::RSAError` if there is an error during encryption.
+    ///
+    pub fn encrypt_user_data(&self, uid: &str, data: &str) -> Result<Vec<u8>, SysinspectError> {
+        let pkey = self.keystore.join(format!("{uid}_public_key.pem"));
+        if !pkey.exists() {
+            return Err(SysinspectError::ObjectNotFound(format!("Public key file not found at {}", pkey.display())));
+        }
+        let pbk =
+            key_from_file(pkey.to_str().ok_or_else(|| SysinspectError::ObjectNotFound(format!("Invalid public key path: {}", pkey.display())))?)?
+                .ok_or(SysinspectError::ObjectNotFound(format!("Public key file not found at {}", pkey.display())))?;
+        match pbk {
+            Public(pbk) => encrypt(pbk, data.as_bytes().to_vec()).map_err(|_| SysinspectError::RSAError("Failed to encrypt data".to_string())),
+            _ => Err(SysinspectError::ObjectNotFound("Expected a public key".to_string())),
+        }
+    }
+
+    /// Get the master public key from the keystore.
+    /// # Returns
+    /// * `Ok(String)` containing the master public key if it exists.
+    /// * `Err(SysinspectError)` if there was an error reading the key file or if the key file does not exist.
+    ///
+    /// This function reads the master public key from the file specified by `CFG_MASTER_KEY_PUB`.
+    /// If the file does not exist, it returns an error.
+    /// If the file exists but cannot be read, it returns an `IoErr` error.
+    ///
+    /// # Errors
+    /// * Returns `SysinspectError::ObjectNotFound` if the master key file is not found.
+    /// * Returns `SysinspectError::IoErr` if there is an error reading the master key file.
+    ///
     pub fn get_master_key(&self) -> Result<String, SysinspectError> {
         let keypath = self.sysinspect_root.join(CFG_MASTER_KEY_PUB);
         if !keypath.exists() {
