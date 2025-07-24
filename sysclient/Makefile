@@ -26,8 +26,8 @@ generate: $(OPENAPI_JSON) ensure_codegen
 	$(MAKE) docs
 
 $(OPENAPI_JSON):
-	rm $(OPENAPI_JSON)
-	curl -fsSL $(OPENAPI_URL) -o $(OPENAPI_JSON)
+	@if [ -f $(OPENAPI_JSON) ]; then rm -f $(OPENAPI_JSON); fi
+	curl -fsSL -o $(OPENAPI_JSON) $(OPENAPI_URL)
 
 ensure_codegen:
 	@if [ ! -d $(GENERATOR_BIN) ]; then \
