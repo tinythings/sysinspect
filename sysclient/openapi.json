@@ -13,7 +13,7 @@
     "/api/v1/authenticate": {
       "post": {
         "tags": [
-          "Authentication"
+          "System"
         ],
         "description": "Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields as follows:\n\n```json\n{\n\"username\": \"darth_vader\",\n\"password\": \"I am your father\",\n\"pubkey\": \"...\"\n}\n```\n\nIf the API is in development mode, it will return a static token without actual authentication.",
         "operationId": "authenticateUser",
@@ -64,16 +64,43 @@
     "/api/v1/health": {
       "post": {
         "tags": [
-          "crate::api::v1::system"
+          "System"
         ],
-        "operationId": "health_handler",
+        "description": "Checks the health of the SysInspect API. Returns basic information about the API status, telemetry, and scheduler tasks.",
+        "operationId": "healthCheck",
         "responses": {
           "200": {
             "description": "Health status",
             "content": {
-              "text/plain": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "healthy",
+                  "info": {
+                    "telemetry_enabled": true,
+                    "scheduler_tasks": 5,
+                    "api_version": "0.1.0"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "unhealthy",
+                  "info": {
+                    "telemetry_enabled": false,
+                    "scheduler_tasks": 0,
+                    "api_version": "0.1.0"
+                  }
                 }
               }
             }
@@ -84,7 +111,7 @@
     "/api/v1/masterkey": {
       "post": {
         "tags": [
-          "RSA Public Keys"
+          "RSA Keys"
         ],
         "description": "Retrieve the master public key from the keystore.",
         "operationId": "masterKey",
@@ -115,7 +142,7 @@
     "/api/v1/pushkey": {
       "post": {
         "tags": [
-          "RSA Public Keys"
+          "RSA Keys"
         ],
         "description": "Push a public key for a user. Requires an authenticated session ID.",
         "operationId": "pushkey",
@@ -131,17 +158,39 @@
         },
         "responses": {
           "200": {
-            "description": "Public key saved successfully"
+            "description": "Public key saved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PubKeyResponse"
+                },
+                "example": {
+                  "message": "Public key saved successfully"
+                }
+              }
+            }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PubKeyError"
+                },
+                "example": {
+                  "error": "Invalid session ID"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/v1/query": {
       "post": {
-        "tags": [],
+        "tags": [
+          "Minions"
+        ],
         "operationId": "query_handler",
         "requestBody": {
           "content": {
@@ -157,15 +206,22 @@
           "200": {
             "description": "Success",
             "content": {
-              "text/plain": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/QueryResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryError"
+                }
+              }
+            }
           }
         }
       }
@@ -173,6 +229,23 @@
   },
   "components": {
     "schemas": {
+      "AuthInnerRequest": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AuthRequest": {
         "type": "object",
         "required": [
@@ -193,15 +266,54 @@
         "type": "object",
         "required": [
           "status",
-          "sid",
+          "sid_cipher",
+          "symkey_cipher",
           "error"
         ],
         "properties": {
           "error": {
             "type": "string"
           },
-          "sid": {
+          "sid_cipher": {
             "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "symkey_cipher": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthInfo": {
+        "type": "object",
+        "required": [
+          "telemetry_enabled",
+          "scheduler_tasks",
+          "api_version"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "scheduler_tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "telemetry_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "info"
+        ],
+        "properties": {
+          "info": {
+            "$ref": "#/components/schemas/HealthInfo"
           },
           "status": {
             "type": "string"
@@ -230,6 +342,17 @@
           }
         }
       },
+      "PubKeyError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
       "PubKeyRequest": {
         "type": "object",
         "description": "Push to push a user public key to store on the server.",
@@ -246,10 +369,35 @@
           }
         }
       },
-      "QueryRequest": {
+      "PubKeyResponse": {
         "type": "object",
         "required": [
-          "sid",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "QueryError": {
+        "type": "object",
+        "required": [
+          "status",
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "QueryPayloadRequest": {
+        "type": "object",
+        "required": [
           "model",
           "query",
           "traits",
@@ -275,10 +423,41 @@
           "query": {
             "type": "string"
           },
-          "sid": {
+          "traits": {
+            "type": "string"
+          }
+        }
+      },
+      "QueryRequest": {
+        "type": "object",
+        "required": [
+          "sid_rsa",
+          "nonce",
+          "payload"
+        ],
+        "properties": {
+          "nonce": {
             "type": "string"
           },
-          "traits": {
+          "payload": {
+            "type": "string"
+          },
+          "sid_rsa": {
+            "type": "string"
+          }
+        }
+      },
+      "QueryResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "status": {
             "type": "string"
           }
         }
