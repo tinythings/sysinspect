@@ -18,6 +18,7 @@ use std::{
 
 #[derive(Default, Debug)]
 pub struct PipeScriptHandler {
+    eid: String,
     cfg: EventConfig,
 }
 
@@ -39,6 +40,12 @@ impl PipeScriptHandler {
     fn call_script(&self, evt: &ActionResponse) {
         // Successfull responses only
         if evt.response.retcode() > 0 {
+            return;
+        }
+
+        // Skip events that doesn't belong
+        if !evt.match_eid(&self.eid) {
+            log::debug!("Event {} doesn't match handler {}", evt.eid().bright_yellow(), self.eid.bright_yellow());
             return;
         }
 
@@ -77,11 +84,11 @@ impl PipeScriptHandler {
 
 /// Pipescript handler
 impl EventHandler for PipeScriptHandler {
-    fn new(_eid: String, cfg: crate::intp::conf::EventConfig) -> Self
+    fn new(eid: String, cfg: crate::intp::conf::EventConfig) -> Self
     where
         Self: Sized,
     {
-        PipeScriptHandler { cfg }
+        PipeScriptHandler { eid, cfg }
     }
 
     fn id() -> String
