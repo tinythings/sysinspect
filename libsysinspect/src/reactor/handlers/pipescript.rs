@@ -10,7 +10,7 @@ use crate::intp::{
 };
 use colored::Colorize;
 use core::str;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -24,12 +24,7 @@ pub struct PipeScriptHandler {
 
 impl PipeScriptHandler {
     /// Format the output
-    fn fmt(&self, value: Option<Value>, format: &str) -> String {
-        let value = match value {
-            Some(v) => v,
-            None => return "".to_string(),
-        };
-
+    fn fmt(&self, value: Value, format: &str) -> String {
         match format.to_lowercase().as_str() {
             "yaml" => serde_yaml::to_string(&value).unwrap_or_default(),
             _ => serde_json::to_string(&value).unwrap_or_default(),
@@ -70,7 +65,17 @@ impl PipeScriptHandler {
         match Command::new(&cmd[0]).args(&cmd[1..]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
             Ok(mut p) => {
                 if let Some(mut stdin) = p.stdin.take() {
-                    if let Err(err) = stdin.write_all(self.fmt(evt.response.data(), &format).as_bytes()) {
+                    let data = json!({
+                        "id.entity": evt.eid(),
+                        "id.action": evt.aid(),
+                        "id.state": evt.sid(),
+                        "ret.code": evt.response.retcode(),
+                        "ret.warn": evt.response.warnings(),
+                        "ret.info": evt.response.message(),
+                        "ret.data": evt.response.data(),
+                        "timestamp": evt.ts_rfc_3339(),
+                    });
+                    if let Err(err) = stdin.write_all(self.fmt(data, &format).as_bytes()) {
                         log::error!("Unable to pipe data to '{}': {}", cmd.join(" "), err);
                     } else if !quiet {
                         log::info!("{} - {}", "Pipescript".cyan(), cmd.join(" "));
