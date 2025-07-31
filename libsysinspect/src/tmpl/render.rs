@@ -48,7 +48,7 @@ impl ModelTplRender {
 
         for (key, value) in input {
             if bogus.contains(&key) {
-                log::warn!("Skipping bogus namespace: {}", key.bright_yellow().bold());
+                log::debug!("Skipping bogus namespace: {}", key.bright_yellow().bold());
                 continue;
             }
 
