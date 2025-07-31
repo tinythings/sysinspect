@@ -1,3 +1,4 @@
+
 use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
     intp::conf::Config,
@@ -38,9 +39,7 @@ impl<'a> EventProcessor<'a> {
         for evt_id in cfg.get_event_ids() {
             let evt_cfg = cfg.get_event(&evt_id).unwrap();
             for handler_id in evt_cfg.get_bound_handlers() {
-                if let Some(handler) =
-                    handlers::registry::init_handler(handler_id.to_string(), evt_id.to_string(), evt_cfg.to_owned())
-                {
+                if let Some(handler) = handlers::registry::init_handler(handler_id.to_string(), evt_id.to_string(), evt_cfg.to_owned()) {
                     self.handlers.push(handler);
                     log::debug!("Registered handler: {handler_id} on {evt_id}")
                 } else {

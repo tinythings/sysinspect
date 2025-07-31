@@ -8,3 +8,4 @@ package/
 /*/.venv/
 /*/.bin/
 /*/html-docs
+.gitignore

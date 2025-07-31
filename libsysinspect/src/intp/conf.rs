@@ -1,10 +1,13 @@
-use crate::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR, util};
+use super::inspector::get_cfg_sharelib;
+use crate::{
+    SysinspectError,
+    cfg::mmconf::DEFAULT_MODULES_DIR,
+    util::dataconv::{as_bool_opt, as_int_opt, as_str_list_opt, as_str_opt},
+};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::path::PathBuf;
-
-use super::inspector::get_cfg_sharelib;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct EventConfigOption {
@@ -15,22 +18,22 @@ pub struct EventConfigOption {
 impl EventConfigOption {
     /// Get an option as a string type
     pub fn as_string(&self, cfg: &str) -> Option<String> {
-        util::dataconv::as_str_opt(self.data.get(cfg).cloned())
+        as_str_opt(self.data.get(cfg).cloned())
     }
 
     /// Get an option as an integer
     pub fn as_int(&self, cfg: &str) -> Option<i64> {
-        util::dataconv::as_int_opt(self.data.get(cfg).cloned())
+        as_int_opt(self.data.get(cfg).cloned())
     }
 
     /// Get an option as an integer
     pub fn as_bool(&self, cfg: &str) -> Option<bool> {
-        util::dataconv::as_bool_opt(self.data.get(cfg).cloned())
+        as_bool_opt(self.data.get(cfg).cloned())
     }
 
     /// Get an option as a vector of strings
     pub fn as_str_list(&self, cfg: &str) -> Option<Vec<String>> {
-        util::dataconv::as_str_list_opt(self.data.get(cfg).cloned())
+        as_str_list_opt(self.data.get(cfg).cloned())
     }
 }
 
@@ -38,7 +41,7 @@ impl EventConfigOption {
 /// binding handlers and their configurations, respectfully.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct EventConfig {
-    handler: Vec<String>,
+    handlers: Vec<String>,
     #[serde(flatten)]
     cfg: Option<IndexMap<String, EventConfigOption>>,
 }
@@ -56,7 +59,7 @@ impl EventConfig {
 
     /// Get all handlers that are bound to
     pub(crate) fn get_bound_handlers(&self) -> &Vec<String> {
-        &self.handler
+        &self.handlers
     }
 
     /// Get specific event configuration by a handler Id (`hid`).

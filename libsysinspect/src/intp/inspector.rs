@@ -270,7 +270,8 @@ impl SysInspector {
             let entity = Entity::default();
             let entity = self.get_entity(eid).unwrap_or(&entity);
             if let Some(claims) = entity.claims() {
-                if let Some(claims) = claims.get(state) {
+                // State-specific, or look for a fallback ("?") if any
+                if let Some(claims) = claims.get(state).or_else(|| claims.get("?")) {
                     for claim in claims {
                         if let Some(v) = claim.get(func.ns().get(ClaimNamespace::LABEL as usize).unwrap()) {
                             return Ok(functions::get_by_namespace(Some(v).cloned(), func.ns()[1..].join(".").as_str()));

@@ -10,7 +10,7 @@ use crate::intp::{
 };
 use colored::Colorize;
 use core::str;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -18,17 +18,13 @@ use std::{
 
 #[derive(Default, Debug)]
 pub struct PipeScriptHandler {
+    eid: String,
     cfg: EventConfig,
 }
 
 impl PipeScriptHandler {
     /// Format the output
-    fn fmt(&self, value: Option<Value>, format: &str) -> String {
-        let value = match value {
-            Some(v) => v,
-            None => return "".to_string(),
-        };
-
+    fn fmt(&self, value: Value, format: &str) -> String {
         match format.to_lowercase().as_str() {
             "yaml" => serde_yaml::to_string(&value).unwrap_or_default(),
             _ => serde_json::to_string(&value).unwrap_or_default(),
@@ -39,6 +35,12 @@ impl PipeScriptHandler {
     fn call_script(&self, evt: &ActionResponse) {
         // Successfull responses only
         if evt.response.retcode() > 0 {
+            return;
+        }
+
+        // Skip events that doesn't belong
+        if !evt.match_eid(&self.eid) {
+            log::debug!("Event {} doesn't match handler {}", evt.eid().bright_yellow(), self.eid.bright_yellow());
             return;
         }
 
@@ -63,10 +65,39 @@ impl PipeScriptHandler {
         match Command::new(&cmd[0]).args(&cmd[1..]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
             Ok(mut p) => {
                 if let Some(mut stdin) = p.stdin.take() {
-                    if let Err(err) = stdin.write_all(self.fmt(evt.response.data(), &format).as_bytes()) {
+                    let data = json!({
+                        "id.entity": evt.eid(),
+                        "id.action": evt.aid(),
+                        "id.state": evt.sid(),
+                        "ret.code": evt.response.retcode(),
+                        "ret.warn": evt.response.warnings(),
+                        "ret.info": evt.response.message(),
+                        "ret.data": evt.response.data(),
+                        "timestamp": evt.ts_rfc_3339(),
+                    });
+                    if let Err(err) = stdin.write_all(self.fmt(data, &format).as_bytes()) {
                         log::error!("Unable to pipe data to '{}': {}", cmd.join(" "), err);
                     } else if !quiet {
                         log::info!("{} - {}", "Pipescript".cyan(), cmd.join(" "));
+                    }
+                }
+
+                // Log stuff
+                if !quiet {
+                    match p.wait_with_output() {
+                        Ok(output) => {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+
+                            if !stdout.trim().is_empty() {
+                                log::info!("{} STDOUT: {}", "Pipescript".cyan(), stdout.trim());
+                            }
+
+                            if !stderr.trim().is_empty() {
+                                log::warn!("{} STDERR: {}", "Pipescript".cyan(), stderr.trim());
+                            }
+                        }
+                        Err(e) => log::error!("Failed to read output from '{}': {}", cmd.join(" "), e),
                     }
                 }
             }
@@ -77,11 +108,11 @@ impl PipeScriptHandler {
 
 /// Pipescript handler
 impl EventHandler for PipeScriptHandler {
-    fn new(_eid: String, cfg: crate::intp::conf::EventConfig) -> Self
+    fn new(eid: String, cfg: crate::intp::conf::EventConfig) -> Self
     where
         Self: Sized,
     {
-        PipeScriptHandler { cfg }
+        PipeScriptHandler { eid, cfg }
     }
 
     fn id() -> String
