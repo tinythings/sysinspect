@@ -34,6 +34,85 @@ List of currently supported functions:
   The function returns a defined value of that context. An example usage is ``context(hostname)``,
   if that context variable was defined in the context system (either passed through CLI or set in the Master setup).
 
+Data Definition
+---------------
+
+Data can be defined in ``entities`` section under specific action IDs and states. A state is just a label or
+unspecified ``$`` *(default state)*. For example:
+
+.. code-block:: yaml
+
+  entities:
+    my_entity:
+      claims:
+        my_state:
+          - fact:
+              key: value
+          - otherfact:
+              key: othervalue
+
+In this case, ``claim(...)`` function must be called within the same context state, otherwise value will not be found.
+For example:
+
+.. code-block:: yaml
+
+  actions:
+    my_action:
+      bind:
+        - my_entity
+      state: my_state # Important!
+      module: mymodule
+      args:
+        foo: claim(key.fact)
+        bar: claim(key.otherfact)
+
+In this example, when you use ``claim(key.fact)`` and ``claim(key.otherfact)``, you get the values ``value`` and
+``othervalue``. This works because the action is "bound" to the entity in the same state where those claims are set.
+
+Think of a "state" as a label for a certain situation or version of your data. If you use the label ``my_state``, you
+must also use ``my_state`` everywhere you want to access those values. There is also a default state, written as ``$``.
+But be careful: if you are working in a specific state (like ``my_state``), the default state ``$`` is not the same
+thing. Data in the default state will not automatically appear in a specific state, and the other way around. So, if you
+try to get a value from the default state while you are in a specific state, it won't work.
+
+.. note::
+
+  The ``$`` state is not a "default value" that transparently fills in for missing states. It is a default **state**.
+  If you are in a specific state (like ``my_state``) and that state is not defined in your entities, the system will
+  **not** fall back to the ``$`` state automatically. You must explicitly define the state you want to use; otherwise,
+  the value will not be found.
+
+In short: always make sure your action and your data use the same state label if you want to access the right values.
+
+Fall back values are defined with ``?`` (question mark) symbol and they are not belonging to any specific state.
+They can be used to provide default values when the main value is not available. For example:
+
+.. code-block:: yaml
+
+  entities:
+    my_entity:
+      claims:
+        ?:  # <-- Fallback state
+          - fact:
+              key: value
+
+        my_state:
+          - otherfact:
+              key: othervalue
+
+  actions:
+    my_action:
+      bind:
+        - my_entity
+      state: my_state
+      module: mymodule
+      args:
+        foo: claim(fact.key)
+        bar: claim(otherfact.key)
+
+In this case ``fact.key`` will return ``value`` because it is defined in the fallback state ``?``, while
+``otherfact.key`` will return ``othervalue`` because it is defined in the specific state ``my_state``.
+
 Conditional Function Processing
 -------------------------------
 
