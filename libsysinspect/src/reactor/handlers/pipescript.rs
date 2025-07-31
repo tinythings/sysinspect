@@ -81,6 +81,25 @@ impl PipeScriptHandler {
                         log::info!("{} - {}", "Pipescript".cyan(), cmd.join(" "));
                     }
                 }
+
+                // Log stuff
+                if !quiet {
+                    match p.wait_with_output() {
+                        Ok(output) => {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+
+                            if !stdout.trim().is_empty() {
+                                log::info!("{} STDOUT: {}", "Pipescript".cyan(), stdout.trim());
+                            }
+
+                            if !stderr.trim().is_empty() {
+                                log::warn!("{} STDERR: {}", "Pipescript".cyan(), stderr.trim());
+                            }
+                        }
+                        Err(e) => log::error!("Failed to read output from '{}': {}", cmd.join(" "), e),
+                    }
+                }
             }
             Err(err) => log::error!("{} error: {} for '{}'", PipeScriptHandler::id(), err, cmd.join(" ")),
         };
