@@ -439,8 +439,7 @@ impl SysMinion {
         sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
         sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
 
-        sr.start().await;
-
+        tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await.unwrap();
         log::debug!("Sysinspect model cycle finished");
     }
 
