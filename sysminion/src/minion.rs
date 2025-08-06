@@ -300,7 +300,11 @@ impl SysMinion {
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
         let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_string()?);
         r.set_sid(MINION_SID.to_string());
-        self.request(r.sendable().unwrap()).await; // XXX: make a better error handling for Tokio
+        self.request(r.sendable().map_err(|e| {
+            log::error!("Error preparing traits message: {e}");
+            e
+        })?)
+        .await;
         Ok(())
     }
 
@@ -344,7 +348,10 @@ impl SysMinion {
         let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Bye, MINION_SID.to_string());
 
         log::info!("Goodbye to {}", self.cfg.master());
-        self.request(r.sendable().unwrap()).await;
+        match r.sendable() {
+            Ok(msg) => self.request(msg).await,
+            Err(e) => log::error!("Failed to send bye message: {e}"),
+        }
     }
 
     /// Download a file from master
