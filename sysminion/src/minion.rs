@@ -254,8 +254,27 @@ impl SysMinion {
                     }
                     RequestType::AgentUnknown => {
                         let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
-                        let (_, pbk) = rsa::keys::from_pem(None, Some(&pbk_pem)).unwrap();
-                        let fpt = rsa::keys::get_fingerprint(&pbk.unwrap()).unwrap();
+                        let (_, pbk) = match rsa::keys::from_pem(None, Some(&pbk_pem)) {
+                            Ok(val) => val,
+                            Err(e) => {
+                                log::error!("Failed to parse PEM: {e}");
+                                std::process::exit(1);
+                            }
+                        };
+                        let pbk = match pbk {
+                            Some(key) => key,
+                            None => {
+                                log::error!("No public key found in PEM");
+                                std::process::exit(1);
+                            }
+                        };
+                        let fpt = match rsa::keys::get_fingerprint(&pbk) {
+                            Ok(fp) => fp,
+                            Err(e) => {
+                                log::error!("Failed to get fingerprint: {e}");
+                                std::process::exit(1);
+                            }
+                        };
 
                         log::error!("Minion is not registered");
                         log::info!("Master fingerprint: {fpt}");
