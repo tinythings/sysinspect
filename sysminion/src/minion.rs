@@ -422,31 +422,31 @@ impl SysMinion {
             self.as_ptr().filedata.lock().await.init();
         }
 
-        // Render DSL
-
         // Run the model
-        log::debug!("Launching model for sysinspect for: {scheme}");
-        let mqr_l = mqr.lock().await;
+        {
+            log::debug!("Launching model for sysinspect for: {scheme}");
+            let mqr_guard = mqr.lock().await;
 
-        let mut sr = SysInspectRunner::new(&self.cfg);
-        sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_l.target()).to_str().unwrap_or_default());
-        sr.set_state(mqr_l.state());
-        sr.set_entities(mqr_l.entities());
-        sr.set_checkbook_labels(mqr_l.checkbook_labels());
-        sr.set_traits(traits::get_minion_traits(None));
-        sr.set_context(context::get_context(context));
+            let mut sr = SysInspectRunner::new(&self.cfg);
+            sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_guard.target()).to_str().unwrap_or_default());
+            sr.set_state(mqr_guard.state());
+            sr.set_entities(mqr_guard.entities());
+            sr.set_checkbook_labels(mqr_guard.checkbook_labels());
+            sr.set_traits(traits::get_minion_traits(None));
+            sr.set_context(context::get_context(context));
 
-        sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
-        sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
+            sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
+            sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
 
-        match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
-            Ok(()) => {
-                log::debug!("Sysinspect model cycle finished");
-            }
-            Err(e) => {
-                log::error!("Blocking task crashed: {e}");
-            }
-        };
+            match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
+                Ok(()) => {
+                    log::debug!("Sysinspect model cycle finished");
+                }
+                Err(e) => {
+                    log::error!("Blocking task crashed: {e}");
+                }
+            };
+        }
     }
 
     /// Calls internal command

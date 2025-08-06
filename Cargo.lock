@@ -5883,6 +5883,7 @@ dependencies = [
  "colored",
  "daemonize",
  "ed25519-dalek",
+ "futures",
  "glob",
  "indexmap 2.10.0",
  "libc",
