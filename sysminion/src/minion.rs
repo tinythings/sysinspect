@@ -495,7 +495,9 @@ impl SysMinion {
             }
             libsysinspect::proto::query::commands::CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
-                libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await.unwrap();
+                if let Err(e) = libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
+                    log::error!("Failed to sync minion with master: {e}");
+                }
             }
             _ => {
                 log::warn!("Unknown command: {cmd}");
