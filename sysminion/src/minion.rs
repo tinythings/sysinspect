@@ -425,7 +425,14 @@ impl SysMinion {
 
             match self.as_ptr().download_file(uri_file).await {
                 Ok(data) => {
-                    let dst_dir = dst.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+                    let dst_dir = match dst.parent() {
+                        Some(p) => p.to_path_buf(),
+                        None => {
+                            log::error!("Unable to determine parent directory for file: {}", dst.display());
+                            return;
+                        }
+                    };
+
                     if !dst_dir.exists() {
                         log::debug!("Creating directory: {}", dst_dir.display());
                         if let Err(err) = fs::create_dir_all(&dst_dir) {
