@@ -425,18 +425,18 @@ impl SysMinion {
 
             match self.as_ptr().download_file(uri_file).await {
                 Ok(data) => {
-                    let dst_dir = dst.parent().unwrap();
+                    let dst_dir = dst.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
                     if !dst_dir.exists() {
-                        log::debug!("Creating directory: {dst_dir:?}");
-                        if let Err(err) = fs::create_dir_all(dst_dir) {
+                        log::debug!("Creating directory: {}", dst_dir.display());
+                        if let Err(err) = fs::create_dir_all(&dst_dir) {
                             log::error!("Unable to create directories for model download: {err}");
                             return;
                         }
                     }
 
-                    log::debug!("Saving URI {uri_file} as {dst_dir:?}");
+                    log::debug!("Saving URI {uri_file} as {}", dst_dir.display());
                     if let Err(err) = fs::write(&dst, data) {
-                        log::error!("Unable to save downloaded file to {dst:?}: {err}");
+                        log::error!("Unable to save downloaded file to {}: {err}", dst.display());
                         return;
                     }
                     dirty = true;
