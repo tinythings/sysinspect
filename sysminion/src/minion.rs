@@ -254,8 +254,27 @@ impl SysMinion {
                     }
                     RequestType::AgentUnknown => {
                         let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
-                        let (_, pbk) = rsa::keys::from_pem(None, Some(&pbk_pem)).unwrap();
-                        let fpt = rsa::keys::get_fingerprint(&pbk.unwrap()).unwrap();
+                        let (_, pbk) = match rsa::keys::from_pem(None, Some(&pbk_pem)) {
+                            Ok(val) => val,
+                            Err(e) => {
+                                log::error!("Failed to parse PEM: {e}");
+                                std::process::exit(1);
+                            }
+                        };
+                        let pbk = match pbk {
+                            Some(key) => key,
+                            None => {
+                                log::error!("No public key found in PEM");
+                                std::process::exit(1);
+                            }
+                        };
+                        let fpt = match rsa::keys::get_fingerprint(&pbk) {
+                            Ok(fp) => fp,
+                            Err(e) => {
+                                log::error!("Failed to get fingerprint: {e}");
+                                std::process::exit(1);
+                            }
+                        };
 
                         log::error!("Minion is not registered");
                         log::info!("Master fingerprint: {fpt}");
@@ -281,7 +300,11 @@ impl SysMinion {
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
         let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_string()?);
         r.set_sid(MINION_SID.to_string());
-        self.request(r.sendable().unwrap()).await; // XXX: make a better error handling for Tokio
+        self.request(r.sendable().map_err(|e| {
+            log::error!("Error preparing traits message: {e}");
+            e
+        })?)
+        .await;
         Ok(())
     }
 
@@ -325,7 +348,10 @@ impl SysMinion {
         let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Bye, MINION_SID.to_string());
 
         log::info!("Goodbye to {}", self.cfg.master());
-        self.request(r.sendable().unwrap()).await;
+        match r.sendable() {
+            Ok(msg) => self.request(msg).await,
+            Err(e) => log::error!("Failed to send bye message: {e}"),
+        }
     }
 
     /// Download a file from master
@@ -399,18 +425,25 @@ impl SysMinion {
 
             match self.as_ptr().download_file(uri_file).await {
                 Ok(data) => {
-                    let dst_dir = dst.parent().unwrap();
+                    let dst_dir = match dst.parent() {
+                        Some(p) => p.to_path_buf(),
+                        None => {
+                            log::error!("Unable to determine parent directory for file: {}", dst.display());
+                            return;
+                        }
+                    };
+
                     if !dst_dir.exists() {
-                        log::debug!("Creating directory: {dst_dir:?}");
-                        if let Err(err) = fs::create_dir_all(dst_dir) {
+                        log::debug!("Creating directory: {}", dst_dir.display());
+                        if let Err(err) = fs::create_dir_all(&dst_dir) {
                             log::error!("Unable to create directories for model download: {err}");
                             return;
                         }
                     }
 
-                    log::debug!("Saving URI {uri_file} as {dst_dir:?}");
+                    log::debug!("Saving URI {uri_file} as {}", dst_dir.display());
                     if let Err(err) = fs::write(&dst, data) {
-                        log::error!("Unable to save downloaded file to {dst:?}: {err}");
+                        log::error!("Unable to save downloaded file to {}: {err}", dst.display());
                         return;
                     }
                     dirty = true;
@@ -422,31 +455,31 @@ impl SysMinion {
             self.as_ptr().filedata.lock().await.init();
         }
 
-        // Render DSL
-
         // Run the model
-        log::debug!("Launching model for sysinspect for: {scheme}");
-        let mqr_l = mqr.lock().await;
+        {
+            log::debug!("Launching model for sysinspect for: {scheme}");
+            let mqr_guard = mqr.lock().await;
 
-        let mut sr = SysInspectRunner::new(&self.cfg);
-        sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_l.target()).to_str().unwrap_or_default());
-        sr.set_state(mqr_l.state());
-        sr.set_entities(mqr_l.entities());
-        sr.set_checkbook_labels(mqr_l.checkbook_labels());
-        sr.set_traits(traits::get_minion_traits(None));
-        sr.set_context(context::get_context(context));
+            let mut sr = SysInspectRunner::new(&self.cfg);
+            sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_guard.target()).to_str().unwrap_or_default());
+            sr.set_state(mqr_guard.state());
+            sr.set_entities(mqr_guard.entities());
+            sr.set_checkbook_labels(mqr_guard.checkbook_labels());
+            sr.set_traits(traits::get_minion_traits(None));
+            sr.set_context(context::get_context(context));
 
-        sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
-        sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
+            sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
+            sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
 
-        match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
-            Ok(()) => {
-                log::debug!("Sysinspect model cycle finished");
-            }
-            Err(e) => {
-                log::error!("Blocking task crashed: {e}");
-            }
-        };
+            match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
+                Ok(()) => {
+                    log::debug!("Sysinspect model cycle finished");
+                }
+                Err(e) => {
+                    log::error!("Blocking task crashed: {e}");
+                }
+            };
+        }
     }
 
     /// Calls internal command
@@ -469,7 +502,9 @@ impl SysMinion {
             }
             libsysinspect::proto::query::commands::CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
-                libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await.unwrap();
+                if let Err(e) = libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
+                    log::error!("Failed to sync minion with master: {e}");
+                }
             }
             _ => {
                 log::warn!("Unknown command: {cmd}");
