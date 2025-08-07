@@ -1,6 +1,6 @@
 pub use crate::api::v1::system::health_handler;
 use crate::api::v1::{
-    minions::{QueryError, QueryPayloadRequest, QueryRequest, QueryResponse, query_handler},
+    minions::{QueryError, QueryPayloadRequest, QueryRequest, QueryResponse, query_handler, query_handler_dev},
     pkeys::{MasterKeyError, MasterKeyResponse, PubKeyError, PubKeyRequest, PubKeyResponse, masterkey_handler, pushkey_handler},
     system::{AuthInnerRequest, AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
@@ -21,7 +21,16 @@ pub static TAG_MINIONS: &str = "Minions";
 pub static TAG_SYSTEM: &str = "System";
 pub static TAG_RSAKEYS: &str = "RSA Keys";
 
-static SWAGGER_NOTIFIED: OnceCell<std::sync::Mutex<bool>> = OnceCell::new();
+static SWAGGER_DEVMODE: OnceCell<std::sync::Mutex<bool>> = OnceCell::new();
+
+/// Get the Swagger UI development mode status.
+fn get_is_devmode() -> bool {
+    if let Some(mode) = SWAGGER_DEVMODE.get() {
+        return *mode.lock().unwrap();
+    }
+
+    false
+}
 
 /// API Version 1 implementation
 pub struct V1 {
@@ -46,13 +55,13 @@ impl super::ApiVersion for V1 {
             .service(masterkey_handler);
 
         if self.dev_mode {
-            scope = scope.service(SwaggerUi::new("/api-doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi()));
+            scope = scope.service(SwaggerUi::new("/api-doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())).service(query_handler_dev);
             // Notify about Swagger UI availability.
             // We want only one notification instead of many per each worker.
-            let notified = SWAGGER_NOTIFIED.get_or_init(|| std::sync::Mutex::new(false));
-            let mut notified = notified.lock().unwrap();
-            if !*notified {
-                *notified = true;
+            let mode = SWAGGER_DEVMODE.get_or_init(|| std::sync::Mutex::new(false));
+            let mut mode = mode.lock().unwrap();
+            if !*mode {
+                *mode = self.dev_mode;
                 log::info!(
                     "{} In development mode {} is enabled at http://{}:{}/api-doc/",
                     "WARNING:".bright_red().bold(),
@@ -69,6 +78,7 @@ impl super::ApiVersion for V1 {
 
 #[derive(OpenApi)]
 #[openapi(paths(crate::api::v1::minions::query_handler,
+                crate::api::v1::minions::query_handler_dev,
                 crate::api::v1::system::health_handler,
                 crate::api::v1::system::authenticate_handler,
                 crate::api::v1::pkeys::pushkey_handler,
