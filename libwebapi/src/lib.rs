@@ -1,5 +1,6 @@
 use crate::api::ApiVersions;
 use actix_web::{App, HttpServer, web};
+use colored::Colorize;
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use std::{sync::Arc, thread};
 use tokio::sync::Mutex;
@@ -21,7 +22,7 @@ pub trait MasterInterface: Send + Sync {
 pub type MasterInterfaceType = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
 pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<(), SysinspectError> {
     if !cfg.api_enabled() {
-        log::info!("Web API is disabled in the configuration.");
+        log::warn!("Web API is {} in the configuration.", "disabled".bright_yellow().bold());
         return Ok(());
     }
 
@@ -29,15 +30,28 @@ pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<()
     let cmaster = master.clone();
 
     thread::spawn(move || {
+        let devmode = ccfg.api_devmode();
+        let swagger_port = ccfg.api_bind_port();
         let version = match ccfg.api_version() {
             1 => ApiVersions::V1,
             _ => ApiVersions::V1,
         };
 
+        if devmode {
+            log::info!("{} *** {} ***", "WARNING:".bright_red().bold(), "Web API is running in development mode".red());
+        } else {
+            log::info!(
+                "{} is running in {}. Swagger UI is {}.",
+                "Web API".yellow(),
+                "production mode".bright_green(),
+                "disabled".bright_white().bold()
+            );
+        }
+
         actix_web::rt::System::new().block_on(async move {
             HttpServer::new(move || {
                 let mut scope = web::scope("");
-                if let Some(ver) = api::get(version) {
+                if let Some(ver) = api::get(devmode, swagger_port as u16, version) {
                     scope = ver.load(scope);
                 }
                 App::new().app_data(web::Data::new(cmaster.clone())).service(scope)

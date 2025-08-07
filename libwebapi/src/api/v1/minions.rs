@@ -1,6 +1,9 @@
 pub use crate::api::v1::system::health_handler;
 use crate::{MasterInterfaceType, api::v1::TAG_MINIONS, keystore::get_webapi_keystore, sessions::get_session_store};
-use actix_web::{post, web};
+use actix_web::{
+    Result, post,
+    web::{Data, Json},
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use serde::{Deserialize, Serialize};
@@ -45,15 +48,6 @@ impl QueryRequest {
 
         let keystore = get_webapi_keystore(cfg)?;
         let mut sessions = get_session_store().lock().unwrap();
-
-        /*
-        let mut session = get_session_store().lock().unwrap();
-        let (nonce, ciphertext) = session.encrypt(&sid, &json!({"name": "john"})).unwrap();
-        log::info!("Encrypted session data for user {}: nonce = {:?}, ciphertext = {:?}", uid, nonce, ciphertext);
-        let res = session.decrypt::<serde_json::Value>(&sid, nonce.as_slice(), ciphertext.as_slice()).unwrap();
-        log::info!("Decrypted session data for user {}: {:?}", uid, res);
-        */
-
         let sid = keystore.decrypt_user_data(
             &STANDARD.decode(&self.sid_rsa).map_err(|e| SysinspectError::RSAError(format!("Failed to decode sid_rsa from base64: {e}")))?,
         )?;
@@ -97,20 +91,40 @@ impl Display for QueryError {
     )
 )]
 #[post("/api/v1/query")]
-async fn query_handler(master: web::Data<MasterInterfaceType>, body: web::Json<QueryRequest>) -> actix_web::Result<web::Json<QueryResponse>> {
+async fn query_handler(master: Data<MasterInterfaceType>, body: Json<QueryRequest>) -> Result<Json<QueryResponse>> {
     let mut master = master.lock().await;
     let cfg = master.cfg().await;
     let qpr = match body.to_query_request(cfg) {
         Ok(q) => q,
         Err(e) => {
             use actix_web::http::StatusCode;
-            let err_body = web::Json(QueryError { status: "error".to_string(), error: e.to_string() });
+            let err_body = Json(QueryError { status: "error".to_string(), error: e.to_string() });
             return Err(actix_web::error::InternalError::new(err_body, StatusCode::BAD_REQUEST).into());
         }
     };
 
     match master.query(qpr.to_query()).await {
-        Ok(()) => Ok(web::Json(QueryResponse { status: "success".to_string(), message: "Query executed successfully".to_string() })),
-        Err(err) => Ok(web::Json(QueryResponse { status: "error".to_string(), message: err.to_string() })),
+        Ok(()) => Ok(Json(QueryResponse { status: "success".to_string(), message: "Query executed successfully".to_string() })),
+        Err(err) => Ok(Json(QueryResponse { status: "error".to_string(), message: err.to_string() })),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/dev_query",
+    request_body = QueryPayloadRequest,
+    description = "Development endpoint for querying minions. FOR DEVELOPMENT AND DEBUGGING PURPOSES ONLY!",
+    tag = TAG_MINIONS,
+    responses(
+        (status = 200, description = "Success", body = QueryResponse),
+        (status = 400, description = "Bad Request", body = QueryError)
+    )
+)]
+#[post("/api/v1/dev_query")]
+async fn query_handler_dev(master: Data<MasterInterfaceType>, body: Json<QueryPayloadRequest>) -> Result<Json<QueryResponse>> {
+    let mut master = master.lock().await;
+    match master.query(body.to_query()).await {
+        Ok(()) => Ok(Json(QueryResponse { status: "success".to_string(), message: "Query executed successfully".to_string() })),
+        Err(err) => Ok(Json(QueryResponse { status: "error".to_string(), message: err.to_string() })),
     }
 }
