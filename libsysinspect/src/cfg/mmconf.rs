@@ -126,7 +126,7 @@ fn _logfile_path() -> PathBuf {
         }
     }
 
-    for p in [format!("{home}/.local/state"), "/var/log".to_string(), "/tmp".to_string()] {
+    for p in ["/var/log", &format!("{home}/.local/state"), "/tmp"] {
         let p = PathBuf::from(p);
         if let Ok(m) = fs::metadata(p.clone()) {
             if (m.permissions().mode() & 0o200) != 0 {
