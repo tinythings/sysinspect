@@ -45,15 +45,6 @@ impl QueryRequest {
 
         let keystore = get_webapi_keystore(cfg)?;
         let mut sessions = get_session_store().lock().unwrap();
-
-        /*
-        let mut session = get_session_store().lock().unwrap();
-        let (nonce, ciphertext) = session.encrypt(&sid, &json!({"name": "john"})).unwrap();
-        log::info!("Encrypted session data for user {}: nonce = {:?}, ciphertext = {:?}", uid, nonce, ciphertext);
-        let res = session.decrypt::<serde_json::Value>(&sid, nonce.as_slice(), ciphertext.as_slice()).unwrap();
-        log::info!("Decrypted session data for user {}: {:?}", uid, res);
-        */
-
         let sid = keystore.decrypt_user_data(
             &STANDARD.decode(&self.sid_rsa).map_err(|e| SysinspectError::RSAError(format!("Failed to decode sid_rsa from base64: {e}")))?,
         )?;
