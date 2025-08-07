@@ -157,6 +157,36 @@ Below are directives for the configuration of the File Server service:
     List of subdirectories within ``fileserver.models.root``, exporting models. If a model is not
     in the list, it will not be available for the minions.
 
+``log.stream``
+##############
+
+    Type: **string**
+
+    Path to the log stream file. This file is where Sysinspect Master writes down
+    everything it does—like keeping a diary of its actions and events. If something
+    goes wrong or you want to check what happened, you can look here. The Master tries
+    to save this file in a few places, depending on what it's allowed to access:
+
+    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
+    2. ``$HOME/.local/`` in user home directory
+    3. ``/tmp/`` if anything else fails
+
+    Default filename is ``sysmaster.standard.log``.
+
+``log.errors``
+###############
+
+    Type: **string**
+
+    Path to the log errors file. This file is used to collect all error logs from the
+    Sysinspect Master. Depends on permissions, the following order is used:
+
+    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
+    2. ``$HOME/.local/`` in user home directory
+    3. ``/tmp/`` if anything else fails
+
+    Default filename is ``sysmaster.errors.log``.
+
 ``telemetry.location``
 ######################
 
@@ -433,6 +463,37 @@ Example configuration for the Sysinspect Minion:
             root: /etc/sysinspect
             master.ip: 192.168.2.31
             master.port: 4200
+
+``log.stream``
+##############
+
+    Type: **string**
+
+    Path to the log stream file. This file is where Sysinspect Minion writes down
+    everything it does—like keeping a diary of its actions and events. If something
+    goes wrong or you want to check what happened, you can look here. The Minion tries
+    to save this file in a few places, depending on what it's allowed to access:
+
+
+    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
+    2. ``$HOME/.local/`` in user home directory
+    3. ``/tmp/`` if anything else fails
+
+    Default filename is ``sysminion.standard.log``.
+
+``log.errors``
+###############
+
+    Type: **string**
+
+    Path to the log errors file. This file is used to collect all error logs from the
+    Sysinspect Minion. Depends on permissions, the following order is used:
+
+    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
+    2. ``$HOME/.local/`` in user home directory
+    3. ``/tmp/`` if anything else fails
+
+    Default filename is ``sysminion.errors.log``.
 
 Layout of ``/etc/sysinspect``
 -----------------------------
