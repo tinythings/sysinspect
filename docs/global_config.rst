@@ -69,6 +69,60 @@ of the configuration file and contains the following directives:
     Sysinspect Minion configuration.
 
 
+Common Configuration
+^^^^^^^^^^^^^^^^^^^^
+
+The following configuration is applicable to both Master and Minion in their respective configuration files.
+
+``log.stream``
+##############
+
+    Type: **string**
+
+    Path to the log stream file. This file is where Sysinspect Master or Minion writes down
+    everything it does—like keeping a diary of its actions and events. If something
+    goes wrong or you want to check what happened, you can look here. The Master or Minion tries
+    to save this file in a few places, depending on what it's allowed to access:
+
+    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
+    2. ``$HOME/.local/`` in user home directory
+    3. ``/tmp/`` if anything else fails
+
+    Default filename for Master is ``sysmaster.standard.log`` and for Minion is ``sysminion.standard.log``.
+
+``log.errors``
+###############
+
+    Type: **string**
+
+    Path to the log errors file. This file is used to collect all error logs from the
+    Sysinspect Master or Minion. Depends on permissions, the following order is used:
+
+    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
+    2. ``$HOME/.local/`` in user home directory
+    3. ``/tmp/`` if anything else fails
+
+    Default filename for Master is ``sysmaster.errors.log`` and for Minion is ``sysminion.errors.log``.
+
+``pidfile``
+############
+
+    Type: **string**
+
+    Path to the PID file. This file is used to store the process ID of the Sysinspect Master or Minion.
+    It is important for managing the lifecycle of the service, allowing for proper start/stop
+    operations.
+
+    By default, pidfile is located at standard location: ``/run/user/<UID>/sysmaster.pid`` for Master
+    and ``/run/user/<UID>/sysminion.pid`` for Minion.
+
+    .. note::
+
+        Relocate the PID file to a different location only if it is really necessary: e.g.
+        your system is not standard, different permissions etc. Otherwise it is highly recommended
+        to keep the default location as is.
+
+
 Master
 ^^^^^^
 
@@ -157,35 +211,74 @@ Below are directives for the configuration of the File Server service:
     List of subdirectories within ``fileserver.models.root``, exporting models. If a model is not
     in the list, it will not be available for the minions.
 
-``log.stream``
-##############
-
-    Type: **string**
-
-    Path to the log stream file. This file is where Sysinspect Master writes down
-    everything it does—like keeping a diary of its actions and events. If something
-    goes wrong or you want to check what happened, you can look here. The Master tries
-    to save this file in a few places, depending on what it's allowed to access:
-
-    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
-    2. ``$HOME/.local/`` in user home directory
-    3. ``/tmp/`` if anything else fails
-
-    Default filename is ``sysmaster.standard.log``.
-
-``log.errors``
+``api.enabled``
 ###############
 
+    Type: **boolean**
+
+    Enable or disable the WebAPI service to control Sysinspect Master remotely.
+
+    .. important::
+
+        The WebAPI uses ``libsodium`` for encryption instead of standard SSL/TLS. This is because embedded
+        or IoT networks may lack DNS or have changing IP addresses, making SSL/TLS certificates unreliable,
+        as they are tied to specific DNS names or IPs. To connect to the WebAPI, use the Sysinspect client,
+        which authenticates using an RSA keypair and symmetric keys over an internal protocol.
+
+    The URL the Swagger UI is typically is running over unencrypted plain text HTTP protocol at ``http://<HOST>:<PORT>/api-doc/``.
+    Default port is ``4202``.
+
+    .. note::
+
+        Swagger UI is a web-based interface for the WebAPI service, allowing users to interact with the API.
+        However it runs only if development mode is enabled, because it relies on unencrypted HTTP traffic
+        and API requires a proper protocol interaction that cannot be achieved with Swagger UI.
+
+        **In development mode authentication is fully disabled and no traffic is encrypted.**
+
+    Default is ``true``.
+
+``api.bind.ip``
+################
+
     Type: **string**
 
-    Path to the log errors file. This file is used to collect all error logs from the
-    Sysinspect Master. Depends on permissions, the following order is used:
+    IPv4 address on which the WebAPI service is listening for all incoming and outgoing traffic.
 
-    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
-    2. ``$HOME/.local/`` in user home directory
-    3. ``/tmp/`` if anything else fails
+    Default value is ``0.0.0.0``.
 
-    Default filename is ``sysmaster.errors.log``.
+``api.bind.port``
+#################
+
+    Type: **integer**
+
+    Network port number on which the WebAPI service is listening.
+
+    WebAPI service port is ``4202``.
+
+``api.auth``
+############
+
+    Type: **string**
+
+    Authentication method to be used for the WebAPI service. This is a string and can be one of the following:
+
+        - ``pam``
+        - ``ldap`` `(planned, not implemented yet)`
+
+``api.devmode``
+################
+
+    Type: **boolean**
+
+    Enable or disable development mode for the WebAPI service.
+
+    .. danger::
+
+        This option is exclusively only for development purposes! If it is enabled, Swagger UI will be running
+        on
+
+    Default is ``false``.
 
 ``telemetry.location``
 ######################
@@ -464,36 +557,6 @@ Example configuration for the Sysinspect Minion:
             master.ip: 192.168.2.31
             master.port: 4200
 
-``log.stream``
-##############
-
-    Type: **string**
-
-    Path to the log stream file. This file is where Sysinspect Minion writes down
-    everything it does—like keeping a diary of its actions and events. If something
-    goes wrong or you want to check what happened, you can look here. The Minion tries
-    to save this file in a few places, depending on what it's allowed to access:
-
-
-    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
-    2. ``$HOME/.local/`` in user home directory
-    3. ``/tmp/`` if anything else fails
-
-    Default filename is ``sysminion.standard.log``.
-
-``log.errors``
-###############
-
-    Type: **string**
-
-    Path to the log errors file. This file is used to collect all error logs from the
-    Sysinspect Minion. Depends on permissions, the following order is used:
-
-    1. ``/var/log/`` typically a standard place for logs, but might not be accessible
-    2. ``$HOME/.local/`` in user home directory
-    3. ``/tmp/`` if anything else fails
-
-    Default filename is ``sysminion.errors.log``.
 
 Layout of ``/etc/sysinspect``
 -----------------------------
