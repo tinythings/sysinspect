@@ -14,8 +14,8 @@ pub trait ApiVersion {
 }
 
 /// Get the API version implementation based on the requested version.
-pub fn get(version: ApiVersions) -> Option<Box<dyn ApiVersion>> {
+pub fn get(dev_mode: bool, port: u16, version: ApiVersions) -> Option<Box<dyn ApiVersion>> {
     match version {
-        ApiVersions::V1 => Some(Box::new(V1)),
+        ApiVersions::V1 => Some(Box::new(V1::new(dev_mode, port))),
     }
 }
