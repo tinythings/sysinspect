@@ -60,15 +60,14 @@ fn get_config(params: &ArgMatches) -> MinionConfig {
 // Print help?
 fn help(cli: &mut Command, params: ArgMatches) -> bool {
     for sc in ["setup", "module"] {
-        if let Some(sub) = params.subcommand_matches(sc) {
-            if sub.get_flag("help") {
+        if let Some(sub) = params.subcommand_matches(sc)
+            && sub.get_flag("help") {
                 if let Some(s_cli) = cli.find_subcommand_mut(sc) {
                     _ = s_cli.print_help();
                     return true;
                 }
                 return false;
             }
-        }
     }
 
     if params.get_flag("help") {

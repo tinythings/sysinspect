@@ -6,10 +6,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
-    widgets::{
-        Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table,
-        Widget,
-    },
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
 };
 
 impl SysInspectUX {
@@ -29,12 +26,9 @@ impl SysInspectUX {
             Some(eli) => eli,
             None => {
                 Widget::render(
-                    Table::new(
-                        vec![Row::new(vec!["N/A"]).style(Style::default().fg(Color::LightRed)).bottom_margin(0)],
-                        &[Constraint::Min(0)],
-                    )
-                    .block(block)
-                    .column_spacing(1),
+                    Table::new(vec![Row::new(vec!["N/A"]).style(Style::default().fg(Color::LightRed)).bottom_margin(0)], &[Constraint::Min(0)])
+                        .block(block)
+                        .column_spacing(1),
                     rect,
                     buf,
                 );
@@ -54,18 +48,10 @@ impl SysInspectUX {
         let extra_table_area = inner_layout[2];
 
         // Static table
-        Widget::render(
-            Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1),
-            info_table_area,
-            buf,
-        );
+        Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), info_table_area, buf);
 
         // Splitter label
-        Widget::render(
-            Paragraph::new("Additional Information").style(Style::default().fg(Color::Yellow)),
-            splitter_label_area,
-            buf,
-        );
+        Widget::render(Paragraph::new("Additional Information").style(Style::default().fg(Color::Yellow)), splitter_label_area, buf);
 
         // Fill-in info rows from the event data. At this point it supposed to be fetched.
         let mut info_rows_ref = self.info_rows.borrow_mut();
@@ -89,11 +75,7 @@ impl SysInspectUX {
 
         let end = (2 + self.actdt_info_offset + extra_table_area.height.saturating_sub(2) as usize).min(info_rows_ref.len());
         let displayed = &info_rows_ref[self.actdt_info_offset..end]; // XXX: Can crash tho :-)
-        Widget::render(
-            Table::new(displayed.to_vec(), &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1),
-            ex_nfo_area,
-            buf,
-        );
+        Widget::render(Table::new(displayed.to_vec(), &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), ex_nfo_area, buf);
 
         let mut scroller_state = ScrollbarState::default().content_length(info_rows_ref.len()).position(self.actdt_info_offset);
         Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
@@ -154,8 +136,7 @@ impl SysInspectUX {
         let csize = self.size.get();
         self.size.set(UISizes { table_minions: rect.height.saturating_sub(2) as usize, ..csize });
 
-        let title =
-            if !self.li_minions.is_empty() { format!("Minions ({})", self.li_minions.len()) } else { "Minions".to_string() };
+        let title = if !self.li_minions.is_empty() { format!("Minions ({})", self.li_minions.len()) } else { "Minions".to_string() };
         let block = self._get_box_block(&title, ActiveBox::Minions);
         Widget::render(&block, rect, buf);
 
@@ -183,7 +164,7 @@ impl SysInspectUX {
     }
 
     /// Prepares an active block with the border and title
-    fn _get_box_block(&self, title: &str, hl: ActiveBox) -> Block {
+    fn _get_box_block(&self, title: &str, hl: ActiveBox) -> Block<'_> {
         if self.active_box == hl {
             Block::default()
                 .borders(Borders::ALL)

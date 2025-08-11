@@ -92,11 +92,10 @@ impl MinionRegistry {
             Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
         };
 
-        if contains {
-            if let Err(err) = minions.remove(mid) {
+        if contains
+            && let Err(err) = minions.remove(mid) {
                 return Err(SysinspectError::MasterGeneralError(format!("{err}")));
             };
-        }
 
         Ok(())
     }

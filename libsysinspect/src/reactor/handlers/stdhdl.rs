@@ -43,8 +43,8 @@ impl EventHandler for StdoutEventHandler {
 
         if evt.response.retcode() == 0 {
             log::info!("{}{}/{} - {}", prefix, evt.eid().bright_cyan(), evt.aid().bright_cyan(), evt.response.message());
-            if verbose {
-                if let Some(data) = evt.response.data() {
+            if verbose
+                && let Some(data) = evt.response.data() {
                     log::info!(
                         "{}{}/{} - Other data:\n{}",
                         prefix,
@@ -53,7 +53,6 @@ impl EventHandler for StdoutEventHandler {
                         KeyValueFormatter::new(data).format()
                     );
                 }
-            }
         } else {
             log::error!(
                 "{}{}/{} (Error: {}) - {}",

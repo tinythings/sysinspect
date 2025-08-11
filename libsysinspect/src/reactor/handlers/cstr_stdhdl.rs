@@ -19,11 +19,10 @@ impl ConstraintHandler {
     /// Get prefix from the configuration
     fn get_prefix(&self) -> String {
         let mut prefix = "".to_string();
-        if let Some(config) = self.config() {
-            if let Some(p) = config.as_string("prefix") {
+        if let Some(config) = self.config()
+            && let Some(p) = config.as_string("prefix") {
                 prefix = format!("{} - ", p.cyan());
             }
-        }
 
         prefix
     }

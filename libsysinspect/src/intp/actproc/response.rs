@@ -233,11 +233,10 @@ impl ActionResponse {
     pub fn match_eid(&self, evt_id: &str) -> bool {
         // If explicitly specified and already matching
         for expr in self.constraints.expressions() {
-            if let Some(ovr_evt_id) = expr.get_event_id() {
-                if evt_id.eq(&ovr_evt_id) {
+            if let Some(ovr_evt_id) = expr.get_event_id()
+                && evt_id.eq(&ovr_evt_id) {
                     return true;
                 }
-            }
         }
 
         let p_eid = evt_id.split('/').map(|s| s.trim()).collect::<Vec<&str>>();

@@ -121,11 +121,10 @@ impl ModPakRepoIndex {
 
     /// Deletes a module from the index.
     pub fn remove_module(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
-        if let Some(platform_map) = self.platform.get_mut(platform) {
-            if let Some(arch_map) = platform_map.get_mut(arch) {
+        if let Some(platform_map) = self.platform.get_mut(platform)
+            && let Some(arch_map) = platform_map.get_mut(arch) {
                 arch_map.shift_remove(name);
             }
-        }
 
         Ok(())
     }

@@ -171,11 +171,10 @@ impl SysInspectUX {
     }
 
     fn on_events(&mut self) -> io::Result<()> {
-        if let Event::Key(e) = event::read()? {
-            if e.kind == KeyEventKind::Press {
+        if let Event::Key(e) = event::read()?
+            && e.kind == KeyEventKind::Press {
                 self.on_key(e);
             }
-        }
         Ok(())
     }
 

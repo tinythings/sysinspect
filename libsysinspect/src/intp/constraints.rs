@@ -364,11 +364,10 @@ impl Constraint {
 
     fn get_expr(&self, state: String, expr: &Option<IndexMap<String, Vec<Expression>>>) -> Vec<Expression> {
         let mut out: Vec<Expression> = Vec::default();
-        if let Some(expr) = expr {
-            if let Some(exprset) = expr.get(&state) {
+        if let Some(expr) = expr
+            && let Some(exprset) = expr.get(&state) {
                 out.extend(exprset.iter().cloned());
             }
-        }
 
         out
     }

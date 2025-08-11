@@ -49,11 +49,10 @@ pub struct EventConfig {
 impl EventConfig {
     /// Get an event configuration for a handler, if any
     pub fn for_handler(&self, handler: &str) -> Option<EventConfigOption> {
-        if let Some(cfg) = &self.cfg {
-            if let Some(cfg) = cfg.get(handler) {
+        if let Some(cfg) = &self.cfg
+            && let Some(cfg) = cfg.get(handler) {
                 return Some(cfg.to_owned());
             }
-        }
         None
     }
 

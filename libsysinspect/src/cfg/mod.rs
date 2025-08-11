@@ -17,8 +17,8 @@ pub const APP_HOME: &str = "/etc/sysinspect";
 /// Select app conf
 pub fn select_config_path(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
     // Override path from options
-    if let Some(ovrp) = p {
-        if !ovrp.is_empty() {
+    if let Some(ovrp) = p
+        && !ovrp.is_empty() {
             let ovrp = PathBuf::from(ovrp);
             if ovrp.exists() {
                 return Ok(ovrp);
@@ -26,7 +26,6 @@ pub fn select_config_path(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
 
             log::warn!("Preferred config at {} does not exist, falling back", ovrp.to_str().unwrap_or_default());
         }
-    }
 
     // Current
     let cfp: PathBuf = env::current_dir()?.canonicalize()?.join(APP_CONF);

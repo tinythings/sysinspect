@@ -73,11 +73,10 @@ pub fn to_fqdn_ip(hostname: &str) -> Option<(String, IpAddr)> {
         freeaddrinfo(res);
     }
 
-    if let Some(ip) = ipaddr {
-        if ip.is_loopback() {
+    if let Some(ip) = ipaddr
+        && ip.is_loopback() {
             ipaddr = ext_ipaddr();
         }
-    }
 
     match (fqdn, ipaddr) {
         (Some(fqdn), Some(ip)) => Some((fqdn, ip)),

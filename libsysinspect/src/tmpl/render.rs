@@ -33,11 +33,10 @@ impl ModelTplRender {
 
         let mut bogus = Vec::new();
         for (i, s) in keys.iter().enumerate() {
-            if let Some(next_s) = keys.get(i + 1) {
-                if next_s.starts_with(s) {
+            if let Some(next_s) = keys.get(i + 1)
+                && next_s.starts_with(s) {
                     bogus.push(s.clone());
                 }
-            }
         }
         bogus
     }

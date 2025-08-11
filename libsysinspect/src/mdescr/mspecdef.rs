@@ -40,11 +40,10 @@ pub struct ModelSpec {
 impl ModelSpec {
     /// Get a top-level DSL section
     pub fn top(&self, id: &str) -> Option<&Value> {
-        if self.system.contains_key(id) {
-            if let Some(v) = self.system.get(id) {
+        if self.system.contains_key(id)
+            && let Some(v) = self.system.get(id) {
                 return Some(v);
             }
-        }
 
         None
     }
