@@ -9,11 +9,10 @@ use std::{collections::HashMap, vec};
 /// Return process, if found
 fn find_process(cmd: String) -> Option<procfs::process::Process> {
     for p in all_processes().unwrap().flatten() {
-        if let Ok(cmdline) = p.cmdline() {
-            if cmdline.join(" ").starts_with(&cmd) {
+        if let Ok(cmdline) = p.cmdline()
+            && cmdline.join(" ").starts_with(&cmd) {
                 return Some(p);
             }
-        }
     }
 
     None

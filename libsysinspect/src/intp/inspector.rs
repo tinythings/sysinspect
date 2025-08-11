@@ -305,8 +305,8 @@ impl SysInspector {
                         }
                         let label = label.unwrap();
 
-                        if let Some(claims) = e.claims() {
-                            if let Some(claims) = claims.get(&state) {
+                        if let Some(claims) = e.claims()
+                            && let Some(claims) = claims.get(&state) {
                                 for claim in claims {
                                     let ret = functions::get_by_namespace(claim.get(&label).cloned(), func.ns()[5..].join(".").as_str());
                                     if ret.is_some() {
@@ -315,7 +315,6 @@ impl SysInspector {
                                 }
                                 return Err(SysinspectError::ModelDSLError(format!("Static namespace \"{}\" is unreachable", func.namespace())));
                             }
-                        }
                     }
                 }
                 _ => {

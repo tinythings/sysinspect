@@ -95,11 +95,10 @@ impl ModRequest {
 
     /// Get arg
     pub fn get_arg(&self, kw: &str) -> Option<ArgValue> {
-        if let Some(a) = &self.arguments {
-            if let Some(a) = a.get(kw) {
+        if let Some(a) = &self.arguments
+            && let Some(a) = a.get(kw) {
                 return Some(a.clone());
-            }
-        };
+            };
 
         None
     }

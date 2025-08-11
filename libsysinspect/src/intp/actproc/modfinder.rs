@@ -294,11 +294,10 @@ impl ModCall {
         match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
             Ok(mut p) => {
                 // Send options
-                if let Some(mut stdin) = p.stdin.take() {
-                    if let Err(err) = stdin.write_all(self.params_json().as_bytes()) {
+                if let Some(mut stdin) = p.stdin.take()
+                    && let Err(err) = stdin.write_all(self.params_json().as_bytes()) {
                         return Err(SysinspectError::ModuleError(format!("Error while communicating with the module: {err}")));
                     }
-                }
 
                 // Get the output
                 if let Ok(out) = p.wait_with_output() {

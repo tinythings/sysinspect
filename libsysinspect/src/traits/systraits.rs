@@ -130,11 +130,10 @@ impl SystemTraits {
 
         // Machine Id (not always there)
         let mut mid = String::default();
-        if self.cfg.machine_id_path().exists() {
-            if let Ok(id) = fs::read_to_string(self.cfg.machine_id_path()) {
+        if self.cfg.machine_id_path().exists()
+            && let Ok(id) = fs::read_to_string(self.cfg.machine_id_path()) {
                 mid = id.trim().to_string();
             }
-        }
         self.put(SYS_ID.to_string(), json!(mid));
 
         // Memory

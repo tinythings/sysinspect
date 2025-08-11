@@ -50,8 +50,8 @@ impl NetInfo {
 
             let mut item: HashMap<String, serde_json::Value> = HashMap::default();
 
-            if let Some(addr) = iface.address {
-                if let Some(family) = addr.family() {
+            if let Some(addr) = iface.address
+                && let Some(family) = addr.family() {
                     if let (AddressFamily::Inet, Some(ip)) = (family, addr.as_sockaddr_in()) {
                         item.insert("port".to_string(), json!(ip.port()));
                         item.insert("IPv4".to_string(), json!(ip.ip()));
@@ -59,13 +59,11 @@ impl NetInfo {
                         item.insert("port".to_string(), json!(ip.port()));
                         item.insert("IPv6".to_string(), json!(ip.ip()));
                         item.insert("scope".to_string(), json!(ip.scope_id()));
-                    } else if let (AddressFamily::Packet, Some(link)) = (family, addr.as_link_addr()) {
-                        if let Some(mac) = link.addr() {
+                    } else if let (AddressFamily::Packet, Some(link)) = (family, addr.as_link_addr())
+                        && let Some(mac) = link.addr() {
                             item.insert("mac".to_string(), json!(Self::format_mac(&mac).to_ascii_uppercase().to_string()));
                         }
-                    }
                 }
-            }
 
             let ifn = iface.interface_name.to_string();
             if self.itf_accepted(&ifn) && !item.is_empty() {
@@ -122,8 +120,8 @@ fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> Result<HashMap<String, se
         data.insert("if-up".to_string(), json!(ifs));
     }
 
-    if runtime::get_opt(rt, "route-table") {
-        if let Ok(rt_data) = routing::ip_route() {
+    if runtime::get_opt(rt, "route-table")
+        && let Ok(rt_data) = routing::ip_route() {
             let mut rtable: Vec<HashMap<String, String>> = Vec::default();
             for entry in &rt_data {
                 // Skip an interface, which wasn't requested
@@ -180,7 +178,6 @@ fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> Result<HashMap<String, se
                 data.insert("route-table".to_string(), json!(rtable));
             }
         }
-    }
 
     Ok(data)
 }

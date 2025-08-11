@@ -128,11 +128,10 @@ fn _logfile_path() -> PathBuf {
 
     for p in ["/var/log", &format!("{home}/.local/state"), "/tmp"] {
         let p = PathBuf::from(p);
-        if let Ok(m) = fs::metadata(p.clone()) {
-            if (m.permissions().mode() & 0o200) != 0 {
+        if let Ok(m) = fs::metadata(p.clone())
+            && (m.permissions().mode() & 0o200) != 0 {
                 return p;
             }
-        }
     }
     PathBuf::from("")
 }
@@ -208,12 +207,11 @@ impl TelemetryConfig {
         let mut resources = IndexMap::new();
         let mut skipped = vec![];
         for (key, value) in self.exporter_resources.clone().unwrap_or_default() {
-            if let Some(v) = value.as_bool() {
-                if !v {
+            if let Some(v) = value.as_bool()
+                && !v {
                     skipped.push(key);
                     continue;
                 }
-            }
 
             let value = util::dataconv::to_string(Some(value)).unwrap_or_default().trim().to_string();
             if value.is_empty() {
@@ -542,11 +540,10 @@ impl MinionConfig {
         if let Ok(i) = i.parse::<u64>() {
             return i;
         }
-        if let Some((start, end)) = i.split_once('-') {
-            if let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>()) {
+        if let Some((start, end)) = i.split_once('-')
+            && let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>()) {
                 return if end > start { rand::random::<u64>() % (end - start + 1) + start } else { start };
             }
-        }
 
         rand::random::<u64>() % 30 + 5
     }
@@ -660,11 +657,10 @@ impl MasterConfig {
     /// Get OTLP compression mode. Usually should be default.
     pub fn otlp_compression(&self) -> String {
         let mut cpr = CFG_OTLP_COMPRESSION.to_string();
-        if let Some(cfg) = &self.telemetry {
-            if let Some(compression) = &cfg.compression {
+        if let Some(cfg) = &self.telemetry
+            && let Some(compression) = &cfg.compression {
                 cpr = compression.clone();
             }
-        }
 
         if !cpr.eq("gzip") && !cpr.eq("zstd") {
             return CFG_OTLP_COMPRESSION.to_string();

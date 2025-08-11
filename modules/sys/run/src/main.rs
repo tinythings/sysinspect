@@ -52,14 +52,12 @@ fn call(cmd: &str, send: &str, locale: &str, env: &str, disown: bool) -> ModResp
 
     match process.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
         Ok(mut p) => {
-            if !send.is_empty() {
-                if let Some(mut stdin) = p.stdin.take() {
-                    if let Err(err) = stdin.write_all(send.as_bytes()) {
+            if !send.is_empty()
+                && let Some(mut stdin) = p.stdin.take()
+                    && let Err(err) = stdin.write_all(send.as_bytes()) {
                         resp.set_message(&err.to_string());
                         return resp;
                     }
-                }
-            }
 
             // XXX: In the moment this is blocking. If a command blocks,
             // then the whole thing will wait until forever. A better approach

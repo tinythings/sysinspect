@@ -78,15 +78,14 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
 
 // Print help?
 fn help(cli: &mut Command, params: &ArgMatches) -> bool {
-    if let Some(sub) = params.subcommand_matches("module") {
-        if sub.get_flag("help") {
+    if let Some(sub) = params.subcommand_matches("module")
+        && sub.get_flag("help") {
             if let Some(s_cli) = cli.find_subcommand_mut("module") {
                 _ = s_cli.print_help();
                 return true;
             }
             return false;
         }
-    }
     if params.get_flag("help") {
         _ = &cli.print_long_help();
         return true;
@@ -136,12 +135,11 @@ async fn main() {
         let mut repo = match libmodpak::SysInspectModPak::new(cfg.get_mod_repo_root()) {
             Ok(repo) => repo,
             Err(err) => {
-                if let SysinspectError::IoErr(err) = &err {
-                    if err.kind() == ErrorKind::NotFound {
+                if let SysinspectError::IoErr(err) = &err
+                    && err.kind() == ErrorKind::NotFound {
                         log::error!("No module repository found. Create one, perhaps?..");
                         exit(1);
                     }
-                }
                 log::error!("Unable to open module repository: {err}");
                 exit(1);
             }

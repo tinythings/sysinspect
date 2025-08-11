@@ -222,12 +222,11 @@ impl SysInspectModPakMinion {
 
                 log::debug!("Writing library to {} ({} bytes)", dst.display().to_string().bright_yellow(), buff.len());
 
-                if let Some(dst) = dst.parent() {
-                    if !dst.exists() {
+                if let Some(dst) = dst.parent()
+                    && !dst.exists() {
                         log::debug!("Creating directory {}", dst.display().to_string().bright_yellow());
                         std::fs::create_dir_all(dst)?;
                     }
-                }
 
                 fs::write(&dst, buff)?;
                 fs::write(dst.with_extension(REPO_MOD_SHA256_EXT), lf.checksum())?;
@@ -285,12 +284,11 @@ impl SysInspectModPakMinion {
 
                 // Check if we need to write that
                 log::debug!("Writing module to {}", dst.display().to_string().bright_yellow());
-                if let Some(pdst) = dst.parent() {
-                    if !pdst.exists() {
+                if let Some(pdst) = dst.parent()
+                    && !pdst.exists() {
                         log::debug!("Creating directory {}", pdst.display().to_string().bright_yellow());
                         std::fs::create_dir_all(pdst)?;
                     }
-                }
                 fs::write(&dst, buff)?;
 
                 // chmod +X
@@ -299,12 +297,11 @@ impl SysInspectModPakMinion {
                 fs::set_permissions(&dst, p)?;
             }
 
-            if let Some(fsc) = fsc {
-                if !dst_cs.exists() || !verified {
+            if let Some(fsc) = fsc
+                && (!dst_cs.exists() || !verified) {
                     log::debug!("Updating module checksum as {}", dst_cs.display().to_string().bright_yellow());
                     fs::write(dst_cs, fsc)?;
                 }
-            }
             synced += 1;
             if synced % (modt / 0xf).max(1) == 0 || synced == modt {
                 log::warn!("{}% of modules synced", (synced * 100) / modt);
@@ -421,12 +418,11 @@ impl SysInspectModPak {
             PathBuf::from(Self::after(meta.get_path().to_str().unwrap_or_default(), meta.get_subpath().to_str().unwrap_or_default()));
         let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(&module_subpath);
         log::debug!("Subpath: {}", subpath.display().to_string().bright_yellow());
-        if let Some(p) = self.root.join(&subpath).parent() {
-            if !p.exists() {
+        if let Some(p) = self.root.join(&subpath).parent()
+            && !p.exists() {
                 log::debug!("Creating directory {}", p.display().to_string().bright_yellow());
                 std::fs::create_dir_all(p).unwrap();
             }
-        }
         log::debug!("Copying module to {}", self.root.join(&subpath).display().to_string().bright_yellow());
         std::fs::copy(meta.get_path(), self.root.join(&subpath))?;
         let checksum = libsysinspect::util::iofs::get_file_sha256(self.root.join(&subpath))?;
@@ -591,13 +587,11 @@ impl SysInspectModPak {
                         }
 
                         // Also remove the whole directory if it's empty already
-                        if let Some(p) = path.parent() {
-                            if let Ok(entries) = fs::read_dir(p) {
-                                if entries.count() == 0 {
+                        if let Some(p) = path.parent()
+                            && let Ok(entries) = fs::read_dir(p)
+                                && entries.count() == 0 {
                                     fs::remove_dir(p)?;
                                 }
-                            }
-                        }
                         c += 1;
                     } else {
                         log::error!("Module not found at {}", path.display().to_string().bright_yellow());

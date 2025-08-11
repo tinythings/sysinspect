@@ -114,7 +114,7 @@ impl EventListItem {
     }
 
     /// Get events data table
-    pub fn get_event_table(&self, keywidth: usize) -> Vec<Row> {
+    pub fn get_event_table(&self, keywidth: usize) -> Vec<Row<'_>> {
         vec![
             Row::new(vec![Self::yc("Info:".to_string(), keywidth), Self::gc(as_str(self.event.get_response().get("message").cloned()))]),
             Row::new(vec![

@@ -539,12 +539,11 @@ impl SysMinion {
             let hostname = dataconv::as_str(traits.get("system.hostname"));
             if !hostname.is_empty() {
                 for hq in tgt.hostnames() {
-                    if let Ok(hq) = glob::Pattern::new(hq) {
-                        if hq.matches(&hostname) {
+                    if let Ok(hq) = glob::Pattern::new(hq)
+                        && hq.matches(&hostname) {
                             skip = false;
                             break;
                         }
-                    }
                 }
                 if skip {
                     log::trace!("Command was dropped as it is specifically targeting different hosts");
