@@ -9,7 +9,7 @@ use libsysinspect::SysinspectError;
 use rpassword::prompt_password;
 use serde_json::json;
 use std::io::{Write, stdin, stdout};
-use sysinspect_client_example::{SysClient, SysClientConfiguration};
+use sysinspect_client::{SysClient, SysClientConfiguration};
 
 /// Get user credentials from STDIN
 fn get_credentials() -> Result<(String, String), SysinspectError> {
@@ -23,10 +23,13 @@ fn get_credentials() -> Result<(String, String), SysinspectError> {
 
 #[tokio::main]
 async fn main() -> Result<(), SysinspectError> {
-    let (uid, pwd) = get_credentials()
-        .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {e}")))?;
+    //let (uid, pwd) = get_credentials()
+    //    .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {e}")))?;
+    let (uid, pwd) = ("kenpit".to_string(), "kenpit".to_string());
+    let mut cfg = SysClientConfiguration::default();
+    cfg.master_url = "http://eval220.eso.local:4202".to_string();
 
-    let mut client = SysClient::new(SysClientConfiguration::default());
+    let mut client = SysClient::new(cfg);
     match client.authenticate(&uid, &pwd).await {
         Ok(sid) => {
             println!("Authentication successful, session ID: {sid}");
@@ -36,7 +39,15 @@ async fn main() -> Result<(), SysinspectError> {
         }
     };
 
-    let r = client.query("cm/file-ops", "*", "", "", json!({"metaid": "12345", "tgt": "it is alive!"})).await?;
+    let r = client
+        .query(
+            "kenpit/drain/collect",
+            "*",
+            "",
+            "",
+            json!({"metaid": "4fded3d0-43d9-45bc-9bca-d6530ded974b", "data": "fustercluck2", "clusters": "4000"}),
+        )
+        .await?;
     println!("Query result: {}", r.message);
 
     Ok(())
