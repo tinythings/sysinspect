@@ -27,6 +27,7 @@ All URIs are relative to *http://localhost*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *MinionsApi* | [**query_handler**](docs/MinionsApi.md#query_handler) | **POST** /api/v1/query | 
+*MinionsApi* | [**query_handler_dev**](docs/MinionsApi.md#query_handler_dev) | **POST** /api/v1/dev_query | 
 *RsaKeysApi* | [**master_key**](docs/RsaKeysApi.md#master_key) | **POST** /api/v1/masterkey | 
 *RsaKeysApi* | [**pushkey**](docs/RsaKeysApi.md#pushkey) | **POST** /api/v1/pushkey | 
 *SystemApi* | [**authenticate_user**](docs/SystemApi.md#authenticate_user) | **POST** /api/v1/authenticate | 

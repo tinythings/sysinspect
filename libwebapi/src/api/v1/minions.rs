@@ -5,6 +5,7 @@ use actix_web::{
     web::{Data, Json},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use colored::Colorize;
 use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
 use serde::{Deserialize, Serialize};
 use sodiumoxide::crypto::secretbox::Nonce;
@@ -51,7 +52,8 @@ impl QueryRequest {
         let sid = keystore.decrypt_user_data(
             &STANDARD.decode(&self.sid_rsa).map_err(|e| SysinspectError::RSAError(format!("Failed to decode sid_rsa from base64: {e}")))?,
         )?;
-        sessions.decrypt(
+
+        match sessions.decrypt(
             from_utf8(&sid).map_err(|_| SysinspectError::WebAPIError("Session ID is not valid UTF-8".to_string()))?,
             &Nonce::from_slice(
                 &STANDARD.decode(&self.nonce).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode nonce from base64: {e}")))?,
@@ -59,7 +61,13 @@ impl QueryRequest {
             .ok_or(SysinspectError::WebAPIError("Invalid nonce length".to_string()))?
             .0,
             &STANDARD.decode(&self.payload).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode payload from base64: {e}")))?,
-        )
+        ) {
+            Ok(data) => Ok(data),
+            Err(e) => {
+                log::debug!("{}: Failed to decrypt payload: {}", "ERROR".bright_red(), e);
+                Err(SysinspectError::WebAPIError(format!("Failed to decrypt payload: {}", e)))
+            }
+        }
     }
 }
 #[derive(Serialize, ToSchema)]

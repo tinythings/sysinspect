@@ -9,7 +9,7 @@ use libsysinspect::SysinspectError;
 use rpassword::prompt_password;
 use serde_json::json;
 use std::io::{Write, stdin, stdout};
-use sysinspect_client_example::{SysClient, SysClientConfiguration};
+use sysinspect_client::{SysClient, SysClientConfiguration};
 
 /// Get user credentials from STDIN
 fn get_credentials() -> Result<(String, String), SysinspectError> {
@@ -25,8 +25,9 @@ fn get_credentials() -> Result<(String, String), SysinspectError> {
 async fn main() -> Result<(), SysinspectError> {
     let (uid, pwd) = get_credentials()
         .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {e}")))?;
+    let cfg = SysClientConfiguration::default();
 
-    let mut client = SysClient::new(SysClientConfiguration::default());
+    let mut client = SysClient::new(cfg);
     match client.authenticate(&uid, &pwd).await {
         Ok(sid) => {
             println!("Authentication successful, session ID: {sid}");
@@ -36,7 +37,7 @@ async fn main() -> Result<(), SysinspectError> {
         }
     };
 
-    let r = client.query("cm/file-ops", "*", "", "", json!({"metaid": "12345", "tgt": "it is alive!"})).await?;
+    let r = client.query("cm/file-ops", "*", "", "", json!({})).await?;
     println!("Query result: {}", r.message);
 
     Ok(())

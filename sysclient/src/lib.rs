@@ -122,6 +122,7 @@ impl SysClient {
             let (prk, pbk) = keygen(2048)?;
             key_to_file(&Private(prk), "./", self.cfg.privkey_path().to_str().unwrap())?;
             key_to_file(&Public(pbk), "./", self.cfg.pubkey_path().to_str().unwrap())?;
+            log::debug!("RSA keys generated successfully.");
         }
 
         if !self.cfg.master_pubkey_path().exists() {
