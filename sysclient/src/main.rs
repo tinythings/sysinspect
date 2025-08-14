@@ -23,11 +23,9 @@ fn get_credentials() -> Result<(String, String), SysinspectError> {
 
 #[tokio::main]
 async fn main() -> Result<(), SysinspectError> {
-    //let (uid, pwd) = get_credentials()
-    //    .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {e}")))?;
-    let (uid, pwd) = ("kenpit".to_string(), "kenpit".to_string());
-    let mut cfg = SysClientConfiguration::default();
-    cfg.master_url = "http://eval220.eso.local:4202".to_string();
+    let (uid, pwd) = get_credentials()
+        .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read credentials: {e}")))?;
+    let cfg = SysClientConfiguration::default();
 
     let mut client = SysClient::new(cfg);
     match client.authenticate(&uid, &pwd).await {
@@ -39,15 +37,7 @@ async fn main() -> Result<(), SysinspectError> {
         }
     };
 
-    let r = client
-        .query(
-            "kenpit/drain/collect",
-            "*",
-            "",
-            "",
-            json!({"metaid": "4fded3d0-43d9-45bc-9bca-d6530ded974b", "data": "fustercluck2", "clusters": "4000"}),
-        )
-        .await?;
+    let r = client.query("cm/file-ops", "*", "", "", json!({})).await?;
     println!("Query result: {}", r.message);
 
     Ok(())
