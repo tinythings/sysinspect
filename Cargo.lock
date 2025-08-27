@@ -5824,7 +5824,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sysinspect-client-example"
+name = "sysinspect-client"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",

@@ -61,6 +61,47 @@
         }
       }
     },
+    "/api/v1/dev_query": {
+      "post": {
+        "tags": [
+          "Minions"
+        ],
+        "description": "Development endpoint for querying minions. FOR DEVELOPMENT AND DEBUGGING PURPOSES ONLY!",
+        "operationId": "query_handler_dev",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryPayloadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "post": {
         "tags": [

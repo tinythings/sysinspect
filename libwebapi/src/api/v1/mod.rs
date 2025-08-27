@@ -55,15 +55,13 @@ impl super::ApiVersion for V1 {
             .service(masterkey_handler);
 
         if self.dev_mode {
-            scope = scope.service(SwaggerUi::new("/api-doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())).service(query_handler_dev);
-            // Notify about Swagger UI availability.
-            // We want only one notification instead of many per each worker.
+            scope = scope.service(SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())).service(query_handler_dev);
             let mode = SWAGGER_DEVMODE.get_or_init(|| std::sync::Mutex::new(false));
             let mut mode = mode.lock().unwrap();
             if !*mode {
                 *mode = self.dev_mode;
                 log::info!(
-                    "{} In development mode {} is enabled at http://{}:{}/api-doc/",
+                    "{} In development mode {} is enabled at http://{}:{}/doc/",
                     "WARNING:".bright_red().bold(),
                     "API Swagger UI".bright_yellow(),
                     "<THIS_HOST>",
