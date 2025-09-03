@@ -41,9 +41,10 @@ impl ModelSpec {
     /// Get a top-level DSL section
     pub fn top(&self, id: &str) -> Option<&Value> {
         if self.system.contains_key(id)
-            && let Some(v) = self.system.get(id) {
-                return Some(v);
-            }
+            && let Some(v) = self.system.get(id)
+        {
+            return Some(v);
+        }
 
         None
     }
@@ -60,5 +61,35 @@ impl ModelSpec {
     /// Get telemetry spec
     pub fn telemetry(&self) -> Option<TelemetrySpec> {
         self.telemetry.clone()
+    }
+
+    /// Get model name
+    /// Returns the name of the model
+    pub fn name(&self) -> &str {
+        &self.name.trim()
+    }
+
+    /// Get model version
+    /// Returns the version of the model
+    pub fn version(&self) -> &str {
+        &self.version.trim()
+    }
+
+    /// Get maintainer
+    /// Returns the maintainer of the model
+    pub fn maintainer(&self) -> &str {
+        &self.maintainer.trim()
+    }
+
+    /// Is telemetry enabled
+    /// Returns true if telemetry is enabled in the model spec
+    pub fn telemetry_enabled(&self) -> bool {
+        self.telemetry.is_some()
+    }
+
+    /// Get model description
+    /// Returns the description of the model
+    pub fn description(&self) -> &str {
+        &self.description.trim()
     }
 }
