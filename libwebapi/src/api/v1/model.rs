@@ -3,7 +3,6 @@ use actix_web::{
     HttpResponse, Result, get,
     web::{Data, Json, Query},
 };
-use itertools::Itertools;
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     mdescr::{mspec, mspecdef::ModelSpec},
@@ -48,11 +47,12 @@ impl ModelInfo {
 
         let entities = mdl.top("entities");
         if let Some(v) = entities
-            && let Some(map) = v.as_mapping() {
-                for entity in map.keys().map(|k| dataconv::as_str(Some(k.clone()))).collect::<Vec<_>>() {
-                    nfo.add_entity(entity, vec![]); // XXX: Add bound actions later
-                }
+            && let Some(map) = v.as_mapping()
+        {
+            for entity in map.keys().map(|k| dataconv::as_str(Some(k.clone()))).collect::<Vec<_>>() {
+                nfo.add_entity(entity, vec![]); // XXX: Add bound actions later
             }
+        }
 
         nfo
     }
