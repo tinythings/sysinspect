@@ -1,6 +1,7 @@
 pub use crate::api::v1::system::health_handler;
 use crate::api::v1::{
     minions::{QueryError, QueryPayloadRequest, QueryRequest, QueryResponse, query_handler, query_handler_dev},
+    model::{ModelNameResponse, model_descr_handler, model_names_handler},
     pkeys::{MasterKeyError, MasterKeyResponse, PubKeyError, PubKeyRequest, PubKeyResponse, masterkey_handler, pushkey_handler},
     system::{AuthInnerRequest, AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
@@ -11,15 +12,17 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 pub mod minions;
+pub mod model;
 pub mod pkeys;
 pub mod system;
 
-const API_VERSION: &str = "0.1.0";
+const API_VERSION: &str = "0.1.1";
 
 /// API Tags
 pub static TAG_MINIONS: &str = "Minions";
 pub static TAG_SYSTEM: &str = "System";
 pub static TAG_RSAKEYS: &str = "RSA Keys";
+pub static TAG_MODELS: &str = "Models";
 
 static SWAGGER_DEVMODE: OnceCell<std::sync::Mutex<bool>> = OnceCell::new();
 
@@ -52,7 +55,9 @@ impl super::ApiVersion for V1 {
             .service(health_handler)
             .service(authenticate_handler)
             .service(pushkey_handler)
-            .service(masterkey_handler);
+            .service(masterkey_handler)
+            .service(model_names_handler)
+            .service(model_descr_handler);
 
         if self.dev_mode {
             scope = scope.service(SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())).service(query_handler_dev);
@@ -75,14 +80,19 @@ impl super::ApiVersion for V1 {
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(crate::api::v1::minions::query_handler,
-                crate::api::v1::minions::query_handler_dev,
-                crate::api::v1::system::health_handler,
-                crate::api::v1::system::authenticate_handler,
-                crate::api::v1::pkeys::pushkey_handler,
-                crate::api::v1::pkeys::masterkey_handler),
+#[openapi(paths(
+    crate::api::v1::minions::query_handler,
+    crate::api::v1::minions::query_handler_dev,
+    crate::api::v1::system::health_handler,
+    crate::api::v1::system::authenticate_handler,
+    crate::api::v1::pkeys::pushkey_handler,
+    crate::api::v1::pkeys::masterkey_handler,
+    crate::api::v1::model::model_names_handler,
+    crate::api::v1::model::model_descr_handler
+),
           components(schemas(QueryRequest, QueryResponse, QueryError, QueryPayloadRequest,
                              PubKeyRequest, PubKeyResponse, PubKeyError, MasterKeyResponse, MasterKeyError,
-                             HealthInfo, HealthResponse, AuthRequest, AuthResponse, AuthInnerRequest)),
+                             HealthInfo, HealthResponse, AuthRequest, AuthResponse, AuthInnerRequest,
+                             ModelNameResponse)),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDoc;
