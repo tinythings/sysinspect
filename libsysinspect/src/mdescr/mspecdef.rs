@@ -66,19 +66,19 @@ impl ModelSpec {
     /// Get model name
     /// Returns the name of the model
     pub fn name(&self) -> &str {
-        &self.name.trim()
+        self.name.trim()
     }
 
     /// Get model version
     /// Returns the version of the model
     pub fn version(&self) -> &str {
-        &self.version.trim()
+        self.version.trim()
     }
 
     /// Get maintainer
     /// Returns the maintainer of the model
     pub fn maintainer(&self) -> &str {
-        &self.maintainer.trim()
+        self.maintainer.trim()
     }
 
     /// Is telemetry enabled
@@ -90,6 +90,6 @@ impl ModelSpec {
     /// Get model description
     /// Returns the description of the model
     pub fn description(&self) -> &str {
-        &self.description.trim()
+        self.description.trim()
     }
 }

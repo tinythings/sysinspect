@@ -47,13 +47,12 @@ impl ModelInfo {
         };
 
         let entities = mdl.top("entities");
-        if let Some(v) = entities {
-            if let Some(map) = v.as_mapping() {
+        if let Some(v) = entities
+            && let Some(map) = v.as_mapping() {
                 for entity in map.keys().map(|k| dataconv::as_str(Some(k.clone()))).collect::<Vec<_>>() {
                     nfo.add_entity(entity, vec![]); // XXX: Add bound actions later
                 }
             }
-        }
 
         nfo
     }
@@ -127,11 +126,11 @@ pub async fn model_descr_handler(master: Data<MasterInterfaceType>, query: Query
     match mspec::load(Arc::new(MinionConfig::default()), &format!("{}/{}", root.to_str().unwrap_or_default(), name), None, None) {
         Err(e) => {
             log::error!("Failed to load model '{}': {}", name, e);
-            return Ok(HttpResponse::InternalServerError().json(ModelResponseError { error: format!("Failed to load model '{}': {}", name, e) }));
+            Ok(HttpResponse::InternalServerError().json(ModelResponseError { error: format!("Failed to load model '{}': {}", name, e) }))
         }
         Ok(mdl) => {
             let info = ModelInfo::from(mdl);
-            return Ok(HttpResponse::Ok().json(ModelResponse { models: vec![info] }));
+            Ok(HttpResponse::Ok().json(ModelResponse { models: vec![info] }))
         }
     }
 }
