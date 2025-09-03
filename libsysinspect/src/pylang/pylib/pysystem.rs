@@ -27,8 +27,8 @@ pub mod syscore {
     struct StrVec(Vec<String>);
     impl ToPyObject for StrVec {
         fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-            let l = self.0.into_iter().map(|s| vm.new_pyobj(s)).collect();
-            PyList::new_ref(l, vm.as_ref()).to_pyobject(vm)
+            let l: Vec<PyObjectRef> = self.0.into_iter().map(|s| vm.new_pyobj(s)).collect();
+            PyList::from(l).to_pyobject(vm)
         }
     }
 
@@ -191,8 +191,8 @@ pub mod syscore {
 
         #[pygetset]
         fn warnings(&self, _vm: &VirtualMachine) -> PyObjectRef {
-            let list = self.inner.lock().warnings.iter().map(|e| _vm.new_pyobj(e)).collect();
-            PyList::new_ref(list, _vm.as_ref()).to_pyobject(_vm)
+            let list: Vec<PyObjectRef> = self.inner.lock().warnings.iter().map(|e| _vm.new_pyobj(e)).collect();
+            PyList::from(list).to_pyobject(_vm)
         }
 
         #[pymethod]
