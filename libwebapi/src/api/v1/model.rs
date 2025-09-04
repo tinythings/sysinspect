@@ -3,17 +3,23 @@ use actix_web::{
     HttpResponse, Result, get,
     web::{Data, Json, Query},
 };
+use indexmap::IndexMap;
 use libsysinspect::{
+    SysinspectError,
     cfg::mmconf::MinionConfig,
+    intp::inspector::SysInspector,
     mdescr::{mspec, mspecdef::ModelSpec},
-    util::dataconv,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
 pub struct ModelInfo {
+    /// The unique identifier of the model (Id)
+    id: String,
+
     /// The name of the model
     name: String,
 
@@ -27,44 +33,41 @@ pub struct ModelInfo {
     maintainer: String,
 
     /// Entity to a vector of bound actions
-    #[serde(rename = "entity-actions")]
-    entities: HashMap<String, Vec<String>>,
-
-    /// The number of defined events in the model
-    events: i64,
+    #[serde(rename = "entity-states")]
+    entities: BTreeMap<String, Vec<String>>, // Entity -> States
 }
 
 impl ModelInfo {
-    pub fn from(mdl: ModelSpec) -> Self {
+    pub fn from(mid: String, mdl: ModelSpec) -> Result<Self, SysinspectError> {
         let mut nfo = ModelInfo {
+            id: mid,
             name: mdl.name().to_string(),
             description: mdl.description().to_string(),
             version: mdl.version().to_string(),
             maintainer: mdl.maintainer().to_string(),
-            entities: HashMap::new(),
-            events: 0,
+            entities: BTreeMap::new(),
         };
 
-        let entities = mdl.top("entities");
-        if let Some(v) = entities
-            && let Some(map) = v.as_mapping()
-        {
-            for entity in map.keys().map(|k| dataconv::as_str(Some(k.clone()))).collect::<Vec<_>>() {
-                nfo.add_entity(entity, vec![]); // XXX: Add bound actions later
+        let si = SysInspector::schema(mdl.clone())?;
+        for e in si.entities() {
+            let mut states = Vec::<String>::new();
+            for action in si.actions_by_entities(vec![e.id().to_string()], None)?.into_iter() {
+                states.extend(action.states(Some("*".to_string())));
             }
+
+            states.sort();
+            states.dedup();
+
+            nfo.entities.insert(e.id().to_string(), states);
         }
 
-        nfo
-    }
-
-    fn add_entity(&mut self, name: String, actions: Vec<String>) {
-        self.entities.insert(name, actions);
+        Ok(nfo)
     }
 }
 
 #[derive(Deserialize, Serialize, ToSchema)]
 pub struct ModelResponse {
-    models: Vec<ModelInfo>,
+    model: ModelInfo,
 }
 
 #[derive(Deserialize, Serialize, ToSchema)]
@@ -108,29 +111,32 @@ pub async fn model_names_handler(master: Data<MasterInterfaceType>) -> Json<Mode
 )]
 #[allow(unused)]
 #[get("/api/v1/model/descr")]
-pub async fn model_descr_handler(master: Data<MasterInterfaceType>, query: Query<HashMap<String, String>>) -> Result<HttpResponse> {
-    let name = query.get("name").cloned().unwrap_or_default();
-    if name.is_empty() {
+pub async fn model_descr_handler(master: Data<MasterInterfaceType>, query: Query<IndexMap<String, String>>) -> Result<HttpResponse> {
+    let mid = query.get("name").cloned().unwrap_or_default(); // Model Id
+    if mid.is_empty() {
         return Ok(HttpResponse::BadRequest().json(ModelResponseError { error: "Missing 'name' query parameter".to_string() }));
     }
 
     let mut master = master.lock().await;
     let cfg = master.cfg().await.clone();
     let models = cfg.fileserver_models();
-    if !models.contains(&name) {
-        return Ok(HttpResponse::NotFound().json(ModelResponseError { error: format!("Model '{}' not found", name) }));
+    if !models.contains(&mid) {
+        return Ok(HttpResponse::NotFound().json(ModelResponseError { error: format!("Model '{}' not found", mid) }));
     }
 
     let root = cfg.fileserver_mdl_root(false);
 
-    match mspec::load(Arc::new(MinionConfig::default()), &format!("{}/{}", root.to_str().unwrap_or_default(), name), None, None) {
+    match mspec::load(Arc::new(MinionConfig::default()), &format!("{}/{}", root.to_str().unwrap_or_default(), mid), None, None) {
         Err(e) => {
-            log::error!("Failed to load model '{}': {}", name, e);
-            Ok(HttpResponse::InternalServerError().json(ModelResponseError { error: format!("Failed to load model '{}': {}", name, e) }))
+            log::error!("Failed to load model '{}': {}", mid, e);
+            Ok(HttpResponse::InternalServerError().json(ModelResponseError { error: format!("Failed to load model '{}': {}", mid, e) }))
         }
-        Ok(mdl) => {
-            let info = ModelInfo::from(mdl);
-            Ok(HttpResponse::Ok().json(ModelResponse { models: vec![info] }))
-        }
+        Ok(mdl) => match ModelInfo::from(mid.clone(), mdl) {
+            Ok(info) => Ok(HttpResponse::Ok().json(ModelResponse { model: info })),
+            Err(e) => {
+                log::error!("Failed to build ModelInfo for '{}': {}", mid, e);
+                Ok(HttpResponse::InternalServerError().json(ModelResponseError { error: format!("Failed to build ModelInfo for '{}': {}", mid, e) }))
+            }
+        },
     }
 }
