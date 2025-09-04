@@ -27,6 +27,11 @@ static _SHARELIB: OnceCell<PathBuf> = OnceCell::new();
 
 /// Set sharelib for further work
 fn set_sharelib(sharelib: Option<PathBuf>) {
+    // Already set
+    if _SHARELIB.get().is_some() {
+        return;
+    }
+
     _ = _SHARELIB.set(sharelib.unwrap_or(PathBuf::from(DEFAULT_MODULES_SHARELIB)));
 }
 
@@ -50,6 +55,7 @@ pub struct SysInspector {
     config: Config,
     spec: ModelSpec,
     context: IndexMap<String, serde_json::Value>,
+    schemaonly: bool,
 }
 
 impl SysInspector {
@@ -57,7 +63,18 @@ impl SysInspector {
         // Set sharelib
         set_sharelib(sharelib);
 
-        // Create inspector
+        let mut sr = SysInspector::schema(spec)?;
+        sr.schemaonly = false;
+        sr.context = context;
+
+        // Load all handlers into factory
+        handlers::registry::init_handlers();
+
+        Ok(sr)
+    }
+
+    /// Used only for parse the model and navigate its structure, but doesn't actually run anything
+    pub fn schema(spec: ModelSpec) -> Result<Self, SysinspectError> {
         let mut sr = SysInspector {
             entities: IndexMap::new(),
             relations: IndexMap::new(),
@@ -66,14 +83,12 @@ impl SysInspector {
             checkbook: Vec::default(),
             config: Config::default(),
             spec,
-            context,
+            context: IndexMap::new(),
+            schemaonly: true,
         };
 
         sr.load()?;
         sr.validate()?;
-
-        // Load all handlers into factory
-        handlers::registry::init_handlers();
 
         Ok(sr)
     }
@@ -202,7 +217,11 @@ impl SysInspector {
                     // Because as the same Action gets registered with the another eid,
                     // it also corresponds to other claims and conditions, and that then
                     // needs to be passed to the reactor.
-                    out.push(action.to_owned().setup(self, &eid, state.to_owned())?);
+                    if self.schemaonly {
+                        out.push(action.to_owned());
+                    } else {
+                        out.push(action.to_owned().setup(self, &eid, state.to_owned())?);
+                    }
                     dropped.remove(&eid);
                 }
             }
@@ -245,6 +264,11 @@ impl SysInspector {
     /// Get an entity definition
     pub fn get_entity(&self, eid: &str) -> Option<&Entity> {
         self.entities.get(eid)
+    }
+
+    /// Get all entities
+    pub fn entities(&self) -> Vec<&Entity> {
+        self.entities.values().collect()
     }
 
     /// Claim function
@@ -306,15 +330,16 @@ impl SysInspector {
                         let label = label.unwrap();
 
                         if let Some(claims) = e.claims()
-                            && let Some(claims) = claims.get(&state) {
-                                for claim in claims {
-                                    let ret = functions::get_by_namespace(claim.get(&label).cloned(), func.ns()[5..].join(".").as_str());
-                                    if ret.is_some() {
-                                        return Ok(ret);
-                                    }
+                            && let Some(claims) = claims.get(&state)
+                        {
+                            for claim in claims {
+                                let ret = functions::get_by_namespace(claim.get(&label).cloned(), func.ns()[5..].join(".").as_str());
+                                if ret.is_some() {
+                                    return Ok(ret);
                                 }
-                                return Err(SysinspectError::ModelDSLError(format!("Static namespace \"{}\" is unreachable", func.namespace())));
                             }
+                            return Err(SysinspectError::ModelDSLError(format!("Static namespace \"{}\" is unreachable", func.namespace())));
+                        }
                     }
                 }
                 _ => {
