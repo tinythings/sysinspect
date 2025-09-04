@@ -2882,7 +2882,7 @@ dependencies = [
  "base64",
  "colored",
  "hex",
- "itertools 0.14.0",
+ "indexmap 2.11.0",
  "libsysinspect",
  "log",
  "once_cell",
