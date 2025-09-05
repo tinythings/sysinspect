@@ -7,7 +7,7 @@
       "name": "",
       "identifier": "Apache-2.0"
     },
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "paths": {
     "/api/v1/authenticate": {
@@ -173,6 +173,62 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MasterKeyError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/model/descr": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "description": "Retrieves detailed information about a specific model in the SysInspect system. The model includes its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.",
+        "operationId": "getModelDetails",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Name of the model to retrieve details for",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detailed information about the model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/model/names": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "description": "Lists all available models in the SysInspect system. Each model includes details such as its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.",
+        "operationId": "listModels",
+        "responses": {
+          "200": {
+            "description": "List of available models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelNameResponse"
+                  }
                 }
               }
             }
@@ -380,6 +436,77 @@
         "properties": {
           "key": {
             "type": "string"
+          }
+        }
+      },
+      "ModelInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "version",
+          "maintainer",
+          "entity-states"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A brief description of the model"
+          },
+          "entity-states": {
+            "type": "object",
+            "description": "Entity to a vector of bound actions",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string",
+            "description": "The unique identifier of the model (Id)"
+          },
+          "maintainer": {
+            "type": "string",
+            "description": "The author of the model"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the model"
+          },
+          "version": {
+            "type": "string",
+            "description": "The version of the model"
+          }
+        }
+      },
+      "ModelNameResponse": {
+        "type": "object",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ModelResponse": {
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelInfo"
           }
         }
       },

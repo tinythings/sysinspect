@@ -4,7 +4,7 @@ use super::{
     functions,
     inspector::SysInspector,
 };
-use crate::{util::dataconv, SysinspectError};
+use crate::{SysinspectError, util::dataconv};
 use colored::Colorize;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -105,6 +105,11 @@ impl Action {
         self.state.contains_key(sid)
     }
 
+    /// Get all states defined for an action
+    pub fn states(&self, default: Option<String>) -> Vec<String> {
+        self.state.keys().map(|k| if k == "$" { default.clone().unwrap_or_else(|| "$".to_string()) } else { k.clone() }).collect()
+    }
+
     /// Run action
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         if let Some(call) = &self.call {
@@ -120,8 +125,7 @@ impl Action {
     ) -> Result<Vec<Expression>, SysinspectError> {
         let mut out: Vec<Expression> = Vec::default();
         for mut expr in v_expr {
-            if let Some(modfunc) = functions::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten()
-            {
+            if let Some(modfunc) = functions::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten() {
                 match inspector.call_function(Some(eid), &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
@@ -181,12 +185,7 @@ impl Action {
             }
 
             // Setup modcall
-            let mut modcall = ModCall::default()
-                .set_state(state)
-                .set_module(mpath)
-                .set_aid(self.id())
-                .set_eid(eid.to_string())
-                .set_constraints(cst);
+            let mut modcall = ModCall::default().set_state(state).set_module(mpath).set_aid(self.id()).set_eid(eid.to_string()).set_constraints(cst);
 
             for (kw, arg) in &mod_args.args() {
                 let mut arg = arg.to_owned();
@@ -198,7 +197,7 @@ impl Action {
                                 eid,
                                 &modcall.state(),
                                 func.namespace()
-                            )))
+                            )));
                         }
                         Ok(Some(v)) => {
                             // XXX: Passing args to the modcall are for now always strings
@@ -227,14 +226,7 @@ impl Action {
 
 impl Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "<Action> - Id: {}, Descr: {}, Module: {}, Active: {}",
-            self.id(),
-            self.descr(),
-            self.module,
-            self.call.is_some()
-        )?;
+        write!(f, "<Action> - Id: {}, Descr: {}, Module: {}, Active: {}", self.id(), self.descr(), self.module, self.call.is_some())?;
 
         Ok(())
     }

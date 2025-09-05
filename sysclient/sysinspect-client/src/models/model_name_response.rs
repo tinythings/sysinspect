@@ -12,15 +12,15 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PubKeyError {
-    #[serde(rename = "error")]
-    pub error: String,
+pub struct ModelNameResponse {
+    #[serde(rename = "models")]
+    pub models: Vec<String>,
 }
 
-impl PubKeyError {
-    pub fn new(error: String) -> PubKeyError {
-        PubKeyError {
-            error,
+impl ModelNameResponse {
+    pub fn new(models: Vec<String>) -> ModelNameResponse {
+        ModelNameResponse {
+            models,
         }
     }
 }

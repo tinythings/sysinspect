@@ -209,14 +209,6 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceType>, body: 
                     }
                     None => HttpResponse::InternalServerError().json(AuthResponse::error("Session key not found")),
                 }
-
-                /*
-                let mut session = get_session_store().lock().unwrap();
-                let (nonce, ciphertext) = session.encrypt(&sid, &json!({"name": "john"})).unwrap();
-                log::info!("Encrypted session data for user {}: nonce = {:?}, ciphertext = {:?}", uid, nonce, ciphertext);
-                let res = session.decrypt::<serde_json::Value>(&sid, nonce.as_slice(), ciphertext.as_slice()).unwrap();
-                log::info!("Decrypted session data for user {}: {:?}", uid, res);
-                */
             }
             Err(err) => HttpResponse::BadRequest().json(AuthResponse::error(&err)),
         }

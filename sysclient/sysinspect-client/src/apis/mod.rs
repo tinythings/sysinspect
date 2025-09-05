@@ -112,6 +112,7 @@ impl From<&str> for ContentType {
 }
 
 pub mod minions_api;
+pub mod models_api;
 pub mod rsa_keys_api;
 pub mod system_api;
 

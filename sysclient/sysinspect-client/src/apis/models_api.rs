@@ -15,34 +15,33 @@ use crate::{apis::ResponseContent, models};
 use super::{Error, configuration, ContentType};
 
 
-/// struct for typed errors of method [`query_handler`]
+/// struct for typed errors of method [`get_model_details`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum QueryHandlerError {
-    Status400(models::QueryError),
+pub enum GetModelDetailsError {
     UnknownValue(serde_json::Value),
 }
 
-/// struct for typed errors of method [`query_handler_dev`]
+/// struct for typed errors of method [`list_models`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum QueryHandlerDevError {
-    Status400(models::QueryError),
+pub enum ListModelsError {
     UnknownValue(serde_json::Value),
 }
 
 
-pub async fn query_handler(configuration: &configuration::Configuration, query_request: models::QueryRequest) -> Result<models::QueryResponse, Error<QueryHandlerError>> {
+/// Retrieves detailed information about a specific model in the SysInspect system. The model includes its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.
+pub async fn get_model_details(configuration: &configuration::Configuration, name: &str) -> Result<models::ModelResponse, Error<GetModelDetailsError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_query_request = query_request;
+    let p_name = name;
 
-    let uri_str = format!("{}/api/v1/query", configuration.base_path);
-    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+    let uri_str = format!("{}/api/v1/model/descr", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
+    req_builder = req_builder.query(&[("name", &p_name.to_string())]);
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_query_request);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -59,28 +58,25 @@ pub async fn query_handler(configuration: &configuration::Configuration, query_r
         let content = resp.text().await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::QueryResponse`"))),
-            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::QueryResponse`")))),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::ModelResponse`"))),
+            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::ModelResponse`")))),
         }
     } else {
         let content = resp.text().await?;
-        let entity: Option<QueryHandlerError> = serde_json::from_str(&content).ok();
+        let entity: Option<GetModelDetailsError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }
 
-/// Development endpoint for querying minions. FOR DEVELOPMENT AND DEBUGGING PURPOSES ONLY!
-pub async fn query_handler_dev(configuration: &configuration::Configuration, query_payload_request: models::QueryPayloadRequest) -> Result<models::QueryResponse, Error<QueryHandlerDevError>> {
-    // add a prefix to parameters to efficiently prevent name collisions
-    let p_query_payload_request = query_payload_request;
+/// Lists all available models in the SysInspect system. Each model includes details such as its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.
+pub async fn list_models(configuration: &configuration::Configuration, ) -> Result<Vec<models::ModelNameResponse>, Error<ListModelsError>> {
 
-    let uri_str = format!("{}/api/v1/dev_query", configuration.base_path);
-    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+    let uri_str = format!("{}/api/v1/model/names", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.json(&p_query_payload_request);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;
@@ -97,12 +93,12 @@ pub async fn query_handler_dev(configuration: &configuration::Configuration, que
         let content = resp.text().await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::QueryResponse`"))),
-            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::QueryResponse`")))),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `Vec&lt;models::ModelNameResponse&gt;`"))),
+            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::ModelNameResponse&gt;`")))),
         }
     } else {
         let content = resp.text().await?;
-        let entity: Option<QueryHandlerDevError> = serde_json::from_str(&content).ok();
+        let entity: Option<ListModelsError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }
