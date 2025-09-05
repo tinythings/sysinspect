@@ -1,6 +1,6 @@
 [package]
 name = "syswebclient"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["OpenAPI Generator team and contributors"]
 description = "SysInspect Web API for interacting with the master interface."
 license = ""

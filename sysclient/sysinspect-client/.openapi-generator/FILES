@@ -11,6 +11,10 @@ docs/HealthResponse.md
 docs/MasterKeyError.md
 docs/MasterKeyResponse.md
 docs/MinionsApi.md
+docs/ModelInfo.md
+docs/ModelNameResponse.md
+docs/ModelResponse.md
+docs/ModelsApi.md
 docs/PubKeyError.md
 docs/PubKeyRequest.md
 docs/PubKeyResponse.md
@@ -24,6 +28,7 @@ git_push.sh
 src/apis/configuration.rs
 src/apis/minions_api.rs
 src/apis/mod.rs
+src/apis/models_api.rs
 src/apis/rsa_keys_api.rs
 src/apis/system_api.rs
 src/lib.rs
@@ -35,6 +40,9 @@ src/models/health_response.rs
 src/models/master_key_error.rs
 src/models/master_key_response.rs
 src/models/mod.rs
+src/models/model_info.rs
+src/models/model_name_response.rs
+src/models/model_response.rs
 src/models/pub_key_error.rs
 src/models/pub_key_request.rs
 src/models/pub_key_response.rs
