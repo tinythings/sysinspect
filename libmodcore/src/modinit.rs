@@ -42,6 +42,14 @@ impl ModOption {
             fill(&self.description, Options::new(H_WIDTH).initial_indent("    ").subsequent_indent("    "))
         )
     }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +64,7 @@ pub struct ModArgument {
 }
 
 impl ModArgument {
-    fn get_default(&self) -> String {
+    pub fn get_default(&self) -> String {
         if let Some(def) = &self.default {
             // XXX: Crude stupid hack, which is not so bad after all. :-)
             return Regex::new(r#"\w+\((.*)\)"#).unwrap().replace(&format!("{def:?}"), "$1").to_string().replace('"', "");
@@ -73,6 +81,22 @@ impl ModArgument {
             format!("(type: {}{}{})", self.argtype, req, def).bright_magenta(),
             fill(&self.description, Options::new(H_WIDTH).initial_indent("    ").subsequent_indent("    "))
         )
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn required(&self) -> bool {
+        self.required
+    }
+
+    pub fn argtype(&self) -> &str {
+        &self.argtype
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
     }
 }
 
@@ -141,11 +165,7 @@ impl ModInterface {
         fn args(cls: &ModInterface) -> String {
             let mut out: Vec<String> = Vec::default();
             if !cls.options.is_empty() {
-                out.push(format!(
-                    "{}\n\n{}",
-                    "Options:".bright_yellow(),
-                    cls.options.iter().map(|o| o.format()).collect::<Vec<String>>().join("\n")
-                ));
+                out.push(format!("{}\n\n{}", "Options:".bright_yellow(), cls.options.iter().map(|o| o.format()).collect::<Vec<String>>().join("\n")));
             }
 
             if !cls.arguments.is_empty() {
