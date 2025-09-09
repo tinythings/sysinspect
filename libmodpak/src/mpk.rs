@@ -1,7 +1,7 @@
 use anyhow::Context;
 use colored::Colorize;
 use indexmap::IndexMap;
-use libmodcore::modinit::ModInterface;
+use libmodcore::modinit::{ModArgument, ModInterface, ModOption};
 use libsysinspect::SysinspectError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -16,12 +16,18 @@ pub struct ModAttrs {
 
     #[serde(rename = "sha256")]
     checksum: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    args: Option<Vec<ModPackArgument>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    opts: Option<Vec<ModPackArgument>>,
 }
 
 impl ModAttrs {
     /// Creates a new ModAttrs with the given subpath, description, and type.
     pub fn new(subpath: String, descr: String, mod_type: String, checksum: String) -> Self {
-        Self { subpath, descr, mod_type, checksum }
+        Self { subpath, descr, mod_type, checksum, args: None, opts: None }
     }
 
     /// Returns the subpath of the module.
@@ -105,13 +111,16 @@ impl ModPakRepoIndex {
     /// Adds a module to the index.
     #[allow(clippy::too_many_arguments)]
     pub fn index_module(
-        &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool, checksum: &str,
+        &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool, checksum: &str, args: Option<Vec<ModPackArgument>>,
+        opts: Option<Vec<ModPackArgument>>,
     ) -> Result<(), SysinspectError> {
         let attrs = ModAttrs {
             subpath: subpath.to_string(),
             descr: descr.to_string(),
             mod_type: if bin { "binary".to_string() } else { "script".to_string() },
             checksum: checksum.to_string(),
+            args,
+            opts,
         };
 
         self.platform.entry(platform.to_string()).or_default().entry(arch.to_string()).or_default().insert(name.to_string(), attrs);
@@ -122,9 +131,10 @@ impl ModPakRepoIndex {
     /// Deletes a module from the index.
     pub fn remove_module(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
         if let Some(platform_map) = self.platform.get_mut(platform)
-            && let Some(arch_map) = platform_map.get_mut(arch) {
-                arch_map.shift_remove(name);
-            }
+            && let Some(arch_map) = platform_map.get_mut(arch)
+        {
+            arch_map.shift_remove(name);
+        }
 
         Ok(())
     }
@@ -229,12 +239,29 @@ impl ModPakRepoIndex {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ModPackArgument {
+    name: String,
+    description: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    argtype: Option<String>, // data type: str, int, bool, float, list etc
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ModPakMetadata {
     path: PathBuf,
     name: String,
     descr: String,
     arch: String,
+    arguments: Vec<ModPackArgument>,
+    options: Vec<ModPackArgument>,
 }
 
 impl ModPakMetadata {
@@ -252,9 +279,45 @@ impl ModPakMetadata {
         &self.name
     }
 
+    /// Get arguments
+    pub fn get_args(&self) -> &Vec<ModPackArgument> {
+        &self.arguments
+    }
+
+    /// Get options
+    pub fn get_opts(&self) -> &Vec<ModPackArgument> {
+        &self.options
+    }
+
     pub fn get_subpath(&self) -> PathBuf {
         let p = self.get_name().trim_start_matches('.').trim_end_matches('.').to_string().replace('.', "/");
         if self.arch.eq("noarch") { PathBuf::from(format!("{p}.py")) } else { PathBuf::from(p) }
+    }
+
+    /// Load arguments from vector of ModArgument
+    fn load_args(&mut self, args: Vec<ModArgument>) {
+        for arg in args {
+            self.arguments.push(ModPackArgument {
+                name: arg.name().to_string(),
+                description: arg.description().to_string().replace("\n", ""),
+                argtype: Some(arg.argtype().to_string()),
+                required: Some(arg.required()),
+                default: arg.get_default().into(),
+            });
+        }
+    }
+
+    /// Load options from vector of ModOption
+    fn load_opts(&mut self, opts: Vec<ModOption>) {
+        for opt in opts {
+            self.options.push(ModPackArgument {
+                name: opt.name().to_string(),
+                description: opt.description().to_string().replace("\n", ""),
+                required: None,
+                argtype: None,
+                default: None,
+            });
+        }
     }
 
     pub fn from_cli_matches(matches: &clap::ArgMatches) -> Result<Self, SysinspectError> {
@@ -294,7 +357,17 @@ impl ModPakMetadata {
             ));
         }
 
+        mpm.load_args(mi.arguments().to_vec());
+        mpm.load_opts(mi.options().to_vec());
+
         log::info!("Adding module at {}", mpm.path.display());
+
+        if mi.arguments().is_empty() && mi.options().is_empty() {
+            log::warn!(
+                r#"Module "{}" has no arguments or options documented in the spec, or the spec was not passed. This means the API browser won't expose the documentation."#,
+                mpm.name.bright_magenta().bold()
+            );
+        }
 
         Ok(mpm)
     }
