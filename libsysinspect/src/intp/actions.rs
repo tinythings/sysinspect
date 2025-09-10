@@ -18,6 +18,8 @@ pub struct ModArgs {
 
     #[serde(alias = "args")]
     arguments: Option<IndexMap<String, String>>,
+
+    context: Option<IndexMap<String, String>>, // Context variables definition for Jinja templates. Used only for model documentation.
 }
 
 impl ModArgs {
@@ -38,6 +40,11 @@ impl ModArgs {
             }
         }
         out
+    }
+
+    /// Get context variables
+    pub fn context(&self) -> IndexMap<String, String> {
+        self.context.to_owned().unwrap_or_default()
     }
 }
 
@@ -106,8 +113,14 @@ impl Action {
     }
 
     /// Get all states defined for an action
-    pub fn states(&self, default: Option<String>) -> Vec<String> {
-        self.state.keys().map(|k| if k == "$" { default.clone().unwrap_or_else(|| "$".to_string()) } else { k.clone() }).collect()
+    pub fn states(&self, default: Option<String>) -> Vec<(String, ModArgs)> {
+        self.state
+            .iter()
+            .map(|(k, v)| {
+                let key = if k == "$" { default.clone().unwrap_or_else(|| "$".to_string()) } else { k.clone() };
+                (key, v.clone())
+            })
+            .collect()
     }
 
     /// Run action
