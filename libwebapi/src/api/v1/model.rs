@@ -33,6 +33,7 @@ pub struct ModelInfo {
     maintainer: String,
 
     /// Entity to a vector of bound actions
+    #[allow(clippy::type_complexity)]
     #[serde(rename = "entity-states")]
     entities: BTreeMap<String, Vec<(String, BTreeMap<String, String>)>>, // Entity -> States
 }
