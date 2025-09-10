@@ -33,8 +33,9 @@ pub struct ModelInfo {
     maintainer: String,
 
     /// Entity to a vector of bound actions
+    #[allow(clippy::type_complexity)]
     #[serde(rename = "entity-states")]
-    entities: BTreeMap<String, Vec<String>>, // Entity -> States
+    entities: BTreeMap<String, Vec<(String, BTreeMap<String, String>)>>, // Entity -> States
 }
 
 impl ModelInfo {
@@ -50,9 +51,14 @@ impl ModelInfo {
 
         let si = SysInspector::schema(mdl.clone())?;
         for e in si.entities() {
-            let mut states = Vec::<String>::new();
+            let mut states = Vec::<(String, BTreeMap<String, String>)>::new();
             for action in si.actions_by_entities(vec![e.id().to_string()], None)?.into_iter() {
-                states.extend(action.states(Some("*".to_string())));
+                states.extend(
+                    action
+                        .states(Some("*".to_string()))
+                        .into_iter()
+                        .map(|(state, ma)| (state, ma.context().iter().map(|(k, v)| (k.clone(), v.clone())).collect::<BTreeMap<String, String>>())),
+                );
             }
 
             states.sort();
