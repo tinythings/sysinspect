@@ -41,7 +41,7 @@ No authorization required
 
 ## list_models
 
-> Vec<models::ModelNameResponse> list_models()
+> models::ModelNameResponse list_models()
 
 
 Lists all available models in the SysInspect system. Each model includes details such as its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.
@@ -52,7 +52,7 @@ This endpoint does not need any parameter.
 
 ### Return type
 
-[**Vec<models::ModelNameResponse>**](ModelNameResponse.md)
+[**models::ModelNameResponse**](ModelNameResponse.md)
 
 ### Authorization
 
