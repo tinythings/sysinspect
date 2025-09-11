@@ -69,7 +69,7 @@ pub async fn get_model_details(configuration: &configuration::Configuration, nam
 }
 
 /// Lists all available models in the SysInspect system. Each model includes details such as its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.
-pub async fn list_models(configuration: &configuration::Configuration, ) -> Result<Vec<models::ModelNameResponse>, Error<ListModelsError>> {
+pub async fn list_models(configuration: &configuration::Configuration, ) -> Result<models::ModelNameResponse, Error<ListModelsError>> {
 
     let uri_str = format!("{}/api/v1/model/names", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
@@ -93,8 +93,8 @@ pub async fn list_models(configuration: &configuration::Configuration, ) -> Resu
         let content = resp.text().await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `Vec&lt;models::ModelNameResponse&gt;`"))),
-            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::ModelNameResponse&gt;`")))),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `models::ModelNameResponse`"))),
+            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `models::ModelNameResponse`")))),
         }
     } else {
         let content = resp.text().await?;

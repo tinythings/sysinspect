@@ -18,7 +18,7 @@ pub struct ModelInfo {
     pub description: String,
     /// Entity to a vector of bound actions
     #[serde(rename = "entity-states")]
-    pub entity_states: std::collections::HashMap<String, Vec<String>>,
+    pub entity_states: std::collections::HashMap<String, Vec<Vec<serde_json::Value>>>,
     /// The unique identifier of the model (Id)
     #[serde(rename = "id")]
     pub id: String,
@@ -34,7 +34,7 @@ pub struct ModelInfo {
 }
 
 impl ModelInfo {
-    pub fn new(description: String, entity_states: std::collections::HashMap<String, Vec<String>>, id: String, maintainer: String, name: String, version: String) -> ModelInfo {
+    pub fn new(description: String, entity_states: std::collections::HashMap<String, Vec<Vec<serde_json::Value>>>, id: String, maintainer: String, name: String, version: String) -> ModelInfo {
         ModelInfo {
             description,
             entity_states,

@@ -225,10 +225,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ModelNameResponse"
-                  }
+                  "$ref": "#/components/schemas/ModelNameResponse"
                 }
               }
             }
@@ -460,7 +457,22 @@
             "additionalProperties": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "array",
+                "items": false,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    }
+                  }
+                ]
               }
             },
             "propertyNames": {
