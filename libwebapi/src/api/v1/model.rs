@@ -93,7 +93,7 @@ pub struct ModelNameResponse {
     operation_id = "listModels",
     description = "Lists all available models in the SysInspect system. Each model includes details such as its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.",
     responses(
-        (status = 200, description = "List of available models", body = [ModelNameResponse])
+        (status = 200, description = "List of available models", body = ModelNameResponse)
     )
 )]
 #[allow(unused)]
