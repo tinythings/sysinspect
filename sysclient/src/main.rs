@@ -40,5 +40,14 @@ async fn main() -> Result<(), SysinspectError> {
     let r = client.query("cm/file-ops", "*", "", "", json!({})).await?;
     println!("Query result: {}", r.message);
 
+    let names = client.models().await?;
+    println!("Available models: {:?}", names.models);
+
+    let mdetails = client.model_descr("cm").await?;
+
+    println!("Model id: {}", mdetails.model.id);
+    println!("Model descr: {:?}", mdetails.model.description);
+    println!("States: {:#?}", mdetails.model.entity_states);
+
     Ok(())
 }
