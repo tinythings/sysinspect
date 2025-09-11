@@ -455,20 +455,54 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    fn print_kv(name: &str, required: bool, descr: &str, width: usize) {
+        // 1) build plain, aligned label (no colors yet!)
+        let label = if required { format!("{}*:", name) } else { format!("{}:", name) };
+        let padded = format!("{:>width$}", label, width = width);
+
+        // 2) color AFTER padding, so spaces/columns are stable
+        if required {
+            // color the single '*' red, the rest yellow
+            let star_idx = padded.rfind('*').unwrap(); // safe: exists when required
+            let (pre, rest) = padded.split_at(star_idx);
+            let after_star = &rest[1..]; // skip '*'
+            println!("{}{}{} {}", pre.bright_yellow(), "*".bright_red(), after_star.bright_yellow(), descr.white());
+        } else {
+            println!("{} {}", padded.bright_yellow(), descr.white());
+        }
+    }
     /// Prints a table of modules with their attributes.
-    fn print_table(modules: &IndexMap<String, ModAttrs>) {
+    fn print_table(modules: &IndexMap<String, ModAttrs>, verbose: bool) {
         let mw = modules.keys().map(|s| s.len()).max().unwrap_or(0);
         let kw = "descr".len().max("type".len());
         let mut mods: Vec<_> = modules.iter().collect();
         mods.sort_by_key(|(name, _)| *name);
 
         for (mname, attrs) in mods {
-            let mut attrs = [("descr", attrs.descr()), ("type", attrs.mod_type())];
-            attrs.sort_by_key(|(k, _)| *k);
-            if let Some((first_key, first_value)) = attrs.first() {
+            let mut m_attrs = [("descr", attrs.descr()), ("type", attrs.mod_type())];
+            m_attrs.sort_by_key(|(k, _)| *k);
+            if let Some((first_key, first_value)) = m_attrs.first() {
                 println!("    {:<mw$}  {:>kw$}: {}", mname.bright_white().bold(), first_key.yellow(), first_value, mw = mw, kw = kw,);
-                for (k, v) in attrs.iter().skip(1) {
+                for (k, v) in m_attrs.iter().skip(1) {
                     println!("    {:<mw$}  {:>kw$}: {}", "", k.yellow(), v, mw = mw, kw = kw,);
+                }
+
+                // Print additional data, if any
+                if verbose {
+                    if let Some(opts) = attrs.opts() {
+                        println!("{}", "    Options:".yellow());
+                        for opt in opts {
+                            Self::print_kv(opt.name(), opt.required(), &opt.description(), 15);
+                        }
+                        println!()
+                    }
+
+                    if let Some(args) = attrs.args() {
+                        println!("{}", "    Arguments:".yellow());
+                        for arg in args {
+                            Self::print_kv(arg.name(), arg.required(), &arg.description(), 15);
+                        }
+                    }
                 }
             } else {
                 println!("    {mname:<mw$}");
@@ -541,6 +575,24 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    pub fn module_info(&self, name: &str) -> Result<(), SysinspectError> {
+        let mut found = false;
+        for (p, archset) in self.idx.all_modules(None, Some(vec![name])) {
+            let p = if p.eq("sysv") { "Linux" } else { p.as_str() };
+            for (arch, modules) in archset {
+                println!("{} ({}): ", p, arch.bright_green());
+                Self::print_table(&modules, true);
+                found = true;
+            }
+        }
+
+        if !found {
+            log::warn!("No module found matching the name: {}", name.bright_yellow());
+        }
+
+        Ok(())
+    }
+
     /// Lists all modules in the repository.
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
         let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
@@ -548,7 +600,7 @@ impl SysInspectModPak {
             let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
-                Self::print_table(&modules);
+                Self::print_table(&modules, false);
             }
         }
         Ok(())

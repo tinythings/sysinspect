@@ -3,8 +3,15 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use libmodcore::modinit::{ModArgument, ModInterface, ModOption};
 use libsysinspect::SysinspectError;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+static RE_NL: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s*\n\s*").unwrap()); // collapse newlines to single space
+static RE_SPACE_BEFORE_PUNCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+([.!?;,:])").unwrap());
+static RE_MULTI_SPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t\u{00A0}]{2,}").unwrap()); // spaces/tabs/NBSP
+static RE_NO_SPACE_AFTER_PUNCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"([.!?;,:])([^\s\)])").unwrap());
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModAttrs {
@@ -49,7 +56,18 @@ impl ModAttrs {
     pub fn checksum(&self) -> &str {
         &self.checksum
     }
+
+    /// Returns the arguments of the module.
+    pub fn args(&self) -> Option<&Vec<ModPackArgument>> {
+        self.args.as_ref()
+    }
+
+    /// Returns the options of the module.
+    pub fn opts(&self) -> Option<&Vec<ModPackArgument>> {
+        self.opts.as_ref()
+    }
 }
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModPakRepoLibFile {
     file: PathBuf,
@@ -252,6 +270,39 @@ pub struct ModPackArgument {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     default: Option<String>,
+}
+
+impl ModPackArgument {
+    /// Returns the name of the argument.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the description of the argument.
+    pub fn description(&self) -> String {
+        let s = self.description.replace('\r', "");
+        let s = RE_NL.replace_all(&s, " "); // "foo \n  bar" -> "foo bar"
+        let s = RE_SPACE_BEFORE_PUNCT.replace_all(&s, "$1"); // "foo  ,bar" -> "foo, bar"
+        let s = RE_MULTI_SPACE.replace_all(&s, " "); // "foo    bar" -> "foo bar"
+        let s = RE_NO_SPACE_AFTER_PUNCT.replace_all(&s, "$1 $2"); // "foo.Bar" -> "foo. Bar"
+
+        s.trim().to_string()
+    }
+
+    /// Returns the type of the argument.
+    pub fn argtype(&self) -> Option<&str> {
+        self.argtype.as_deref()
+    }
+
+    /// Returns true if the argument is required.
+    pub fn required(&self) -> bool {
+        self.required.unwrap_or(false)
+    }
+
+    /// Returns the default value of the argument.
+    pub fn get_default(&self) -> Option<&str> {
+        self.default.as_deref()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

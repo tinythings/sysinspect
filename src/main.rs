@@ -79,13 +79,14 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
 // Print help?
 fn help(cli: &mut Command, params: &ArgMatches) -> bool {
     if let Some(sub) = params.subcommand_matches("module")
-        && sub.get_flag("help") {
-            if let Some(s_cli) = cli.find_subcommand_mut("module") {
-                _ = s_cli.print_help();
-                return true;
-            }
-            return false;
+        && sub.get_flag("help")
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("module") {
+            _ = s_cli.print_help();
+            return true;
         }
+        return false;
+    }
     if params.get_flag("help") {
         _ = &cli.print_long_help();
         return true;
@@ -136,10 +137,11 @@ async fn main() {
             Ok(repo) => repo,
             Err(err) => {
                 if let SysinspectError::IoErr(err) = &err
-                    && err.kind() == ErrorKind::NotFound {
-                        log::error!("No module repository found. Create one, perhaps?..");
-                        exit(1);
-                    }
+                    && err.kind() == ErrorKind::NotFound
+                {
+                    log::error!("No module repository found. Create one, perhaps?..");
+                    exit(1);
+                }
                 log::error!("Unable to open module repository: {err}");
                 exit(1);
             }
@@ -177,6 +179,11 @@ async fn main() {
                     log::error!("Failed to list modules: {err}");
                     exit(1);
                 });
+            }
+        } else if sub.get_flag("info") {
+            if let Err(err) = repo.module_info(sub.get_one::<String>("name").unwrap_or(&"".to_string())) {
+                log::error!("Failed to get module info: {err}");
+                exit(1);
             }
         } else if sub.get_flag("remove") {
             if sub.get_flag("lib") {

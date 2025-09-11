@@ -2726,6 +2726,7 @@ dependencies = [
  "log",
  "once_cell",
  "prettytable",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
