@@ -413,4 +413,39 @@ impl SysClient {
 
         Ok(response)
     }
+
+    /// Retrieve the list of available models from the SysInspect system.
+    /// This method requires the client to be authenticated.
+    /// # Returns
+    /// A `Result` that is `Ok(ModelNameResponse)` containing the list of models,
+    /// or an `Err(SysinspectError)` if there is an error during the retrieval process.
+    /// # Errors
+    /// * Returns `SysinspectError::MasterGeneralError` if there is an error during the retrieval process, such as network issues or server errors.
+    ///
+    /// Calls the `list_models` API to fetch available models from the SysInspect system.
+    /// Returns a `ModelNameResponse` containing the list of models on success, or a `SysinspectError` if the API call fails.
+    /// This enables the caller to access the models provided by the SysInspect system.
+    pub async fn models(&self) -> Result<syswebclient::models::ModelNameResponse, SysinspectError> {
+        if self.sid.is_empty() {
+            return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
+        }
+
+        let response = syswebclient::apis::models_api::list_models(&self.cfg.get_api_config()).await;
+        match response {
+            Err(e) => Err(SysinspectError::MasterGeneralError(format!("Failed to list models: {e}"))),
+            Ok(r) => Ok(r),
+        }
+    }
+
+    pub async fn model_descr(&self, name: &str) -> Result<syswebclient::models::ModelResponse, SysinspectError> {
+        if self.sid.is_empty() {
+            return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
+        }
+
+        let response = syswebclient::apis::models_api::get_model_details(&self.cfg.get_api_config(), name).await;
+        match response {
+            Err(e) => Err(SysinspectError::MasterGeneralError(format!("Failed to get model details: {e}"))),
+            Ok(r) => Ok(r),
+        }
+    }
 }
