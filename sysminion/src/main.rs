@@ -3,6 +3,7 @@ mod clidef;
 mod filedata;
 mod minion;
 mod proto;
+mod ptcounter;
 mod rsa;
 
 use clap::{ArgMatches, Command};
@@ -61,13 +62,14 @@ fn get_config(params: &ArgMatches) -> MinionConfig {
 fn help(cli: &mut Command, params: ArgMatches) -> bool {
     for sc in ["setup", "module"] {
         if let Some(sub) = params.subcommand_matches(sc)
-            && sub.get_flag("help") {
-                if let Some(s_cli) = cli.find_subcommand_mut(sc) {
-                    _ = s_cli.print_help();
-                    return true;
-                }
-                return false;
+            && sub.get_flag("help")
+        {
+            if let Some(s_cli) = cli.find_subcommand_mut(sc) {
+                _ = s_cli.print_help();
+                return true;
             }
+            return false;
+        }
     }
 
     if params.get_flag("help") {
