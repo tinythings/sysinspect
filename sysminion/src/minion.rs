@@ -5,6 +5,7 @@ use crate::{
         self,
         msg::{CONNECTION_TX, ExitState},
     },
+    ptcounter::PTCounter,
     rsa::MinionRSAKeyManager,
 };
 use clap::ArgMatches;
@@ -67,6 +68,8 @@ pub struct SysMinion {
 
     last_ping: Mutex<Instant>,
     ping_timeout: Duration,
+
+    pt_counter: Mutex<PTCounter>,
 }
 
 impl SysMinion {
@@ -85,6 +88,7 @@ impl SysMinion {
             filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
             last_ping: Mutex::new(Instant::now()),
             ping_timeout: Duration::from_secs(10),
+            pt_counter: Mutex::new(PTCounter::new()),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -340,6 +344,7 @@ impl SysMinion {
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
         self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar).to_string()).sendable()?).await;
+        self.as_ptr().pt_counter.lock().await.dec();
         Ok(())
     }
 
@@ -473,6 +478,7 @@ impl SysMinion {
 
             match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
                 Ok(()) => {
+                    self.as_ptr().pt_counter.lock().await.inc();
                     log::debug!("Sysinspect model cycle finished");
                 }
                 Err(e) => {
@@ -540,10 +546,11 @@ impl SysMinion {
             if !hostname.is_empty() {
                 for hq in tgt.hostnames() {
                     if let Ok(hq) = glob::Pattern::new(hq)
-                        && hq.matches(&hostname) {
-                            skip = false;
-                            break;
-                        }
+                        && hq.matches(&hostname)
+                    {
+                        skip = false;
+                        break;
+                    }
                 }
                 if skip {
                     log::trace!("Command was dropped as it is specifically targeting different hosts");
