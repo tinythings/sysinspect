@@ -49,3 +49,4 @@ sections:
    distributed_model
    systraits
    targeting
+   virtual_minions
