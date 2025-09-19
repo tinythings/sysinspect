@@ -57,6 +57,40 @@ minion. There are several ways to specify these matches:
 This flexible configuration enables you to create logical groupings of physical minions, assign them virtual identities,
 and target them for orchestration, monitoring, or other management tasks based on a wide range of criteria.
 
+Configuration starts with the `clustered-minions` key, which contains a list of virtual minion definitions. Each virtual minion is defined
+as a dictionary with the following keys:
+
+  - `id`: A unique identifier for the virtual minion. Typically, this could be a UUID or any other unique string.
+
+  - `hostname`: The hostname for the virtual minion.
+
+  - `traits`: A dictionary of traits that can be used to target the virtual minion. Virtual minions can have only static traits, defined in this dictionary.
+
+  - `nodes`: A list of physical minion matches. Each match can be defined in one of the following ways:
+
+    `id`
+
+      A specific physical minion ID (e.g., `/etc/machine-id`).
+      The `id` is dead-precise and matches the exact minion. In this case no more qualifiers are needed.
+      Just add all the minion IDs you want to be part of this virtual minion and that's it.
+
+    `query`
+
+      A query string that matches multiple physical minions (e.g., domain name patterns).
+
+    `traits`
+
+      A dictionary of traits that must be matched by the physical minion.
+
+    `query` and `traits`
+
+      Combining these two allows you to create more complex matching criteria.
+
+.. hint::
+
+  Keep it simple. While you **can** define complex matching criteria, it doesn't mean you **should** do that.
+  It's often best to start with straightforward configurations using just the `id` and then expand as needed in a future.
+
 .. code-block:: yaml
 
     # Example configuration for clustered minions
@@ -85,5 +119,5 @@ and target them for orchestration, monitoring, or other management tasks based o
         # Matches all minions configured with domain name started with "web" prefix,
         # but selects only those system memory is more than 8Gb RAM
         - query: "web*"
-            traits:
+          traits:
             system.mem > 8Gb
