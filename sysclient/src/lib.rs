@@ -27,6 +27,7 @@ use syswebclient::{
 /// * `public_key` - The filename of the public key.
 /// * `master_public_key` - The filename of the master public key.
 /// * `master_url` - The URL of the SysInspect master server.
+#[derive(Debug, Clone)]
 pub struct SysClientConfiguration {
     pub root: PathBuf,
     pub private_key: String,
@@ -98,6 +99,7 @@ impl Default for SysClientConfiguration {
 /// * `cfg` - The configuration for the SysClient, which includes paths to keys and the master URL.
 /// * `sid` - The session ID for the authenticated user.
 /// * `symkey` - The symmetric key used for encrypting and decrypting data after authentication.
+#[derive(Debug, Clone)]
 pub struct SysClient {
     cfg: SysClientConfiguration,
     sid: String,
