@@ -27,6 +27,7 @@ use std::{
 };
 use std::{io::Read, os::unix::process::CommandExt};
 
+#[derive(Debug)]
 pub struct SpawnSpec<'a> {
     pub module: &'a OsStr, // program path/name
     pub args: &'a [&'a str],
@@ -316,6 +317,8 @@ impl ModCall {
             cmd.current_dir(spec.workdir);
         }
 
+        log::debug!("Setting up environment and privileges: {:?}", cmd);
+
         unsafe {
             cmd.pre_exec(move || {
                 // Harden defaults
@@ -329,6 +332,7 @@ impl ModCall {
 
                 // Block priv-escalation via setuid binaries
                 if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                    log::error!("Failed to set no new privs");
                     return Err(io::Error::last_os_error());
                 }
 
@@ -337,6 +341,7 @@ impl ModCall {
                     let lim = libc::rlimit { rlim_cur: fsize_cap, rlim_max: fsize_cap };
                     let rc = libc::setrlimit(libc::RLIMIT_FSIZE, &lim as *const _);
                     if rc != 0 {
+                        log::error!("Failed to set file size limit");
                         return Err(io::Error::last_os_error());
                     }
                 }
@@ -344,6 +349,7 @@ impl ModCall {
                 // Drop to UID (ruid/euid/suid are real/effective/saved respectively)
                 let rc = libc::setresuid(uid, uid, uid);
                 if rc != 0 {
+                    log::error!("Failed to drop privileges to UID {}", uid);
                     return Err(io::Error::last_os_error());
                 }
 
@@ -351,7 +357,10 @@ impl ModCall {
             })
         };
 
+        log::debug!("Spawning child process: {:?}", cmd);
         let mut child: Child = cmd.spawn()?;
+
+        log::debug!("Writing JSON to stdin: {}", String::from_utf8_lossy(spec.json_in));
 
         if let Some(mut sin) = child.stdin.take() {
             sin.write_all(spec.json_in)?;
@@ -388,28 +397,38 @@ impl ModCall {
         log::debug!("Calling native module: {}", self.module.as_os_str().to_str().unwrap_or_default());
         log::debug!("Params: {}", self.params_json());
 
-        if unsafe { libc::getuid() } == 0 && unsafe { libc::getgid() } == 0 {
+        let muid = unsafe { libc::getuid() };
+        let mgid = unsafe { libc::getgid() };
+        if muid == 0 && mgid == 0 {
             let binding = self.params_json();
             let spec = SpawnSpec {
                 module: self.module.as_os_str(),
                 args: &[],
                 json_in: binding.as_bytes(),
-                workdir: "",
+                workdir: "/tmp",
                 uid: 0,
                 gid: 0,
                 fsize_cap: 10 * 1024 * 1024,
             };
 
+            log::debug!("Spawning module with spec: {:?}", spec);
+
             match Self::spawn(self, &spec) {
                 Ok(out) => match str::from_utf8(out.as_bytes()) {
                     Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
-                        Ok(r) => Ok(Some(ActionResponse::new(
-                            self.eid.to_owned(),
-                            self.aid.to_owned(),
-                            self.state.to_owned(),
-                            r.clone(),
-                            self.eval_constraints(&r),
-                        ))),
+                        Ok(r) => {
+                            let mut data = r.clone();
+                            data.add_data("run-uid", json!(spec.uid));
+                            data.add_data("run-gid", json!(spec.gid));
+
+                            Ok(Some(ActionResponse::new(
+                                self.eid.to_owned(),
+                                self.aid.to_owned(),
+                                self.state.to_owned(),
+                                data,
+                                self.eval_constraints(&r),
+                            )))
+                        }
                         Err(e) => {
                             log::debug!("STDOUT: {out}");
                             Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
@@ -420,6 +439,7 @@ impl ModCall {
                 Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {err}"))),
             }
         } else {
+            log::debug!("Spawning module with default privileges");
             match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
                 Ok(mut p) => {
                     // Send options
@@ -433,13 +453,18 @@ impl ModCall {
                     if let Ok(out) = p.wait_with_output() {
                         match str::from_utf8(&out.stdout) {
                             Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
-                                Ok(r) => Ok(Some(ActionResponse::new(
-                                    self.eid.to_owned(),
-                                    self.aid.to_owned(),
-                                    self.state.to_owned(),
-                                    r.clone(),
-                                    self.eval_constraints(&r),
-                                ))),
+                                Ok(r) => {
+                                    let mut data = r.clone();
+                                    data.add_data("run-uid", json!(muid));
+                                    data.add_data("run-gid", json!(mgid));
+                                    Ok(Some(ActionResponse::new(
+                                        self.eid.to_owned(),
+                                        self.aid.to_owned(),
+                                        self.state.to_owned(),
+                                        data,
+                                        self.eval_constraints(&r),
+                                    )))
+                                }
                                 Err(e) => {
                                     log::debug!("STDOUT: {out}");
                                     Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
