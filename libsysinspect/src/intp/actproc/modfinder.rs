@@ -299,7 +299,7 @@ impl ModCall {
     }
 
     fn to_io<E: std::fmt::Display>(e: E) -> io::Error {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     }
 
     /// Spawn, drop to uid/gid, cap single-file size, write json to stdin, return stdout as String
@@ -312,8 +312,8 @@ impl ModCall {
         cmd.args(spec.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
         // Change working dir, if specified
-        if spec.workdir != "" && Path::new(spec.workdir).exists() {
-            cmd.current_dir(spec.workdir.to_string());
+        if !spec.workdir.is_empty() && Path::new(spec.workdir).exists() {
+            cmd.current_dir(spec.workdir);
         }
 
         unsafe {
@@ -374,11 +374,11 @@ impl ModCall {
         });
 
         let status = child.wait()?;
-        let out = t_out.join().map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to join STDOUT thread"))?;
-        let err = t_err.join().map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to join STDERR thread"))?;
+        let out = t_out.join().map_err(|_| io::Error::other("Failed to join STDOUT thread"))?;
+        let err = t_err.join().map_err(|_| io::Error::other("Failed to join STDERR thread"))?;
 
         if !status.success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("child exit {status:?}; stderr: {}", String::from_utf8_lossy(&err))));
+            return Err(io::Error::other(format!("child exit {status:?}; stderr: {}", String::from_utf8_lossy(&err))));
         }
         Ok(out)
     }
@@ -400,8 +400,8 @@ impl ModCall {
                 fsize_cap: 10 * 1024 * 1024,
             };
 
-            match Self::spawn(&self, &spec) {
-                Ok(out) => match str::from_utf8(&out.as_bytes()) {
+            match Self::spawn(self, &spec) {
+                Ok(out) => match str::from_utf8(out.as_bytes()) {
                     Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
                         Ok(r) => Ok(Some(ActionResponse::new(
                             self.eid.to_owned(),
