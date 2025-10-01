@@ -14,16 +14,28 @@ use crate::{
 };
 use core::str;
 use indexmap::IndexMap;
+use nix::unistd::{Gid, setgid, setgroups};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::{ffi::OsStr, path::Path, process::Child};
 use std::{
     fmt::Display,
-    io::Write,
+    io::{self, Write},
     path::PathBuf,
     process::{Command, Stdio},
     vec,
 };
+use std::{io::Read, os::unix::process::CommandExt};
 
+pub struct SpawnSpec<'a> {
+    pub module: &'a OsStr, // program path/name
+    pub args: &'a [&'a str],
+    pub json_in: &'a [u8], // what you write to stdin
+    pub workdir: &'a str,  // your mounted quota dir
+    pub uid: u32,
+    pub gid: u32,
+    pub fsize_cap: u64, // bytes for RLIMIT_FSIZE (0 = no cap)
+}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModCall {
     // Action Id
@@ -286,42 +298,161 @@ impl ModCall {
         }
     }
 
+    fn to_io<E: std::fmt::Display>(e: E) -> io::Error {
+        io::Error::new(io::ErrorKind::Other, e.to_string())
+    }
+
+    /// Spawn, drop to uid/gid, cap single-file size, write json to stdin, return stdout as String
+    fn spawn(&self, spec: &SpawnSpec) -> io::Result<String> {
+        let uid = spec.uid;
+        let gid = spec.gid;
+        let fsize_cap = spec.fsize_cap;
+
+        let mut cmd = Command::new(spec.module);
+        cmd.args(spec.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        // Change working dir, if specified
+        if spec.workdir != "" && Path::new(spec.workdir).exists() {
+            cmd.current_dir(spec.workdir.to_string());
+        }
+
+        unsafe {
+            cmd.pre_exec(move || {
+                // Harden defaults
+                libc::umask(0o077);
+
+                // Drop supplementary groups (must be before setgid/setuid)
+                setgroups(&[]).map_err(Self::to_io)?;
+
+                // Set primary GID first
+                setgid(Gid::from_raw(gid)).map_err(Self::to_io)?;
+
+                // Block priv-escalation via setuid binaries
+                if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+
+                // Cap single file size if requested
+                if fsize_cap > 0 {
+                    let lim = libc::rlimit { rlim_cur: fsize_cap, rlim_max: fsize_cap };
+                    let rc = libc::setrlimit(libc::RLIMIT_FSIZE, &lim as *const _);
+                    if rc != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+
+                // Drop to UID (ruid/euid/suid are real/effective/saved respectively)
+                let rc = libc::setresuid(uid, uid, uid);
+                if rc != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+
+                Ok(())
+            })
+        };
+
+        let mut child: Child = cmd.spawn()?;
+
+        if let Some(mut sin) = child.stdin.take() {
+            sin.write_all(spec.json_in)?;
+            // Necessary to close stdin so child can see EOF
+            drop(sin);
+        }
+
+        let mut so = child.stdout.take().unwrap();
+        let mut se = child.stderr.take().unwrap();
+
+        let t_out = std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = so.read_to_string(&mut s);
+            s
+        });
+        let t_err = std::thread::spawn(move || {
+            let mut b = Vec::new();
+            let _ = se.read_to_end(&mut b);
+            b
+        });
+
+        let status = child.wait()?;
+        let out = t_out.join().map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to join STDOUT thread"))?;
+        let err = t_err.join().map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to join STDERR thread"))?;
+
+        if !status.success() {
+            return Err(io::Error::new(io::ErrorKind::Other, format!("child exit {status:?}; stderr: {}", String::from_utf8_lossy(&err))));
+        }
+        Ok(out)
+    }
+
     /// Runs native external module
     fn run_native_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         log::debug!("Calling native module: {}", self.module.as_os_str().to_str().unwrap_or_default());
         log::debug!("Params: {}", self.params_json());
 
-        match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
-            Ok(mut p) => {
-                // Send options
-                if let Some(mut stdin) = p.stdin.take()
-                    && let Err(err) = stdin.write_all(self.params_json().as_bytes()) {
+        if unsafe { libc::getuid() } == 0 && unsafe { libc::getgid() } == 0 {
+            let binding = self.params_json();
+            let spec = SpawnSpec {
+                module: self.module.as_os_str(),
+                args: &[],
+                json_in: binding.as_bytes(),
+                workdir: "",
+                uid: 0,
+                gid: 0,
+                fsize_cap: 10 * 1024 * 1024,
+            };
+
+            match Self::spawn(&self, &spec) {
+                Ok(out) => match str::from_utf8(&out.as_bytes()) {
+                    Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
+                        Ok(r) => Ok(Some(ActionResponse::new(
+                            self.eid.to_owned(),
+                            self.aid.to_owned(),
+                            self.state.to_owned(),
+                            r.clone(),
+                            self.eval_constraints(&r),
+                        ))),
+                        Err(e) => {
+                            log::debug!("STDOUT: {out}");
+                            Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
+                        }
+                    },
+                    Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
+                },
+                Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {err}"))),
+            }
+        } else {
+            match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
+                Ok(mut p) => {
+                    // Send options
+                    if let Some(mut stdin) = p.stdin.take()
+                        && let Err(err) = stdin.write_all(self.params_json().as_bytes())
+                    {
                         return Err(SysinspectError::ModuleError(format!("Error while communicating with the module: {err}")));
                     }
 
-                // Get the output
-                if let Ok(out) = p.wait_with_output() {
-                    match str::from_utf8(&out.stdout) {
-                        Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
-                            Ok(r) => Ok(Some(ActionResponse::new(
-                                self.eid.to_owned(),
-                                self.aid.to_owned(),
-                                self.state.to_owned(),
-                                r.clone(),
-                                self.eval_constraints(&r),
-                            ))),
-                            Err(e) => {
-                                log::debug!("STDOUT: {out}");
-                                Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
-                            }
-                        },
-                        Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
+                    // Get the output
+                    if let Ok(out) = p.wait_with_output() {
+                        match str::from_utf8(&out.stdout) {
+                            Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
+                                Ok(r) => Ok(Some(ActionResponse::new(
+                                    self.eid.to_owned(),
+                                    self.aid.to_owned(),
+                                    self.state.to_owned(),
+                                    r.clone(),
+                                    self.eval_constraints(&r),
+                                ))),
+                                Err(e) => {
+                                    log::debug!("STDOUT: {out}");
+                                    Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
+                                }
+                            },
+                            Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
+                        }
+                    } else {
+                        Err(SysinspectError::ModuleError("Module returned no output".to_string()))
                     }
-                } else {
-                    Err(SysinspectError::ModuleError("Module returned no output".to_string()))
                 }
+                Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {err}"))),
             }
-            Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {err}"))),
         }
     }
 
