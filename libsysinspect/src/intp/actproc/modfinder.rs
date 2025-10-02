@@ -9,6 +9,10 @@ use crate::{
         functions,
         inspector::get_cfg_sharelib,
     },
+    mdescr::{
+        DSL_ACTION_CONDITION_FSZC, DSL_ACTION_CONDITION_GID, DSL_ACTION_CONDITION_UID, DSL_ACTION_CONDITION_VMEM, DSL_ACTION_CONDITION_WDIR,
+        DSL_ACTION_CONDITION_WDISK,
+    },
     pylang,
     util::dataconv,
 };
@@ -17,6 +21,7 @@ use indexmap::IndexMap;
 use nix::unistd::{Gid, setgid, setgroups};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_yaml::Value;
 use std::{ffi::OsStr, path::Path, process::Child};
 use std::{
     fmt::Display,
@@ -57,6 +62,7 @@ pub struct ModCall {
     // Module params
     args: IndexMap<String, String>, // XXX: Should be String/Value, not String/String!
     opts: Vec<String>,
+    conditions: IndexMap<String, Value>,
 }
 
 impl ModCall {
@@ -100,6 +106,30 @@ impl ModCall {
     pub fn add_opt(&mut self, opt: String) -> &mut Self {
         self.opts.push(opt);
         self
+    }
+
+    /// Add a condition
+    pub fn add_condition(&mut self, cond: String, v: Value) -> &mut Self {
+        self.conditions.insert(cond, v);
+        self
+    }
+
+    /// Get a condition by its name
+    pub fn get_condition(&self, cond: &str) -> Option<&Value> {
+        let c = [
+            DSL_ACTION_CONDITION_UID,
+            DSL_ACTION_CONDITION_GID,
+            DSL_ACTION_CONDITION_VMEM,
+            DSL_ACTION_CONDITION_FSZC,
+            DSL_ACTION_CONDITION_WDIR,
+            DSL_ACTION_CONDITION_WDISK,
+        ];
+        if c.contains(&cond) {
+            self.conditions.get(cond)
+        } else {
+            log::warn!("Module is requesting unknown condition: {}", cond);
+            None
+        }
     }
 
     /// Set constraints
@@ -396,18 +426,22 @@ impl ModCall {
     fn run_native_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
         log::debug!("Calling native module: {}", self.module.as_os_str().to_str().unwrap_or_default());
         log::debug!("Params: {}", self.params_json());
+        log::debug!("Opts: {:?}", self.opts);
+        log::debug!("Conditions: {:?}", self.conditions);
 
         let muid = unsafe { libc::getuid() };
         let mgid = unsafe { libc::getgid() };
+
         if muid == 0 && mgid == 0 {
             let binding = self.params_json();
+            // XXX: fsize-cap, working dir/disk and vmem still needs to be implemented
             let spec = SpawnSpec {
                 module: self.module.as_os_str(),
                 args: &[],
                 json_in: binding.as_bytes(),
-                workdir: "/tmp",
-                uid: 0,
-                gid: 0,
+                workdir: self.get_condition(DSL_ACTION_CONDITION_WDIR).and_then(|v| v.as_str()).unwrap_or(""),
+                uid: self.get_condition(DSL_ACTION_CONDITION_UID).and_then(|v| v.as_u64()).map(|v| v as u32).unwrap_or(muid),
+                gid: self.get_condition(DSL_ACTION_CONDITION_GID).and_then(|v| v.as_u64()).map(|v| v as u32).unwrap_or(mgid),
                 fsize_cap: 10 * 1024 * 1024,
             };
 
@@ -512,6 +546,7 @@ impl Default for ModCall {
             args: IndexMap::default(),
             opts: Vec::default(),
             constraints: Vec::default(),
+            conditions: IndexMap::default(),
         }
     }
 }

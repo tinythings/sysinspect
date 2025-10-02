@@ -16,3 +16,10 @@ pub static DSL_IDX_CFG: &str = "config";
 // This one belongs to the configuration, but is defined
 // outside in the tree, as there migt be really many of those.
 pub static DSL_IDX_EVENTS_CFG: &str = "events";
+
+pub static DSL_ACTION_CONDITION_UID: &str = "uid";
+pub static DSL_ACTION_CONDITION_GID: &str = "gid";
+pub static DSL_ACTION_CONDITION_VMEM: &str = "virtual-memory";
+pub static DSL_ACTION_CONDITION_WDIR: &str = "working-dir";
+pub static DSL_ACTION_CONDITION_WDISK: &str = "working-disk";
+pub static DSL_ACTION_CONDITION_FSZC: &str = "fsize-cap";
