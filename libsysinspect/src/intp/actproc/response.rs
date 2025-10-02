@@ -4,7 +4,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// This struct is a future carrier of tracability.
 /// Currently only a single string log message.
@@ -125,7 +125,7 @@ pub struct ActionModResponse {
     message: String,
 
     // Arbitrary payload data
-    data: Option<serde_json::Value>,
+    data: Option<Value>,
 }
 
 impl ActionModResponse {
@@ -149,6 +149,26 @@ impl ActionModResponse {
 
     pub fn data(&self) -> Option<Value> {
         self.data.to_owned()
+    }
+
+    /// Add or merge a key-value pair into the data object.
+    pub fn add_data(&mut self, key: &str, v: Value) {
+        match &mut self.data {
+            Some(Value::Object(map)) => {
+                map.insert(key.to_string(), v);
+            }
+            Some(_) => {
+                // If data exists but is not an object, replace it with an object
+                let mut map = Map::new();
+                map.insert(key.to_string(), v);
+                self.data = Some(Value::Object(map));
+            }
+            None => {
+                let mut map = Map::new();
+                map.insert(key.to_string(), v);
+                self.data = Some(Value::Object(map));
+            }
+        }
     }
 }
 
@@ -234,9 +254,10 @@ impl ActionResponse {
         // If explicitly specified and already matching
         for expr in self.constraints.expressions() {
             if let Some(ovr_evt_id) = expr.get_event_id()
-                && evt_id.eq(&ovr_evt_id) {
-                    return true;
-                }
+                && evt_id.eq(&ovr_evt_id)
+            {
+                return true;
+            }
         }
 
         let p_eid = evt_id.split('/').map(|s| s.trim()).collect::<Vec<&str>>();
