@@ -71,6 +71,7 @@ of an action as follows:
 Below is the description of configuration sections:
 
 ``module: namespace``
+^^^^^^^^^^^^^^^^^^^^^
 
     This element assigns the content of an action to a specific module that will process it.
     Example:
@@ -80,6 +81,7 @@ Below is the description of configuration sections:
         module: sys.proc
 
 ``bind: [list]``
+^^^^^^^^^^^^^^^^^
 
     This element binds entities to the action. I.e. an action will process every
     mentioned entity. Example:
@@ -91,6 +93,7 @@ Below is the description of configuration sections:
           - journald
 
 ``state : [map]``
+^^^^^^^^^^^^^^^^^
 
     A configuration group for the particular state. It must be the same ID as state ID in the entities collection.
     If actions processing the system in a serial fashion without knowing what it is even discovered, then how exactly
@@ -104,61 +107,144 @@ Below is the description of configuration sections:
     the corresponding module aware of the currently processed state. Therefore, in case of the state is requested other
     than it is currently detected on the device, the module should return **true**.
 
-``opts|options: [list]``
 
-    Options element ``opts`` (or ``options``) specifies flags to the module, in case it is needed. For example, a module
-    called ``sys.proc`` might have different modes, such as checking if a process at all runs
-    and do nothing else, or return its PID or owner, even stop it, restart it etc — it depends on
-    a module. In any case, options would be statically passed in this action. Example:
+    ``opts|options: [list]`` (optional)
 
-    .. code-block:: yaml
+        Options element ``opts`` (or ``options``) specifies flags to the module, in case it is needed. For example, a module
+        called ``sys.proc`` might have different modes, such as checking if a process at all runs
+        and do nothing else, or return its PID or owner, even stop it, restart it etc — it depends on
+        a module. In any case, options would be statically passed in this action. Example:
 
-        opts:
-          - info
+        .. code-block:: yaml
 
-    The example above is equivalent to a command line expression like this:
+            opts:
+              - info
 
-    ``some-program --info``
+        The example above is equivalent to a command line expression like this:
 
-``args|arguments: key/[list]``
+            ``some-program --info``
 
-    The ``args`` (or ``arguments``) element specifies keywords to the module. One **distinct difference** from
-    a classic keywords is that this is a ``key/[list]`` *(of values)* rather then a ``key/value``.
-    Example:
+    ``args|arguments: key/[list]`` (optional)
 
-    .. code-block:: yaml
+        The ``args`` (or ``arguments``) element specifies keywords to the module. One **distinct difference** from
+        a classic keywords is that this is a ``key/[list]`` *(of values)* rather then a ``key/value``.
+        Example:
 
-        args:
-          file:
-            - /var/log/messages
+        .. code-block:: yaml
 
-    The example above is equivalent to a command line expression like this:
+            args:
+              file:
+                - /var/log/messages
 
-    ``some-program --file=/var/log/messages``
+        The example above is equivalent to a command line expression like this:
 
-    .. note::
+            ``some-program --file=/var/log/messages``
 
-        Arguments and options are not directly one-to-one transpose of a CLI arguments.
-        They are just structures in JSON format, those still can be properly interpreted
-        by a module.
+        .. note::
 
-    As per note above, if a specific program requires multiple same arguments, this still
-    can be achieved by grouping them as a list under one argument. For example, if a CLI
-    equivalent is needed to this:
+            Arguments and options are not directly one-to-one transpose of a CLI arguments.
+            They are just structures in JSON format, those still can be properly interpreted
+            by a module.
 
-    ``some-program --file=/var/log/messages --file=/var/log/dmesg``
+        As per note above, if a specific program requires multiple same arguments, this still
+        can be achieved by grouping them as a list under one argument. For example, if a CLI
+        equivalent is needed to this:
 
-    The form above still can be achieved in this form:
+            ``some-program --file=/var/log/messages --file=/var/log/dmesg``
 
-    .. code-block:: yaml
+        The form above still can be achieved in this form:
 
-        args:
-          file:
-            - /var/log/messages
-            - /var/log/dmesg
+        .. code-block:: yaml
 
-    In this case a module will get a JSON data with ``file`` key and a list of paths,
-    that can be then translated by a module in whatever required format.
+            args:
+              file:
+                - /var/log/messages
+                - /var/log/dmesg
+
+        In this case a module will get a JSON data with ``file`` key and a list of paths,
+        that can be then translated by a module in whatever required format.
+
+    ``context|ctx [map]`` (if defined)
+
+        Context variable definitions for **documentation** purposes, when they are required by a model description.
+        They are defined as key/value pairs, where key is the variable name and value is its description.
+        Example:
+
+        .. code-block:: yaml+jinja
+
+            context:
+              foo: Some value that will be used to run the module
+              bar: Some other flag or value for the same reason
+
+            # And then usage of context variables in args:
+            args:
+              {% if context.foo is defined %}
+              something: "context(foo)"
+              {% endif %}
+              {% if context.bar is defined %}
+              another: "context(bar)"
+              {% endif %}
+
+        Surely, ``context`` does not have to be defined, but then API will not reflect and introspect
+        the whole model properly, because SysInspect will first render and then examine the model. As it is seen
+        in the example above, context variables are used in Jinja2 templating. In this case ``{% if %}`` clause
+        will just cut out a chunk of Model description, rendering impossible to reflect state arguments to the
+        end user.
+
+    ``conditions|conds: [map]`` (optional)
+
+        Conditions are additional constraints that setting up the environment for a module.
+        For example, a module might require to run as ``nobody`` user, or it might require
+        a specific working directory, or it might require a specific amount of memory
+        or disk space. These conditions are setting up the environment for a module.
+        Example:
+
+        .. code-block:: yaml
+
+            conditions:  # or conds:
+              uid: 65432 # nobody user
+              gid: 65432 # nobody group
+              virtual-memory: 64Mb
+
+              # working directory can be set only if working-disk is defined
+              working-dir: /tmp
+              working-disk: 100Mb
+
+        This is important to understand that conditions are not using ``sudo`` mechanism.
+        Which means, conditions can only limit down the privileges of a module, but
+        cannot elevate them. For example, if a minion is running as ``nobody`` user,
+        a module cannot be elevated to ``root`` user. However, if a minion is running as
+        ``root``, a module surely can be dropped down to ``nobody`` user.
+
+        .. note::
+
+            Default conditions are transparent, acquiring all privileges of the minion.
+            That is, ``uid`` and ``gid`` will be the same as the minion is running.
+            ``working-dir`` will be any current one, ``virtual-memory`` and ``disk`` are
+            as limited as allowed to the minion.
+
+        Here is the list of available options:
+
+        ``uid`` and ``gid``
+
+            Numeric values of the user and group respectively.
+
+        ``virtual-memory``
+
+            Maximum amount of virtual memory a module can allocate.
+
+        ``working-dir``
+
+            Working directory for a module.
+
+        ``working-disk``
+
+            Amount of disk space a module can use.
+
+        ``fsize-cap``
+
+            Maximum size of a file a module can create.
+
 
 
 Examples of Actions
@@ -254,6 +340,12 @@ Another example, showing static data references. Consider the following configur
             - syslogd
         state:
           $:
+            conditions:
+              uid: 0
+              gid: 0
+              virtual-memory: 64Mb
+              disk: 100Mb
+              working-dir: /tmp
             args:
               # Variable $(foo.bar) always refers to a full path from the document root.
               - free-disk: "static(entities.syslogd.claims.storage.free)"
