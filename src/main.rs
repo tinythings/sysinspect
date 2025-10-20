@@ -186,6 +186,10 @@ async fn main() {
                 exit(1);
             }
         } else if sub.get_flag("remove") {
+            if sub.get_one::<String>("name").is_none() {
+                log::error!("Specify the module or library name ({}).", "--name".bright_yellow());
+                exit(1);
+            }
             if sub.get_flag("lib") {
                 let names: Vec<String> = sub
                     .get_one::<String>("name")

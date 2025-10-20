@@ -25,7 +25,7 @@ pub fn cli(version: &'static str) -> Command {
             .arg(Arg::new("match").short('m').long("match").help("Match modules or libraries by an expression"))
             .arg(Arg::new("lib").short('l').long("lib").action(ArgAction::SetTrue).help("Specify that the module is a library (usually Python scripts)"))
             .arg(Arg::new("info").short('i').long("info").action(ArgAction::SetTrue).help("Display information about the module specified by --name"))
-            .arg(Arg::new("name").short('n').long("name").help("Specify the module name").required_unless_present_any(["help", "list", "lib"]))
+            .arg(Arg::new("name").short('n').long("name").help("Specify the module name"))
             .arg(Arg::new("path").short('p').long("path").required_unless_present_any(["help", "list", "remove", "info"]).help("Specify the path to the module (or library)"))
             .arg(Arg::new("descr").short('d').long("descr").help("Provide a description of the module"))
             .arg(Arg::new("arch").short('a').long("arch").help("Specify the module architecture (x86, x64, arm, arm64, noarch)").default_value("noarch"))
