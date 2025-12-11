@@ -245,6 +245,17 @@ Below is the description of configuration sections:
 
             Maximum size of a file a module can create.
 
+        .. warning::
+
+            ⚠️ When running modules with limited conditions, such as dropping user privileges,
+            or limiting memory or disk space, it is important to understand that
+            not all modules might be able to work in such restricted environment.
+
+            A common mistake is to run a module where somewhere in the middle of its path
+            there is no access permissions for executing or reading files. Another common
+            mistake is to limit down memory or disk space too much, so the module cannot
+            allocate required resources.
+
 
 
 Examples of Actions
