@@ -221,15 +221,13 @@ impl TelemetryConfig {
             resources.insert(key, value);
         }
 
-        for (k, v) in vec![
-            ("service.name", CFG_OTLP_SERVICE_NAME),
+        for (k, v) in [("service.name", CFG_OTLP_SERVICE_NAME),
             ("service.namespace", CFG_OTLP_SERVICE_NAME),
             ("service.version", CFG_OTLP_SERVICE_VERSION),
             ("host.name", sysinfo::System::host_name().unwrap_or_default().as_str()),
             ("os.type", sysinfo::System::distribution_id().as_str()),
             ("deployment.environment", "production"),
-            ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str()),
-        ] {
+            ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str())] {
             if !resources.contains_key(k) && !skipped.contains(&k.to_string()) {
                 resources.insert(k.to_string(), v.to_string());
             }

@@ -6,18 +6,15 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
+#[derive(Default)]
 enum AlertButtons {
     YesNo,
     OkCancel,
+    #[default]
     Ok,
     Quit,
 }
 
-impl Default for AlertButtons {
-    fn default() -> Self {
-        Self::Ok
-    }
-}
 
 static YES_LABEL: &str = "Yes";
 static NO_LABEL: &str = "No";

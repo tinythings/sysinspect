@@ -29,6 +29,7 @@ pub fn keygen(bits: usize) -> Result<(RsaPrivateKey, RsaPublicKey), Box<dyn Erro
 }
 
 /// Serializes RSA private and public keys to PEM format.
+#[allow(clippy::unnecessary_unwrap)]
 pub fn to_pem(prk: Option<&RsaPrivateKey>, pbk: Option<&RsaPublicKey>) -> Result<(Option<String>, Option<String>), Box<dyn Error + Send + Sync>> {
     Ok((
         if prk.is_some() { Some(pem::encode(&pem::Pem::new("RSA PRIVATE KEY", prk.unwrap().to_pkcs1_der()?.as_bytes().to_vec()))) } else { None },

@@ -19,7 +19,11 @@ pub struct ModArgs {
     #[serde(alias = "args")]
     arguments: Option<IndexMap<String, String>>,
 
+    #[serde(alias = "ctx")]
     context: Option<IndexMap<String, String>>, // Context variables definition for Jinja templates. Used only for model documentation.
+
+    #[serde(alias = "conds")]
+    conditions: Option<IndexMap<String, Value>>, // Conditions to be met for this state
 }
 
 impl ModArgs {
@@ -45,6 +49,11 @@ impl ModArgs {
     /// Get context variables
     pub fn context(&self) -> IndexMap<String, String> {
         self.context.to_owned().unwrap_or_default()
+    }
+
+    /// Get conditions
+    pub fn conditions(&self) -> IndexMap<String, Value> {
+        self.conditions.to_owned().unwrap_or_default()
     }
 }
 
@@ -200,6 +209,7 @@ impl Action {
             // Setup modcall
             let mut modcall = ModCall::default().set_state(state).set_module(mpath).set_aid(self.id()).set_eid(eid.to_string()).set_constraints(cst);
 
+            // Set module launching arguments
             for (kw, arg) in &mod_args.args() {
                 let mut arg = arg.to_owned();
                 if let Ok(Some(func)) = functions::is_function(&arg) {
@@ -222,9 +232,16 @@ impl Action {
                 modcall.add_kwargs(kw.to_owned(), arg);
             }
 
+            // Set module launching options
             for opt in &mod_args.opts() {
                 modcall.add_opt(opt.to_owned());
             }
+
+            // Add module launching conditions
+            for (kw, cond) in mod_args.conditions() {
+                modcall.add_condition(kw, cond.clone());
+            }
+
             self.call = Some(modcall);
         } else {
             return Err(SysinspectError::ModelDSLError(format!(
