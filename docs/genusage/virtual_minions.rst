@@ -21,21 +21,69 @@
 Clusters and Virtual Minions
 ============================
 
-Minions can be organized into groups called clusters. A cluster is a collection of minions that share a common
-configuration and model description. This allows you to manage multiple minions as a single unit.
+Why?
+----
 
-A cluster acts like a "virtual minion." Instead of interacting with each minion individually, you can interact with
-the cluster as a whole. For example, if you have several minions that are responsible for log analysis, you can create
-a cluster named "log analyser" and assign those minions to it. The cluster will have all the necessary modules and
-settings for log analysis.
+Unlike traditional configuration management systems, SysInspect is mainly an event-driven task launcher. It doesn’t try
+to provide thousands of modules; instead, it focuses on a small set of simple primitives that reliably run workloads
+based on a defined model.
 
-When you run a function on a cluster, the system can either use all minions in the cluster or select the one that is
-least busy to perform the task. This makes it easier to manage workloads and ensures that tasks are distributed
-efficiently among the available minions.
-This configuration example demonstrates how to define "clustered minions" using a YAML structure. Each virtual minion is
-described by a unique `id` and a `hostname`, which serve as labels for identification and grouping purposes. You can
-assign custom `traits` to each virtual minion, allowing you to specify characteristics or metadata that can be used for
-targeting or filtering.
+Overview
+--------
+
+Clustered virtual minions are useful when you have several physical minions that should behave like one logical unit.
+Instead of changing the configuration or state of the virtual minion itself, you use it as a single control point to
+run functions on the underlying physical minions. Those functions are meant to act on external systems or services,
+for example to run orchestration workflows, kick off monitoring or data-collection jobs, or trigger other automation
+outside of the minions that back the cluster.
+
+.. important::
+
+  🚨
+
+  Virtual clustered minions are not designed and not meant to manage or change *their own configuration or state*.
+  They are primarily used to perform actions and/or launchging workloads that are affecting other external systems.
+
+  For example, running jobs, collecting metrics, orchestrating tasks on **other systems**, etc — depends on a module
+  capabilities that is launched on behalf of the virtual minion.
+
+Minions can be grouped into logical collections called clusters. A cluster is simply a set of minions that share a
+similar role, configuration, and model description, so you can treat them as a single unit instead of dealing with
+each one separately.
+
+From the outside, a cluster behaves like a single "virtual minion." Rather than talking to every physical minion on
+its own, you talk to the cluster, and the cluster fans work out to the underlying machines. For example, if you have
+several minions doing log analysis, you can group them into a cluster called "log-analyser" and assign those minions
+to it. The cluster then exposes the modules, configuration, and model needed for log analysis in one place.
+
+When you run a function against a cluster, SysInspect can either execute it on all member minions or choose one of
+them (for example, the least busy node) to handle the job. This helps balance workloads and reduces the need to
+manually pick which minion should do what, while still giving you a single, stable target to call.
+
+The configuration example below shows how to define these "clustered minions" using a YAML structure. Each virtual
+minion is described by a unique `id` and a `hostname`, which act as labels for grouping and identification. You can
+also attach custom `traits` to each virtual minion, so you can target or filter them later based on those attributes.
+
+Caveats and Considerations
+--------------------------
+
+- A virtual minion is only as reliable as the real machines behind it. If some of them are offline or misbehaving, the
+  virtual minion will also act flaky, fail calls, or give you incomplete results.
+
+- There is some performance overhead. A virtual minion adds another layer that has to fan out to all physical minions
+  and possibly aggregate their responses. Before running anything, the master first checks every configured physical
+  minion. While it does that, nothing gets scheduled, and if several minions are down, the virtual minion will feel
+  slow or half-broken.
+
+- All physical minions in one virtual minion must have the same modules installed and configured. Think of it like a
+  shared Python virtualenv: if one minion is missing a module or has it misconfigured, you will get weird failures or
+  hard-to-explain differences in behavior when calling the same function via the virtual minion.
+
+  .. note::
+
+    ⚠️
+
+    All minions that belong to a given virtual minion must have the same set of modules installed and configured.
 
 Virtual Minion Definition
 --------------------------------
@@ -57,7 +105,7 @@ minion. There are several ways to specify these matches:
 This flexible configuration enables you to create logical groupings of physical minions, assign them virtual identities,
 and target them for orchestration, monitoring, or other management tasks based on a wide range of criteria.
 
-Configuration starts with the `clustered-minions` key, which contains a list of virtual minion definitions. Each virtual minion is defined
+Configuration starts with the `cluster` key, which contains a list of virtual minion definitions. Each virtual minion is defined
 as a dictionary with the following keys:
 
   - `id`: A unique identifier for the virtual minion. Typically, this could be a UUID or any other unique string.
@@ -95,29 +143,26 @@ as a dictionary with the following keys:
 
     # Example configuration for clustered minions
 
-    clustered-minions:
+    cluster:
     # Each minion has a virtual ID and virtual hostname
     # These are basically just labels
     - id: 12345
       hostname: fustercluck
       # Virtual traits by which virtual minions are targeted
       traits:
-      key: value
+        key: value
 
       # Physical minion matches
       nodes:
-        # Matches a very specific minion by its /etc/machine-id
+          # Matches a very specific minion by its /etc/machine-id
         - id: 30490239492034995
 
-        # Matches all minions configured with domain name started with "web" prefix
-        - query: "web*"
+          # Matches by the hostname
+          hostname: minion-01.example.com
 
-        # Matches all minions those are OS linux
-        - traits:
-            system.os = "linux"
-
-        # Matches all minions configured with domain name started with "web" prefix,
-        # but selects only those system memory is more than 8Gb RAM
-        - query: "web*"
+          query: "minion-*.example.com"
+          # Matches all minions those are OS linux as well as system memory greater than 8Gb
           traits:
-            system.mem > 8Gb
+            system.os: "linux"
+            system.mem: "> 8Gb"
+
