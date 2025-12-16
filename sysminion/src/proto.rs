@@ -1,10 +1,10 @@
 pub mod msg {
-    use std::sync::atomic::AtomicBool;
+    use std::{collections::HashMap, sync::atomic::AtomicBool};
 
     use crate::minion::MINION_SID;
     use libsysinspect::{
         SysinspectError,
-        proto::{MasterMessage, ProtoConversion},
+        proto::{MasterMessage, ProtoConversion, rqtypes::ProtoValue},
     };
     use libsysinspect::{
         proto::{MinionMessage, rqtypes::RequestType},
@@ -12,6 +12,7 @@ pub mod msg {
         util::dataconv,
     };
     use once_cell::sync::Lazy;
+    use serde_json::{Value, json, to_value};
     use tokio::sync::broadcast;
 
     /// Channel for master connection status
@@ -31,13 +32,11 @@ pub mod msg {
     }
 
     /// Make pong message
-    pub fn get_pong() -> Vec<u8> {
-        let p = MinionMessage::new(
-            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
-            RequestType::Pong,
-            MINION_SID.to_string(),
-        );
-
+    pub fn get_pong(t: ProtoValue) -> Vec<u8> {
+        let mut data: HashMap<String, Value> = HashMap::new();
+        data.insert("pt".to_string(), to_value(t).unwrap());
+        data.insert("sid".to_string(), to_value(MINION_SID.to_string()).unwrap());
+        let p = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Pong, json!(data));
         if let Ok(data) = p.sendable() {
             return data;
         }

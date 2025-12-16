@@ -131,9 +131,10 @@ impl SystemTraits {
         // Machine Id (not always there)
         let mut mid = String::default();
         if self.cfg.machine_id_path().exists()
-            && let Ok(id) = fs::read_to_string(self.cfg.machine_id_path()) {
-                mid = id.trim().to_string();
-            }
+            && let Ok(id) = fs::read_to_string(self.cfg.machine_id_path())
+        {
+            mid = id.trim().to_string();
+        }
         self.put(SYS_ID.to_string(), json!(mid));
 
         // Memory
@@ -255,5 +256,10 @@ impl SystemTraits {
     /// Convert the data to the JSON body
     pub fn to_json_string(&self) -> Result<String, SysinspectError> {
         Ok(serde_json::to_string(&json!(self.data))?)
+    }
+
+    /// Convert the data to the JSON value
+    pub fn to_json_value(&self) -> Result<Value, SysinspectError> {
+        Ok(json!(self.data))
     }
 }

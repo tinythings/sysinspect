@@ -17,8 +17,11 @@ use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     proto::{
-        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, query::SCHEME_COMMAND,
-        rqtypes::RequestType,
+        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
+        errcodes::ProtoErrorCode,
+        payload::ModStatePayload,
+        query::SCHEME_COMMAND,
+        rqtypes::{ProtoValue, RequestType},
     },
     util::{self, iofs::scan_files_sha256},
 };
@@ -292,7 +295,7 @@ impl SysMaster {
             loop {
                 if let Some((msg, minion_addr)) = rx.recv().await {
                     let msg = String::from_utf8_lossy(&msg).to_string();
-                    log::trace!("Minion response: {minion_addr}: {msg}");
+                    log::debug!("Minion response: {minion_addr}: {msg}");
                     if let Some(req) = master.lock().await.to_request(&msg) {
                         match req.req_type() {
                             RequestType::Add => {
@@ -304,7 +307,7 @@ impl SysMaster {
                                     let mut guard = c_master.lock().await;
                                     let resp_msg: &str;
                                     if !guard.mkr().is_registered(&c_mid) {
-                                        if let Err(err) = guard.mkr().add_mn_key(&c_mid, &minion_addr, req.payload()) {
+                                        if let Err(err) = guard.mkr().add_mn_key(&c_mid, &minion_addr, &req.payload().to_string()) {
                                             log::error!("Unable to add minion RSA key: {err}");
                                         }
                                         guard.to_drop.insert(minion_addr.to_owned());
@@ -351,7 +354,15 @@ impl SysMaster {
                                 let c_id = req.id().to_string();
                                 tokio::spawn(async move {
                                     let guard = c_master.lock().await;
-                                    guard.get_session().lock().await.ping(&c_id, None);
+
+                                    let payload: HashMap<String, String> = match serde_json::from_value(req.payload().clone()) {
+                                        Ok(data) => data,
+                                        Err(err) => {
+                                            log::error!("Unable to parse pong payload: {err}");
+                                            return;
+                                        }
+                                    };
+                                    guard.get_session().lock().await.ping(&c_id, payload.get("sid").map(|s| s.as_str()));
                                     let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
                                     log::trace!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
                                 });
@@ -386,7 +397,8 @@ impl SysMaster {
                                 tokio::spawn(async move {
                                     let mut m = c_master.lock().await;
                                     let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
-                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
+                                    // XXX: Fix this nonsense
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
                                         Ok(pl) => pl,
                                         Err(err) => {
                                             log::error!("An event message with the bogus payload: {err}");
@@ -440,7 +452,7 @@ impl SysMaster {
                                     let mut master = c_master.lock().await;
                                     let mrec = master.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
 
-                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
                                         Ok(pl) => pl,
                                         Err(err) => {
                                             log::error!("An event message with the bogus payload: {err}");
@@ -601,7 +613,7 @@ impl SysMaster {
         tokio::spawn(async move {
             loop {
                 _ = time::sleep(Duration::from_secs(5)).await;
-                let mut p = MasterMessage::new(RequestType::Ping, json!(""));
+                let mut p = MasterMessage::new(RequestType::Ping, json!(ProtoValue::PingTypeGeneral));
                 let mut t = MinionTarget::default();
                 t.add_hostname("*");
                 p.set_target(t);

@@ -31,7 +31,7 @@ use libsysinspect::{
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
         query::{MinionQuery, SCHEME_COMMAND},
-        rqtypes::RequestType,
+        rqtypes::{ProtoValue, RequestType},
     },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     rsa,
@@ -285,8 +285,23 @@ impl SysMinion {
                         std::process::exit(1);
                     }
                     RequestType::Ping => {
-                        self.request(proto::msg::get_pong()).await;
-                        self.update_ping().await;
+                        let p = msg.payload();
+
+                        match serde_json::from_value::<ProtoValue>(p.clone()) {
+                            Ok(ProtoValue::PingTypeGeneral) => {
+                                log::debug!("Received general ping from master");
+                                self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral)).await;
+                                self.update_ping().await;
+                            }
+                            Ok(ProtoValue::PingTypeDiscovery) => {
+                                // XXX: On Discovery ping, we also send our traits and all the info for cluster
+                                log::debug!("Received discovery ping from master");
+                                self.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery)).await;
+                            }
+                            Err(e) => {
+                                log::warn!("Invalid ping payload `{}`: {}", p, e);
+                            }
+                        }
                     }
                     RequestType::ByeAck => {
                         log::info!("Master confirmed shutdown, terminating");
@@ -302,7 +317,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_string()?);
+        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -314,8 +329,11 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r =
-            MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Ehlo, MINION_SID.to_string());
+        let mut r = MinionMessage::new(
+            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            RequestType::Ehlo,
+            traits::get_minion_traits(None).to_json_value()?,
+        );
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
@@ -325,7 +343,7 @@ impl SysMinion {
 
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
-        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, pbk_pem);
+        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, json!(pbk_pem));
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
@@ -336,21 +354,25 @@ impl SysMinion {
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
         log::debug!("Callback: {ar:#?}");
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar).to_string()).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar)).sendable()?).await;
         Ok(())
     }
 
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar).to_string()).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
         self.as_ptr().pt_counter.lock().await.dec();
         Ok(())
     }
 
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
-        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Bye, MINION_SID.to_string());
+        let r = MinionMessage::new(
+            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            RequestType::Bye,
+            json!(MINION_SID.to_string()),
+        );
 
         log::info!("Goodbye to {}", self.cfg.master());
         match r.sendable() {

@@ -90,7 +90,7 @@ pub struct MinionMessage {
     request: RequestType,
 
     #[serde(rename = "d")]
-    data: String,
+    data: Value,
 
     #[serde(rename = "c")]
     retcode: usize,
@@ -98,7 +98,7 @@ pub struct MinionMessage {
 
 impl MinionMessage {
     /// Message constructor
-    pub fn new(id: String, rtype: RequestType, data: String) -> MinionMessage {
+    pub fn new(id: String, rtype: RequestType, data: Value) -> MinionMessage {
         MinionMessage { id, request: rtype, data, retcode: ProtoErrorCode::Undef as usize, sid: "".to_string() }
     }
 
@@ -141,7 +141,7 @@ impl MinionMessage {
     }
 
     /// Get payload
-    pub fn payload(&self) -> &str {
+    pub fn payload(&self) -> &Value {
         &self.data
     }
 }

@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ProtoValue {
+    #[serde(rename = "pt:g")]
+    PingTypeGeneral,
+
+    #[serde(rename = "pt:d")]
+    PingTypeDiscovery,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RequestType {
     /// Minion registration request or context.
     #[serde(rename = "add")]
