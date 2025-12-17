@@ -129,7 +129,7 @@ impl SysMinion {
         }
 
         let mut out: Vec<String> = vec![];
-        for t in traits::get_minion_traits(Some(&self.cfg)).items() {
+        for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
