@@ -43,3 +43,4 @@ daemonize = "0.5.0"
 indexmap = { version = "2.11.1", features = ["serde"] }
 chrono = { version = "0.4.42", features = ["serde"] }
 async-trait = "0.1.89"
+globset = "0.4.18"
