@@ -85,6 +85,29 @@ Caveats and Considerations
 
     All minions that belong to a given virtual minion must have the same set of modules installed and configured.
 
+
+Invocation
+----------
+
+Virtual minions are invoked with a different query syntax than regular minions. When you call all minions with
+a `*` glob (or any kind of globbing), virtual minions are skipped. To call a virtual minion, you need to use
+a `v:` prefix in the query, followed by the virtual minion hostname or glob pattern. For example:
+
+.. code-block:: bash
+
+    sysinspect your/model 'v:*'
+
+Traits, however, remain the same, because `v:*` simply expands to all actual minions that back the virtual minion,
+where traits query will filter them further. For example, if your cluster has four minions, but two of them are
+Ubuntu Linux and the other are FreeBSD, you can call only the Linux ones like this:
+
+.. code-block:: bash
+
+    sysinspect your/model 'v:*' -t 'system.os.name:Ubuntu'
+
+In this case, the virtual minion expands to all physical minions, but the trait filter narrows it down to just
+the Ubuntu ones.
+
 Virtual Minion Definition
 --------------------------------
 
