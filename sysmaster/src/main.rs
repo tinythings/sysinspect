@@ -1,4 +1,5 @@
 mod clidef;
+mod cluster;
 mod dataserv;
 mod master;
 mod master_itf;

@@ -1,4 +1,5 @@
 use crate::{
+    cluster::VirtualMinionsCluster,
     dataserv::fls,
     registry::{
         mkb::MinionsKeyRegistry,
@@ -52,21 +53,34 @@ pub struct SysMaster {
     cfg: MasterConfig,
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
-    mreg: MinionRegistry,
+    mreg: Arc<Mutex<MinionRegistry>>,
     evtipc: Arc<DbIPCService>,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
     ptr: Option<Weak<Mutex<SysMaster>>>,
+    vmcluster: VirtualMinionsCluster,
 }
 
 impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
-        let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
+        let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
+
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtipc, ptr: None })
+        let vmc = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg));
+        Ok(SysMaster {
+            cfg,
+            broadcast: tx,
+            mkr,
+            to_drop: HashSet::default(),
+            session: Arc::clone(&SHARED_SESSION),
+            mreg,
+            evtipc,
+            ptr: None,
+            vmcluster: vmc,
+        })
     }
 
     /// Open FIFO socket for command-line communication
@@ -98,6 +112,7 @@ impl SysMaster {
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
         log::info!("Starting master at {}", self.cfg.bind_addr());
         self.open_socket(&self.cfg.socket())?;
+        self.vmcluster.init().await?;
         Ok(())
     }
 
@@ -159,7 +174,7 @@ impl SysMaster {
 
         if let Ok(s) = self.evtipc.get_last_session().await {
             for m in self.evtipc.get_minions(s.sid()).await.unwrap_or_default() {
-                let mrec = match self.mreg.get(m.id()) {
+                let mrec = match self.mreg.lock().await.get(m.id()) {
                     Ok(Some(mrec)) => mrec,
                     Ok(None) => {
                         log::error!("Unable to get minion record");
@@ -184,7 +199,7 @@ impl SysMaster {
         if self.cfg.telemetry_enabled() {
             // Emit reduced data
             for (mid, res) in reducer.get_reduced_data() {
-                if let Ok(Some(mrec)) = self.mreg.get(mid) {
+                if let Ok(Some(mrec)) = self.mreg.lock().await.get(mid) {
                     let fqdn = mrec.get_traits().get("system.hostname.fqdn").unwrap_or(&serde_json::Value::String("".to_string())).to_string();
                     libtelemetry::otel_log_json(res, vec![("hostname".into(), fqdn.into())]);
                 } else {
@@ -230,6 +245,8 @@ impl SysMaster {
             );
             msg.set_target(tgt);
             msg.set_retcode(ProtoErrorCode::Success);
+
+            log::warn!("Querying minion(s) with: {msg:#?}");
 
             return Some(msg);
         }
@@ -395,8 +412,8 @@ impl SysMaster {
                                 log::debug!("Event for {}: {}", req.id(), req.payload());
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
-                                    let mut m = c_master.lock().await;
-                                    let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
+                                    let m = c_master.lock().await;
+                                    let mrec = m.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
                                     // XXX: Fix this nonsense
                                     let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
                                         Ok(pl) => pl,
@@ -449,8 +466,8 @@ impl SysMaster {
                             RequestType::ModelEvent => {
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
-                                    let mut master = c_master.lock().await;
-                                    let mrec = master.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
+                                    let master = c_master.lock().await;
+                                    let mrec = master.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
 
                                     let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
                                         Ok(pl) => pl,
@@ -471,7 +488,7 @@ impl SysMaster {
                                         let mut otel = OtelLogger::new(&pl);
                                         otel.set_map(true); // Use mapper (only)
                                         match master.evtipc.get_events(sid.sid(), req.id()).await {
-                                            Ok(events) => match master.mreg.get(req.id()) {
+                                            Ok(events) => match master.mreg.lock().await.get(req.id()) {
                                                 Ok(Some(mrec)) => {
                                                     otel.feed(events, mrec);
                                                 }
@@ -506,7 +523,7 @@ impl SysMaster {
     pub async fn on_traits(&mut self, mid: String, payload: String) {
         let traits = serde_json::from_str::<HashMap<String, serde_json::Value>>(&payload).unwrap_or_default();
         if !traits.is_empty() {
-            if let Err(err) = self.mreg.refresh(&mid, traits) {
+            if let Err(err) = self.mreg.lock().await.refresh(&mid, traits) {
                 log::error!("Unable to sync traits: {err}");
             } else {
                 log::info!("Traits added");
@@ -517,7 +534,7 @@ impl SysMaster {
     pub async fn on_fifo_commands(&mut self, msg: &MasterMessage) {
         if msg.target().scheme().eq("cmd://cluster/minion/remove") && !msg.target().id().is_empty() {
             log::info!("Removing minion {}", msg.target().id());
-            if let Err(err) = self.mreg.remove(msg.target().id()) {
+            if let Err(err) = self.mreg.lock().await.remove(msg.target().id()) {
                 log::error!("Unable to remove minion {}: {err}", msg.target().id());
             }
             if let Err(err) = self.mkr().remove_mn_key(msg.target().id()) {
