@@ -3,6 +3,8 @@ pub mod payload;
 pub mod query;
 pub mod rqtypes;
 
+use std::collections::HashSet;
+
 use crate::SysinspectError;
 use errcodes::ProtoErrorCode;
 use rqtypes::RequestType;
@@ -164,7 +166,7 @@ pub struct MinionTarget {
     traits_query: String,
 
     #[serde(rename = "h")]
-    hostnames: Vec<String>,
+    hostnames: HashSet<String>,
 
     #[serde(rename = "cq")]
     context_query: String,
@@ -177,7 +179,7 @@ impl MinionTarget {
 
     /// Add hostnames
     pub fn add_hostname(&mut self, hostname: &str) {
-        self.hostnames.push(hostname.to_string());
+        self.hostnames.insert(hostname.to_string());
     }
 
     pub fn id(&self) -> &String {
@@ -188,8 +190,8 @@ impl MinionTarget {
         &self.sid
     }
 
-    pub fn hostnames(&self) -> &Vec<String> {
-        &self.hostnames
+    pub fn hostnames(&self) -> Vec<String> {
+        self.hostnames.iter().map(|s| s.to_string()).collect()
     }
 
     /// Get scheme
