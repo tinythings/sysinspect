@@ -30,7 +30,10 @@ use libsysinspect::{
         MasterMessage, MinionMessage, ProtoConversion,
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
-        query::{MinionQuery, SCHEME_COMMAND},
+        query::{
+            MinionQuery, SCHEME_COMMAND,
+            commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
+        },
         rqtypes::{ProtoValue, RequestType},
     },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
@@ -514,21 +517,21 @@ impl SysMinion {
     async fn call_internal_command(self: Arc<Self>, cmd: &str) {
         let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
         match cmd {
-            libsysinspect::proto::query::commands::CLUSTER_SHUTDOWN => {
+            CLUSTER_SHUTDOWN => {
                 log::info!("Requesting minion shutdown from a master");
                 self.as_ptr().send_bye().await;
             }
-            libsysinspect::proto::query::commands::CLUSTER_REBOOT => {
+            CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
             }
-            libsysinspect::proto::query::commands::CLUSTER_ROTATE => {
+            CLUSTER_ROTATE => {
                 log::warn!("Command \"rotate\" is not implemented yet");
             }
-            libsysinspect::proto::query::commands::CLUSTER_REMOVE_MINION => {
+            CLUSTER_REMOVE_MINION => {
                 log::info!("{} from the master", "Unregistering".bright_red().bold());
                 self.as_ptr().send_bye().await;
             }
-            libsysinspect::proto::query::commands::CLUSTER_SYNC => {
+            CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
                 if let Err(e) = libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
                     log::error!("Failed to sync minion with master: {e}");
@@ -567,7 +570,7 @@ impl SysMinion {
             let hostname = dataconv::as_str(traits.get("system.hostname"));
             if !hostname.is_empty() {
                 for hq in tgt.hostnames() {
-                    if let Ok(hq) = glob::Pattern::new(hq)
+                    if let Ok(hq) = glob::Pattern::new(&hq)
                         && hq.matches(&hostname)
                     {
                         skip = false;
