@@ -137,6 +137,28 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Display minion info
+    pub fn print_info(cfg: &MinionConfig) {
+        let mut out: IndexMap<String, String> = IndexMap::new();
+        let mut systraits = traits::get_minion_traits_nolog(Some(cfg));
+
+        systraits.put("minion.version".to_string(), json!(env!("CARGO_PKG_VERSION")));
+        systraits.put("uri.master".to_string(), json!(cfg.master()));
+        systraits.put("uri.fileserver".to_string(), json!(cfg.fileserver()));
+        systraits.put("path.models".to_string(), json!(cfg.models_dir()));
+        systraits.put("path.functions".to_string(), json!(cfg.functions_dir()));
+
+        for tk in systraits.trait_keys() {
+            out.insert(tk.to_owned(), dataconv::to_string(systraits.get(&tk)).unwrap_or_default());
+        }
+
+        let mut fmt = KeyValueFormatter::new(json!(out));
+        fmt.set_key_title("Trait");
+        fmt.set_value_title("Data");
+
+        println!("{}:\n\n{}", "Minion information".bright_green().bold(), fmt.format());
+    }
+
     async fn update_ping(&self) {
         let mut last_ping = self.last_ping.lock().await;
         *last_ping = Instant::now();

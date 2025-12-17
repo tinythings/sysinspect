@@ -18,6 +18,8 @@ use log::LevelFilter;
 use std::{env, fs::File, process::exit};
 use tokio::task::JoinHandle;
 
+use crate::minion::SysMinion;
+
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.4.0";
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
@@ -169,6 +171,8 @@ fn main() -> std::io::Result<()> {
         if let Err(err) = minion::launch_module(get_config(&params), sub) {
             log::error!("Error launching module: {err}");
         }
+    } else if params.get_flag("info") {
+        SysMinion::print_info(&get_config(&params));
     } else {
         cli.print_help()?;
     }
