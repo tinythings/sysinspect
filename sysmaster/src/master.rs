@@ -533,7 +533,6 @@ impl SysMaster {
     }
 
     pub async fn on_fifo_commands(&mut self, msg: &MasterMessage) {
-        println!("Received command: {}", msg.target().scheme());
         if msg.target().scheme().eq(&format!("cmd://{}", CLUSTER_REMOVE_MINION)) && !msg.target().id().is_empty() {
             log::info!("Removing minion {}", msg.target().id());
             if let Err(err) = self.mreg.lock().await.remove(msg.target().id()) {
