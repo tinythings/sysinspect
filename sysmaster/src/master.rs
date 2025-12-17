@@ -246,8 +246,6 @@ impl SysMaster {
             msg.set_target(tgt);
             msg.set_retcode(ProtoErrorCode::Success);
 
-            log::warn!("Querying minion(s) with: {msg:#?}");
-
             return Some(msg);
         }
 
