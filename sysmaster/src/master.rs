@@ -8,6 +8,7 @@ use crate::{
     },
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
 };
+use colored::Colorize;
 use indexmap::IndexMap;
 use libeventreg::{
     ipcs::DbIPCService,
@@ -21,7 +22,10 @@ use libsysinspect::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
         errcodes::ProtoErrorCode,
         payload::ModStatePayload,
-        query::SCHEME_COMMAND,
+        query::{
+            SCHEME_COMMAND,
+            commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
+        },
         rqtypes::{ProtoValue, RequestType},
     },
     util::{self, iofs::scan_files_sha256},
@@ -66,7 +70,6 @@ impl SysMaster {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
         let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
-
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
         let vmc = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg));
@@ -437,7 +440,7 @@ impl SysMaster {
                                     {
                                         Ok(sid) => sid,
                                         Err(err) => {
-                                            log::error!("Unable to acquire session for this iteration: {err}");
+                                            log::debug!("Unable to acquire session for this iteration: {err}");
                                             return;
                                         }
                                     };
@@ -477,7 +480,7 @@ impl SysMaster {
                                     let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get("cid").cloned())).await {
                                         Ok(sid) => sid,
                                         Err(err) => {
-                                            log::error!("Unable to acquire session for this iteration: {err}");
+                                            log::debug!("Unable to acquire session for this iteration: {err}");
                                             return;
                                         }
                                     };
@@ -530,13 +533,50 @@ impl SysMaster {
     }
 
     pub async fn on_fifo_commands(&mut self, msg: &MasterMessage) {
-        if msg.target().scheme().eq("cmd://cluster/minion/remove") && !msg.target().id().is_empty() {
+        println!("Received command: {}", msg.target().scheme());
+        if msg.target().scheme().eq(&format!("cmd://{}", CLUSTER_REMOVE_MINION)) && !msg.target().id().is_empty() {
             log::info!("Removing minion {}", msg.target().id());
             if let Err(err) = self.mreg.lock().await.remove(msg.target().id()) {
                 log::error!("Unable to remove minion {}: {err}", msg.target().id());
             }
             if let Err(err) = self.mkr().remove_mn_key(msg.target().id()) {
                 log::error!("Unable to unregister minion: {err}");
+            }
+        } else if msg.target().scheme().eq(&format!("cmd://{}", CLUSTER_ONLINE_MINIONS)) {
+            // XXX: This is just a logdumper for now, because there is no proper response channel yet.
+            // Most likely we need to dump FIFO mechanism in a whole and replace with something else.
+            log::info!("Listing online minions");
+            let mreg = self.mreg.lock().await;
+            let mut session = self.session.lock().await;
+            match mreg.get_registered_ids() {
+                Ok(ids) => {
+                    let mut msg: Vec<String> = vec![];
+                    for (idx, mid) in ids.iter().enumerate() {
+                        let alive = session.alive(mid);
+                        let traits = match mreg.get(mid) {
+                            Ok(Some(mrec)) => mrec.get_traits().to_owned(),
+                            _ => HashMap::new(),
+                        };
+                        let mut h = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        if h.is_empty() {
+                            h = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        }
+                        let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+                        msg.push(format!(
+                            "{}. {} ({}), ID: {} is {}",
+                            idx + 1,
+                            h.bright_yellow(),
+                            ip.yellow(),
+                            mid.cyan(),
+                            if alive { "✅" } else { "❌" }
+                        ));
+                    }
+                    log::info!("Status of all registered minions:\n{}", msg.join("\n"));
+                }
+                Err(err) => {
+                    log::error!("Unable to get online minions: {err}");
+                }
             }
         }
     }

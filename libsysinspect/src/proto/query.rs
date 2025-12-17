@@ -23,6 +23,9 @@ pub mod commands {
 
     // Remove minion (unregister)
     pub const CLUSTER_REMOVE_MINION: &str = "cluster/minion/remove";
+
+    // Get online minions
+    pub const CLUSTER_ONLINE_MINIONS: &str = "cluster/minion/online";
 }
 
 ///

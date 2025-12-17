@@ -106,6 +106,12 @@ pub fn cli(version: &'static str) -> Command {
                 .help("Unregister a minion by its System ID. A new registration will be required.")
         )
         .arg(
+            Arg::new("online")
+                .long("online")
+                .action(ArgAction::SetTrue)
+                .help("Show online minions in the cluster" )
+        )
+        .arg(
             Arg::new("sync")
                 .long("sync")
                 .action(ArgAction::SetTrue)

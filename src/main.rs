@@ -11,7 +11,7 @@ use libsysinspect::{
     logger::{self, MemoryLogger},
     proto::query::{
         SCHEME_COMMAND,
-        commands::{CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
+        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
     },
     reactor::handlers,
     traits::get_minion_traits,
@@ -254,6 +254,12 @@ async fn main() {
     } else if let Some(mid) = params.get_one::<String>("unregister") {
         if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), &cfg.socket(), None) {
             log::error!("Cannot reach master: {err}");
+        }
+    } else if params.get_flag("online") {
+        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, &cfg.socket(), None) {
+            log::error!("Cannot reach master: {err}");
+        } else {
+            println!("Check the master's logs for online minions information. 😀");
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
         let mut sr = SysInspectRunner::new(&MinionConfig::default());

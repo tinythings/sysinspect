@@ -66,7 +66,24 @@ impl MinionRegistry {
         Ok(())
     }
 
-    pub fn get(&mut self, mid: &str) -> Result<Option<MinionRecord>, SysinspectError> {
+    pub fn get_registered_ids(&self) -> Result<Vec<String>, SysinspectError> {
+        let minions = self.get_tree(DB_MINIONS)?;
+        let mut ids: Vec<String> = Vec::new();
+
+        for entry in minions.iter() {
+            match entry {
+                Ok((k_ent, _v_ent)) => {
+                    let mid = String::from_utf8(k_ent.to_vec()).unwrap_or_default();
+                    ids.push(mid);
+                }
+                Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Minion database seems corrupt: {err}"))),
+            };
+        }
+
+        Ok(ids)
+    }
+
+    pub fn get(&self, mid: &str) -> Result<Option<MinionRecord>, SysinspectError> {
         let minions = self.get_tree(DB_MINIONS)?;
         let data = match minions.get(mid) {
             Ok(data) => data,
