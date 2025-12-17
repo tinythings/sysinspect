@@ -41,8 +41,7 @@ struct QueryParser;
 ///
 /// Each inner array should be treated with AND operator.
 pub fn parse_traits_query(input: &str) -> Result<Vec<Vec<String>>, SysinspectError> {
-    let pairs = QueryParser::parse(Rule::expression, input)
-        .map_err(|err| SysinspectError::ModelDSLError(format!("Invalid query: {err}")))?;
+    let pairs = QueryParser::parse(Rule::expression, input).map_err(|err| SysinspectError::ModelDSLError(format!("Invalid query: {err}")))?;
 
     let mut out = Vec::new();
 
@@ -106,9 +105,19 @@ static _TRAITS: OnceCell<SystemTraits> = OnceCell::new();
 
 /// Returns a copy of initialised traits.
 pub fn get_minion_traits(cfg: Option<&MinionConfig>) -> SystemTraits {
+    __get_minion_traits(cfg, false)
+}
+
+/// Returns a copy of initialised traits. Same as get_minion_traits but without logging.
+pub fn get_minion_traits_nolog(cfg: Option<&MinionConfig>) -> SystemTraits {
+    __get_minion_traits(cfg, true)
+}
+
+/// Get or initialise system traits
+fn __get_minion_traits(cfg: Option<&MinionConfig>, q: bool) -> SystemTraits {
     if let Some(cfg) = cfg {
-        return _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone())).to_owned();
+        return _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone(), q)).to_owned();
     }
 
-    _TRAITS.get_or_init(|| SystemTraits::new(MinionConfig::default())).to_owned()
+    _TRAITS.get_or_init(|| SystemTraits::new(MinionConfig::default(), q)).to_owned()
 }
