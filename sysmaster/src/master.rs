@@ -563,12 +563,12 @@ impl SysMaster {
                         let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
 
                         msg.push(format!(
-                            "{}. {} ({}), ID: {} is {}",
+                            "{}. {} {} - {} ({})",
                             idx + 1,
-                            h.bright_yellow(),
-                            ip.yellow(),
-                            mid.cyan(),
-                            if alive { "✅" } else { "❌" }
+                            if alive { " " } else { "!" },
+                            if alive { mid.cyan() } else { mid.white() },
+                            if alive { h.bright_green() } else { h.yellow() },
+                            if alive { ip.bright_green() } else { ip.yellow() },
                         ));
                     }
                     log::info!("Status of all registered minions:\n{}", msg.join("\n"));
