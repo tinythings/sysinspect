@@ -1,10 +1,20 @@
-use std::sync::Mutex;
+use std::{io::IsTerminal, sync::Mutex};
 
 use chrono::Local;
 use colored::{self, Colorize};
+use console::strip_ansi_codes;
 use log::{Level, Metadata, Record};
 
-pub struct STDOUTLogger;
+#[derive(Default)]
+pub struct STDOUTLogger {
+    nocolor: bool,
+}
+
+impl STDOUTLogger {
+    pub fn new(nocolor: bool) -> STDOUTLogger {
+        STDOUTLogger { nocolor }
+    }
+}
 
 impl log::Log for STDOUTLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
@@ -21,7 +31,11 @@ impl log::Log for STDOUTLogger {
                 log::Level::Trace => format!("{}", msg.level().as_str().cyan()),
             };
 
-            println!("[{}] - {}: {}", Local::now().format("%d/%m/%Y %H:%M:%S"), s_level, msg.args());
+            let mut msg = format!("[{}] - {}: {}", Local::now().format("%d/%m/%Y %H:%M:%S"), s_level, msg.args());
+            if self.nocolor || !std::io::stdout().is_terminal() {
+                msg = strip_ansi_codes(msg.as_str()).into_owned();
+            }
+            println!("{}", msg);
         }
     }
 

@@ -8,7 +8,7 @@ use libsysinspect::{
         select_config_path,
     },
     inspector::SysInspectRunner,
-    logger::{self, MemoryLogger},
+    logger::{self, MemoryLogger, STDOUTLogger},
     proto::query::{
         SCHEME_COMMAND,
         commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
@@ -23,14 +23,14 @@ use std::{
     io::{ErrorKind, Write},
     path::PathBuf,
     process::exit,
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
 };
 
 mod clidef;
 mod ui;
 
 static VERSION: &str = "0.4.0";
-static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
 
 /// Display event handlers
@@ -57,8 +57,11 @@ fn call_master_fifo(
 
 /// Set logger
 fn set_logger(p: &ArgMatches) {
-    let log: &'static dyn log::Log =
-        if *p.get_one::<bool>("ui").unwrap_or(&false) { &MEM_LOGGER as &'static dyn log::Log } else { &LOGGER as &'static dyn log::Log };
+    let log: &'static dyn log::Log = if *p.get_one::<bool>("ui").unwrap_or(&false) {
+        &MEM_LOGGER as &'static dyn log::Log
+    } else {
+        LOGGER.get_or_init(|| STDOUTLogger::default()) as &'static dyn log::Log
+    };
 
     if let Err(err) = log::set_logger(log).map(|()| {
         log::set_max_level(match p.get_count("debug") {

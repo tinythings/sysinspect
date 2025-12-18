@@ -99,6 +99,12 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .help("Set debug mode for more verbose output. Increase this flag for more verbosity."),
         )
         .arg(
+            Arg::new("no-color")
+                .long("no-color")
+                .action(ArgAction::SetTrue)
+                .help("Disable colored output in logs"),
+        )
+        .arg(
             Arg::new("help")
                 .short('h')
                 .long("help")

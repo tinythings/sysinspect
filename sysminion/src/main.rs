@@ -15,14 +15,14 @@ use libsysinspect::{
     logger,
 };
 use log::LevelFilter;
-use std::{env, fs::File, process::exit};
+use std::{env, fs::File, process::exit, sync::OnceLock};
 use tokio::task::JoinHandle;
 
 use crate::minion::SysMinion;
 
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.4.0";
-static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
     let runtime = tokio::runtime::Runtime::new().map_err(|e| SysinspectError::DynError(Box::new(e)))?;
@@ -103,7 +103,7 @@ fn main() -> std::io::Result<()> {
     }
 
     // Setup logger
-    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+    if let Err(err) = log::set_logger(LOGGER.get_or_init(|| logger::STDOUTLogger::new(params.get_flag("no-color")))).map(|()| {
         log::set_max_level(match params.get_count("debug") {
             0 => LevelFilter::Info,
             1 => LevelFilter::Debug,
