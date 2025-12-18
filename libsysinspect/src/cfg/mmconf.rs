@@ -566,7 +566,7 @@ impl MinionConfig {
 /// At least two nodes must be present (it is a cluster after all).
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ClusteredMinion {
-    id: Option<Value>,
+    id: Value,
     hostname: Option<String>,
     traits: Option<IndexMap<String, Value>>,
     nodes: Vec<ClusteredMinionScope>,
@@ -575,7 +575,7 @@ pub struct ClusteredMinion {
 impl ClusteredMinion {
     /// Validate clustered minion definition
     pub fn is_valid(&self) -> bool {
-        (self.id.is_some() || self.hostname.is_some() || self.traits.is_some()) && self.nodes.len() >= 2
+        (self.hostname.is_some() || self.traits.is_some()) && self.nodes.len() >= 2
     }
 
     /// Get clustered minion nodes
@@ -584,8 +584,11 @@ impl ClusteredMinion {
     }
 
     /// Get clustered minion id
-    pub fn id(&self) -> Option<&Value> {
-        self.id.as_ref()
+    pub fn id(&self) -> String {
+        match &self.id {
+            Value::String(s) => s.clone(),
+            _ => util::dataconv::to_string(Some(self.id.clone())).unwrap_or_default().trim().to_string(),
+        }
     }
 
     /// Get clustered minion hostname
@@ -614,6 +617,7 @@ impl ClusteredMinion {
 pub struct ClusteredMinionScope {
     id: Option<Value>,
     query: Option<String>,
+    hostname: Option<String>,
     traits: Option<IndexMap<String, Value>>,
 }
 
@@ -636,6 +640,11 @@ impl ClusteredMinionScope {
     /// Get clustered minion scope traits
     pub fn traits(&self) -> Option<&IndexMap<String, Value>> {
         self.traits.as_ref()
+    }
+
+    /// Get clustered minion scope hostname
+    pub fn hostname(&self) -> Option<&String> {
+        self.hostname.as_ref()
     }
 }
 
