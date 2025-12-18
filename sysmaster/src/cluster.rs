@@ -1,20 +1,19 @@
 // Cluster management for sysmaster
 
+use crate::registry::mreg::MinionRegistry;
 use globset::Glob;
 use libsysinspect::{SysinspectError, cfg::mmconf::ClusteredMinion, proto::MasterMessage};
-use serde_yaml::Value;
+use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
+    vec,
 };
 use tokio::sync::Mutex;
-
-use crate::registry::mreg::MinionRegistry;
 
 #[derive(Debug, Clone, Default)]
 /// Representation of a clustered node
 pub struct ClusterNode {
-    hostname: String,
     mid: String,
     traits: HashMap<String, Value>,
 }
@@ -22,16 +21,22 @@ pub struct ClusterNode {
 /// Cluster node representation
 impl ClusterNode {
     /// Create a new cluster node
-    pub fn new(hostname: &str, mid: &str, traits: HashMap<String, Value>) -> ClusterNode {
-        ClusterNode { hostname: hostname.to_string(), mid: mid.to_string(), traits }
+    pub fn new(mid: &str, traits: HashMap<String, Value>) -> ClusterNode {
+        ClusterNode { mid: mid.to_string(), traits }
     }
 
     /// Match hostname with glob pattern
+    /// It takes data from the traits map, trying to get first short name, then FQDN.
     fn match_hostname(&self, pattern: &str) -> bool {
-        match Glob::new(pattern) {
-            Ok(g) => g.compile_matcher().is_match(&self.hostname),
-            Err(_) => false,
+        for h in vec!["system.hostname", "system.hostname.fqdn"].iter() {
+            if let Some(Value::String(hn)) = self.traits.get(*h) {
+                return match Glob::new(pattern) {
+                    Ok(g) => g.compile_matcher().is_match(hn),
+                    Err(_) => false,
+                };
+            }
         }
+        false
     }
 
     /// Match traits
@@ -60,6 +65,7 @@ pub struct VirtualMinion {
 #[derive(Debug, Clone)]
 pub struct VirtualMinionsCluster {
     mreg: Arc<Mutex<MinionRegistry>>,
+    cfg: Vec<ClusteredMinion>,
     virtual_minions: Vec<VirtualMinion>, // Configured clustered minions
                                          /*
                                          Here must be a sort of state of the cluster, e.g., which minion is
@@ -69,45 +75,74 @@ pub struct VirtualMinionsCluster {
 
 impl VirtualMinionsCluster {
     pub fn new(cfg: Vec<ClusteredMinion>, mreg: Arc<Mutex<MinionRegistry>>) -> VirtualMinionsCluster {
-        if cfg.is_empty() {
-            return VirtualMinionsCluster { virtual_minions: Vec::new(), mreg };
+        VirtualMinionsCluster { virtual_minions: Vec::new(), mreg, cfg }
+    }
+
+    fn filter_traits(&self, traits: &HashMap<String, Value>) -> HashMap<String, Value> {
+        let mut filtered = HashMap::new();
+        let tk = vec!["system.hostname", "system.hostname.fqdn", "system.hostname.ip"];
+        for (k, v) in traits.iter() {
+            if tk.contains(&k.as_str()) {
+                filtered.insert(k.clone(), v.clone());
+            }
         }
-        let mut v_minions: Vec<VirtualMinion> = Vec::new();
+        filtered
+    }
+
+    pub async fn init(&mut self) -> Result<(), SysinspectError> {
+        let mut mreg = self.mreg.lock().await;
 
         // Call all that stuff in self.init() later to keep mreg async
-        for m in cfg.iter() {
-            let nodes: Vec<ClusterNode> = Vec::new();
-            let id: String = m.id().and_then(|v| v.as_str()).unwrap_or_default().to_string();
-            let traits: HashMap<String, Value> = match m.traits() {
-                Some(t) => t.clone().into_iter().collect(),
+        for m in self.cfg.iter() {
+            log::debug!("Processing clustered minion: {:#?}", m);
+            let mut nodes: Vec<ClusterNode> = Vec::new();
+            let cm_traits: HashMap<String, Value> = match m.traits() {
+                Some(t) => t.clone().into_iter().map(|(k, v)| (k, serde_json::to_value(v).unwrap_or(Value::Null))).collect(),
                 None => HashMap::new(),
             };
 
-            for node in m.nodes().iter() {
-                let _node_traits: HashMap<String, Value> = match node.traits() {
-                    Some(t) => t.clone().into_iter().collect(),
+            for node_scope in m.nodes().iter() {
+                // Selectors
+                let id_sel = node_scope.id().and_then(|v| v.as_str()).unwrap_or_default();
+                let hn_sel = node_scope.hostname().and_then(|s| Some(s.as_str())).unwrap_or_default();
+                let qr_sel = node_scope.query().as_deref().unwrap_or(&"".to_string());
+                let tr_sel: HashMap<String, Value> = match node_scope.traits() {
+                    Some(t) => t.clone().into_iter().map(|(k, v)| (k, serde_json::to_value(v).unwrap_or(Value::Null))).collect(),
                     None => HashMap::new(),
                 };
-                // TODO: find here minion nodes first
-                //       First, glob the database, get minions matching the hostname pattern and/or traits.
-                //       Then, create ClusterNode instances for each matched minion.
 
-                //let node = ClusterNode::new(&node.hostname().cloned().unwrap_or_default(), &node.id().cloned().unwrap_or_default(), node_traits);
-                //nodes.push(node);
+                /*
+                Only hostname selector is implemented.
+                To add more:
+                1. nodes must be a hashset to avoid duplicates
+                2. implement id_sel, qr_sel, tr_sel handling here
+                 */
+
+                // Get minion records matching the hostname or IP pattern
+                if !hn_sel.is_empty() {
+                    for mm in mreg.get_by_hostname_or_ip(hn_sel)?.iter() {
+                        log::debug!("  Matched minion for clustered node {}: {:?}", hn_sel, mm.id());
+                        nodes.push(ClusterNode::new(mm.id(), self.filter_traits(&mm.get_traits().clone())));
+                    }
+                }
             }
 
-            let v_minion = VirtualMinion { id, hostnames: vec![m.hostname().cloned().unwrap_or_default()], traits, minions: nodes };
-            v_minions.push(v_minion);
+            if !nodes.is_empty() {
+                self.virtual_minions.push(VirtualMinion {
+                    id: m.id(),
+                    hostnames: vec![m.hostname().cloned().unwrap_or_default()],
+                    traits: cm_traits,
+                    minions: nodes,
+                });
+            }
         }
 
-        VirtualMinionsCluster { virtual_minions: v_minions, mreg }
-    }
-
-    pub async fn init(&self) -> Result<(), SysinspectError> {
-        let minions = self.mreg.lock().await.get_by_hostname_or_ip("*")?;
-        for mr in minions.iter() {
-            log::info!("Discovered minion in cluster init: {:?}", mr.id());
+        if self.virtual_minions.is_empty() {
+            log::warn!("No clustered minions configured or found in the cluster.");
+        } else {
+            log::info!("Clustered minion details: {:#?}", self.virtual_minions);
         }
+
         Ok(())
     }
 
