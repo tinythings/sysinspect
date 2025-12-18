@@ -60,7 +60,7 @@ fn set_logger(p: &ArgMatches) {
     let log: &'static dyn log::Log = if *p.get_one::<bool>("ui").unwrap_or(&false) {
         &MEM_LOGGER as &'static dyn log::Log
     } else {
-        LOGGER.get_or_init(|| STDOUTLogger::default()) as &'static dyn log::Log
+        LOGGER.get_or_init(STDOUTLogger::default) as &'static dyn log::Log
     };
 
     if let Err(err) = log::set_logger(log).map(|()| {
