@@ -28,7 +28,7 @@ impl ClusterNode {
     /// Match hostname with glob pattern
     /// It takes data from the traits map, trying to get first short name, then FQDN.
     fn match_hostname(&self, pattern: &str) -> bool {
-        for h in vec!["system.hostname", "system.hostname.fqdn"].iter() {
+        for h in ["system.hostname", "system.hostname.fqdn"].iter() {
             if let Some(Value::String(hn)) = self.traits.get(*h) {
                 return match Glob::new(pattern) {
                     Ok(g) => g.compile_matcher().is_match(hn),
@@ -80,7 +80,7 @@ impl VirtualMinionsCluster {
 
     fn filter_traits(&self, traits: &HashMap<String, Value>) -> HashMap<String, Value> {
         let mut filtered = HashMap::new();
-        let tk = vec!["system.hostname", "system.hostname.fqdn", "system.hostname.ip"];
+        let tk = ["system.hostname", "system.hostname.fqdn", "system.hostname.ip"];
         for (k, v) in traits.iter() {
             if tk.contains(&k.as_str()) {
                 filtered.insert(k.clone(), v.clone());
@@ -103,10 +103,10 @@ impl VirtualMinionsCluster {
 
             for node_scope in m.nodes().iter() {
                 // Selectors
-                let id_sel = node_scope.id().and_then(|v| v.as_str()).unwrap_or_default();
-                let hn_sel = node_scope.hostname().and_then(|s| Some(s.as_str())).unwrap_or_default();
-                let qr_sel = node_scope.query().as_deref().unwrap_or(&"".to_string());
-                let tr_sel: HashMap<String, Value> = match node_scope.traits() {
+                let _id_sel = node_scope.id().and_then(|v| v.as_str()).unwrap_or_default();
+                let hn_sel = node_scope.hostname().map(|s| s.as_str()).unwrap_or_default();
+                let _qr_sel = node_scope.query().unwrap_or(&"".to_string());
+                let _tr_sel: HashMap<String, Value> = match node_scope.traits() {
                     Some(t) => t.clone().into_iter().map(|(k, v)| (k, serde_json::to_value(v).unwrap_or(Value::Null))).collect(),
                     None => HashMap::new(),
                 };
