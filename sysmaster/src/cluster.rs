@@ -1,6 +1,6 @@
 // Cluster management for sysmaster
 
-use crate::registry::mreg::MinionRegistry;
+use crate::registry::{mreg::MinionRegistry, session::SessionKeeper};
 use globset::Glob;
 use libsysinspect::{SysinspectError, cfg::mmconf::ClusteredMinion, proto::MasterMessage};
 use serde_json::Value;
@@ -65,6 +65,7 @@ pub struct VirtualMinion {
 #[derive(Debug, Clone)]
 pub struct VirtualMinionsCluster {
     mreg: Arc<Mutex<MinionRegistry>>,
+    session: Arc<Mutex<SessionKeeper>>,
     cfg: Vec<ClusteredMinion>,
     virtual_minions: Vec<VirtualMinion>, // Configured clustered minions
                                          /*
@@ -74,8 +75,8 @@ pub struct VirtualMinionsCluster {
 }
 
 impl VirtualMinionsCluster {
-    pub fn new(cfg: Vec<ClusteredMinion>, mreg: Arc<Mutex<MinionRegistry>>) -> VirtualMinionsCluster {
-        VirtualMinionsCluster { virtual_minions: Vec::new(), mreg, cfg }
+    pub fn new(cfg: Vec<ClusteredMinion>, mreg: Arc<Mutex<MinionRegistry>>, session: Arc<Mutex<SessionKeeper>>) -> VirtualMinionsCluster {
+        VirtualMinionsCluster { virtual_minions: Vec::new(), mreg, cfg, session }
     }
 
     fn filter_traits(&self, traits: &HashMap<String, Value>) -> HashMap<String, Value> {
@@ -159,6 +160,14 @@ impl VirtualMinionsCluster {
         Vec::new()
     }
 
-    /// Update cluster state by pong response from a minion
-    pub fn update_state(&mut self) {}
+    /// Call a query on the clustered minion.
+    /// This will do the following:
+    /// 1. Drop offline minions, if any (based on session state)
+    /// 2. Analyse each minion status/load
+    /// 3. Select the best-fit minion(s) to run the query
+    ///
+    /// This method must be called before master pings the minions with discovery
+    /// type ping (not general) and thus updates the session state with alive/dead minions
+    /// and their job load.
+    pub fn call(&mut self, query: &str) {}
 }

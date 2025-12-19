@@ -72,7 +72,7 @@ impl SysMaster {
         let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
-        let vmc = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg));
+        let vmc = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg), Arc::clone(&SHARED_SESSION));
         Ok(SysMaster {
             cfg,
             broadcast: tx,
