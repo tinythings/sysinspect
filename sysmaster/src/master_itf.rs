@@ -12,7 +12,7 @@ impl MasterInterface for SysMaster {
 
     /// Query operation
     async fn query(&mut self, query: String) -> Result<(), SysinspectError> {
-        if let Some(msg) = self.msg_query(&query) {
+        if let Some(msg) = self.msg_query(&query).await {
             if let Some(master) = self.as_ptr() {
                 SysMaster::bcast_master_msg(&self.broadcast(), self.cfg_ref().telemetry_enabled(), master, Some(msg.clone())).await;
             } else {

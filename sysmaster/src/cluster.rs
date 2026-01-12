@@ -169,5 +169,47 @@ impl VirtualMinionsCluster {
     /// This method must be called before master pings the minions with discovery
     /// type ping (not general) and thus updates the session state with alive/dead minions
     /// and their job load.
-    pub fn call(&mut self, query: &str) {}
+    pub async fn get_hostnames(&mut self, query: &str) -> Vec<String> {
+        let mut mids: Vec<String> = Vec::new();
+        let mut hostnames: Vec<String> = Vec::new();
+
+        log::debug!("Getting hostnames for virtual minions cluster with query: {query}");
+
+        // Get all of them, if "*" is given
+        if query == "*" {
+            for vm in self.virtual_minions.iter() {
+                for physical_minion in vm.minions.iter() {
+                    mids.push(physical_minion.mid.clone());
+                }
+            }
+        } else {
+            log::error!("Only '*' query is supported for virtual minions cluster at the moment.");
+        }
+
+        // Construct hostnames from the query list
+        for mid in mids.iter() {
+            let mrec = match self.mreg.lock().await.get(mid) {
+                Ok(mrec) => mrec,
+                Err(err) => {
+                    log::error!("Unable to get minion record for {mid}: {err}");
+                    continue;
+                }
+            };
+            if mrec.is_none() {
+                log::error!("Minion record for {mid} not found");
+                continue;
+            }
+            let mrec = mrec.unwrap();
+            if self.session.lock().await.alive(mrec.id()) {
+                let hn = mrec.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default();
+                if !hn.is_empty() {
+                    hostnames.push(hn.to_string());
+                }
+            } else {
+                log::info!("Minion {} is offline, skipping", mid);
+            }
+        }
+
+        hostnames
+    }
 }

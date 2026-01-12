@@ -213,17 +213,30 @@ impl SysMaster {
     }
 
     /// Construct a Command message to the minion
-    pub(crate) fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+    pub(crate) async fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
         if let [querypath, query, traits, mid, context] = query.as_slice() {
+            let is_virtual = query.to_lowercase().starts_with("v:");
+            let query = query.to_lowercase().replace("v:", "");
+
             log::debug!("Context: {context}");
+            let mut hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
+
             let mut tgt = MinionTarget::new(mid, "");
             tgt.set_scheme(querypath);
             tgt.set_traits_query(traits);
             tgt.set_context_query(context);
-            for hostname in query.split(",") {
+
+            if is_virtual {
+                hostnames = self.vmcluster.get_hostnames(&query).await;
+                log::debug!("Hostnames in the virtual minion cluster: {:#?}", hostnames);
+            }
+
+            for hostname in hostnames.iter() {
                 tgt.add_hostname(hostname);
             }
+
+            log::debug!("Target: {:#?}", tgt);
 
             let mut out: IndexMap<String, String> = IndexMap::default();
             for em in self.cfg.fileserver_models() {
@@ -248,6 +261,8 @@ impl SysMaster {
             );
             msg.set_target(tgt);
             msg.set_retcode(ProtoErrorCode::Success);
+
+            log::debug!("Constructed message: {:#?}", msg);
 
             return Some(msg);
         }
@@ -604,7 +619,7 @@ impl SysMaster {
                                                 log::debug!("Querying minions: {payload}");
                                                 let msg = {
                                                     let mut guard = master.lock().await;
-                                                    guard.msg_query(&payload)
+                                                    guard.msg_query(&payload).await
                                                 };
                                                 SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
                                             }
@@ -783,7 +798,7 @@ impl SysMaster {
                     async move {
                         let (bcast, msg, cfg) = {
                             let mut master = master.lock().await;
-                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()), master.cfg().clone())
+                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()).await, master.cfg().clone())
                         };
                         SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
                     }

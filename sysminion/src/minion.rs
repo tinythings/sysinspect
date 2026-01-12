@@ -589,7 +589,7 @@ impl SysMinion {
 
             // Is matching this host?
             let mut skip = true;
-            let hostname = dataconv::as_str(traits.get("system.hostname"));
+            let hostname = dataconv::as_str(traits.get("system.hostname.fqdn")); // Fully qualified domain name or short, if your network is crap
             if !hostname.is_empty() {
                 for hq in tgt.hostnames() {
                     if let Ok(hq) = glob::Pattern::new(&hq)
