@@ -5,6 +5,7 @@ use crate::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
         session::{self, SessionKeeper},
+        taskreg::TaskRegistry,
     },
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
 };
@@ -49,7 +50,7 @@ use tokio::{
 };
 
 // Session singleton
-static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
+pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Debug)]
@@ -58,6 +59,7 @@ pub struct SysMaster {
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
     mreg: Arc<Mutex<MinionRegistry>>,
+    taskreg: Arc<Mutex<TaskRegistry>>,
     evtipc: Arc<DbIPCService>,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
@@ -70,9 +72,10 @@ impl SysMaster {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
         let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
+        let taskreg = Arc::new(Mutex::new(TaskRegistry::new()));
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
-        let vmc = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg), Arc::clone(&SHARED_SESSION));
+        let vmcluster = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg), Arc::clone(&SHARED_SESSION), Arc::clone(&taskreg));
         Ok(SysMaster {
             cfg,
             broadcast: tx,
@@ -81,8 +84,9 @@ impl SysMaster {
             session: Arc::clone(&SHARED_SESSION),
             mreg,
             evtipc,
+            taskreg,
             ptr: None,
-            vmcluster: vmc,
+            vmcluster,
         })
     }
 
@@ -220,16 +224,16 @@ impl SysMaster {
             let query = query.to_lowercase().replace("v:", "");
 
             log::debug!("Context: {context}");
-            let mut hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
 
+            let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
             let mut tgt = MinionTarget::new(mid, "");
             tgt.set_scheme(querypath);
             tgt.set_traits_query(traits);
             tgt.set_context_query(context);
 
-            if is_virtual {
-                hostnames = self.vmcluster.get_hostnames(&query).await;
-                log::debug!("Hostnames in the virtual minion cluster: {:#?}", hostnames);
+            if is_virtual && let Some(decided) = self.vmcluster.decide(&query).await {
+                log::warn!(">>> Decided to run on: {}", decided);
+                tgt.add_hostname(&decided);
             }
 
             for hostname in hostnames.iter() {
@@ -315,8 +319,19 @@ impl SysMaster {
         m
     }
 
+    /// Get session keeper
     pub fn get_session(&self) -> Arc<Mutex<session::SessionKeeper>> {
         Arc::clone(&self.session)
+    }
+
+    /// Get minion registry
+    pub fn get_minion_registry(&self) -> Arc<Mutex<MinionRegistry>> {
+        Arc::clone(&self.mreg)
+    }
+
+    /// Get task registry
+    pub fn get_task_registry(&self) -> Arc<Mutex<TaskRegistry>> {
+        Arc::clone(&self.taskreg)
     }
 
     /// Process incoming minion messages
@@ -426,11 +441,16 @@ impl SysMaster {
 
                             RequestType::Event => {
                                 log::debug!("Event for {}: {}", req.id(), req.payload());
+                                let d = req.get_data();
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
                                     let m = c_master.lock().await;
+                                    m.taskreg.lock().await.deregister(d.cid(), req.id());
                                     let mrec = m.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
+
                                     // XXX: Fix this nonsense
+                                    //      This should use get_data() method to extract payload properly
+                                    //      Also replace HashMap in evtipc.add_event with it.
                                     let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
                                         Ok(pl) => pl,
                                         Err(err) => {
@@ -528,6 +548,8 @@ impl SysMaster {
                                 log::error!("Minion sends unknown request type");
                             }
                         }
+                    } else {
+                        log::error!("Unable to parse minion message");
                     }
                 } else {
                     break;
@@ -621,7 +643,12 @@ impl SysMaster {
                                                     let mut guard = master.lock().await;
                                                     guard.msg_query(&payload).await
                                                 };
-                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
+                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg.clone()).await;
+                                                {
+                                                    let guard = master.lock().await;
+                                                    let ids = guard.mreg.lock().await.get_targeted_minions(msg.as_ref().unwrap().target(), false).await;
+                                                    guard.taskreg.lock().await.register(msg.as_ref().unwrap().cycle(), ids);
+                                                }
                                             }
                                             Ok(None) => break, // End of file, re-open the FIFO
                                             Err(e) => {

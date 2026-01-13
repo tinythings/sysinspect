@@ -1,9 +1,11 @@
+use crate::master::SHARED_SESSION;
+
 use super::rec::MinionRecord;
 use globset::Glob;
-use libsysinspect::SysinspectError;
+use libsysinspect::{SysinspectError, proto::MinionTarget};
 use serde_json::{Value, json};
 use sled::{Db, Tree};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 const DB_MINIONS: &str = "minions";
 
@@ -192,5 +194,38 @@ impl MinionRegistry {
         }
 
         Ok(mns)
+    }
+
+    /// Get targeted minion IDs from a MinionTarget
+    /// If `all` is true, return all matching minions regardless of their session status.
+    pub async fn get_targeted_minions(&mut self, target: &MinionTarget, all: bool) -> Vec<String> {
+        // Direct ID specified
+        let session = Arc::clone(&SHARED_SESSION);
+
+        if !target.id().is_empty() {
+            return vec![target.id().to_string()];
+        }
+
+        // Hostnames are specified
+        if !target.hostnames().is_empty() {
+            let mut ids: Vec<String> = Vec::new();
+            for hn in target.hostnames() {
+                match self.get_by_hostname_or_ip(&hn) {
+                    Ok(mrecs) => {
+                        for mrec in mrecs {
+                            if all || session.lock().await.alive(mrec.id()) {
+                                ids.push(mrec.id().to_string());
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("Unable to get minion by hostname {}: {}", hn, err);
+                    }
+                }
+            }
+            return ids;
+        }
+
+        vec![]
     }
 }

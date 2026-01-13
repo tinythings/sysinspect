@@ -6,3 +6,4 @@ pub mod mkb;
 pub mod mreg;
 pub mod rec;
 pub mod session;
+pub mod taskreg;
