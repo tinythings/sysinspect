@@ -82,6 +82,33 @@ impl MasterMessage {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinionMessageData {
+    eid: String,
+    aid: String,
+    sid: String,
+    cid: String,
+    timestamp: String,
+    response: MinionMessageResponse,
+    constraints: Value,
+    telemetry: Value,
+}
+
+impl MinionMessageData {
+    /// Get cycle ID
+    pub fn cid(&self) -> &String {
+        &self.cid
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinionMessageResponse {
+    retcode: usize,
+    warning: Option<String>,
+    message: String,
+    data: Value,
+}
+
 /// Minion message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinionMessage {
@@ -145,6 +172,28 @@ impl MinionMessage {
     /// Get payload
     pub fn payload(&self) -> &Value {
         &self.data
+    }
+
+    /// Get data as MinionMessageData
+    pub fn get_data(&self) -> MinionMessageData {
+        match serde_json::from_value::<MinionMessageData>(self.data.clone()) {
+            Ok(data) => data,
+            Err(_) => MinionMessageData {
+                eid: "".to_string(),
+                aid: "".to_string(),
+                sid: "".to_string(),
+                cid: "".to_string(),
+                timestamp: "".to_string(),
+                response: MinionMessageResponse {
+                    retcode: ProtoErrorCode::GeneralFailure as usize,
+                    warning: None,
+                    message: "Unable to parse MinionMessageData structure".to_string(),
+                    data: Value::Null,
+                },
+                constraints: Value::Null,
+                telemetry: Value::Null,
+            },
+        }
     }
 }
 
