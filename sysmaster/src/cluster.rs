@@ -1,6 +1,6 @@
 // Cluster management for sysmaster
 
-use crate::registry::{mreg::MinionRegistry, session::SessionKeeper};
+use crate::registry::{mreg::MinionRegistry, session::SessionKeeper, taskreg::TaskRegistry};
 use globset::Glob;
 use libsysinspect::{SysinspectError, cfg::mmconf::ClusteredMinion, proto::MasterMessage};
 use serde_json::Value;
@@ -61,12 +61,30 @@ pub struct VirtualMinion {
     traits: HashMap<String, Value>,
     minions: Vec<ClusterNode>, // Configured physical minions
 }
+impl VirtualMinion {
+    /// Match hostname with glob pattern
+    /// It checks all configured hostnames for the virtual minion.
+    fn match_hostname(&self, query: &str) -> bool {
+        for hn in self.hostnames.iter() {
+            match Glob::new(query) {
+                Ok(g) => {
+                    if g.compile_matcher().is_match(hn) {
+                        return true;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        false
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct VirtualMinionsCluster {
     mreg: Arc<Mutex<MinionRegistry>>,
     session: Arc<Mutex<SessionKeeper>>,
     cfg: Vec<ClusteredMinion>,
+    task_tracker: Arc<Mutex<TaskRegistry>>,
     virtual_minions: Vec<VirtualMinion>, // Configured clustered minions
                                          /*
                                          Here must be a sort of state of the cluster, e.g., which minion is
@@ -75,8 +93,10 @@ pub struct VirtualMinionsCluster {
 }
 
 impl VirtualMinionsCluster {
-    pub fn new(cfg: Vec<ClusteredMinion>, mreg: Arc<Mutex<MinionRegistry>>, session: Arc<Mutex<SessionKeeper>>) -> VirtualMinionsCluster {
-        VirtualMinionsCluster { virtual_minions: Vec::new(), mreg, cfg, session }
+    pub fn new(
+        cfg: Vec<ClusteredMinion>, mreg: Arc<Mutex<MinionRegistry>>, session: Arc<Mutex<SessionKeeper>>, task_tracker: Arc<Mutex<TaskRegistry>>,
+    ) -> VirtualMinionsCluster {
+        VirtualMinionsCluster { virtual_minions: Vec::new(), mreg, cfg, session, task_tracker }
     }
 
     fn filter_traits(&self, traits: &HashMap<String, Value>) -> HashMap<String, Value> {
@@ -160,6 +180,71 @@ impl VirtualMinionsCluster {
         Vec::new()
     }
 
+    /// Get all minion IDs matching the query
+    fn query_mids(&self, query: &str) -> Vec<String> {
+        let mut mids: Vec<String> = Vec::new();
+        log::debug!("Getting hostnames for virtual minions cluster with query: {query}");
+
+        // Get all of them, if "*" is given
+        if query == "*" {
+            for vm in self.virtual_minions.iter() {
+                for m in vm.minions.iter() {
+                    mids.push(m.mid.clone());
+                }
+            }
+        } else {
+            for vm in self.virtual_minions.iter() {
+                if vm.match_hostname(query) {
+                    log::debug!("Virtual minion {} matched hostname query {}", vm.id, query);
+                    for physical_minion in vm.minions.iter() {
+                        mids.push(physical_minion.mid.clone());
+                    }
+                }
+            }
+        }
+        mids
+    }
+
+    /// Decide the best-fit minion for the given query.
+    pub async fn decide(&self, query: &str) -> Option<String> {
+        let mids = self.query_mids(query);
+        let mut fmid: Option<String> = None;
+        let mut fmidt: usize = usize::MAX;
+
+        for mid in mids.iter() {
+            // Skip offline minions
+            if !self.session.lock().await.alive(mid) {
+                continue;
+            }
+
+            let t = self.task_tracker.lock().await.minion_tasks(mid).len();
+            if t == 0 {
+                fmid = Some(mid.to_string());
+                break;
+            }
+
+            if t < fmidt {
+                fmidt = t;
+                fmid = Some(mid.to_string());
+            }
+        }
+
+        if let Some(fmid) = fmid {
+            let r = match self.mreg.lock().await.get(&fmid) {
+                Ok(mrec) => mrec,
+                Err(err) => {
+                    log::error!("Unable to get minion record for {fmid}: {err}");
+                    return None;
+                }
+            };
+            if let Some(r) = r {
+                return r.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).map(|s| s.to_string());
+            }
+        }
+
+        None
+    }
+
     /// Call a query on the clustered minion.
     /// This will do the following:
     /// 1. Drop offline minions, if any (based on session state)
@@ -169,25 +254,11 @@ impl VirtualMinionsCluster {
     /// This method must be called before master pings the minions with discovery
     /// type ping (not general) and thus updates the session state with alive/dead minions
     /// and their job load.
-    pub async fn get_hostnames(&mut self, query: &str) -> Vec<String> {
-        let mut mids: Vec<String> = Vec::new();
+    pub async fn get_hostnames(&self, query: &str) -> Vec<String> {
         let mut hostnames: Vec<String> = Vec::new();
 
-        log::debug!("Getting hostnames for virtual minions cluster with query: {query}");
-
-        // Get all of them, if "*" is given
-        if query == "*" {
-            for vm in self.virtual_minions.iter() {
-                for physical_minion in vm.minions.iter() {
-                    mids.push(physical_minion.mid.clone());
-                }
-            }
-        } else {
-            log::error!("Only '*' query is supported for virtual minions cluster at the moment.");
-        }
-
         // Construct hostnames from the query list
-        for mid in mids.iter() {
+        for mid in self.query_mids(query).iter() {
             let mrec = match self.mreg.lock().await.get(mid) {
                 Ok(mrec) => mrec,
                 Err(err) => {
