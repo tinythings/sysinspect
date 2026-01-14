@@ -4,7 +4,10 @@ pub mod msg {
     use crate::minion::MINION_SID;
     use libsysinspect::{
         SysinspectError,
-        proto::{MasterMessage, ProtoConversion, rqtypes::ProtoValue},
+        proto::{
+            MasterMessage, ProtoConversion,
+            rqtypes::{ProtoKey, ProtoValue},
+        },
     };
     use libsysinspect::{
         proto::{MinionMessage, rqtypes::RequestType},
@@ -32,14 +35,23 @@ pub mod msg {
     }
 
     /// Make pong message
-    pub fn get_pong(t: ProtoValue) -> Vec<u8> {
+    pub fn get_pong(t: ProtoValue, payload: Option<Value>) -> Vec<u8> {
         let mut data: HashMap<String, Value> = HashMap::new();
-        data.insert("pt".to_string(), to_value(t).unwrap());
-        data.insert("sid".to_string(), to_value(MINION_SID.to_string()).unwrap());
+        data.insert(ProtoKey::ProtoType.to_string(), to_value(t).unwrap());
+        data.insert(ProtoKey::SessionId.to_string(), to_value(MINION_SID.to_string()).unwrap());
+        data.insert(
+            ProtoKey::Payload.to_string(),
+            match payload {
+                Some(pl) => pl,
+                None => json!({}),
+            },
+        );
+
         let p = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Pong, json!(data));
         if let Ok(data) = p.sendable() {
             return data;
         }
+
         vec![]
     }
 

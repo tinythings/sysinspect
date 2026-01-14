@@ -22,12 +22,12 @@ use libsysinspect::{
     proto::{
         self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
         errcodes::ProtoErrorCode,
-        payload::ModStatePayload,
+        payload::{ModStatePayload, PingData},
         query::{
             SCHEME_COMMAND,
             commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
         },
-        rqtypes::{ProtoValue, RequestType},
+        rqtypes::{ProtoKey, ProtoValue, RequestType},
     },
     util::{self, iofs::scan_files_sha256},
 };
@@ -401,18 +401,24 @@ impl SysMaster {
                                 let c_master = Arc::clone(&master);
                                 let c_id = req.id().to_string();
                                 tokio::spawn(async move {
+                                    log::info!("Received pong from {:#?}", req.payload());
                                     let guard = c_master.lock().await;
-
-                                    let payload: HashMap<String, String> = match serde_json::from_value(req.payload().clone()) {
-                                        Ok(data) => data,
+                                    let pm = match PingData::from_value(req.payload().clone()) {
+                                        Ok(pm) => pm,
                                         Err(err) => {
-                                            log::error!("Unable to parse pong payload: {err}");
+                                            log::error!("Unable to parse pong message: {err}");
                                             return;
                                         }
                                     };
-                                    guard.get_session().lock().await.ping(&c_id, payload.get("sid").map(|s| s.as_str()));
+                                    guard.get_session().lock().await.ping(&c_id, Some(&pm.sid()));
+
                                     let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
-                                    log::trace!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
+                                    log::info!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
+
+                                    // Update task tracker
+                                    let taskreg = guard.get_task_registry();
+                                    let mut taskreg = taskreg.lock().await;
+                                    taskreg.flush(&c_id, pm.payload().completed());
                                 });
                             }
 

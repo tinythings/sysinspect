@@ -315,13 +315,29 @@ impl SysMinion {
                         match serde_json::from_value::<ProtoValue>(p.clone()) {
                             Ok(ProtoValue::PingTypeGeneral) => {
                                 log::debug!("Received general ping from master");
-                                self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral)).await;
+
+                                let (loadavg, is_done, doneids) = {
+                                    let this = self.as_ptr();
+                                    let mut ptc = this.pt_counter.lock().await;
+                                    let (l, d, i) = (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done());
+                                    if d {
+                                        ptc.flush_done();
+                                    }
+                                    (l, d, i)
+                                };
+
+                                let pl = json!({
+                                    "ld": loadavg,
+                                    "cd": if is_done { doneids } else { vec![] },
+                                });
+
+                                self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
                                 self.update_ping().await;
                             }
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 // XXX: On Discovery ping, we also send our traits and all the info for cluster
                                 log::debug!("Received discovery ping from master");
-                                self.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery)).await;
+                                self.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
                             }
                             Err(e) => {
                                 log::warn!("Invalid ping payload `{}`: {}", p, e);
@@ -387,7 +403,6 @@ impl SysMinion {
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
         self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
-        self.as_ptr().pt_counter.lock().await.dec();
         Ok(())
     }
 
@@ -525,13 +540,14 @@ impl SysMinion {
 
             match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
                 Ok(()) => {
-                    self.as_ptr().pt_counter.lock().await.inc();
                     log::debug!("Sysinspect model cycle finished");
+                    log::info!("Task {} finished", cycle_id);
                 }
                 Err(e) => {
                     log::error!("Blocking task crashed: {e}");
                 }
             };
+            self.as_ptr().pt_counter.lock().await.dec(cycle_id);
         }
     }
 
@@ -628,6 +644,7 @@ impl SysMinion {
         } // else: this minion is directly targeted by its Id.
 
         log::debug!("Through. {:?}", cmd.payload());
+        self.as_ptr().pt_counter.lock().await.inc(cmd.cycle());
 
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
