@@ -81,7 +81,6 @@ impl TaskRegistry {
             }
             !mids.is_empty()
         });
-        return;
     }
 
     /// Get list of tasks a minion is involved in
