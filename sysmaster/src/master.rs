@@ -467,9 +467,9 @@ impl SysMaster {
                                     let sid = match m
                                         .evtipc
                                         .open_session(
-                                            util::dataconv::as_str(pl.get("eid").cloned()),
-                                            util::dataconv::as_str(pl.get("cid").cloned()),
-                                            util::dataconv::as_str(pl.get("timestamp").cloned()),
+                                            util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned()),
+                                            util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()),
+                                            util::dataconv::as_str(pl.get(&ProtoKey::Timestamp.to_string()).cloned()),
                                         )
                                         .await
                                     {
@@ -512,7 +512,11 @@ impl SysMaster {
                                             return;
                                         }
                                     };
-                                    let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get("cid").cloned())).await {
+                                    let sid = match master
+                                        .evtipc
+                                        .get_session(&util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()))
+                                        .await
+                                    {
                                         Ok(sid) => sid,
                                         Err(err) => {
                                             log::debug!("Unable to acquire session for this iteration: {err}");

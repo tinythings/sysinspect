@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::HistoryConfig,
+    proto::rqtypes::ProtoKey,
     util::{self},
 };
 use serde::{Deserialize, Serialize};
@@ -25,15 +26,15 @@ impl EventData {
     }
 
     pub fn get_entity_id(&self) -> String {
-        util::dataconv::as_str(self.data.get("eid").cloned())
+        util::dataconv::as_str(self.data.get(&ProtoKey::EntityId.to_string()).cloned())
     }
 
     pub fn get_action_id(&self) -> String {
-        util::dataconv::as_str(self.data.get("aid").cloned())
+        util::dataconv::as_str(self.data.get(&ProtoKey::ActionId.to_string()).cloned())
     }
 
     pub fn get_status_id(&self) -> String {
-        util::dataconv::as_str(self.data.get("sid").cloned())
+        util::dataconv::as_str(self.data.get(&ProtoKey::SessionId.to_string()).cloned())
     }
 
     pub fn get_event_id(&self) -> String {
@@ -41,21 +42,21 @@ impl EventData {
     }
 
     pub fn get_cycle_id(&self) -> String {
-        util::dataconv::as_str(self.data.get("cid").cloned())
+        util::dataconv::as_str(self.data.get(&ProtoKey::CycleId.to_string()).cloned())
     }
 
     pub fn get_constraints(&self) -> HashMap<String, Value> {
-        serde_json::from_value(self.data.get("constraints").unwrap().clone()).unwrap()
+        serde_json::from_value(self.data.get(&ProtoKey::Constraints.to_string()).unwrap().clone()).unwrap()
     }
 
     pub fn get_response(&self) -> HashMap<String, Value> {
         // Should work... :-)
-        serde_json::from_value(self.data.get("response").unwrap().clone()).unwrap()
+        serde_json::from_value(self.data.get(&ProtoKey::Response.to_string()).unwrap().clone()).unwrap()
     }
 
     pub fn get_response_mut(&mut self) -> Result<&mut serde_json::Map<String, Value>, String> {
         self.data
-            .get_mut("response")
+            .get_mut(&ProtoKey::Response.to_string())
             .ok_or_else(|| "Key 'response' not found in data".to_string())?
             .as_object_mut()
             .ok_or_else(|| "Value for 'response' is not an object".to_string())
@@ -63,7 +64,7 @@ impl EventData {
 
     /// Get the timestamp
     pub fn get_timestamp(&self) -> String {
-        util::dataconv::as_str(self.data.get("timestamp").cloned())
+        util::dataconv::as_str(self.data.get(&ProtoKey::Timestamp.to_string()).cloned())
     }
 
     pub fn from_bytes(b: Vec<u8>) -> Result<Self, SysinspectError> {
@@ -76,7 +77,7 @@ impl EventData {
     /// Flattens the entire data into IndexMap<String, String>
     pub fn flatten(&self) -> IndexMap<String, String> {
         let mut out = IndexMap::new();
-        Self::_flatten(self.data.get("response").unwrap(), "", &mut out);
+        Self::_flatten(self.data.get(&ProtoKey::Response.to_string()).unwrap(), "", &mut out);
         out
     }
 
@@ -282,9 +283,9 @@ impl EventsRegistry {
         if let Err(err) = events.insert(
             format!(
                 "{}/{}/{}",
-                util::dataconv::as_str(payload.get("eid").cloned()),
-                util::dataconv::as_str(payload.get("sid").cloned()),
-                util::dataconv::as_str(payload.get("aid").cloned())
+                util::dataconv::as_str(payload.get(&ProtoKey::EntityId.to_string()).cloned()),
+                util::dataconv::as_str(payload.get(&ProtoKey::SessionId.to_string()).cloned()),
+                util::dataconv::as_str(payload.get(&ProtoKey::ActionId.to_string()).cloned())
             ),
             serde_json::to_string(&payload)?.as_bytes(),
         ) {
