@@ -410,7 +410,7 @@ impl SysMaster {
                                             return;
                                         }
                                     };
-                                    guard.get_session().lock().await.ping(&c_id, Some(&pm.sid()));
+                                    guard.get_session().lock().await.ping(&c_id, Some(pm.sid()));
 
                                     let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
                                     log::info!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
