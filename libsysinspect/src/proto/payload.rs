@@ -6,7 +6,7 @@ Payload types and their deserialisation.
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, Value};
+use serde_json::{Value, from_value};
 
 /// Payload types
 pub enum PayloadType {
@@ -83,5 +83,59 @@ impl ModStatePayload {
     /// Get root of models
     pub fn models_root(&self) -> &str {
         &self.models_root
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PingData {
+    #[serde(rename = "sid")]
+    sid: String,
+
+    #[serde(rename = "pl")]
+    payload: PingPayload,
+
+    #[serde(rename = "pt")]
+    ping_type: String,
+}
+
+impl PingData {
+    pub fn from_value(v: Value) -> Result<Self, serde_json::Error> {
+        serde_json::from_value::<PingData>(v)
+    }
+
+    /// Get session id
+    pub fn sid(&self) -> &str {
+        &self.sid
+    }
+
+    /// Get payload
+    pub fn payload(&self) -> &PingPayload {
+        &self.payload
+    }
+
+    /// Get ping type
+    pub fn ping_type(&self) -> &str {
+        &self.ping_type
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PingPayload {
+    #[serde(rename = "ld")]
+    load_average: f32, // load average
+
+    #[serde(rename = "cd")]
+    completed: Vec<String>, // completed task ids
+}
+
+impl PingPayload {
+    /// Get load average
+    pub fn load_average(&self) -> f32 {
+        self.load_average
+    }
+
+    /// Get completed task ids
+    pub fn completed(&self) -> &Vec<String> {
+        &self.completed
     }
 }
