@@ -1,3 +1,4 @@
+use colored::Colorize;
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::{
@@ -49,7 +50,7 @@ impl MinionSetup {
         format!("{}/{}", self.get_sharelib(), dir)
     }
 
-    fn check_my_permissions(&self) -> Result<(), SysinspectError> {
+    fn check_my_permissions() -> Result<(), SysinspectError> {
         if unsafe { libc::getuid() } != 0 {
             return Err(SysinspectError::ConfigError("SysMinion must be run as root".to_string()));
         }
@@ -139,9 +140,8 @@ impl MinionSetup {
         self.cfg.set_reconnect_interval("1"); // String, because it can be an expression like "1-5" (random between 1 and 5)
 
         let cfp = PathBuf::from(self.get_etc()).join("sysinspect.conf");
-        log::info!("Writing configuration file to {}", cfp.to_str().unwrap_or_default());
-
-        fs::write(cfp, SysInspectConfig::default().set_minion_config(self.cfg.clone()).to_yaml())?;
+        fs::write(&cfp, SysInspectConfig::default().set_minion_config(self.cfg.clone()).to_yaml())?;
+        log::info!("📄  Configuration file written to {}", cfp.to_str().unwrap_or_default().bright_white().bold());
 
         Ok(())
     }
@@ -200,25 +200,44 @@ impl MinionSetup {
 
     /// Setup the minion
     pub fn setup(&mut self) -> Result<(), SysinspectError> {
-        log::info!("Setting up the minion. This is a quick setup, please check the configuration files for more details.");
+        log::info!("⚙️  Setting up the minion. This is a quick setup, please check the configuration files for more details.");
 
-        self.check_my_permissions()?;
-        log::info!("Permissions OK");
+        match Self::check_my_permissions() {
+            Ok(_) => {
+                log::info!("Permissions OK");
+            }
+            Err(_) => {
+                log::warn!(
+                    "🚨  {} is installed as {}, so its operation {}. For full functionality, you have to setup {} as {}.",
+                    "SysMinion".bold(),
+                    "non-root".bright_red(),
+                    "might be limited".bright_yellow(),
+                    "SysMinion".bold(),
+                    "root".bright_green(),
+                );
+                log::warn!(
+                    "🚨  Don't forget to use \"{}\" to preserve environment variables, when setting up {} as {}.",
+                    "sudo -E".yellow(),
+                    "SysMinion".bold(),
+                    "root".bright_green()
+                );
+            }
+        }
 
         self.check_dir_structure()?;
-        log::info!("Directory structure OK");
+        log::info!("📂  Directory structure OK");
 
         self.generate_dir_structure()?;
-        log::info!("Directory structure set up");
+        log::info!("📂  Directory structure set up");
 
         self.generate_config()?;
-        log::info!("Configuration file generated to {}", self.get_etc());
+        log::info!("📄  Configuration file generated to {}", self.get_etc().bright_white().bold());
 
         self.copy_binaries()?;
-        log::info!("Binaries are copied to {}", self.get_bin());
+        log::info!("📦  Binaries are copied to {}", self.get_bin().bright_white().bold());
 
         self.cleanup()?;
-        log::info!("That should do.");
+        log::info!("👌  That should do.");
 
         Ok(())
     }
