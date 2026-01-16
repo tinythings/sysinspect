@@ -213,6 +213,18 @@ impl SysMinion {
         Ok(())
     }
 
+    pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                let this = self.as_ptr();
+                let mut ptc = this.pt_counter.lock().await;
+                ptc.update_stats();
+            }
+        });
+        Ok(())
+    }
+
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
         let rstm = Arc::clone(&self.rstm);
 
@@ -314,21 +326,22 @@ impl SysMinion {
 
                         match serde_json::from_value::<ProtoValue>(p.clone()) {
                             Ok(ProtoValue::PingTypeGeneral) => {
-                                log::debug!("Received general ping from master");
+                                log::info!("Received general ping from master");
 
-                                let (loadavg, is_done, doneids) = {
+                                let (loadavg, is_done, doneids, io_bps) = {
                                     let this = self.as_ptr();
                                     let mut ptc = this.pt_counter.lock().await;
-                                    let (l, d, i) = (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done());
+                                    let (l, d, i, io) = (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done(), ptc.get_io_bps());
                                     if d {
                                         ptc.flush_done();
                                     }
-                                    (l, d, i)
+                                    (l, d, i, io)
                                 };
 
                                 let pl = json!({
                                     "ld": loadavg,
                                     "cd": if is_done { doneids } else { vec![] },
+                                    "dbps": io_bps,
                                 });
 
                                 self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
@@ -683,6 +696,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>) -> Res
     }
 
     minion.as_ptr().do_ping_update(state.clone()).await?;
+    minion.as_ptr().do_stats_update().await?;
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {

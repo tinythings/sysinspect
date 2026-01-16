@@ -1,5 +1,4 @@
 // Cluster management for sysmaster
-
 use crate::registry::{mreg::MinionRegistry, session::SessionKeeper, taskreg::TaskRegistry};
 use globset::Glob;
 use libsysinspect::{SysinspectError, cfg::mmconf::ClusteredMinion, proto::MasterMessage};
@@ -11,18 +10,22 @@ use std::{
 };
 use tokio::sync::Mutex;
 
+const DEFAULT_TASK_JITTER: usize = 3; // Task tolerance
+
 #[derive(Debug, Clone, Default)]
 /// Representation of a clustered node
 pub struct ClusterNode {
     mid: String,
     traits: HashMap<String, Value>,
+    load_average: f32,
+    io_bps: f64, // disk I/O in bytes per second on writes
 }
 
 /// Cluster node representation
 impl ClusterNode {
     /// Create a new cluster node
     pub fn new(mid: &str, traits: HashMap<String, Value>) -> ClusterNode {
-        ClusterNode { mid: mid.to_string(), traits }
+        ClusterNode { mid: mid.to_string(), traits, load_average: 0.0, io_bps: 0.0 }
     }
 
     /// Match hostname with glob pattern
@@ -51,6 +54,16 @@ impl ClusterNode {
             }
         }
         true
+    }
+
+    /// Update load average
+    pub fn set_load_average(&mut self, la: f32) {
+        self.load_average = la;
+    }
+
+    /// Update I/O bps
+    pub fn set_io_bps(&mut self, bps: f64) {
+        self.io_bps = bps;
     }
 }
 
@@ -86,17 +99,14 @@ pub struct VirtualMinionsCluster {
     cfg: Vec<ClusteredMinion>,
     task_tracker: Arc<Mutex<TaskRegistry>>,
     virtual_minions: Vec<VirtualMinion>, // Configured clustered minions
-                                         /*
-                                         Here must be a sort of state of the cluster, e.g., which minion is
-                                         online, which is offline, last heartbeat time, their current load etc.
-                                          */
+    task_tolerance: usize,
 }
 
 impl VirtualMinionsCluster {
     pub fn new(
         cfg: Vec<ClusteredMinion>, mreg: Arc<Mutex<MinionRegistry>>, session: Arc<Mutex<SessionKeeper>>, task_tracker: Arc<Mutex<TaskRegistry>>,
     ) -> VirtualMinionsCluster {
-        VirtualMinionsCluster { virtual_minions: Vec::new(), mreg, cfg, session, task_tracker }
+        VirtualMinionsCluster { virtual_minions: Vec::new(), mreg, cfg, session, task_tracker, task_tolerance: DEFAULT_TASK_JITTER }
     }
 
     fn filter_traits(&self, traits: &HashMap<String, Value>) -> HashMap<String, Value> {
@@ -108,6 +118,11 @@ impl VirtualMinionsCluster {
             }
         }
         filtered
+    }
+
+    fn normalise_weights_percent(values: &[(String, f64)]) -> HashMap<String, f64> {
+        let total: f64 = values.iter().map(|(_, v)| *v).sum();
+        values.iter().map(|(id, v)| (id.clone(), 100.0 * (*v / total.max(1e-6)))).collect()
     }
 
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
@@ -205,44 +220,147 @@ impl VirtualMinionsCluster {
         mids
     }
 
-    /// Decide the best-fit minion for the given query.
+    /// Decide the best-fit minion for a task based on current load and I/O pressure
     pub async fn decide(&self, query: &str) -> Option<String> {
         let mids = self.query_mids(query);
-        let mut fmid: Option<String> = None;
-        let mut fmidt: usize = usize::MAX;
+        if mids.is_empty() {
+            return None;
+        }
 
-        for mid in mids.iter() {
-            // Skip offline minions
-            if !self.session.lock().await.alive(mid) {
+        // find alive minions
+        let mut alive: Vec<String> = Vec::new();
+        {
+            let mut session = self.session.lock().await;
+            for mid in mids.iter() {
+                if session.alive(mid) {
+                    alive.push(mid.clone());
+                }
+            }
+        }
+
+        if alive.is_empty() {
+            return None;
+        }
+
+        // get IO rates
+        let mut rates: Vec<(String, f64)> = Vec::with_capacity(alive.len());
+        for mid in alive.iter() {
+            let mut bps = 0.0;
+            'outer: for vm in self.virtual_minions.iter() {
+                for m in vm.minions.iter() {
+                    if m.mid == *mid {
+                        bps = m.io_bps;
+                        break 'outer;
+                    }
+                }
+            }
+            rates.push((mid.clone(), bps.max(0.0)));
+        }
+
+        let weights: HashMap<String, f64> = Self::normalise_weights_percent(&rates);
+
+        // minimum task count and lowest disk weight
+        let tracker = self.task_tracker.lock().await;
+
+        let mut min_tasks = usize::MAX;
+        for mid in alive.iter() {
+            min_tasks = min_tasks.min(tracker.minion_tasks(mid).len());
+        }
+        let cutoff = min_tasks.saturating_add(self.task_tolerance);
+
+        let mut best_mid: Option<String> = None;
+        let mut best_weight: f64 = f64::MAX;
+        let mut best_tasks: usize = usize::MAX;
+
+        for mid in alive.iter() {
+            let tasks = tracker.minion_tasks(mid).len();
+            if tasks > cutoff {
                 continue;
             }
 
-            let t = self.task_tracker.lock().await.minion_tasks(mid).len();
-            if t == 0 {
-                fmid = Some(mid.to_string());
-                break;
-            }
+            let w = *weights.get(mid).unwrap_or(&0.0);
 
-            if t < fmidt {
-                fmidt = t;
-                fmid = Some(mid.to_string());
+            // lower disk weight, then fewer tasks if weights tie
+            if w < best_weight || (w == best_weight && tasks < best_tasks) {
+                best_weight = w;
+                best_tasks = tasks;
+                best_mid = Some(mid.clone());
             }
         }
 
-        if let Some(fmid) = fmid {
-            let r = match self.mreg.lock().await.get(&fmid) {
-                Ok(mrec) => mrec,
-                Err(err) => {
-                    log::error!("Unable to get minion record for {fmid}: {err}");
-                    return None;
+        let fmid = best_mid?;
+        let mrec = match self.mreg.lock().await.get(&fmid) {
+            Ok(r) => r,
+            Err(err) => {
+                log::error!("Unable to get minion record for {fmid}: {err}");
+                return None;
+            }
+        };
+
+        mrec.and_then(|rec| rec.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    }
+
+    pub async fn _decide(&self, query: &str) -> Option<String> {
+        let mids = self.query_mids(query);
+
+        // Filter to alive mids first
+        let mut alive: Vec<String> = Vec::new();
+        for mid in mids.iter() {
+            if self.session.lock().await.alive(mid) {
+                alive.push(mid.clone());
+            }
+        }
+        if alive.is_empty() {
+            return None;
+        }
+
+        // Build write rates for normalization from cluster state
+        let mut rates: Vec<(String, f64)> = Vec::new();
+        for mid in alive.iter() {
+            // pull write_bps from stored ClusterNode
+            let mut bps = 0.0;
+            'outer: for vm in self.virtual_minions.iter() {
+                for m in vm.minions.iter() {
+                    if &m.mid == mid {
+                        bps = m.io_bps;
+                        break 'outer;
+                    }
                 }
-            };
-            if let Some(r) = r {
-                return r.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).map(|s| s.to_string());
+            }
+            rates.push((mid.clone(), bps.max(0.0)));
+        }
+        let weights = Self::normalise_weights_percent(&rates);
+
+        // Now score each minion: tasks first, then disk weight
+        let tracker = self.task_tracker.lock().await;
+
+        let mut best_mid: Option<String> = None;
+        let mut best_tasks: usize = usize::MAX;
+        let mut best_weight: f64 = f64::MAX;
+
+        for mid in alive.iter() {
+            let tasks = tracker.minion_tasks(mid).len();
+            let w = *weights.get(mid).unwrap_or(&0.0);
+
+            if tasks + self.task_tolerance < best_tasks || (tasks <= best_tasks + self.task_tolerance && w < best_weight) {
+                best_tasks = tasks;
+                best_weight = w;
+                best_mid = Some(mid.clone());
             }
         }
 
-        None
+        let fmid = best_mid?;
+
+        // return fqdn like before
+        let r = match self.mreg.lock().await.get(&fmid) {
+            Ok(mrec) => mrec,
+            Err(err) => {
+                log::error!("Unable to get minion record for {fmid}: {err}");
+                return None;
+            }
+        };
+
+        r.and_then(|rec| rec.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).map(|s| s.to_string()))
     }
 
     /// Call a query on the clustered minion.
@@ -282,5 +400,19 @@ impl VirtualMinionsCluster {
         }
 
         hostnames
+    }
+
+    /// Update a physical minion stats, no matter where it belongs to
+    pub fn update_stats(&mut self, mid: &str, load_average: f32, io_bps: f64) {
+        for vm in self.virtual_minions.iter_mut() {
+            for m in vm.minions.iter_mut() {
+                if m.mid == mid {
+                    log::info!("Updating load average for minion {}: {}, I/O bps: {}", mid, load_average, io_bps);
+                    m.set_load_average(load_average);
+                    m.set_io_bps(io_bps);
+                    return;
+                }
+            }
+        }
     }
 }

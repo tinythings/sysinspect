@@ -234,10 +234,10 @@ impl SysMaster {
             if is_virtual && let Some(decided) = self.vmcluster.decide(&query).await {
                 log::warn!(">>> Decided to run on: {}", decided);
                 tgt.add_hostname(&decided);
-            }
-
-            for hostname in hostnames.iter() {
-                tgt.add_hostname(hostname);
+            } else {
+                for hostname in hostnames.iter() {
+                    tgt.add_hostname(hostname);
+                }
             }
 
             log::debug!("Target: {:#?}", tgt);
@@ -401,8 +401,8 @@ impl SysMaster {
                                 let c_master = Arc::clone(&master);
                                 let c_id = req.id().to_string();
                                 tokio::spawn(async move {
-                                    log::info!("Received pong from {:#?}", req.payload());
-                                    let guard = c_master.lock().await;
+                                    log::debug!("Received pong from {:#?}", req.payload());
+                                    let mut guard = c_master.lock().await;
                                     let pm = match PingData::from_value(req.payload().clone()) {
                                         Ok(pm) => pm,
                                         Err(err) => {
@@ -414,6 +414,7 @@ impl SysMaster {
 
                                     let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
                                     log::info!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
+                                    guard.vmcluster.update_stats(&c_id, pm.payload().load_average(), pm.payload().disk_write_bps());
 
                                     // Update task tracker
                                     let taskreg = guard.get_task_registry();

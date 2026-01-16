@@ -126,6 +126,9 @@ pub struct PingPayload {
 
     #[serde(rename = "cd")]
     completed: Vec<String>, // completed task ids
+
+    #[serde(rename = "dbps")]
+    disk_write_bps: f64, // disk write bytes per second
 }
 
 impl PingPayload {
@@ -137,5 +140,10 @@ impl PingPayload {
     /// Get completed task ids
     pub fn completed(&self) -> &Vec<String> {
         &self.completed
+    }
+
+    /// Get disk write bps
+    pub fn disk_write_bps(&self) -> f64 {
+        self.disk_write_bps
     }
 }
