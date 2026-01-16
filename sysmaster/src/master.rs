@@ -232,7 +232,7 @@ impl SysMaster {
             tgt.set_context_query(context);
 
             if is_virtual && let Some(decided) = self.vmcluster.decide(&query).await {
-                log::warn!(">>> Decided to run on: {}", decided);
+                log::debug!("Virtual minion requested. Decided to run on a physical: {}", decided.bright_yellow());
                 tgt.add_hostname(&decided);
             } else {
                 for hostname in hostnames.iter() {

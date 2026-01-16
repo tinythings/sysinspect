@@ -326,8 +326,6 @@ impl SysMinion {
 
                         match serde_json::from_value::<ProtoValue>(p.clone()) {
                             Ok(ProtoValue::PingTypeGeneral) => {
-                                log::info!("Received general ping from master");
-
                                 let (loadavg, is_done, doneids, io_bps, cpu_usage) = {
                                     let this = self.as_ptr();
                                     let mut ptc = this.pt_counter.lock().await;

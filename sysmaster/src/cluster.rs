@@ -183,7 +183,12 @@ impl VirtualMinionsCluster {
         if self.virtual_minions.is_empty() {
             log::warn!("No clustered minions configured or found in the cluster.");
         } else {
-            log::info!("Clustered minion details: {:#?}", self.virtual_minions);
+            log::info!(
+                "Initialized {} clustered minion{}.",
+                self.virtual_minions.len().to_string().bright_green().bold(),
+                if self.virtual_minions.len() == 1 { "" } else { "s" }
+            );
+            log::debug!("Clustered minion details: {:#?}", self.virtual_minions);
         }
 
         Ok(())
@@ -339,7 +344,7 @@ impl VirtualMinionsCluster {
                     hostnames.push(hn.to_string());
                 }
             } else {
-                log::info!("Minion {} is offline, skipping", mid);
+                log::debug!("Minion {} is offline, skipping", mid);
             }
         }
 
@@ -347,13 +352,14 @@ impl VirtualMinionsCluster {
     }
 
     /// Update a physical minion stats, no matter where it belongs to
-    pub fn update_stats(&mut self, mid: &str, load_average: f32, io_bps: f64) {
+    pub fn update_stats(&mut self, mid: &str, load_average: f32, io_bps: f64, cpu_usage: f32) {
         for vm in self.virtual_minions.iter_mut() {
             for m in vm.minions.iter_mut() {
                 if m.mid == mid {
-                    log::info!("Updating load average for minion {}: {}, I/O bps: {}", mid, load_average, io_bps);
+                    log::debug!("Updating load average for minion {}: {}, I/O bps: {}, CPU usage: {}", mid, load_average, io_bps, cpu_usage);
                     m.set_load_average(load_average);
                     m.set_io_bps(io_bps);
+                    m.set_cpu_usage(cpu_usage);
                     return;
                 }
             }

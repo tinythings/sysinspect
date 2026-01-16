@@ -37,7 +37,7 @@ impl TaskRegistry {
         };
 
         ongoing.insert(cid.to_string(), mids.into_iter().collect());
-        log::info!(">>> Registered task {cid} with targeted minions: {:#?}", ongoing.get(cid));
+        log::debug!("Registered task {cid} with targeted minions: {:#?}", ongoing.get(cid));
     }
 
     /// Deregister a minion ID from a task
@@ -51,17 +51,17 @@ impl TaskRegistry {
         };
         if let Some(minions) = ongoing.get_mut(cid) {
             minions.remove(mid);
-            log::info!(">>> Deregistered minion {mid} from task {cid}. Remaining minions: {:#?}", minions);
+            log::debug!("Deregistered minion {mid} from task {cid}. Remaining minions: {:#?}", minions);
             if minions.is_empty() {
                 ongoing.remove(cid);
-                log::info!(">>> Task {cid} completed and removed from registry");
+                log::debug!("Task {cid} completed and removed from registry");
             }
         }
     }
 
     pub fn flush(&mut self, mid: &str, cids: &Vec<String>) {
         for cid in cids {
-            log::info!(">>> Flushing minion {mid} from task {cid}");
+            log::debug!("Flushing minion {mid} from task {cid}");
         }
 
         let mut ongoing = match self.ongoing.lock() {
@@ -73,11 +73,11 @@ impl TaskRegistry {
         };
         ongoing.retain(|cid, mids| {
             if mids.contains(mid) {
-                log::info!(">>> Flushing minion {mid} from task {cid}");
+                log::debug!("Flushing minion {mid} from task {cid}");
                 mids.remove(mid);
             }
             if mids.is_empty() {
-                log::info!(">>> Task {cid} completed and removed from registry");
+                log::debug!("Task {cid} completed and removed from registry");
             }
             !mids.is_empty()
         });

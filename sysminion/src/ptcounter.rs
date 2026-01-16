@@ -162,7 +162,7 @@ impl PTCounter {
         let io = match Self::diskstats_bytes() {
             Ok(v) => v,
             Err(e) => {
-                log::warn!("Failed to read /proc/diskstats: {e}");
+                log::error!("Failed to read /proc/diskstats: {e}");
                 return;
             }
         };
@@ -199,7 +199,7 @@ impl PTCounter {
         let mut top: Vec<&DiskStats> = self.disk_stats.iter().collect();
         top.sort_by(|a, b| b.write_bps.partial_cmp(&a.write_bps).unwrap_or(std::cmp::Ordering::Equal));
 
-        log::info!(
+        log::debug!(
             "Stats: loadavg(5m)={:.2}, cpu={:.1}%, procs={}, top_writers={:#?}",
             self.loadaverage,
             self.cpu_usage,
