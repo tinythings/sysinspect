@@ -328,20 +328,22 @@ impl SysMinion {
                             Ok(ProtoValue::PingTypeGeneral) => {
                                 log::info!("Received general ping from master");
 
-                                let (loadavg, is_done, doneids, io_bps) = {
+                                let (loadavg, is_done, doneids, io_bps, cpu_usage) = {
                                     let this = self.as_ptr();
                                     let mut ptc = this.pt_counter.lock().await;
-                                    let (l, d, i, io) = (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done(), ptc.get_io_bps());
+                                    let (l, d, i, io, cpu) =
+                                        (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done(), ptc.get_io_bps(), ptc.get_cpu_usage());
                                     if d {
                                         ptc.flush_done();
                                     }
-                                    (l, d, i, io)
+                                    (l, d, i, io, cpu)
                                 };
 
                                 let pl = json!({
                                     "ld": loadavg,
                                     "cd": if is_done { doneids } else { vec![] },
                                     "dbps": io_bps,
+                                    "cpu": cpu_usage,
                                 });
 
                                 self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;

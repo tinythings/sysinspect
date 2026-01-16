@@ -116,9 +116,10 @@ impl PTCounter {
 
             let dm_name_path = entry.path().join("dm").join("name");
             if let Ok(dm_name) = fs::read_to_string(dm_name_path)
-                && dm_name.trim() == name {
-                    return Some(kname.to_string()); // "dm-0"
-                }
+                && dm_name.trim() == name
+            {
+                return Some(kname.to_string()); // "dm-0"
+            }
         }
         None
     }

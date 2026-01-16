@@ -1,5 +1,6 @@
 // Cluster management for sysmaster
 use crate::registry::{mreg::MinionRegistry, session::SessionKeeper, taskreg::TaskRegistry};
+use colored::Colorize;
 use globset::Glob;
 use libsysinspect::{SysinspectError, cfg::mmconf::ClusteredMinion, proto::MasterMessage};
 use serde_json::Value;
@@ -18,14 +19,15 @@ pub struct ClusterNode {
     mid: String,
     traits: HashMap<String, Value>,
     load_average: f32,
-    io_bps: f64, // disk I/O in bytes per second on writes
+    io_bps: f64,    // disk I/O in bytes per second on writes
+    cpu_usage: f32, // CPU usage percentage (overall)
 }
 
 /// Cluster node representation
 impl ClusterNode {
     /// Create a new cluster node
     pub fn new(mid: &str, traits: HashMap<String, Value>) -> ClusterNode {
-        ClusterNode { mid: mid.to_string(), traits, load_average: 0.0, io_bps: 0.0 }
+        ClusterNode { mid: mid.to_string(), traits, load_average: 0.0, io_bps: 0.0, cpu_usage: 0.0 }
     }
 
     /// Match hostname with glob pattern
@@ -64,6 +66,11 @@ impl ClusterNode {
     /// Update I/O bps
     pub fn set_io_bps(&mut self, bps: f64) {
         self.io_bps = bps;
+    }
+
+    /// Update CPU usage
+    pub fn set_cpu_usage(&mut self, cpu: f32) {
+        self.cpu_usage = cpu;
     }
 }
 
@@ -298,69 +305,6 @@ impl VirtualMinionsCluster {
         };
 
         mrec.and_then(|rec| rec.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).map(|s| s.to_string()))
-    }
-
-    pub async fn _decide(&self, query: &str) -> Option<String> {
-        let mids = self.query_mids(query);
-
-        // Filter to alive mids first
-        let mut alive: Vec<String> = Vec::new();
-        for mid in mids.iter() {
-            if self.session.lock().await.alive(mid) {
-                alive.push(mid.clone());
-            }
-        }
-        if alive.is_empty() {
-            return None;
-        }
-
-        // Build write rates for normalization from cluster state
-        let mut rates: Vec<(String, f64)> = Vec::new();
-        for mid in alive.iter() {
-            // pull write_bps from stored ClusterNode
-            let mut bps = 0.0;
-            'outer: for vm in self.virtual_minions.iter() {
-                for m in vm.minions.iter() {
-                    if &m.mid == mid {
-                        bps = m.io_bps;
-                        break 'outer;
-                    }
-                }
-            }
-            rates.push((mid.clone(), bps.max(0.0)));
-        }
-        let weights = Self::normalise_weights_percent(&rates);
-
-        // Now score each minion: tasks first, then disk weight
-        let tracker = self.task_tracker.lock().await;
-
-        let mut best_mid: Option<String> = None;
-        let mut best_tasks: usize = usize::MAX;
-        let mut best_weight: f64 = f64::MAX;
-
-        for mid in alive.iter() {
-            let tasks = tracker.minion_tasks(mid).len();
-            let w = *weights.get(mid).unwrap_or(&0.0);
-
-            if tasks + self.task_tolerance < best_tasks || (tasks <= best_tasks + self.task_tolerance && w < best_weight) {
-                best_tasks = tasks;
-                best_weight = w;
-                best_mid = Some(mid.clone());
-            }
-        }
-
-        let fmid = best_mid?;
-
-        // return fqdn like before
-        let r = match self.mreg.lock().await.get(&fmid) {
-            Ok(mrec) => mrec,
-            Err(err) => {
-                log::error!("Unable to get minion record for {fmid}: {err}");
-                return None;
-            }
-        };
-
-        r.and_then(|rec| rec.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).map(|s| s.to_string()))
     }
 
     /// Call a query on the clustered minion.

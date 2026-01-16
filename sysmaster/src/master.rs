@@ -410,11 +410,14 @@ impl SysMaster {
                                             return;
                                         }
                                     };
-                                    guard.get_session().lock().await.ping(&c_id, Some(pm.sid()));
 
-                                    let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
-                                    log::info!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
-                                    guard.vmcluster.update_stats(&c_id, pm.payload().load_average(), pm.payload().disk_write_bps());
+                                    guard.get_session().lock().await.ping(&c_id, Some(pm.sid()));
+                                    guard.vmcluster.update_stats(
+                                        &c_id,
+                                        pm.payload().load_average(),
+                                        pm.payload().disk_write_bps(),
+                                        pm.payload().cpu_usage(),
+                                    );
 
                                     // Update task tracker
                                     let taskreg = guard.get_task_registry();

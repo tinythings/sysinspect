@@ -129,6 +129,9 @@ pub struct PingPayload {
 
     #[serde(rename = "dbps")]
     disk_write_bps: f64, // disk write bytes per second
+
+    #[serde(rename = "cpu")]
+    cpu_usage: f32, // CPU usage percentage
 }
 
 impl PingPayload {
@@ -145,5 +148,10 @@ impl PingPayload {
     /// Get disk write bps
     pub fn disk_write_bps(&self) -> f64 {
         self.disk_write_bps
+    }
+
+    /// Get CPU usage
+    pub fn cpu_usage(&self) -> f32 {
+        self.cpu_usage
     }
 }
