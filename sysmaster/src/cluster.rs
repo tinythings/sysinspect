@@ -6,7 +6,7 @@ use libsysinspect::{
     SysinspectError,
     cfg::mmconf::ClusteredMinion,
     proto::MasterMessage,
-    traits::{self, systraits::SystemTraits},
+    traits::systraits::SystemTraits,
 };
 use serde_json::Value;
 use std::{
