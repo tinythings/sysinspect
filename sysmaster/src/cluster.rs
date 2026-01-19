@@ -236,7 +236,7 @@ impl VirtualMinionsCluster {
 
     /// Decide the best-fit minion for a task based on current load and I/O pressure.
     /// Returns a list of FQDN hostnames of selected minions one per a virtual minion.
-    pub async fn decide(&self, query: &str, traits: Option<&str>) -> Option<Vec<String>> {
+    pub async fn decide(&self, query: &str, _traits: Option<&str>) -> Option<Vec<String>> {
         // Get virtual minion IDs matching the query
         let mut mids: Vec<String> = vec![];
 
