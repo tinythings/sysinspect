@@ -228,16 +228,25 @@ impl SysMaster {
             let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
             let mut tgt = MinionTarget::new(mid, "");
             tgt.set_scheme(querypath);
-            tgt.set_traits_query(traits);
             tgt.set_context_query(context);
 
-            if is_virtual && let Some(decided) = self.vmcluster.decide(&query).await {
-                log::debug!("Virtual minion requested. Decided to run on a physical: {}", decided.bright_yellow());
-                tgt.add_hostname(&decided);
+            log::debug!(
+                "Querying minions for: {}, traits: {}, is virtual: {}",
+                query.bright_yellow(),
+                traits.bright_yellow(),
+                if is_virtual { "yes".bright_green() } else { "no".bright_red() }
+            );
+
+            if is_virtual && let Some(decided) = self.vmcluster.decide(&query, None).await {
+                for hostname in decided.iter() {
+                    log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
+                    tgt.add_hostname(hostname);
+                }
             } else {
                 for hostname in hostnames.iter() {
                     tgt.add_hostname(hostname);
                 }
+                tgt.set_traits_query(traits);
             }
 
             log::debug!("Target: {:#?}", tgt);
@@ -575,10 +584,16 @@ impl SysMaster {
     pub async fn on_traits(&mut self, mid: String, payload: String) {
         let traits = serde_json::from_str::<HashMap<String, serde_json::Value>>(&payload).unwrap_or_default();
         if !traits.is_empty() {
-            if let Err(err) = self.mreg.lock().await.refresh(&mid, traits) {
+            let mut mreg = self.mreg.lock().await;
+            if let Err(err) = mreg.refresh(&mid, traits) {
                 log::error!("Unable to sync traits: {err}");
             } else {
-                log::info!("Traits added");
+                let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
+                log::info!(
+                    "Traits synced for minion {} ({})",
+                    m.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown").bright_green(),
+                    mid.green()
+                );
             }
         }
     }

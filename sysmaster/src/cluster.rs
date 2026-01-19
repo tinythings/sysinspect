@@ -2,7 +2,12 @@
 use crate::registry::{mreg::MinionRegistry, session::SessionKeeper, taskreg::TaskRegistry};
 use colored::Colorize;
 use globset::Glob;
-use libsysinspect::{SysinspectError, cfg::mmconf::ClusteredMinion, proto::MasterMessage};
+use libsysinspect::{
+    SysinspectError,
+    cfg::mmconf::ClusteredMinion,
+    proto::MasterMessage,
+    traits::{self, systraits::SystemTraits},
+};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -78,7 +83,7 @@ impl ClusterNode {
 pub struct VirtualMinion {
     id: String,
     hostnames: Vec<String>,
-    traits: HashMap<String, Value>,
+    traits: SystemTraits,
     minions: Vec<ClusterNode>, // Configured physical minions
 }
 impl VirtualMinion {
@@ -174,7 +179,7 @@ impl VirtualMinionsCluster {
                 self.virtual_minions.push(VirtualMinion {
                     id: m.id(),
                     hostnames: vec![m.hostname().cloned().unwrap_or_default()],
-                    traits: cm_traits,
+                    traits: SystemTraits::from_map(cm_traits),
                     minions: nodes,
                 });
             }
@@ -207,34 +212,66 @@ impl VirtualMinionsCluster {
         Vec::new()
     }
 
-    /// Get all minion IDs matching the query
-    fn query_mids(&self, query: &str) -> Vec<String> {
-        let mut mids: Vec<String> = Vec::new();
-        log::debug!("Getting hostnames for virtual minions cluster with query: {query}");
+    /// Get all virtual minion IDs matching the query
+    fn query_vminions(&self, query: &str) -> Vec<&VirtualMinion> {
+        let mut vmids: Vec<&VirtualMinion> = Vec::new();
+        log::debug!("Getting virtual minion IDs for clustered minions with query: {query}");
 
         // Get all of them, if "*" is given
         if query == "*" {
             for vm in self.virtual_minions.iter() {
-                for m in vm.minions.iter() {
-                    mids.push(m.mid.clone());
-                }
+                vmids.push(vm);
             }
         } else {
             for vm in self.virtual_minions.iter() {
                 if vm.match_hostname(query) {
                     log::debug!("Virtual minion {} matched hostname query {}", vm.id, query);
-                    for physical_minion in vm.minions.iter() {
-                        mids.push(physical_minion.mid.clone());
-                    }
+                    vmids.push(vm);
                 }
             }
         }
-        mids
+
+        vmids
     }
 
-    /// Decide the best-fit minion for a task based on current load and I/O pressure
-    pub async fn decide(&self, query: &str) -> Option<String> {
-        let mids = self.query_mids(query);
+    /// Decide the best-fit minion for a task based on current load and I/O pressure.
+    /// Returns a list of FQDN hostnames of selected minions one per a virtual minion.
+    pub async fn decide(&self, query: &str, traits: Option<&str>) -> Option<Vec<String>> {
+        // Get virtual minion IDs matching the query
+        let mut mids: Vec<String> = vec![];
+
+        for v in self.query_vminions(query) {
+            if let Some(hn) = self.decide_one_vminion(v.clone()).await {
+                mids.push(hn);
+            } else {
+                log::warn!("  No suitable minion found for virtual minion ID: {}", v.id.bright_yellow().bold());
+            }
+        }
+
+        if mids.is_empty() { None } else { Some(mids) }
+    }
+
+    async fn decide_one_vminion(&self, vmin: VirtualMinion) -> Option<String> {
+        /*
+        if let Some(traits) = traits {
+            match traits::parse_traits_query(traits) {
+                Ok(q) => {
+                    match traits::to_typed_query(q) {
+                        Ok(tpq) => {
+                            if !traits::matches_traits(tpq, traits::get_minion_traits(None)) {
+                                log::trace!("Command was dropped as it does not match the traits");
+                                return None;
+                            }
+                        }
+                        Err(e) => log::error!("{e}"),
+                    };
+                }
+                Err(e) => log::error!("{e}"),
+            };
+        }
+        */
+
+        let mids = vmin.minions.iter().map(|m| m.mid.clone()).collect::<Vec<String>>();
         if mids.is_empty() {
             return None;
         }
@@ -310,45 +347,6 @@ impl VirtualMinionsCluster {
         };
 
         mrec.and_then(|rec| rec.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).map(|s| s.to_string()))
-    }
-
-    /// Call a query on the clustered minion.
-    /// This will do the following:
-    /// 1. Drop offline minions, if any (based on session state)
-    /// 2. Analyse each minion status/load
-    /// 3. Select the best-fit minion(s) to run the query
-    ///
-    /// This method must be called before master pings the minions with discovery
-    /// type ping (not general) and thus updates the session state with alive/dead minions
-    /// and their job load.
-    pub async fn get_hostnames(&self, query: &str) -> Vec<String> {
-        let mut hostnames: Vec<String> = Vec::new();
-
-        // Construct hostnames from the query list
-        for mid in self.query_mids(query).iter() {
-            let mrec = match self.mreg.lock().await.get(mid) {
-                Ok(mrec) => mrec,
-                Err(err) => {
-                    log::error!("Unable to get minion record for {mid}: {err}");
-                    continue;
-                }
-            };
-            if mrec.is_none() {
-                log::error!("Minion record for {mid} not found");
-                continue;
-            }
-            let mrec = mrec.unwrap();
-            if self.session.lock().await.alive(mrec.id()) {
-                let hn = mrec.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default();
-                if !hn.is_empty() {
-                    hostnames.push(hn.to_string());
-                }
-            } else {
-                log::debug!("Minion {} is offline, skipping", mid);
-            }
-        }
-
-        hostnames
     }
 
     /// Update a physical minion stats, no matter where it belongs to
