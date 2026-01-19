@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     fs::{self},
     os::unix::fs::PermissionsExt,
     process::Command,
@@ -40,6 +41,20 @@ impl SystemTraits {
 
         if let Err(err) = traits.get_functions() {
             log::error!("Unable to load trait functions: {err}");
+        }
+
+        traits
+    }
+
+    /// New SystemTraits from predefined map (IndexMap or HashMap etc)
+    pub fn from_map<I>(predefined: I) -> SystemTraits
+    where
+        I: IntoIterator<Item = (String, Value)>,
+    {
+        let mut traits = SystemTraits { cfg: MinionConfig::default(), quiet: true, ..Default::default() };
+
+        for (k, v) in predefined {
+            traits.put(k, v);
         }
 
         traits
