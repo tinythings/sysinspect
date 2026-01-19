@@ -68,12 +68,7 @@ Caveats and Considerations
 --------------------------
 
 - A virtual minion is only as reliable as the real machines behind it. If some of them are offline or misbehaving, the
-  virtual minion will also act flaky, fail calls, or give you incomplete results.
-
-- There is some performance overhead. A virtual minion adds another layer that has to fan out to all physical minions
-  and possibly aggregate their responses. Before running anything, the master first checks every configured physical
-  minion. While it does that, nothing gets scheduled, and if several minions are down, the virtual minion will feel
-  slow or half-broken.
+  virtual minion will also work at reduced capacity or fail altogether. Make sure to monitor the health of the physical minions.
 
 - All physical minions in one virtual minion must have the same modules installed and configured. Think of it like a
   shared Python virtualenv: if one minion is missing a module or has it misconfigured, you will get weird failures or
@@ -91,7 +86,7 @@ Invocation
 
 Virtual minions are invoked with a different query syntax than regular minions. When you call all minions with
 a `*` glob (or any kind of globbing), virtual minions are skipped. To call a virtual minion, you need to use
-a `v:` prefix in the query, followed by the virtual minion hostname or glob pattern. For example:
+a ``v:`` prefix in the query, followed by the virtual minion hostname or glob pattern. For example:
 
 .. code-block:: bash
 
