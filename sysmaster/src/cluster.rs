@@ -2,11 +2,12 @@
 use crate::registry::{mreg::MinionRegistry, session::SessionKeeper, taskreg::TaskRegistry};
 use colored::Colorize;
 use globset::Glob;
+use indexmap::IndexMap;
 use libsysinspect::{
     SysinspectError,
     cfg::mmconf::ClusteredMinion,
     proto::MasterMessage,
-    traits::systraits::SystemTraits,
+    traits::{self, systraits::SystemTraits},
 };
 use serde_json::Value;
 use std::{
@@ -236,11 +237,33 @@ impl VirtualMinionsCluster {
 
     /// Decide the best-fit minion for a task based on current load and I/O pressure.
     /// Returns a list of FQDN hostnames of selected minions one per a virtual minion.
-    pub async fn decide(&self, query: &str, _traits: Option<&str>) -> Option<Vec<String>> {
+    pub async fn decide(&self, query: &str, traits: &str) -> Option<Vec<String>> {
+        let mut tpq: Option<Vec<Vec<IndexMap<String, Value>>>> = None;
+        if !traits.is_empty() {
+            match traits::parse_traits_query(traits) {
+                Ok(q) => {
+                    match traits::to_typed_query(q) {
+                        Ok(q) => {
+                            log::debug!("Filtering minions by traits: {:#?}", q);
+                            tpq = Some(q);
+                        }
+                        Err(e) => log::error!("{e}"),
+                    };
+                }
+                Err(e) => log::error!("{e}"),
+            };
+        }
+
         // Get virtual minion IDs matching the query
         let mut mids: Vec<String> = vec![];
 
         for v in self.query_vminions(query) {
+            // If traits query is given, check if the virtual minion matches
+            if let Some(tq) = &tpq
+                && !traits::matches_traits(tq.to_vec(), v.traits.clone()) {
+                    log::debug!("Virtual Minion {} was dropped as it does not match the traits", v.id.bright_yellow().bold());
+                    continue;
+                }
             if let Some(hn) = self.decide_one_vminion(v.clone()).await {
                 mids.push(hn);
             } else {
@@ -252,25 +275,6 @@ impl VirtualMinionsCluster {
     }
 
     async fn decide_one_vminion(&self, vmin: VirtualMinion) -> Option<String> {
-        /*
-        if let Some(traits) = traits {
-            match traits::parse_traits_query(traits) {
-                Ok(q) => {
-                    match traits::to_typed_query(q) {
-                        Ok(tpq) => {
-                            if !traits::matches_traits(tpq, traits::get_minion_traits(None)) {
-                                log::trace!("Command was dropped as it does not match the traits");
-                                return None;
-                            }
-                        }
-                        Err(e) => log::error!("{e}"),
-                    };
-                }
-                Err(e) => log::error!("{e}"),
-            };
-        }
-        */
-
         let mids = vmin.minions.iter().map(|m| m.mid.clone()).collect::<Vec<String>>();
         if mids.is_empty() {
             return None;

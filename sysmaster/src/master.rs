@@ -237,18 +237,35 @@ impl SysMaster {
                 if is_virtual { "yes".bright_green() } else { "no".bright_red() }
             );
 
-            if is_virtual && let Some(decided) = self.vmcluster.decide(&query, None).await {
+            let mut targeted = false;
+            if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
                 for hostname in decided.iter() {
                     log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
                     tgt.add_hostname(hostname);
+                    if !targeted {
+                        targeted = true;
+                    }
                 }
-            } else {
+            } else if !is_virtual {
                 for hostname in hostnames.iter() {
                     tgt.add_hostname(hostname);
+                    if !targeted {
+                        targeted = true;
+                    }
                 }
                 tgt.set_traits_query(traits);
             }
 
+            if !targeted {
+                log::warn!(
+                    "No suitable {}minion found for the query: {}, traits query: {}, context: {}",
+                    if is_virtual { "virtual " } else { "" },
+                    if query.is_empty() { "<N/A>".red() } else { query.bright_yellow() },
+                    if traits.is_empty() { "<N/A>".red() } else { traits.bright_yellow() },
+                    if context.is_empty() { "<N/A>".red() } else { context.bright_yellow() }
+                );
+                return None;
+            }
             log::debug!("Target: {:#?}", tgt);
 
             let mut out: IndexMap<String, String> = IndexMap::default();
@@ -672,6 +689,12 @@ impl SysMaster {
                                                     let mut guard = master.lock().await;
                                                     guard.msg_query(&payload).await
                                                 };
+
+                                                if msg.is_none() {
+                                                    log::warn!("No message constructed for the query: {}", payload.bright_yellow());
+                                                    continue;
+                                                }
+
                                                 SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg.clone()).await;
                                                 {
                                                     let guard = master.lock().await;
