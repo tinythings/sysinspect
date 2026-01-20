@@ -21,6 +21,8 @@
 Clusters and Virtual Minions
 ============================
 
+*This feature is in early development and is subject to change in future releases.*
+
 Why?
 ----
 
@@ -39,13 +41,11 @@ outside of the minions that back the cluster.
 
 .. important::
 
-  🚨
+  🚨 Virtual clustered minions are not designed or meant to manage or change *their own configuration or state*.
+  They are primarily used to perform actions and/or launching workloads that are affecting other external systems.
 
-  Virtual clustered minions are not designed and not meant to manage or change *their own configuration or state*.
-  They are primarily used to perform actions and/or launchging workloads that are affecting other external systems.
-
-  For example, running jobs, collecting metrics, orchestrating tasks on **other systems**, etc — depends on a module
-  capabilities that is launched on behalf of the virtual minion.
+  For example, running jobs, collecting metrics, orchestrating tasks on **other systems**, etc — depend on a module's
+  capabilities that are launched on behalf of the virtual minion.
 
 Minions can be grouped into logical collections called clusters. A cluster is simply a set of minions that share a
 similar role, configuration, and model description, so you can treat them as a single unit instead of dealing with
@@ -76,9 +76,7 @@ Caveats and Considerations
 
   .. note::
 
-    ⚠️
-
-    All minions that belong to a given virtual minion must have the same set of modules installed and configured.
+    ⚠️ All minions that belong to a given virtual minion must have the same set of modules installed and configured.
 
 
 Invocation
@@ -93,8 +91,8 @@ a ``v:`` prefix in the query, followed by the virtual minion hostname or glob pa
     sysinspect your/model 'v:*'
 
 Traits, however, remain the same, because `v:*` simply expands to all actual minions that back the virtual minion,
-where traits query will filter them further. For example, if your cluster has four minions, but two of them are
-Ubuntu Linux and the other are FreeBSD, you can call only the Linux ones like this:
+where the traits query will filter them further. For example, if your cluster has four minions, but two of them are
+Ubuntu Linux and the others are FreeBSD, you can call only the Linux ones like this:
 
 .. code-block:: bash
 
@@ -130,15 +128,23 @@ as a dictionary with the following keys:
 
   - `hostname`: The hostname for the virtual minion.
 
-  - `traits`: A dictionary of traits that can be used to target the virtual minion. Virtual minions can have only static traits, defined in this dictionary.
+  - `traits`: A dictionary of traits that can be used to target the virtual minion. Since virtual minions aren't physical, they can have only static traits, defined in this dictionary.
 
   - `nodes`: A list of physical minion matches. Each match can be defined in one of the following ways:
 
     `id`
 
       A specific physical minion ID (e.g., `/etc/machine-id`).
-      The `id` is dead-precise and matches the exact minion. In this case no more qualifiers are needed.
+      The `id` is dead-precise and matches the exact minion. In this case, no more qualifiers are needed.
       Just add all the minion IDs you want to be part of this virtual minion and that's it.
+
+    `hostname`
+
+      A specific hostname to match or glob pattern. This allows you to include physical minions based on their network identity.
+      This is useful when you want to group minions by their hostnames, such as all minions in a certain domain or
+      with a specific naming convention.
+
+Future request (not implemented yet):
 
     `query`
 
@@ -155,7 +161,13 @@ as a dictionary with the following keys:
 .. hint::
 
   Keep it simple. While you **can** define complex matching criteria, it doesn't mean you **should** do that.
-  It's often best to start with straightforward configurations using just the `id` and then expand as needed in a future.
+  It's often best to start with straightforward configurations using just the `id` or the exact hostname and then expand as needed in a future.
+
+.. warning::
+
+  🚨 Traits, when used in the call query, are matched against the :bi:`virtual minions`. Physical minions are guarded
+  and closed by the virtual minion definition itself, therefore ``--traits`` option does not affect the actual physical minion selector.
+
 
 .. code-block:: yaml
 
@@ -178,9 +190,11 @@ as a dictionary with the following keys:
           # Matches by the hostname
           hostname: minion-01.example.com
 
-          query: "minion-*.example.com"
-          # Matches all minions those are OS linux as well as system memory greater than 8Gb
-          traits:
-            system.os: "linux"
-            system.mem: "> 8Gb"
+          # FUTURE REQUEST (not implemented yet):
+          # query: "minion-*.example.com"
+          #
+          # Matches all minions that are OS linux as well as system memory greater than 8Gb
+          # traits:
+          #   system.os: "linux"
+          #   system.mem: "> 8Gb"
 
