@@ -288,10 +288,10 @@ impl SysMinion {
                         }
                     }
                     RequestType::Traits => {
-                        log::debug!("Master requests traits");
-                        if let Err(err) = self.as_ptr().send_traits().await {
-                            log::error!("Unable to send traits: {err}");
-                        }
+                        if self.as_ptr().get_minion_id().eq(msg.target().id())
+                            && let Err(err) = self.as_ptr().send_traits().await {
+                                log::error!("Unable to send traits: {err}");
+                            }
                     }
                     RequestType::AgentUnknown => {
                         let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
