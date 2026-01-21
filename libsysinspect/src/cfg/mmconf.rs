@@ -567,7 +567,7 @@ impl MinionConfig {
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ClusteredMinion {
     id: Value,
-    hostname: Option<String>,
+    hostname: String,
     traits: Option<IndexMap<String, Value>>,
     nodes: Vec<ClusteredMinionScope>,
 }
@@ -575,7 +575,7 @@ pub struct ClusteredMinion {
 impl ClusteredMinion {
     /// Validate clustered minion definition
     pub fn is_valid(&self) -> bool {
-        (self.hostname.is_some() || self.traits.is_some()) && self.nodes.len() >= 2
+        (!self.hostname.is_empty() || self.traits.is_some()) && self.nodes.len() >= 2
     }
 
     /// Get clustered minion nodes
@@ -592,8 +592,8 @@ impl ClusteredMinion {
     }
 
     /// Get clustered minion hostname
-    pub fn hostname(&self) -> Option<&String> {
-        self.hostname.as_ref()
+    pub fn hostname(&self) -> &String {
+        &self.hostname
     }
 
     /// Get clustered minion traits

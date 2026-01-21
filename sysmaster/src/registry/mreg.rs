@@ -119,6 +119,40 @@ impl MinionRegistry {
         Ok(())
     }
 
+    /// Get minion records by traits query
+    /// Query is a string, matching hostnames as glob patterns.
+    pub fn get_by_query(&self, query: &str) -> Result<Vec<MinionRecord>, SysinspectError> {
+        let qmch = match Glob::new(query) {
+            Ok(g) => g,
+            Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Unable to compile query glob pattern: {err}"))),
+        };
+
+        let mut r: Vec<MinionRecord> = Vec::default();
+        for e in self.get_tree(DB_MINIONS)?.iter() {
+            match e {
+                Ok((_, v)) => {
+                    let mrec = serde_json::from_str::<MinionRecord>(&String::from_utf8(v.to_vec()).unwrap_or_default());
+                    let mrec = match mrec {
+                        Ok(mrec) => mrec,
+                        Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Unable to read minion record: {err}"))),
+                    };
+
+                    for tr in ["system.hostname", "system.hostname.fqdn"] {
+                        if let Some(tr_val) = mrec.get_traits().get(tr)
+                            && let Some(tr_val) = tr_val.as_str()
+                            && qmch.compile_matcher().is_match(tr_val)
+                        {
+                            r.push(mrec.clone());
+                            break;
+                        }
+                    }
+                }
+                Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Minion database seems corrupt: {err}"))),
+            };
+        }
+        Ok(r)
+    }
+
     /// Get minion records by hostname or IP address (fall-back)
     /// Receives hostname or IP address or any of these as glob pattern and returns matching minion records.
     pub fn get_by_hostname_or_ip(&mut self, hostname: &str) -> Result<Vec<MinionRecord>, SysinspectError> {
@@ -155,15 +189,13 @@ impl MinionRegistry {
     }
 
     /// Select minions by trait criterias
-    pub fn select(&self, traits: HashMap<String, Value>) -> Result<Vec<String>, SysinspectError> {
+    pub fn get_by_traits(&self, traits: HashMap<String, Value>) -> Result<Vec<MinionRecord>, SysinspectError> {
         let minions = self.get_tree(DB_MINIONS)?;
-        let mut mns: Vec<String> = Vec::default();
+        let mut mns: Vec<MinionRecord> = Vec::default();
 
-        // XXX: Pretty much crude-dumb implementation which doesn't scale. But good enough for 0.x version. :-)
         for entry in minions.iter() {
             match entry {
-                Ok((k_ent, v_ent)) => {
-                    let mid = String::from_utf8(k_ent.to_vec()).unwrap_or_default();
+                Ok((_, v_ent)) => {
                     let mrec = serde_json::from_str::<MinionRecord>(&String::from_utf8(v_ent.to_vec()).unwrap_or_default());
                     let mrec = match mrec {
                         Ok(mrec) => mrec,
@@ -186,7 +218,7 @@ impl MinionRegistry {
                     }
 
                     if matches {
-                        mns.push(mid);
+                        mns.push(mrec);
                     }
                 }
                 Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Minion database seems corrupt: {err}"))),
