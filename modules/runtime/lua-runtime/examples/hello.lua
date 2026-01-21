@@ -1,10 +1,12 @@
+local mathx = require("mathx") -- from $PATH/lib/mathx/init.lua
+local extra = require("mathx.extra") -- from $PATH/lib/mathx/extra.lua
 local M = {}
 
 -- Module documentation
 M.doc = {
   name = "hello",
   version = "0.1.0",
-  author = "John Smith",
+  author = "Bo Maryniuk",
   description = "Adds two numbers.",
 
   -- Add name and description
@@ -33,11 +35,14 @@ M.doc = {
   }
 }
 
--- Main function
+--- Main function
+-- @param req table Request object containing arguments
+-- @return table Result containing the sum of a and b
 function M.run(req)
   local a = (req.args and req.args.a) or 0
   local b = (req.args and req.args.b) or 0
-  return { sum = a + b }
+
+  return { sum = mathx.add(a, extra.mul(a, b)) }
 end
 
 -- Return the module
