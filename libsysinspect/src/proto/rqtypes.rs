@@ -1,4 +1,67 @@
 use serde::{Deserialize, Serialize};
+use strum_macros::Display;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ProtoValue {
+    #[serde(rename = "pt:g")]
+    PingTypeGeneral,
+
+    #[serde(rename = "pt:d")]
+    PingTypeDiscovery,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Display)]
+pub enum ProtoKey {
+    /// Session Id
+    #[strum(serialize = "sid")]
+    #[serde(rename = "sid")]
+    SessionId,
+
+    /// Cycle Id
+    #[strum(serialize = "cid")]
+    #[serde(rename = "cid")]
+    CycleId,
+
+    /// Action Id
+    #[strum(serialize = "aid")]
+    #[serde(rename = "aid")]
+    ActionId,
+
+    /// Entity Id
+    #[strum(serialize = "eid")]
+    #[serde(rename = "eid")]
+    EntityId,
+
+    /// Protocol Type
+    #[strum(serialize = "pt")]
+    #[serde(rename = "pt")]
+    ProtoType,
+
+    /// Payload
+    #[strum(serialize = "pl")]
+    #[serde(rename = "pl")]
+    Payload,
+
+    /// Constraints
+    #[strum(serialize = "constraints")]
+    #[serde(rename = "constraints")]
+    Constraints,
+
+    /// Response
+    #[strum(serialize = "response")]
+    #[serde(rename = "response")]
+    Response,
+
+    /// Timestamp
+    #[strum(serialize = "timestamp")]
+    #[serde(rename = "timestamp")]
+    Timestamp,
+
+    /// Telemetry
+    #[strum(serialize = "telemetry")]
+    #[serde(rename = "telemetry")]
+    Telemetry,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RequestType {

@@ -4,20 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.143"
-tokio = { version = "1.47.1", features = ["full"] }
-tracing = "0.1.41"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.49.0", features = ["full"] }
+tracing = "0.1.44"
 libsysinspect = { path = "../libsysinspect" }
-log = "0.4.28"
+log = "0.4.29"
 opentelemetry-otlp = { version = "0.29.0", features = ["grpc-tonic", "gzip-tonic", "reqwest", "tonic", "zstd-tonic"] }
 opentelemetry = { version = "0.29.1", features = ["metrics"] }
 opentelemetry_sdk = { version = "0.29.0", features = ["metrics", "rt-tokio"] }
 opentelemetry-appender-log = "0.29.0"
-byte-unit = { version = "5.1.6", features = ["serde"] }
-regex = "1.11.2"
-globset = "0.4.16"
+byte-unit = { version = "5.2.0", features = ["serde"] }
+regex = "1.12.2"
+globset = "0.4.18"
 jsonpath-rust = "1.0.4"
-indexmap = { version = "2.11.1", features = ["serde"] }
+indexmap = { version = "2.13.0", features = ["serde"] }
 strfmt = "0.2.5"
-colored = "3.0.0"
+colored = "3.1.1"

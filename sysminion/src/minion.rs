@@ -5,6 +5,7 @@ use crate::{
         self,
         msg::{CONNECTION_TX, ExitState},
     },
+    ptcounter::PTCounter,
     rsa::MinionRSAKeyManager,
 };
 use clap::ArgMatches;
@@ -29,8 +30,11 @@ use libsysinspect::{
         MasterMessage, MinionMessage, ProtoConversion,
         errcodes::ProtoErrorCode,
         payload::{ModStatePayload, PayloadType},
-        query::{MinionQuery, SCHEME_COMMAND},
-        rqtypes::RequestType,
+        query::{
+            MinionQuery, SCHEME_COMMAND,
+            commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
+        },
+        rqtypes::{ProtoValue, RequestType},
     },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     rsa,
@@ -67,6 +71,8 @@ pub struct SysMinion {
 
     last_ping: Mutex<Instant>,
     ping_timeout: Duration,
+
+    pt_counter: Mutex<PTCounter>,
 }
 
 impl SysMinion {
@@ -85,6 +91,7 @@ impl SysMinion {
             filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
             last_ping: Mutex::new(Instant::now()),
             ping_timeout: Duration::from_secs(10),
+            pt_counter: Mutex::new(PTCounter::new()),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -122,12 +129,34 @@ impl SysMinion {
         }
 
         let mut out: Vec<String> = vec![];
-        for t in traits::get_minion_traits(Some(&self.cfg)).items() {
+        for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
 
         Ok(())
+    }
+
+    /// Display minion info
+    pub fn print_info(cfg: &MinionConfig) {
+        let mut out: IndexMap<String, String> = IndexMap::new();
+        let mut systraits = traits::get_minion_traits_nolog(Some(cfg));
+
+        systraits.put("minion.version".to_string(), json!(env!("CARGO_PKG_VERSION")));
+        systraits.put("uri.master".to_string(), json!(cfg.master()));
+        systraits.put("uri.fileserver".to_string(), json!(cfg.fileserver()));
+        systraits.put("path.models".to_string(), json!(cfg.models_dir()));
+        systraits.put("path.functions".to_string(), json!(cfg.functions_dir()));
+
+        for tk in systraits.trait_keys() {
+            out.insert(tk.to_owned(), dataconv::to_string(systraits.get(&tk)).unwrap_or_default());
+        }
+
+        let mut fmt = KeyValueFormatter::new(json!(out));
+        fmt.set_key_title("Trait");
+        fmt.set_value_title("Data");
+
+        println!("{}:\n\n{}", "Minion information".bright_green().bold(), fmt.format());
     }
 
     async fn update_ping(&self) {
@@ -179,6 +208,18 @@ impl SysMinion {
                     state.exit.store(true, std::sync::atomic::Ordering::Relaxed);
                     break;
                 }
+            }
+        });
+        Ok(())
+    }
+
+    pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                let this = self.as_ptr();
+                let mut ptc = this.pt_counter.lock().await;
+                ptc.update_stats();
             }
         });
         Ok(())
@@ -247,10 +288,10 @@ impl SysMinion {
                         }
                     }
                     RequestType::Traits => {
-                        log::debug!("Master requests traits");
-                        if let Err(err) = self.as_ptr().send_traits().await {
-                            log::error!("Unable to send traits: {err}");
-                        }
+                        if self.as_ptr().get_minion_id().eq(msg.target().id())
+                            && let Err(err) = self.as_ptr().send_traits().await {
+                                log::error!("Unable to send traits: {err}");
+                            }
                     }
                     RequestType::AgentUnknown => {
                         let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
@@ -281,8 +322,40 @@ impl SysMinion {
                         std::process::exit(1);
                     }
                     RequestType::Ping => {
-                        self.request(proto::msg::get_pong()).await;
-                        self.update_ping().await;
+                        let p = msg.payload();
+
+                        match serde_json::from_value::<ProtoValue>(p.clone()) {
+                            Ok(ProtoValue::PingTypeGeneral) => {
+                                let (loadavg, is_done, doneids, io_bps, cpu_usage) = {
+                                    let this = self.as_ptr();
+                                    let mut ptc = this.pt_counter.lock().await;
+                                    let (l, d, i, io, cpu) =
+                                        (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done(), ptc.get_io_bps(), ptc.get_cpu_usage());
+                                    if d {
+                                        ptc.flush_done();
+                                    }
+                                    (l, d, i, io, cpu)
+                                };
+
+                                let pl = json!({
+                                    "ld": loadavg,
+                                    "cd": if is_done { doneids } else { vec![] },
+                                    "dbps": io_bps,
+                                    "cpu": cpu_usage,
+                                });
+
+                                self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
+                                self.update_ping().await;
+                            }
+                            Ok(ProtoValue::PingTypeDiscovery) => {
+                                // XXX: On Discovery ping, we also send our traits and all the info for cluster
+                                log::debug!("Received discovery ping from master");
+                                self.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
+                            }
+                            Err(e) => {
+                                log::warn!("Invalid ping payload `{}`: {}", p, e);
+                            }
+                        }
                     }
                     RequestType::ByeAck => {
                         log::info!("Master confirmed shutdown, terminating");
@@ -298,7 +371,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_string()?);
+        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -310,8 +383,11 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r =
-            MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Ehlo, MINION_SID.to_string());
+        let mut r = MinionMessage::new(
+            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            RequestType::Ehlo,
+            traits::get_minion_traits(None).to_json_value()?,
+        );
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
@@ -321,7 +397,7 @@ impl SysMinion {
 
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
-        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, pbk_pem);
+        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, json!(pbk_pem));
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
@@ -332,20 +408,24 @@ impl SysMinion {
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
         log::debug!("Callback: {ar:#?}");
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar).to_string()).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar)).sendable()?).await;
         Ok(())
     }
 
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar).to_string()).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
         Ok(())
     }
 
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
-        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Bye, MINION_SID.to_string());
+        let r = MinionMessage::new(
+            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            RequestType::Bye,
+            json!(MINION_SID.to_string()),
+        );
 
         log::info!("Goodbye to {}", self.cfg.master());
         match r.sendable() {
@@ -474,11 +554,13 @@ impl SysMinion {
             match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
                 Ok(()) => {
                     log::debug!("Sysinspect model cycle finished");
+                    log::info!("Task {} finished", cycle_id);
                 }
                 Err(e) => {
                     log::error!("Blocking task crashed: {e}");
                 }
             };
+            self.as_ptr().pt_counter.lock().await.dec(cycle_id);
         }
     }
 
@@ -486,21 +568,21 @@ impl SysMinion {
     async fn call_internal_command(self: Arc<Self>, cmd: &str) {
         let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
         match cmd {
-            libsysinspect::proto::query::commands::CLUSTER_SHUTDOWN => {
+            CLUSTER_SHUTDOWN => {
                 log::info!("Requesting minion shutdown from a master");
                 self.as_ptr().send_bye().await;
             }
-            libsysinspect::proto::query::commands::CLUSTER_REBOOT => {
+            CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
             }
-            libsysinspect::proto::query::commands::CLUSTER_ROTATE => {
+            CLUSTER_ROTATE => {
                 log::warn!("Command \"rotate\" is not implemented yet");
             }
-            libsysinspect::proto::query::commands::CLUSTER_REMOVE_MINION => {
+            CLUSTER_REMOVE_MINION => {
                 log::info!("{} from the master", "Unregistering".bright_red().bold());
                 self.as_ptr().send_bye().await;
             }
-            libsysinspect::proto::query::commands::CLUSTER_SYNC => {
+            CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
                 if let Err(e) = libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
                     log::error!("Failed to sync minion with master: {e}");
@@ -536,14 +618,15 @@ impl SysMinion {
 
             // Is matching this host?
             let mut skip = true;
-            let hostname = dataconv::as_str(traits.get("system.hostname"));
+            let hostname = dataconv::as_str(traits.get("system.hostname.fqdn")); // Fully qualified domain name or short, if your network is crap
             if !hostname.is_empty() {
                 for hq in tgt.hostnames() {
-                    if let Ok(hq) = glob::Pattern::new(hq)
-                        && hq.matches(&hostname) {
-                            skip = false;
-                            break;
-                        }
+                    if let Ok(hq) = glob::Pattern::new(&hq)
+                        && hq.matches(&hostname)
+                    {
+                        skip = false;
+                        break;
+                    }
                 }
                 if skip {
                     log::trace!("Command was dropped as it is specifically targeting different hosts");
@@ -574,6 +657,7 @@ impl SysMinion {
         } // else: this minion is directly targeted by its Id.
 
         log::debug!("Through. {:?}", cmd.payload());
+        self.as_ptr().pt_counter.lock().await.inc(cmd.cycle());
 
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
@@ -612,6 +696,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>) -> Res
     }
 
     minion.as_ptr().do_ping_update(state.clone()).await?;
+    minion.as_ptr().do_stats_update().await?;
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {

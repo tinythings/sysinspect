@@ -41,7 +41,7 @@ impl SpecLoader {
         let mut ext: Option<IndexMap<String, serde_json::Value>> = None;
         if let Some(traits) = traits {
             let mut et: IndexMap<String, serde_json::Value> = IndexMap::new();
-            for k in traits.items() {
+            for k in traits.trait_keys() {
                 if let Some(v) = traits.get(&k) {
                     et.insert(k, v);
                 }

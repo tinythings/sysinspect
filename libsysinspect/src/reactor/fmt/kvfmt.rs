@@ -1,14 +1,16 @@
 use super::formatter::StringFormatter;
 use colored::Colorize;
 use prettytable::{
-    format::{self},
     Cell, Row, Table,
+    format::{self},
 };
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
 
 pub struct KeyValueFormatter {
     data: Value,
+    keytitle: String,
+    valtitle: String,
 }
 
 impl KeyValueFormatter {
@@ -31,51 +33,49 @@ impl KeyValueFormatter {
             Value::Array(arr) => {
                 tbl.add_row(Row::new(vec![Cell::new(&format!("{space}{key}")), Cell::new("")]));
                 for elem in arr.iter() {
-                    //self.to_table(table, &format!("{}", i + 1), elem, indent + 1);
                     self.to_table(tbl, "", elem, offset + 1);
                 }
             }
             Value::String(s) => {
                 let cval = s.bright_green().to_string();
-                tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{space}{key}")),
-                    Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
-                ]));
+                tbl.add_row(Row::new(vec![Cell::new(&format!("{space}{key}")), Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval)))]));
             }
             Value::Number(n) => {
                 let cval = n.to_string().bright_cyan();
-                tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{space}{key}")),
-                    Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
-                ]));
+                tbl.add_row(Row::new(vec![Cell::new(&format!("{space}{key}")), Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval)))]));
             }
             Value::Bool(b) => {
                 let cval = b.to_string().bright_red();
-                tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{space}{key}")),
-                    Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
-                ]));
+                tbl.add_row(Row::new(vec![Cell::new(&format!("{space}{key}")), Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval)))]));
             }
             Value::Null => {
-                let cval = "null".yellow();
-                tbl.add_row(Row::new(vec![
-                    Cell::new(&format!("{space}{key}")),
-                    Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval))),
-                ]));
+                let cval = "null".red();
+                tbl.add_row(Row::new(vec![Cell::new(&format!("{space}{key}")), Cell::new(&format!("{:<width$}", cval, width = self.vlen(&cval)))]));
             }
         }
+    }
+
+    /// Set key title
+    pub fn set_key_title(&mut self, title: &str) {
+        self.keytitle = title.to_uppercase().yellow().bold().to_string();
+    }
+
+    /// Set value title
+    pub fn set_value_title(&mut self, title: &str) {
+        self.valtitle = title.to_uppercase().yellow().bold().to_string();
     }
 
     fn fmt(&self) -> String {
         let mut table = Table::new();
 
         // Add headers
-        table.add_row(Row::new(vec![Cell::new("Key"), Cell::new("Value")]));
+        //table.add_row(Row::new(vec![Cell::new(&self.keytitle), Cell::new(&self.valtitle)]));
+        table.add_row(Row::new(vec![Cell::new(&self.keytitle), Cell::new(&format!("{:<width$}", self.valtitle, width = self.vlen(&self.valtitle)))]));
 
         // Start processing the root object
         if let Value::Object(map) = &self.data {
             for (key, value) in map {
-                self.to_table(&mut table, &key.bright_yellow().bold().to_string(), value, 0);
+                self.to_table(&mut table, &key.yellow().to_string(), value, 0);
             }
         }
 
@@ -90,7 +90,7 @@ impl StringFormatter for KeyValueFormatter {
     where
         Self: Sized,
     {
-        KeyValueFormatter { data }
+        KeyValueFormatter { data, keytitle: "Key".to_uppercase().yellow().to_string(), valtitle: "Value".to_uppercase().yellow().to_string() }
     }
 
     /// Format the data

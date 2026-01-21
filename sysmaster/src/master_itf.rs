@@ -12,9 +12,15 @@ impl MasterInterface for SysMaster {
 
     /// Query operation
     async fn query(&mut self, query: String) -> Result<(), SysinspectError> {
-        if let Some(msg) = self.msg_query(&query) {
+        if let Some(msg) = self.msg_query(&query).await {
             if let Some(master) = self.as_ptr() {
-                SysMaster::bcast_master_msg(&self.broadcast(), self.cfg_ref().telemetry_enabled(), master, Some(msg.clone())).await;
+                // `bcast_master_msg` takes ownership of the master handle; keep a copy for later use.
+                SysMaster::bcast_master_msg(&self.broadcast(), self.cfg_ref().telemetry_enabled(), master.clone(), Some(msg.clone())).await;
+                {
+                    let master_guard = master.lock().await;
+                    let ids = master_guard.get_minion_registry().lock().await.get_targeted_minions(msg.target(), false).await;
+                    log::error!(">>>>>>>>>>>>>>> Targeted minions: {:#?}", ids);
+                }
             } else {
                 return Err(SysinspectError::InvalidQuery("Master pointer is not set".to_string()));
             }

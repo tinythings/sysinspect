@@ -3,6 +3,8 @@ pub mod payload;
 pub mod query;
 pub mod rqtypes;
 
+use std::collections::HashSet;
+
 use crate::SysinspectError;
 use errcodes::ProtoErrorCode;
 use rqtypes::RequestType;
@@ -80,6 +82,33 @@ impl MasterMessage {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinionMessageData {
+    eid: String,
+    aid: String,
+    sid: String,
+    cid: String,
+    timestamp: String,
+    response: MinionMessageResponse,
+    constraints: Value,
+    telemetry: Value,
+}
+
+impl MinionMessageData {
+    /// Get cycle ID
+    pub fn cid(&self) -> &String {
+        &self.cid
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinionMessageResponse {
+    retcode: usize,
+    warning: Option<String>,
+    message: String,
+    data: Value,
+}
+
 /// Minion message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinionMessage {
@@ -90,7 +119,7 @@ pub struct MinionMessage {
     request: RequestType,
 
     #[serde(rename = "d")]
-    data: String,
+    data: Value,
 
     #[serde(rename = "c")]
     retcode: usize,
@@ -98,7 +127,7 @@ pub struct MinionMessage {
 
 impl MinionMessage {
     /// Message constructor
-    pub fn new(id: String, rtype: RequestType, data: String) -> MinionMessage {
+    pub fn new(id: String, rtype: RequestType, data: Value) -> MinionMessage {
         MinionMessage { id, request: rtype, data, retcode: ProtoErrorCode::Undef as usize, sid: "".to_string() }
     }
 
@@ -141,8 +170,30 @@ impl MinionMessage {
     }
 
     /// Get payload
-    pub fn payload(&self) -> &str {
+    pub fn payload(&self) -> &Value {
         &self.data
+    }
+
+    /// Get data as MinionMessageData
+    pub fn get_data(&self) -> MinionMessageData {
+        match serde_json::from_value::<MinionMessageData>(self.data.clone()) {
+            Ok(data) => data,
+            Err(_) => MinionMessageData {
+                eid: "".to_string(),
+                aid: "".to_string(),
+                sid: "".to_string(),
+                cid: "".to_string(),
+                timestamp: "".to_string(),
+                response: MinionMessageResponse {
+                    retcode: ProtoErrorCode::GeneralFailure as usize,
+                    warning: None,
+                    message: "Unable to parse MinionMessageData structure".to_string(),
+                    data: Value::Null,
+                },
+                constraints: Value::Null,
+                telemetry: Value::Null,
+            },
+        }
     }
 }
 
@@ -164,7 +215,7 @@ pub struct MinionTarget {
     traits_query: String,
 
     #[serde(rename = "h")]
-    hostnames: Vec<String>,
+    hostnames: HashSet<String>,
 
     #[serde(rename = "cq")]
     context_query: String,
@@ -177,7 +228,7 @@ impl MinionTarget {
 
     /// Add hostnames
     pub fn add_hostname(&mut self, hostname: &str) {
-        self.hostnames.push(hostname.to_string());
+        self.hostnames.insert(hostname.to_string());
     }
 
     pub fn id(&self) -> &String {
@@ -188,8 +239,8 @@ impl MinionTarget {
         &self.sid
     }
 
-    pub fn hostnames(&self) -> &Vec<String> {
-        &self.hostnames
+    pub fn hostnames(&self) -> Vec<String> {
+        self.hostnames.iter().map(|s| s.to_string()).collect()
     }
 
     /// Get scheme

@@ -1,4 +1,5 @@
 mod clidef;
+mod cluster;
 mod dataserv;
 mod master;
 mod master_itf;
@@ -11,15 +12,15 @@ use daemonize::Daemonize;
 use libsysinspect::{
     SysinspectError,
     cfg::{mmconf::MasterConfig, select_config_path},
-    logger,
+    logger::{self, STDOUTLogger},
 };
 use log::LevelFilter;
-use std::{env, fs::File};
+use std::{env, fs::File, sync::OnceLock};
 use std::{path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysmaster";
 static VERSION: &str = "0.4.0";
-static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
 fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     tokio::runtime::Runtime::new()?.block_on(async {
@@ -61,7 +62,7 @@ fn main() -> Result<(), SysinspectError> {
     }
 
     // Setup logger
-    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+    if let Err(err) = log::set_logger(LOGGER.get_or_init(|| STDOUTLogger::new(params.get_flag("no-color")))).map(|()| {
         log::set_max_level(match params.get_count("debug") {
             0 => LevelFilter::Info,
             1 => LevelFilter::Debug,

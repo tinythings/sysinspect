@@ -22,12 +22,16 @@ pub struct SystemTraits {
     data: IndexMap<String, Value>,
     cfg: MinionConfig,
     checksum: String,
+    quiet: bool,
 }
 
 impl SystemTraits {
-    pub fn new(cfg: MinionConfig) -> SystemTraits {
-        log::debug!("Initialising system traits");
-        let mut traits = SystemTraits { cfg, ..Default::default() };
+    pub fn new(cfg: MinionConfig, quiet: bool) -> SystemTraits {
+        if !quiet {
+            log::debug!("Initialising system traits");
+        }
+
+        let mut traits = SystemTraits { cfg, quiet, ..Default::default() };
         traits.get_system();
         traits.get_network();
         if let Err(err) = traits.get_defined() {
@@ -36,6 +40,20 @@ impl SystemTraits {
 
         if let Err(err) = traits.get_functions() {
             log::error!("Unable to load trait functions: {err}");
+        }
+
+        traits
+    }
+
+    /// New SystemTraits from predefined map (IndexMap or HashMap etc)
+    pub fn from_map<I>(predefined: I) -> SystemTraits
+    where
+        I: IntoIterator<Item = (String, Value)>,
+    {
+        let mut traits = SystemTraits { cfg: MinionConfig::default(), quiet: true, ..Default::default() };
+
+        for (k, v) in predefined {
+            traits.put(k, v);
         }
 
         traits
@@ -66,7 +84,7 @@ impl SystemTraits {
     }
 
     /// Return known trait items
-    pub fn items(&self) -> Vec<String> {
+    pub fn trait_keys(&self) -> Vec<String> {
         let mut items = self.data.keys().map(|s| s.to_string()).collect::<Vec<String>>();
         items.sort();
 
@@ -101,7 +119,10 @@ impl SystemTraits {
 
     /// Read standard system traits
     fn get_system(&mut self) {
-        log::info!("Loading system traits data");
+        if !self.quiet {
+            log::info!("Loading system traits data");
+        }
+
         let system = sysinfo::System::new_all();
 
         // Common
@@ -131,9 +152,10 @@ impl SystemTraits {
         // Machine Id (not always there)
         let mut mid = String::default();
         if self.cfg.machine_id_path().exists()
-            && let Ok(id) = fs::read_to_string(self.cfg.machine_id_path()) {
-                mid = id.trim().to_string();
-            }
+            && let Ok(id) = fs::read_to_string(self.cfg.machine_id_path())
+        {
+            mid = id.trim().to_string();
+        }
         self.put(SYS_ID.to_string(), json!(mid));
 
         // Memory
@@ -150,7 +172,9 @@ impl SystemTraits {
 
     /// Load network data
     fn get_network(&mut self) {
-        log::info!("Loading network traits data");
+        if !self.quiet {
+            log::info!("Loading network traits data");
+        }
         let net = sysinfo::Networks::new_with_refreshed_list();
         for (ifs, data) in net.iter() {
             self.put(format!("system.net.{ifs}.mac"), json!(data.mac_address().to_string()));
@@ -163,7 +187,9 @@ impl SystemTraits {
 
     /// Read defined/configured static traits
     fn get_defined(&mut self) -> Result<(), SysinspectError> {
-        log::debug!("Loading custom static traits data");
+        if !self.quiet {
+            log::info!("Loading defined/custom traits");
+        }
 
         for f in fs::read_dir(self.cfg.traits_dir())?.flatten() {
             let fname = f.file_name();
@@ -204,12 +230,16 @@ impl SystemTraits {
 
     /// Load custom functions
     fn get_functions(&mut self) -> Result<(), SysinspectError> {
-        log::info!("Loading trait functions");
+        if !self.quiet {
+            log::info!("Loading trait functions");
+        }
         for f in fs::read_dir(self.cfg.functions_dir())?.flatten() {
             let fname = f.path();
             let fname = fname.file_name().unwrap_or_default().to_str().unwrap_or_default();
 
-            log::info!("Calling function {fname}");
+            if !self.quiet {
+                log::info!("Calling function {fname}");
+            }
 
             let is_exec = match fs::metadata(f.path()) {
                 Ok(m) => {
@@ -255,5 +285,10 @@ impl SystemTraits {
     /// Convert the data to the JSON body
     pub fn to_json_string(&self) -> Result<String, SysinspectError> {
         Ok(serde_json::to_string(&json!(self.data))?)
+    }
+
+    /// Convert the data to the JSON value
+    pub fn to_json_value(&self) -> Result<Value, SysinspectError> {
+        Ok(json!(self.data))
     }
 }

@@ -12,8 +12,14 @@ pub fn get_ssh_client_ip() -> Option<String> {
         let parts: Vec<&str> = ssh_client.split_whitespace().collect();
         if !parts.is_empty() {
             return Some(parts[0].to_string());
+        } else {
+            log::warn!("SSH_CLIENT variable is empty");
         }
+    } else {
+        log::warn!("SSH_CLIENT environment variable not found");
     }
+
+    log::error!("I was unable to determine the SSH client IP address. Have you use \"sudo\" without -E flag?");
 
     None
 }

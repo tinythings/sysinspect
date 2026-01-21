@@ -1,12 +1,15 @@
 use crate::{
+    cluster::VirtualMinionsCluster,
     dataserv::fls,
     registry::{
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
         session::{self, SessionKeeper},
+        taskreg::TaskRegistry,
     },
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
 };
+use colored::Colorize;
 use indexmap::IndexMap;
 use libeventreg::{
     ipcs::DbIPCService,
@@ -17,8 +20,14 @@ use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     proto::{
-        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion, errcodes::ProtoErrorCode, payload::ModStatePayload, query::SCHEME_COMMAND,
-        rqtypes::RequestType,
+        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
+        errcodes::ProtoErrorCode,
+        payload::{ModStatePayload, PingData},
+        query::{
+            SCHEME_COMMAND,
+            commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
+        },
+        rqtypes::{ProtoKey, ProtoValue, RequestType},
     },
     util::{self, iofs::scan_files_sha256},
 };
@@ -41,7 +50,7 @@ use tokio::{
 };
 
 // Session singleton
-static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
+pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Debug)]
@@ -49,21 +58,36 @@ pub struct SysMaster {
     cfg: MasterConfig,
     broadcast: broadcast::Sender<Vec<u8>>,
     mkr: MinionsKeyRegistry,
-    mreg: MinionRegistry,
+    mreg: Arc<Mutex<MinionRegistry>>,
+    taskreg: Arc<Mutex<TaskRegistry>>,
     evtipc: Arc<DbIPCService>,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
     ptr: Option<Weak<Mutex<SysMaster>>>,
+    vmcluster: VirtualMinionsCluster,
 }
 
 impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
-        let mreg = MinionRegistry::new(cfg.minion_registry_root())?;
+        let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
+        let taskreg = Arc::new(Mutex::new(TaskRegistry::new()));
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
-        Ok(SysMaster { cfg, broadcast: tx, mkr, to_drop: HashSet::default(), session: Arc::clone(&SHARED_SESSION), mreg, evtipc, ptr: None })
+        let vmcluster = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg), Arc::clone(&SHARED_SESSION), Arc::clone(&taskreg));
+        Ok(SysMaster {
+            cfg,
+            broadcast: tx,
+            mkr,
+            to_drop: HashSet::default(),
+            session: Arc::clone(&SHARED_SESSION),
+            mreg,
+            evtipc,
+            taskreg,
+            ptr: None,
+            vmcluster,
+        })
     }
 
     /// Open FIFO socket for command-line communication
@@ -95,6 +119,7 @@ impl SysMaster {
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
         log::info!("Starting master at {}", self.cfg.bind_addr());
         self.open_socket(&self.cfg.socket())?;
+        self.vmcluster.init().await?;
         Ok(())
     }
 
@@ -156,7 +181,7 @@ impl SysMaster {
 
         if let Ok(s) = self.evtipc.get_last_session().await {
             for m in self.evtipc.get_minions(s.sid()).await.unwrap_or_default() {
-                let mrec = match self.mreg.get(m.id()) {
+                let mrec = match self.mreg.lock().await.get(m.id()) {
                     Ok(Some(mrec)) => mrec,
                     Ok(None) => {
                         log::error!("Unable to get minion record");
@@ -181,7 +206,7 @@ impl SysMaster {
         if self.cfg.telemetry_enabled() {
             // Emit reduced data
             for (mid, res) in reducer.get_reduced_data() {
-                if let Ok(Some(mrec)) = self.mreg.get(mid) {
+                if let Ok(Some(mrec)) = self.mreg.lock().await.get(mid) {
                     let fqdn = mrec.get_traits().get("system.hostname.fqdn").unwrap_or(&serde_json::Value::String("".to_string())).to_string();
                     libtelemetry::otel_log_json(res, vec![("hostname".into(), fqdn.into())]);
                 } else {
@@ -192,17 +217,56 @@ impl SysMaster {
     }
 
     /// Construct a Command message to the minion
-    pub(crate) fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
+    pub(crate) async fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
         if let [querypath, query, traits, mid, context] = query.as_slice() {
+            let is_virtual = query.to_lowercase().starts_with("v:");
+            let query = query.to_lowercase().replace("v:", "");
+
             log::debug!("Context: {context}");
+
+            let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
             let mut tgt = MinionTarget::new(mid, "");
             tgt.set_scheme(querypath);
-            tgt.set_traits_query(traits);
             tgt.set_context_query(context);
-            for hostname in query.split(",") {
-                tgt.add_hostname(hostname);
+
+            log::debug!(
+                "Querying minions for: {}, traits: {}, is virtual: {}",
+                query.bright_yellow(),
+                traits.bright_yellow(),
+                if is_virtual { "yes".bright_green() } else { "no".bright_red() }
+            );
+
+            let mut targeted = false;
+            if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
+                for hostname in decided.iter() {
+                    log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
+                    tgt.add_hostname(hostname);
+                    if !targeted {
+                        targeted = true;
+                    }
+                }
+            } else if !is_virtual {
+                for hostname in hostnames.iter() {
+                    tgt.add_hostname(hostname);
+                    if !targeted {
+                        targeted = true;
+                    }
+                }
+                tgt.set_traits_query(traits);
             }
+
+            if !targeted {
+                log::warn!(
+                    "No suitable {}minion found for the query: {}, traits query: {}, context: {}",
+                    if is_virtual { "virtual " } else { "" },
+                    if query.is_empty() { "<N/A>".red() } else { query.bright_yellow() },
+                    if traits.is_empty() { "<N/A>".red() } else { traits.bright_yellow() },
+                    if context.is_empty() { "<N/A>".red() } else { context.bright_yellow() }
+                );
+                return None;
+            }
+            log::debug!("Target: {:#?}", tgt);
 
             let mut out: IndexMap<String, String> = IndexMap::default();
             for em in self.cfg.fileserver_models() {
@@ -227,6 +291,8 @@ impl SysMaster {
             );
             msg.set_target(tgt);
             msg.set_retcode(ProtoErrorCode::Success);
+
+            log::debug!("Constructed message: {:#?}", msg);
 
             return Some(msg);
         }
@@ -279,8 +345,19 @@ impl SysMaster {
         m
     }
 
+    /// Get session keeper
     pub fn get_session(&self) -> Arc<Mutex<session::SessionKeeper>> {
         Arc::clone(&self.session)
+    }
+
+    /// Get minion registry
+    pub fn get_minion_registry(&self) -> Arc<Mutex<MinionRegistry>> {
+        Arc::clone(&self.mreg)
+    }
+
+    /// Get task registry
+    pub fn get_task_registry(&self) -> Arc<Mutex<TaskRegistry>> {
+        Arc::clone(&self.taskreg)
     }
 
     /// Process incoming minion messages
@@ -292,7 +369,7 @@ impl SysMaster {
             loop {
                 if let Some((msg, minion_addr)) = rx.recv().await {
                     let msg = String::from_utf8_lossy(&msg).to_string();
-                    log::trace!("Minion response: {minion_addr}: {msg}");
+                    log::debug!("Minion response: {minion_addr}: {msg}");
                     if let Some(req) = master.lock().await.to_request(&msg) {
                         match req.req_type() {
                             RequestType::Add => {
@@ -304,7 +381,7 @@ impl SysMaster {
                                     let mut guard = c_master.lock().await;
                                     let resp_msg: &str;
                                     if !guard.mkr().is_registered(&c_mid) {
-                                        if let Err(err) = guard.mkr().add_mn_key(&c_mid, &minion_addr, req.payload()) {
+                                        if let Err(err) = guard.mkr().add_mn_key(&c_mid, &minion_addr, &req.payload().to_string()) {
                                             log::error!("Unable to add minion RSA key: {err}");
                                         }
                                         guard.to_drop.insert(minion_addr.to_owned());
@@ -350,10 +427,28 @@ impl SysMaster {
                                 let c_master = Arc::clone(&master);
                                 let c_id = req.id().to_string();
                                 tokio::spawn(async move {
-                                    let guard = c_master.lock().await;
-                                    guard.get_session().lock().await.ping(&c_id, None);
-                                    let uptime = guard.get_session().lock().await.uptime(req.id()).unwrap_or_default();
-                                    log::trace!("Update last contacted for {} (alive for {:.2} min)", req.id(), uptime as f64 / 60.0);
+                                    log::debug!("Received pong from {:#?}", req.payload());
+                                    let mut guard = c_master.lock().await;
+                                    let pm = match PingData::from_value(req.payload().clone()) {
+                                        Ok(pm) => pm,
+                                        Err(err) => {
+                                            log::error!("Unable to parse pong message: {err}");
+                                            return;
+                                        }
+                                    };
+
+                                    guard.get_session().lock().await.ping(&c_id, Some(pm.sid()));
+                                    guard.vmcluster.update_stats(
+                                        &c_id,
+                                        pm.payload().load_average(),
+                                        pm.payload().disk_write_bps(),
+                                        pm.payload().cpu_usage(),
+                                    );
+
+                                    // Update task tracker
+                                    let taskreg = guard.get_task_registry();
+                                    let mut taskreg = taskreg.lock().await;
+                                    taskreg.flush(&c_id, pm.payload().completed());
                                 });
                             }
 
@@ -382,11 +477,17 @@ impl SysMaster {
 
                             RequestType::Event => {
                                 log::debug!("Event for {}: {}", req.id(), req.payload());
+                                let d = req.get_data();
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
-                                    let mut m = c_master.lock().await;
-                                    let mrec = m.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
-                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
+                                    let m = c_master.lock().await;
+                                    m.taskreg.lock().await.deregister(d.cid(), req.id());
+                                    let mrec = m.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
+
+                                    // XXX: Fix this nonsense
+                                    //      This should use get_data() method to extract payload properly
+                                    //      Also replace HashMap in evtipc.add_event with it.
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
                                         Ok(pl) => pl,
                                         Err(err) => {
                                             log::error!("An event message with the bogus payload: {err}");
@@ -402,15 +503,15 @@ impl SysMaster {
                                     let sid = match m
                                         .evtipc
                                         .open_session(
-                                            util::dataconv::as_str(pl.get("eid").cloned()),
-                                            util::dataconv::as_str(pl.get("cid").cloned()),
-                                            util::dataconv::as_str(pl.get("timestamp").cloned()),
+                                            util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned()),
+                                            util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()),
+                                            util::dataconv::as_str(pl.get(&ProtoKey::Timestamp.to_string()).cloned()),
                                         )
                                         .await
                                     {
                                         Ok(sid) => sid,
                                         Err(err) => {
-                                            log::error!("Unable to acquire session for this iteration: {err}");
+                                            log::debug!("Unable to acquire session for this iteration: {err}");
                                             return;
                                         }
                                     };
@@ -437,20 +538,24 @@ impl SysMaster {
                             RequestType::ModelEvent => {
                                 let c_master = Arc::clone(&master);
                                 tokio::spawn(async move {
-                                    let mut master = c_master.lock().await;
-                                    let mrec = master.mreg.get(req.id()).unwrap_or_default().unwrap_or_default();
+                                    let master = c_master.lock().await;
+                                    let mrec = master.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
 
-                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload()) {
+                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
                                         Ok(pl) => pl,
                                         Err(err) => {
                                             log::error!("An event message with the bogus payload: {err}");
                                             return;
                                         }
                                     };
-                                    let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get("cid").cloned())).await {
+                                    let sid = match master
+                                        .evtipc
+                                        .get_session(&util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()))
+                                        .await
+                                    {
                                         Ok(sid) => sid,
                                         Err(err) => {
-                                            log::error!("Unable to acquire session for this iteration: {err}");
+                                            log::debug!("Unable to acquire session for this iteration: {err}");
                                             return;
                                         }
                                     };
@@ -459,7 +564,7 @@ impl SysMaster {
                                         let mut otel = OtelLogger::new(&pl);
                                         otel.set_map(true); // Use mapper (only)
                                         match master.evtipc.get_events(sid.sid(), req.id()).await {
-                                            Ok(events) => match master.mreg.get(req.id()) {
+                                            Ok(events) => match master.mreg.lock().await.get(req.id()) {
                                                 Ok(Some(mrec)) => {
                                                     otel.feed(events, mrec);
                                                 }
@@ -483,6 +588,8 @@ impl SysMaster {
                                 log::error!("Minion sends unknown request type");
                             }
                         }
+                    } else {
+                        log::error!("Unable to parse minion message");
                     }
                 } else {
                     break;
@@ -494,22 +601,64 @@ impl SysMaster {
     pub async fn on_traits(&mut self, mid: String, payload: String) {
         let traits = serde_json::from_str::<HashMap<String, serde_json::Value>>(&payload).unwrap_or_default();
         if !traits.is_empty() {
-            if let Err(err) = self.mreg.refresh(&mid, traits) {
+            let mut mreg = self.mreg.lock().await;
+            if let Err(err) = mreg.refresh(&mid, traits) {
                 log::error!("Unable to sync traits: {err}");
             } else {
-                log::info!("Traits added");
+                let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
+                log::info!(
+                    "Traits synced for minion {} ({})",
+                    m.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown").bright_green(),
+                    mid.green()
+                );
             }
         }
     }
 
     pub async fn on_fifo_commands(&mut self, msg: &MasterMessage) {
-        if msg.target().scheme().eq("cmd://cluster/minion/remove") && !msg.target().id().is_empty() {
+        if msg.target().scheme().eq(&format!("cmd://{}", CLUSTER_REMOVE_MINION)) && !msg.target().id().is_empty() {
             log::info!("Removing minion {}", msg.target().id());
-            if let Err(err) = self.mreg.remove(msg.target().id()) {
+            if let Err(err) = self.mreg.lock().await.remove(msg.target().id()) {
                 log::error!("Unable to remove minion {}: {err}", msg.target().id());
             }
             if let Err(err) = self.mkr().remove_mn_key(msg.target().id()) {
                 log::error!("Unable to unregister minion: {err}");
+            }
+        } else if msg.target().scheme().eq(&format!("cmd://{}", CLUSTER_ONLINE_MINIONS)) {
+            // XXX: This is just a logdumper for now, because there is no proper response channel yet.
+            // Most likely we need to dump FIFO mechanism in a whole and replace with something else.
+            log::info!("Listing online minions");
+            let mreg = self.mreg.lock().await;
+            let mut session = self.session.lock().await;
+            match mreg.get_registered_ids() {
+                Ok(ids) => {
+                    let mut msg: Vec<String> = vec![];
+                    for (idx, mid) in ids.iter().enumerate() {
+                        let alive = session.alive(mid);
+                        let traits = match mreg.get(mid) {
+                            Ok(Some(mrec)) => mrec.get_traits().to_owned(),
+                            _ => HashMap::new(),
+                        };
+                        let mut h = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        if h.is_empty() {
+                            h = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        }
+                        let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+                        msg.push(format!(
+                            "{}. {} {} - {} ({})",
+                            idx + 1,
+                            if alive { " " } else { "!" },
+                            if alive { mid.cyan() } else { mid.white() },
+                            if alive { h.bright_green() } else { h.yellow() },
+                            if alive { ip.bright_green() } else { ip.yellow() },
+                        ));
+                    }
+                    log::info!("Status of all registered minions:\n{}", msg.join("\n"));
+                }
+                Err(err) => {
+                    log::error!("Unable to get online minions: {err}");
+                }
             }
         }
     }
@@ -538,9 +687,20 @@ impl SysMaster {
                                                 log::debug!("Querying minions: {payload}");
                                                 let msg = {
                                                     let mut guard = master.lock().await;
-                                                    guard.msg_query(&payload)
+                                                    guard.msg_query(&payload).await
                                                 };
-                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
+
+                                                if msg.is_none() {
+                                                    log::warn!("No message constructed for the query: {}", payload.bright_yellow());
+                                                    continue;
+                                                }
+
+                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg.clone()).await;
+                                                {
+                                                    let guard = master.lock().await;
+                                                    let ids = guard.mreg.lock().await.get_targeted_minions(msg.as_ref().unwrap().target(), false).await;
+                                                    guard.taskreg.lock().await.register(msg.as_ref().unwrap().cycle(), ids);
+                                                }
                                             }
                                             Ok(None) => break, // End of file, re-open the FIFO
                                             Err(e) => {
@@ -601,7 +761,7 @@ impl SysMaster {
         tokio::spawn(async move {
             loop {
                 _ = time::sleep(Duration::from_secs(5)).await;
-                let mut p = MasterMessage::new(RequestType::Ping, json!(""));
+                let mut p = MasterMessage::new(RequestType::Ping, json!(ProtoValue::PingTypeGeneral));
                 let mut t = MinionTarget::default();
                 t.add_hostname("*");
                 p.set_target(t);
@@ -717,7 +877,7 @@ impl SysMaster {
                     async move {
                         let (bcast, msg, cfg) = {
                             let mut master = master.lock().await;
-                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()), master.cfg().clone())
+                            (master.broadcast().clone(), master.msg_query(tdef.query().as_str()).await, master.cfg().clone())
                         };
                         SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg).await;
                     }

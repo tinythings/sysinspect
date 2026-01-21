@@ -129,9 +129,10 @@ fn _logfile_path() -> PathBuf {
     for p in ["/var/log", &format!("{home}/.local/state"), "/tmp"] {
         let p = PathBuf::from(p);
         if let Ok(m) = fs::metadata(p.clone())
-            && (m.permissions().mode() & 0o200) != 0 {
-                return p;
-            }
+            && (m.permissions().mode() & 0o200) != 0
+        {
+            return p;
+        }
     }
     PathBuf::from("")
 }
@@ -208,10 +209,11 @@ impl TelemetryConfig {
         let mut skipped = vec![];
         for (key, value) in self.exporter_resources.clone().unwrap_or_default() {
             if let Some(v) = value.as_bool()
-                && !v {
-                    skipped.push(key);
-                    continue;
-                }
+                && !v
+            {
+                skipped.push(key);
+                continue;
+            }
 
             let value = util::dataconv::to_string(Some(value)).unwrap_or_default().trim().to_string();
             if value.is_empty() {
@@ -221,13 +223,15 @@ impl TelemetryConfig {
             resources.insert(key, value);
         }
 
-        for (k, v) in [("service.name", CFG_OTLP_SERVICE_NAME),
+        for (k, v) in [
+            ("service.name", CFG_OTLP_SERVICE_NAME),
             ("service.namespace", CFG_OTLP_SERVICE_NAME),
             ("service.version", CFG_OTLP_SERVICE_VERSION),
             ("host.name", sysinfo::System::host_name().unwrap_or_default().as_str()),
             ("os.type", sysinfo::System::distribution_id().as_str()),
             ("deployment.environment", "production"),
-            ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str())] {
+            ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str()),
+        ] {
             if !resources.contains_key(k) && !skipped.contains(&k.to_string()) {
                 resources.insert(k.to_string(), v.to_string());
             }
@@ -539,11 +543,108 @@ impl MinionConfig {
             return i;
         }
         if let Some((start, end)) = i.split_once('-')
-            && let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>()) {
-                return if end > start { rand::random::<u64>() % (end - start + 1) + start } else { start };
-            }
+            && let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>())
+        {
+            return if end > start { rand::random::<u64>() % (end - start + 1) + start } else { start };
+        }
 
         rand::random::<u64>() % 30 + 5
+    }
+}
+
+/// Definition of a clustered minion
+/// It can match by:
+/// - id: exact machine-id match
+/// - hostname: wildcard domain name match
+/// - traits: trait-based match
+///
+/// At least one of the fields must be present.
+/// If multiple fields are present, all must match.
+///
+/// It contains a list of nodes, which are forming a group
+/// of minions cluster as one logical minion entity.
+/// At least two nodes must be present (it is a cluster after all).
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ClusteredMinion {
+    id: Value,
+    hostname: String,
+    traits: Option<IndexMap<String, Value>>,
+    nodes: Vec<ClusteredMinionScope>,
+}
+
+impl ClusteredMinion {
+    /// Validate clustered minion definition
+    pub fn is_valid(&self) -> bool {
+        (!self.hostname.is_empty() || self.traits.is_some()) && self.nodes.len() >= 2
+    }
+
+    /// Get clustered minion nodes
+    pub fn nodes(&self) -> &Vec<ClusteredMinionScope> {
+        &self.nodes
+    }
+
+    /// Get clustered minion id
+    pub fn id(&self) -> String {
+        match &self.id {
+            Value::String(s) => s.clone(),
+            _ => util::dataconv::to_string(Some(self.id.clone())).unwrap_or_default().trim().to_string(),
+        }
+    }
+
+    /// Get clustered minion hostname
+    pub fn hostname(&self) -> &String {
+        &self.hostname
+    }
+
+    /// Get clustered minion traits
+    pub fn traits(&self) -> Option<&IndexMap<String, Value>> {
+        self.traits.as_ref()
+    }
+}
+
+/// Definition of a clustered minion scope
+///
+/// It can match by:
+/// - id: exact machine-id match
+/// - query: wildcard domain name match
+/// - traits: trait-based match
+///
+/// At least one of the fields must be present.
+/// If multiple fields are present, all must match.
+///
+/// The scope will return one or more minions matching the criteria.
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ClusteredMinionScope {
+    id: Option<Value>,
+    query: Option<String>,
+    hostname: Option<String>,
+    traits: Option<IndexMap<String, Value>>,
+}
+
+impl ClusteredMinionScope {
+    /// Validate clustered minion scope definition
+    pub fn is_valid(&self) -> bool {
+        self.id.is_some() || self.query.is_some() || self.traits.is_some()
+    }
+
+    /// Get clustered minion id
+    pub fn id(&self) -> Option<&Value> {
+        self.id.as_ref()
+    }
+
+    /// Get clustered minion scope query
+    pub fn query(&self) -> Option<&String> {
+        self.query.as_ref()
+    }
+
+    /// Get clustered minion scope traits
+    pub fn traits(&self) -> Option<&IndexMap<String, Value>> {
+        self.traits.as_ref()
+    }
+
+    /// Get clustered minion scope hostname
+    pub fn hostname(&self) -> Option<&String> {
+        self.hostname.as_ref()
     }
 }
 
@@ -627,6 +728,9 @@ pub struct MasterConfig {
 
     // Configuration of history keeping in the database per each cycle call
     history: Option<HistoryConfig>,
+
+    // Clustered minions configuration
+    cluster: Option<Vec<ClusteredMinion>>,
 }
 
 impl MasterConfig {
@@ -656,9 +760,10 @@ impl MasterConfig {
     pub fn otlp_compression(&self) -> String {
         let mut cpr = CFG_OTLP_COMPRESSION.to_string();
         if let Some(cfg) = &self.telemetry
-            && let Some(compression) = &cfg.compression {
-                cpr = compression.clone();
-            }
+            && let Some(compression) = &cfg.compression
+        {
+            cpr = compression.clone();
+        }
 
         if !cpr.eq("gzip") && !cpr.eq("zstd") {
             return CFG_OTLP_COMPRESSION.to_string();
@@ -825,6 +930,11 @@ impl MasterConfig {
     /// Returns true if telemetry is enabled
     pub fn telemetry_enabled(&self) -> bool {
         self.telemetry.is_some() && self.telemetry.as_ref().unwrap().collector.is_some()
+    }
+
+    /// Get clustered minions configuration
+    pub fn cluster(&self) -> Vec<ClusteredMinion> {
+        self.cluster.clone().unwrap_or_default()
     }
 }
 

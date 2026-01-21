@@ -6,6 +6,7 @@ package/
 /vendor
 *code-workspace
 /*/.venv/
+.venv/
 /*/.bin/
 /*/html-docs
 .gitignore

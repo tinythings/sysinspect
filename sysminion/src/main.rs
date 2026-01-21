@@ -3,6 +3,7 @@ mod clidef;
 mod filedata;
 mod minion;
 mod proto;
+mod ptcounter;
 mod rsa;
 
 use clap::{ArgMatches, Command};
@@ -14,12 +15,14 @@ use libsysinspect::{
     logger,
 };
 use log::LevelFilter;
-use std::{env, fs::File, process::exit};
+use std::{env, fs::File, process::exit, sync::OnceLock};
 use tokio::task::JoinHandle;
+
+use crate::minion::SysMinion;
 
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.4.0";
-static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
     let runtime = tokio::runtime::Runtime::new().map_err(|e| SysinspectError::DynError(Box::new(e)))?;
@@ -61,13 +64,14 @@ fn get_config(params: &ArgMatches) -> MinionConfig {
 fn help(cli: &mut Command, params: ArgMatches) -> bool {
     for sc in ["setup", "module"] {
         if let Some(sub) = params.subcommand_matches(sc)
-            && sub.get_flag("help") {
-                if let Some(s_cli) = cli.find_subcommand_mut(sc) {
-                    _ = s_cli.print_help();
-                    return true;
-                }
-                return false;
+            && sub.get_flag("help")
+        {
+            if let Some(s_cli) = cli.find_subcommand_mut(sc) {
+                _ = s_cli.print_help();
+                return true;
             }
+            return false;
+        }
     }
 
     if params.get_flag("help") {
@@ -99,7 +103,7 @@ fn main() -> std::io::Result<()> {
     }
 
     // Setup logger
-    if let Err(err) = log::set_logger(&LOGGER).map(|()| {
+    if let Err(err) = log::set_logger(LOGGER.get_or_init(|| logger::STDOUTLogger::new(params.get_flag("no-color")))).map(|()| {
         log::set_max_level(match params.get_count("debug") {
             0 => LevelFilter::Info,
             1 => LevelFilter::Debug,
@@ -167,6 +171,8 @@ fn main() -> std::io::Result<()> {
         if let Err(err) = minion::launch_module(get_config(&params), sub) {
             log::error!("Error launching module: {err}");
         }
+    } else if params.get_flag("info") {
+        SysMinion::print_info(&get_config(&params));
     } else {
         cli.print_help()?;
     }

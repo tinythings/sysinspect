@@ -4,6 +4,7 @@ use libeventreg::kvdb::EventData;
 use libsysinspect::{
     SysinspectError,
     mdescr::telemetry::{DataExportType, EventSelector, StaticDataDestination},
+    proto::rqtypes::ProtoKey,
 };
 use libtelemetry::{
     otel_log_json,
@@ -57,7 +58,7 @@ impl OtelLogger {
     }
 
     fn get_selectors(pl: &HashMap<String, serde_json::Value>) -> Vec<EventSelector> {
-        match pl.get("telemetry").cloned() {
+        match pl.get(&ProtoKey::Telemetry.to_string()).cloned() {
             Some(value) => match serde_json::from_value::<Vec<EventSelector>>(value) {
                 Ok(selectors) => selectors,
                 Err(err) => {
@@ -73,7 +74,7 @@ impl OtelLogger {
     }
 
     fn get_response_data(&self, es: &EventSelector, pl: &HashMap<String, serde_json::Value>) -> IndexMap<String, Value> {
-        let response = match pl.get("response").cloned() {
+        let response = match pl.get(&ProtoKey::Response.to_string()).cloned() {
             Some(resp) => resp,
             None => {
                 log::error!("No response found");
@@ -186,13 +187,13 @@ impl OtelLogger {
                 continue;
             }
 
-            let entity_id = self.payload.get("eid").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let entity_id = self.payload.get(&ProtoKey::EntityId.to_string()).and_then(|v| v.as_str()).unwrap_or_default().to_string();
             if !entity_id.is_empty() && !es.filter().entity().is_empty() && !es.filter().entity().eq(&entity_id) {
                 log::debug!("Event ID {} does not match entity filter: {}", entity_id, es.filter().entity());
                 continue;
             }
 
-            let action_id = self.payload.get("aid").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let action_id = self.payload.get(&ProtoKey::ActionId.to_string()).and_then(|v| v.as_str()).unwrap_or_default().to_string();
             if !action_id.is_empty() && !es.filter().actions().is_empty() && !es.filter().actions().iter().any(|a| a.eq(&action_id)) {
                 log::debug!("Action ID {} does not match filter: {}", action_id, es.filter().actions().join(", "));
                 continue;

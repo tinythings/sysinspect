@@ -94,7 +94,7 @@ pub mod syscore {
         fn list(&self, _vm: &VirtualMachine) -> StrVec {
             let mut out: StrVec = StrVec(vec![]);
             if let Some(traits) = self.traits.clone() {
-                for item in traits.items() {
+                for item in traits.trait_keys() {
                     out.0.push(item);
                 }
             }

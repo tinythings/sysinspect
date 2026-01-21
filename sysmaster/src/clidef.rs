@@ -43,15 +43,6 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .help("Stop master if it is in daemon mode")
         )
 
-        .next_help_heading("Info")
-        .arg(
-            Arg::new("status")
-                .long("status")
-                .action(ArgAction::SetTrue)
-                .help("Show connected minions")
-        )
-
-
         // Other
         .next_help_heading("Other")
         .arg(
@@ -60,6 +51,12 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .long("debug")
                 .action(ArgAction::Count)
                 .help("Set debug mode for more verbose output. Increase this flag for more verbosity."),
+        )
+        .arg(
+            Arg::new("no-color")
+                .long("no-color")
+                .action(ArgAction::SetTrue)
+                .help("Disable colored output in logs"),
         )
         .arg(
             Arg::new("help")

@@ -31,6 +31,7 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
         )
         .arg(
             Arg::new("start")
+                .short('s')
                 .long("start")
                 .conflicts_with("daemon")
                 .action(ArgAction::SetTrue)
@@ -38,16 +39,27 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
         )
         .arg(
             Arg::new("daemon")
+                .short('b')
                 .long("daemon")
+                .alias("back")
+                .alias("background")
                 .conflicts_with("start")
                 .action(ArgAction::SetTrue)
-                .help("Start minion as a daemon")
+                .help("Start minion as a daemon in background")
         )
         .arg(
             Arg::new("stop")
+                .short('k')
                 .long("stop")
                 .action(ArgAction::SetTrue)
                 .help("Stop minion if runs as a daemon")
+        )
+        .arg(
+            Arg::new("info")
+                .short('i')
+                .long("info")
+                .action(ArgAction::SetTrue)
+                .help("Display minion info")
         )
 
         .next_help_heading("Minion")
@@ -85,6 +97,12 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .long("debug")
                 .action(ArgAction::Count)
                 .help("Set debug mode for more verbose output. Increase this flag for more verbosity."),
+        )
+        .arg(
+            Arg::new("no-color")
+                .long("no-color")
+                .action(ArgAction::SetTrue)
+                .help("Disable colored output in logs"),
         )
         .arg(
             Arg::new("help")
