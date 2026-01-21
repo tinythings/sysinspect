@@ -40,11 +40,14 @@ define move_bin
 	mkdir -p $$dir/sys; \
 	rm -rf $$dir/fs; \
 	mkdir -p $$dir/fs; \
+	rm -rf $$dir/runtime; \
+	mkdir -p $$dir/runtime; \
 	mv $$dir/proc $$dir/sys/; \
 	mv $$dir/net $$dir/sys/; \
 	mv $$dir/run $$dir/sys/; \
 	mv $$dir/ssrun $$dir/sys/; \
-	mv $$dir/file $$dir/fs/;
+	mv $$dir/file $$dir/fs/; \
+	mv $$dir/lua-runtime $$dir/runtime/;
 endef
 
 setup:
