@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
 use serde_json::Value as JsonValue;
 
@@ -33,23 +35,45 @@ impl LuaRuntime {
     pub fn new() -> Result<Self> {
         let lua = Lua::new();
 
-        // Install a tiny host API surface.
-        let globals: Table = lua.globals();
+        // Runtime configuration
+        let scripts_dir = PathBuf::from("./");
+        let lib_dir = scripts_dir.join("lib");
+        let globals = lua.globals();
+        let package: mlua::Table = globals.get("package")?;
+        package.set("cpath", "")?; // disable native module loading
 
-        let sys: Table = lua.create_table()?;
+        let mut path = String::new();
+        path.push_str(&LuaRuntime::path_fragment(&scripts_dir));
+        path.push(';');
+        path.push_str(&LuaRuntime::path_fragment(&lib_dir));
+
+        package.set("path", path)?;
+
+        // Optional: disable native module loading unless you want it
+        // package.set("cpath", "")?;
+
+        // ----- sys.echo to stderr -----
+        let sys: mlua::Table = lua.create_table()?;
         sys.set(
             "echo",
             lua.create_function(|_, msg: String| {
-                println!("[lua] {}", msg);
+                eprintln!("[lua] {}", msg);
                 Ok(())
             })?,
         )?;
-
         globals.set("sys", sys)?;
 
         Ok(Self { lua })
     }
 
+    // Lua package.path uses ; separated patterns with ?
+    // Typical: /path/?.lua;/path/?/init.lua
+    fn path_fragment(dir: &Path) -> String {
+        let d = dir.to_string_lossy();
+        format!("{d}/?.lua;{d}/?/init.lua")
+    }
+
+    /// Execute Lua code string
     pub fn exec_str(&self, code: &str) -> Result<()> {
         self.lua.load(code).exec()?;
         Ok(())
@@ -89,15 +113,6 @@ impl LuaRuntime {
         validate_module_doc(&json)?;
 
         Ok(json)
-    }
-
-    pub fn _module_doc(&self, code: &str) -> Result<JsonValue> {
-        let module: Table = self.lua.load(code).eval()?;
-        match module.get::<Value>("doc")? {
-            Value::Table(t) => Ok(self.lua.from_value(Value::Table(t))?),
-            Value::Nil => Ok(serde_json::json!({})),
-            _ => Err(mlua::Error::runtime("Module doc must be a table").into()),
-        }
     }
 
     pub fn exec_file(&self, path: &str) -> Result<()> {
