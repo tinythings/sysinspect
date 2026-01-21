@@ -58,10 +58,10 @@ function M.run(req)
   end
 
   -- check opts array
-  local want_lines = false
+  local line_split = false
   for _, opt in ipairs(opts) do
     if opt == "lines" then
-      want_lines = true
+      line_split = true
       break
     end
   end
@@ -76,20 +76,20 @@ function M.run(req)
   local output = p:read("*a")
   local ok, _, exit_code = p:close()
 
-  local result_output
-  if want_lines then
-    result_output = {}
+  local out
+  if line_split then
+    out = {}
     for line in output:gmatch("([^\n]+)") do
-      table.insert(result_output, line)
+      table.insert(out, line)
     end
   else
-    result_output = output
+    out = output
   end
 
   return {
     command = cmd,
     exit_code = exit_code or 0,
-    output = result_output
+    output = out
   }
 end
 
