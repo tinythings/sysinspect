@@ -106,15 +106,14 @@ pub fn validate_module_doc(doc: &JsonValue) -> Result<(), LuaRuntimeError> {
     })?;
 
     // returns: object (optional). If present but {} -> muted too.
-    if let Some(ret) = obj.get("returns") {
-        if !is_empty_object(ret) {
+    if let Some(ret) = obj.get("returns")
+        && !is_empty_object(ret) {
             let robj = expect_object(ret, "doc.returns")?;
             if let Some(d) = robj.get("description") {
                 let _ = expect_string(d, "doc.returns.description")?;
             }
             // sample: any JSON type ok
         }
-    }
 
     Ok(())
 }
