@@ -121,47 +121,61 @@ minion. There are several ways to specify these matches:
 This flexible configuration enables you to create logical groupings of physical minions, assign them virtual identities,
 and target them for orchestration, monitoring, or other management tasks based on a wide range of criteria.
 
-Configuration starts with the `cluster` key, which contains a list of virtual minion definitions. Each virtual minion is defined
+Configuration starts with the `cluster` key, which contains a list of virtual minion definitions. Each :bi:`virtual minion` is defined
 as a dictionary with the following keys:
 
-  - `id`: A unique identifier for the virtual minion. Typically, this could be a UUID or any other unique string.
+  - :bi:`id`: A unique identifier for the virtual minion. Typically, this could be a UUID or any other unique string.
 
-  - `hostname`: The hostname for the virtual minion.
+  - :bi:`hostname`: The hostname for the virtual minion.
 
-  - `traits`: A dictionary of traits that can be used to target the virtual minion. Since virtual minions aren't physical, they can have only static traits, defined in this dictionary.
+  - :bi:`traits`: A dictionary of traits that can be used to target the virtual minion. Since virtual minions aren't physical, they can have only static traits, defined in this dictionary.
 
-  - `nodes`: A list of physical minion matches. Each match can be defined in one of the following ways:
+  - :bi:`nodes`: A list of physical minion matches.
 
-    `id`
+Once this is done, each match can be then defined in one of the following ways:
+
+    :bi:`id`
 
       A specific physical minion ID (e.g., `/etc/machine-id`).
       The `id` is dead-precise and matches the exact minion. In this case, no more qualifiers are needed.
       Just add all the minion IDs you want to be part of this virtual minion and that's it.
 
-    `hostname`
+    :bi:`hostname`
 
       A specific hostname to match or glob pattern. This allows you to include physical minions based on their network identity.
       This is useful when you want to group minions by their hostnames, such as all minions in a certain domain or
       with a specific naming convention.
 
-Future request (not implemented yet):
-
-    `query`
+    :bi:`query`
 
       A query string that matches multiple physical minions (e.g., domain name patterns).
 
-    `traits`
-
+    :bi:`traits`
       A dictionary of traits that must be matched by the physical minion.
 
-    `query` and `traits`
 
-      Combining these two allows you to create more complex matching criteria.
+Within a single node definition, the different selector fields (:bi:`id`, :bi:`hostname`, :bi:`query`, and
+:bi:`traits`) act as alternatives. A physical minion will be associated with the node if it matches any one of the
+specified selectors — i.e., providing multiple selector fields widens the set of matched minions (logical OR across
+selector types). However, the :bi:`traits` field itself is a collection of trait constraints that are evaluated against a
+minion's traits; a trait constraint matches only when the minion satisfies the trait key/value pair(s) listed there.
+Therefore if :bi:`traits` do not match any of the physical minions selected by the other selectors, no minion will be
+associated with that node.
+
+TL;DR:
+
+.. code-block:: text
+
+  (id + hostname + query)  ||  traits
 
 .. hint::
 
-  Keep it simple. While you **can** define complex matching criteria, it doesn't mean you **should** do that.
-  It's often best to start with straightforward configurations using just the `id` or the exact hostname and then expand as needed in a future.
+  Always **keep it simple**!
+
+  While you *can* define complex matching criteria, it doesn't mean you *should* do that.
+  It's often best to start with straightforward configurations using just the :bi:`id` or the exact :bi:`hostname` and
+  then expand as needed in a future. If you will use complex queries and trait filters, make sure to test and validate
+  your configuration to avoid unexpected grouping results.
 
 .. warning::
 
@@ -190,11 +204,11 @@ Future request (not implemented yet):
           # Matches by the hostname
           hostname: minion-01.example.com
 
-          # FUTURE REQUEST (not implemented yet):
-          # query: "minion-*.example.com"
-          #
+          # This is where you can easily screw it all up
+          query: "minion-*.example.com"
+
           # Matches all minions that are OS linux as well as system memory greater than 8Gb
-          # traits:
-          #   system.os: "linux"
-          #   system.mem: "> 8Gb"
+          traits:
+            system.os: "linux"
+            system.mem: "> 8Gb"
 
