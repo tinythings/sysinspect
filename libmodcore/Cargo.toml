@@ -13,3 +13,4 @@ serde_yaml = "0.9.34"
 shlex = "1.3.0"
 textwrap = "0.16.2"
 libsysinspect = { path = "../libsysinspect" }
+clap = { version = "4.5.53", features = ["derive"] }
