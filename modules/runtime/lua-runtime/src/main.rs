@@ -1,7 +1,5 @@
 mod docschema;
 mod lrt;
-use std::path::{Path, PathBuf};
-
 use crate::lrt::{LuaRuntime, LuaRuntimeError};
 use clap::Parser;
 use libmodcore::{
@@ -13,12 +11,15 @@ use libmodcore::{
     runtime::{ModRequest, get_call_args, send_call_response},
 };
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 
+/// Read Lua module code from file
 fn read_module_code(modname: &str) -> std::io::Result<String> {
     let path = format!("./{}.lua", modname);
     std::fs::read_to_string(path)
 }
 
+/// List available Lua modules in the scripts directory
 fn list_lua_modules(scripts_dir: &Path) -> Vec<String> {
     let mut modules = Vec::new();
 
@@ -27,17 +28,19 @@ fn list_lua_modules(scripts_dir: &Path) -> Vec<String> {
             let path = entry.path();
             if path.is_file()
                 && let Some(ext) = path.extension()
-                    && ext == "lua"
-                        && let Some(stem) = path.file_stem()
-                            && let Some(stem_str) = stem.to_str() {
-                                modules.push(stem_str.to_string());
-                            }
+                && ext == "lua"
+                && let Some(stem) = path.file_stem()
+                && let Some(stem_str) = stem.to_str()
+            {
+                modules.push(stem_str.to_string());
+            }
         }
     }
 
     modules
 }
 
+/// Get module documentation from Lua runtime
 fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeError> {
     let rt = match LuaRuntime::new(PathBuf::from(cli.get_sharelib())) {
         Ok(rt) => rt,
@@ -99,9 +102,10 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
     resp
 }
 
+/// Main entry point
 fn main() {
     let mod_doc = init_mod_doc!(ModInterface);
-    let cli = libmodcore::modcli::ModuleCli::parse();
+    let cli = ModuleCli::parse();
     if cli.is_manual() {
         print!("{}", mod_doc.help());
         return;
