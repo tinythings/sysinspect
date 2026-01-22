@@ -1,21 +1,57 @@
 mod docschema;
 mod lrt;
-use crate::lrt::LuaRuntime;
+use std::path::{Path, PathBuf};
+
+use crate::lrt::{LuaRuntime, LuaRuntimeError};
+use clap::Parser;
 use libmodcore::{
     init_mod_doc,
+    manrndr::print_mod_manual,
+    modcli::ModuleCli,
     modinit::ModInterface,
     response::ModResponse,
     runtime::{ModRequest, get_call_args, send_call_response},
 };
-use serde_json::json;
+use serde_json::Value;
 
 fn read_module_code(modname: &str) -> std::io::Result<String> {
     let path = format!("./{}.lua", modname);
     std::fs::read_to_string(path)
 }
 
+fn list_lua_modules(scripts_dir: &Path) -> Vec<String> {
+    let mut modules = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(scripts_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && let Some(ext) = path.extension()
+                    && ext == "lua"
+                        && let Some(stem) = path.file_stem()
+                            && let Some(stem_str) = stem.to_str() {
+                                modules.push(stem_str.to_string());
+                            }
+        }
+    }
+
+    modules
+}
+
+fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeError> {
+    let rt = match LuaRuntime::new(PathBuf::from(cli.get_sharelib())) {
+        Ok(rt) => rt,
+        Err(err) => {
+            eprintln!("Failed to create Lua runtime: {}", err);
+            return Err(err);
+        }
+    };
+
+    rt.module_doc(&read_module_code(modname).unwrap_or_default())
+}
+
 /// Run the Lua runtime with the provided request.
-fn call_runtime(rq: &ModRequest) -> ModResponse {
+fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
     let modpath = match rq.args().get("mod") {
         Some(v) => v.as_string().unwrap_or_default(),
         None => String::new(),
@@ -28,37 +64,13 @@ fn call_runtime(rq: &ModRequest) -> ModResponse {
     }
 
     let mut resp = ModResponse::new_cm();
-    let rt = match LuaRuntime::new() {
+    let rt = match LuaRuntime::new(PathBuf::from(cli.get_sharelib())) {
         Ok(rt) => rt,
         Err(err) => {
             resp.set_message(&format!("Failed to create Lua runtime: {}", err));
             return resp;
         }
     };
-
-    // Return module documentation
-    if rq.args().contains_key("man") {
-        match rt.module_doc(&read_module_code(&modpath).unwrap_or_default()) {
-            Ok(doc) => {
-                match resp.set_data(json!({ "manpage": doc })) {
-                    Ok(_) => {
-                        let _ = resp.cm_set_changed(false);
-                    }
-                    Err(err) => {
-                        resp.set_message(&format!("Failed to set response data: {}", err));
-                        return resp;
-                    }
-                }
-                resp.set_retcode(0);
-                resp.set_message("Module documentation retrieved successfully.");
-            }
-            Err(err) => {
-                resp.set_message(&format!("Failed to get module documentation: {}", err));
-                return resp;
-            }
-        };
-        return resp;
-    }
 
     // Call the module
     match rt.call_module(
@@ -89,12 +101,30 @@ fn call_runtime(rq: &ModRequest) -> ModResponse {
 
 fn main() {
     let mod_doc = init_mod_doc!(ModInterface);
-    if mod_doc.print_help() {
+    let cli = libmodcore::modcli::ModuleCli::parse();
+    if cli.is_manual() {
+        print!("{}", mod_doc.help());
+        return;
+    } else if !cli.get_help_on().is_empty() {
+        match module_doc_help(&cli, &cli.get_help_on()) {
+            Ok(doc) => {
+                print_mod_manual(doc);
+            }
+            Err(err) => {
+                eprintln!("Failed to get module documentation: {}", err);
+            }
+        }
+        return;
+    } else if cli.is_list_modules() {
+        println!("Available Lua runtime modules:");
+        for module in list_lua_modules(PathBuf::from(cli.get_sharelib()).as_path()) {
+            println!("  - {}", module);
+        }
         return;
     }
 
     match get_call_args() {
-        Ok(rq) => match send_call_response(&call_runtime(&rq)) {
+        Ok(rq) => match send_call_response(&call_runtime(&cli, &rq)) {
             Ok(_) => {}
             Err(err) => println!("Runtime error: {err}"),
         },

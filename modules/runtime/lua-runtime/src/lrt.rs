@@ -29,14 +29,15 @@ pub type Result<T> = std::result::Result<T, LuaRuntimeError>;
 
 pub struct LuaRuntime {
     lua: Lua,
+    scripts_dir: PathBuf,
 }
 
 impl LuaRuntime {
-    pub fn new() -> Result<Self> {
+    pub fn new(sharelib: PathBuf) -> Result<Self> {
         let lua = Lua::new();
 
         // Runtime configuration
-        let scripts_dir = PathBuf::from("./");
+        let scripts_dir = sharelib;
         let lib_dir = scripts_dir.join("lib");
         let globals = lua.globals();
         let package: mlua::Table = globals.get("package")?;
@@ -63,7 +64,12 @@ impl LuaRuntime {
         )?;
         globals.set("sys", sys)?;
 
-        Ok(Self { lua })
+        Ok(Self { lua, scripts_dir })
+    }
+
+    // Get scripts path fragment for Lua package.path
+    pub fn get_scripts_dir(&self) -> &Path {
+        &self.scripts_dir
     }
 
     // Lua package.path uses ; separated patterns with ?
