@@ -1,4 +1,3 @@
-mod docschema;
 mod lrt;
 use crate::lrt::{LuaRuntime, LuaRuntimeError};
 use clap::Parser;

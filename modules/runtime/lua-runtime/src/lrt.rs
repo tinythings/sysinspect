@@ -1,5 +1,4 @@
-use crate::docschema::validate_module_doc;
-use libmodcore::rtspec::RuntimeSpec;
+use libmodcore::{rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
@@ -8,6 +7,9 @@ use std::path::{Path, PathBuf};
 pub enum LuaRuntimeError {
     #[error("lua error: {0}")]
     Lua(#[from] mlua::Error),
+
+    #[error("sysinspect error: {0}")]
+    Sysinspect(#[from] libsysinspect::SysinspectError),
 
     #[error("failed to read lua file '{path}': {source}")]
     ReadFile {

@@ -1,21 +1,21 @@
-use crate::lrt::LuaRuntimeError;
-use libmodcore::rtspec::{RuntimeModuleDocPrefix, RuntimeModuleDocumentation, RuntimeSpec};
+use crate::rtspec::{RuntimeModuleDocPrefix, RuntimeModuleDocumentation, RuntimeSpec};
+use libsysinspect::SysinspectError;
 use serde_json::Value as JsonValue;
 
-fn expect_string<'a>(v: &'a JsonValue, path: &str) -> Result<&'a str, LuaRuntimeError> {
-    v.as_str().ok_or_else(|| mlua::Error::runtime(format!("{path} must be a string")).into())
+fn expect_string<'a>(v: &'a JsonValue, path: &str) -> Result<&'a str, SysinspectError> {
+    v.as_str().ok_or_else(|| SysinspectError::ModuleError(format!("{path} must be a string")))
 }
 
-fn expect_bool(v: &JsonValue, path: &str) -> Result<bool, LuaRuntimeError> {
-    v.as_bool().ok_or_else(|| mlua::Error::runtime(format!("{path} must be a boolean")).into())
+fn expect_bool(v: &JsonValue, path: &str) -> Result<bool, SysinspectError> {
+    v.as_bool().ok_or_else(|| SysinspectError::ModuleError(format!("{path} must be a boolean")))
 }
 
-fn expect_array<'a>(v: &'a JsonValue, path: &str) -> Result<&'a Vec<JsonValue>, LuaRuntimeError> {
-    v.as_array().ok_or_else(|| mlua::Error::runtime(format!("{path} must be an array")).into())
+fn expect_array<'a>(v: &'a JsonValue, path: &str) -> Result<&'a Vec<JsonValue>, SysinspectError> {
+    v.as_array().ok_or_else(|| SysinspectError::ModuleError(format!("{path} must be an array")))
 }
 
-fn expect_object<'a>(v: &'a JsonValue, path: &str) -> Result<&'a serde_json::Map<String, JsonValue>, LuaRuntimeError> {
-    v.as_object().ok_or_else(|| mlua::Error::runtime(format!("{path} must be an object")).into())
+fn expect_object<'a>(v: &'a JsonValue, path: &str) -> Result<&'a serde_json::Map<String, JsonValue>, SysinspectError> {
+    v.as_object().ok_or_else(|| SysinspectError::ModuleError(format!("{path} must be an object")))
 }
 
 fn is_empty_object(v: &JsonValue) -> bool {
@@ -23,8 +23,8 @@ fn is_empty_object(v: &JsonValue) -> bool {
 }
 
 fn validate_obj_list_field(
-    doc_obj: &serde_json::Map<String, JsonValue>, field: &str, item_validator: impl Fn(usize, &JsonValue) -> Result<(), LuaRuntimeError>,
-) -> Result<(), LuaRuntimeError> {
+    doc_obj: &serde_json::Map<String, JsonValue>, field: &str, item_validator: impl Fn(usize, &JsonValue) -> Result<(), SysinspectError>,
+) -> Result<(), SysinspectError> {
     let Some(v) = doc_obj.get(field) else {
         return Ok(()); // not there -> muted
     };
@@ -40,19 +40,19 @@ fn validate_obj_list_field(
     Ok(())
 }
 
-pub fn validate_module_doc(doc: &JsonValue) -> Result<(), LuaRuntimeError> {
+pub fn validate_module_doc(doc: &JsonValue) -> Result<(), SysinspectError> {
     let obj = expect_object(doc, &RuntimeSpec::DocumentationFunction.to_string())?;
     let p = RuntimeModuleDocPrefix::new(&RuntimeSpec::DocumentationFunction);
 
     // required
     let name = obj
         .get(&RuntimeModuleDocumentation::Name.to_string())
-        .ok_or_else(|| mlua::Error::runtime(format!("{} is required", p.field(&RuntimeModuleDocumentation::Name))))?;
+        .ok_or_else(|| SysinspectError::ModuleError(format!("{} is required", p.field(&RuntimeModuleDocumentation::Name))))?;
     let _ = expect_string(name, &p.field(&RuntimeModuleDocumentation::Name))?;
 
     let desc = obj
         .get(&RuntimeModuleDocumentation::Description.to_string())
-        .ok_or_else(|| mlua::Error::runtime(format!("{} is required", p.field(&RuntimeModuleDocumentation::Description))))?;
+        .ok_or_else(|| SysinspectError::ModuleError(format!("{} is required", p.field(&RuntimeModuleDocumentation::Description))))?;
     let _ = expect_string(desc, &p.field(&RuntimeModuleDocumentation::Description))?;
 
     // optional strings
@@ -70,7 +70,7 @@ pub fn validate_module_doc(doc: &JsonValue) -> Result<(), LuaRuntimeError> {
 
         let n = aobj
             .get(&RuntimeModuleDocumentation::Name.to_string())
-            .ok_or_else(|| mlua::Error::runtime(format!("{p}.{} is required", RuntimeModuleDocumentation::Name)))?;
+            .ok_or_else(|| SysinspectError::ModuleError(format!("{p}.{} is required", RuntimeModuleDocumentation::Name)))?;
         let _ = expect_string(n, &format!("{p}.{}", RuntimeModuleDocumentation::Name))?;
 
         if let Some(t) = aobj.get(&RuntimeModuleDocumentation::Type.to_string()) {
@@ -92,7 +92,7 @@ pub fn validate_module_doc(doc: &JsonValue) -> Result<(), LuaRuntimeError> {
 
         let n = oobj
             .get(&RuntimeModuleDocumentation::Name.to_string())
-            .ok_or_else(|| mlua::Error::runtime(format!("{p}.{} is required", RuntimeModuleDocumentation::Name)))?;
+            .ok_or_else(|| SysinspectError::ModuleError(format!("{p}.{} is required", RuntimeModuleDocumentation::Name)))?;
         let _ = expect_string(n, &format!("{p}.{}", RuntimeModuleDocumentation::Name))?;
 
         if let Some(d) = oobj.get(&RuntimeModuleDocumentation::Description.to_string()) {
@@ -108,7 +108,7 @@ pub fn validate_module_doc(doc: &JsonValue) -> Result<(), LuaRuntimeError> {
 
         let code = eobj
             .get(&RuntimeModuleDocumentation::Code.to_string())
-            .ok_or_else(|| mlua::Error::runtime(format!("{p}.{} is required", RuntimeModuleDocumentation::Code)))?;
+            .ok_or_else(|| SysinspectError::ModuleError(format!("{p}.{} is required", RuntimeModuleDocumentation::Code)))?;
         let _ = expect_string(code, &format!("{p}.{}", RuntimeModuleDocumentation::Code))?;
 
         if let Some(d) = eobj.get(&RuntimeModuleDocumentation::Description.to_string()) {
