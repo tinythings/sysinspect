@@ -154,16 +154,18 @@ pub fn render_markup(input: &str) -> String {
         }
 
         if let Some(c) = fg.chars().next()
-            && let Some(code) = fg_code(c) {
-                out.push_str(code);
-                applied = true;
-            }
+            && let Some(code) = fg_code(c)
+        {
+            out.push_str(code);
+            applied = true;
+        }
 
         if let Some(c) = bg.chars().next()
-            && let Some(code) = bg_code(c) {
-                out.push_str(code);
-                applied = true;
-            }
+            && let Some(code) = bg_code(c)
+        {
+            out.push_str(code);
+            applied = true;
+        }
 
         // If nothing applied (unknown tag), render literally
         if !applied {
@@ -174,4 +176,19 @@ pub fn render_markup(input: &str) -> String {
     }
 
     out
+}
+
+/// Indent each line of the given string with the specified prefix.
+/// # Arguments
+/// * `s` - Input string to indent
+/// * `prefix` - Prefix string to add to each line
+/// # Returns
+/// * `String` - Indented string
+/// # Example
+/// ```no_run
+/// let indented = indent_block("Line 1\nLine 2\nLine 3", ">> ");
+/// println!("{}", indented);
+/// ```
+pub fn indent_block(s: &str, prefix: &str) -> String {
+    s.lines().map(|line| if line.is_empty() { prefix.to_string() } else { format!("{prefix}{line}") }).collect::<Vec<_>>().join("\n")
 }

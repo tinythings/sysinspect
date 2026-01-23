@@ -1,6 +1,9 @@
 use colored::Colorize;
 use indexmap::IndexMap;
-use libsysinspect::util::{dataconv, tty::render_markup};
+use libsysinspect::util::{
+    dataconv,
+    tty::{indent_block, render_markup},
+};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -189,7 +192,7 @@ impl ModInterface {
         let ex_title = "Usage examples:".bright_yellow();
         let ex_code = self.examples.iter().map(|e| e.format()).collect::<Vec<String>>().join("\n");
         let manpage = match &self.manpage {
-            Some(m) => render_markup(&format!("\n\n  {}", fill(m, Options::new(H_WIDTH).subsequent_indent("  ")))),
+            Some(m) => format!("\n\n{}", indent_block(&render_markup(m), "  ")),
             None => "".to_string(),
         };
 
