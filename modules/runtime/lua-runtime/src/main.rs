@@ -14,8 +14,8 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 /// Read Lua module code from file
-fn read_module_code(modname: &str) -> std::io::Result<String> {
-    let path = format!("./{}.lua", modname);
+fn read_module_code(modname: &str, scripts_dir: &Path) -> std::io::Result<String> {
+    let path = scripts_dir.join(format!("{}.lua", modname));
     std::fs::read_to_string(path)
 }
 
@@ -50,7 +50,7 @@ fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeEr
         }
     };
 
-    rt.module_doc(&read_module_code(modname).unwrap_or_default())
+    rt.module_doc(&read_module_code(modname, rt.get_scripts_dir()).unwrap_or_default())
 }
 
 /// Run the Lua runtime with the provided request.
@@ -67,7 +67,10 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
     }
 
     let mut resp = ModResponse::new_cm();
-    let rt = match LuaRuntime::new(PathBuf::from(cli.get_sharelib())) {
+
+    // Get sharelib path from passed config or override from CLI or default
+    let sharelib = rq.config().get("path.sharelib").and_then(|v| v.as_string()).unwrap_or(cli.get_sharelib());
+    let rt = match LuaRuntime::new(PathBuf::from(&sharelib)) {
         Ok(rt) => rt,
         Err(err) => {
             resp.set_message(&format!("Failed to create Lua runtime: {}", err));
@@ -77,7 +80,7 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
 
     // Call the module
     match rt.call_module(
-        &read_module_code(&modpath).unwrap_or_default(),
+        &read_module_code(&modpath, rt.get_scripts_dir()).unwrap_or_default(),
         &serde_json::json!({"args": rq.args(), "config": rq.config(), "opts": rq.options(), "ext": rq.ext()}),
     ) {
         Ok(data) => {
@@ -94,7 +97,7 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
             resp.set_message("Called Lua module successfully.");
         }
         Err(err) => {
-            resp.set_message(&format!("Failed to execute Lua code: {}", err));
+            resp.set_message(&format!("Failed to execute Lua code: {}. Scripts directory: {}", err, rt.get_scripts_dir().display()));
             return resp;
         }
     };
