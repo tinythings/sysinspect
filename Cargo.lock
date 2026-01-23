@@ -2972,6 +2972,8 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "shlex",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
  "textwrap",
 ]
 
