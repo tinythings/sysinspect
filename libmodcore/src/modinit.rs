@@ -1,6 +1,6 @@
 use colored::Colorize;
 use indexmap::IndexMap;
-use libsysinspect::util::dataconv;
+use libsysinspect::util::{dataconv, tty::render_markup};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -109,6 +109,7 @@ pub struct ModInterface {
     options: Vec<ModOption>,
     arguments: Vec<ModArgument>,
     examples: Vec<ModExample>,
+    manpage: Option<String>, // Optional full manpage text with additional details, if needed
 
     // Map of flags/args to output data structure
     returns: IndexMap<String, Value>,
@@ -187,13 +188,17 @@ impl ModInterface {
         let dsc_title = "Description:".bright_yellow();
         let ex_title = "Usage examples:".bright_yellow();
         let ex_code = self.examples.iter().map(|e| e.format()).collect::<Vec<String>>().join("\n");
+        let manpage = match &self.manpage {
+            Some(m) => render_markup(&format!("\n\n  {}", fill(m, Options::new(H_WIDTH).subsequent_indent("  ")))),
+            None => "".to_string(),
+        };
 
         format!(
             "{}, {} (Author: {})
 
 {dsc_title}
 
-  {}
+  {}{}
 
 {}
 
@@ -204,6 +209,7 @@ impl ModInterface {
             self.version.green().bold(),
             self.author,
             fill(&self.description, Options::new(H_WIDTH).subsequent_indent("  ")).yellow(),
+            manpage,
             args(self),
             ex_code,
             returns(self),
