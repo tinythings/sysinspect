@@ -47,13 +47,13 @@ impl LuaRuntime {
         let lua = Lua::new();
 
         // Runtime configuration
-        let lib_dir = sharelib_root.join("lib/runtime/site-lua");
+        let lib_dir = sharelib_root.join("lib/runtime/lua54/site-lua");
         let globals = lua.globals();
         let package: mlua::Table = globals.get("package")?;
         package.set("cpath", "")?; // disable native module loading
 
         let mut path = String::new();
-        path.push_str(&LuaRuntime::path_fragment(&sharelib_root));
+        path.push_str(&LuaRuntime::path_fragment(&sharelib_root.join("lib/runtime/lua54")));
         path.push(';');
         path.push_str(&LuaRuntime::path_fragment(&lib_dir));
 
@@ -73,7 +73,7 @@ impl LuaRuntime {
         )?;
         globals.set("sys", sys)?;
 
-        Ok(Self { lua, scripts_dir: sharelib_root })
+        Ok(Self { lua, scripts_dir: sharelib_root.join("lib/runtime/lua54") })
     }
 
     // Get scripts path fragment for Lua package.path

@@ -1,5 +1,5 @@
 name: "runtime.lua"
-version: "0.1.0"
+version: "0.2.0"
 author: "Bo Maryniuk"
 description: Lua runtime module.
 
@@ -61,5 +61,13 @@ manpage: |
 
   The module supports passing additional arguments to the Lua
   script, which will be available as global variables within
-  the script. Modules for this runtime must be installed in
-  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/site-lua[N] directory.
+  the script.
+
+  Important to keep the following directory structure for your
+  Lua scripts and their dependencies:
+
+  1. The [W::b]main Lua scripts[N] (modules) for this runtime must be installed
+  in [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/lua54/[N] directory,
+
+  2. The [W::b]dependency libraries[N] for these scripts should be placed in the
+  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/lua54/site-lua/[N] directory.
