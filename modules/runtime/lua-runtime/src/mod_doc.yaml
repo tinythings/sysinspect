@@ -52,3 +52,14 @@ returns:
     message: "Called Lua script successfully."
     data:
       changed: false
+
+manpage: |
+  This module allows executing Lua scripts as modules within
+  the SysInspect framework. Lua scripts should be placed
+  in the configured scripts directory and can be called by
+  specifying their name.
+
+  The module supports passing additional arguments to the Lua
+  script, which will be available as global variables within
+  the script. Modules for this runtime must be installed in
+  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/site-lua[N] directory.
