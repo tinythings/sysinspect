@@ -1,9 +1,8 @@
-use std::path::{Path, PathBuf};
-
+use crate::docschema::validate_module_doc;
+use libmodcore::rtspec::RuntimeSpec;
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
 use serde_json::Value as JsonValue;
-
-use crate::docschema::validate_module_doc;
+use std::path::{Path, PathBuf};
 
 #[derive(thiserror::Error, Debug)]
 pub enum LuaRuntimeError {
@@ -33,11 +32,10 @@ pub struct LuaRuntime {
 }
 
 impl LuaRuntime {
-    pub fn new(sharelib: PathBuf) -> Result<Self> {
+    pub fn new(scripts_dir: PathBuf) -> Result<Self> {
         let lua = Lua::new();
 
         // Runtime configuration
-        let scripts_dir = sharelib;
         let lib_dir = scripts_dir.join("lib");
         let globals = lua.globals();
         let package: mlua::Table = globals.get("package")?;
@@ -87,7 +85,8 @@ impl LuaRuntime {
 
     pub fn call_module(&self, code: &str, req: &JsonValue) -> Result<JsonValue> {
         let module: Table = self.lua.load(code).eval()?;
-        let run: Function = module.get("run").map_err(|_| mlua::Error::runtime("Lua module must export run(req) function!"))?;
+        let run: Function =
+            module.get(RuntimeSpec::MainEntryFunction.to_string()).map_err(|_| mlua::Error::runtime("Lua module must export run(req) function!"))?;
 
         let lua_req = self.lua.to_value(req)?;
         let result: Value = run.call(lua_req)?;
@@ -108,7 +107,7 @@ impl LuaRuntime {
 
     pub fn module_doc(&self, code: &str) -> Result<JsonValue> {
         let module: Table = self.lua.load(code).eval()?;
-        let doc: Value = module.get("doc")?;
+        let doc: Value = module.get(RuntimeSpec::DocumentationFunction.to_string())?;
 
         let json = match doc {
             Value::Table(t) => self.lua.from_value(Value::Table(t))?,
