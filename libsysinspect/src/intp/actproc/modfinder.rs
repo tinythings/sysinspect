@@ -60,7 +60,7 @@ pub struct ModCall {
     constraints: Vec<Constraint>,
 
     // Module params
-    args: IndexMap<String, String>, // XXX: Should be String/Value, not String/String!
+    args: IndexMap<String, Value>,
     opts: Vec<String>,
     conditions: IndexMap<String, Value>,
 }
@@ -97,7 +97,7 @@ impl ModCall {
     }
 
     /// Add a pair of kwargs
-    pub fn add_kwargs(&mut self, kw: String, arg: String) -> &mut Self {
+    pub fn add_kwargs(&mut self, kw: String, arg: Value) -> &mut Self {
         self.args.insert(kw, arg);
         self
     }

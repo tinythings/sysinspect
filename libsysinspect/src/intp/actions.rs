@@ -4,7 +4,7 @@ use super::{
     functions,
     inspector::SysInspector,
 };
-use crate::{SysinspectError, util::dataconv};
+use crate::SysinspectError;
 use colored::Colorize;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub struct ModArgs {
     options: Option<Vec<String>>,
 
     #[serde(alias = "args")]
-    arguments: Option<IndexMap<String, String>>,
+    arguments: Option<IndexMap<String, Value>>,
 
     #[serde(alias = "ctx")]
     context: Option<IndexMap<String, String>>, // Context variables definition for Jinja templates. Used only for model documentation.
@@ -28,7 +28,7 @@ pub struct ModArgs {
 
 impl ModArgs {
     /// Return args
-    pub fn args(&self) -> IndexMap<String, String> {
+    pub fn args(&self) -> IndexMap<String, Value> {
         if let Some(args) = &self.arguments {
             return args.to_owned();
         }
@@ -147,7 +147,7 @@ impl Action {
     ) -> Result<Vec<Expression>, SysinspectError> {
         let mut out: Vec<Expression> = Vec::default();
         for mut expr in v_expr {
-            if let Some(modfunc) = functions::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten() {
+            if let Some(modfunc) = functions::is_function(&expr.get_op().unwrap_or(Value::String("".to_string()))).ok().flatten() {
                 match inspector.call_function(Some(eid), &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
@@ -223,8 +223,7 @@ impl Action {
                             )));
                         }
                         Ok(Some(v)) => {
-                            // XXX: Passing args to the modcall are for now always strings
-                            arg = dataconv::to_string(Some(v)).unwrap_or_default();
+                            arg = v;
                         }
                         Err(err) => return Err(err),
                     }
