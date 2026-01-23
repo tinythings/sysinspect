@@ -34,6 +34,15 @@ pub struct LuaRuntime {
 }
 
 impl LuaRuntime {
+    /// Create a new LuaRuntime instance
+    /// # Arguments
+    /// * `scripts_dir` - Path to the directory containing Lua scripts
+    /// # Returns
+    /// * `Result<Self>` - Result containing the LuaRuntime instance or an error
+    /// # Example
+    /// ```no_run
+    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
+    /// ```
     pub fn new(scripts_dir: PathBuf) -> Result<Self> {
         let lua = Lua::new();
 
@@ -80,11 +89,36 @@ impl LuaRuntime {
     }
 
     /// Execute Lua code string
+    /// # Arguments
+    /// * `code` - Lua code string
+    /// # Returns
+    /// * `Result<()>` - Result of the execution
+    /// # Errors
+    /// * `LuaRuntimeError` - If the execution fails
+    /// # Example
+    /// ```no_run
+    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
+    /// rt.exec_str(r#"print("Hello, Lua!")"#)?;
+    /// ```
     pub fn exec_str(&self, code: &str) -> Result<()> {
         self.lua.load(code).exec()?;
         Ok(())
     }
 
+    /// Call Lua module's run(req) function
+    /// # Arguments
+    /// * `code` - Lua module code string
+    /// * `req` - JSON request value
+    /// # Returns
+    /// * `JsonValue` - JSON response value
+    /// # Errors
+    /// * `LuaRuntimeError` - If the module call fails
+    /// # Example
+    /// ```no_run
+    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
+    /// let resp = rt.call_module(r#"return { run = function(req) return { message = "Hello, " .. req.name } end }"#, &serde_json::json!({ "name": "World" }))?;
+    /// println!("{}", serde_json::to_string_pretty(&resp).unwrap());
+    /// ```
     pub fn call_module(&self, code: &str, req: &JsonValue) -> Result<JsonValue> {
         let module: Table = self.lua.load(code).eval()?;
         let run: Function =
@@ -107,6 +141,19 @@ impl LuaRuntime {
         }
     }
 
+    /// Get module documentation from Lua code
+    /// # Arguments
+    /// * `code` - Lua module code string
+    /// # Returns
+    /// * `JsonValue` - Module documentation as JSON value
+    /// # Errors
+    /// * `LuaRuntimeError` - If the documentation retrieval or validation fails
+    /// # Example
+    /// ```no_run
+    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
+    /// let doc = rt.module_doc(r#"return { documentation = { name = "My Module", description = "This is a test module." } }"#)?;
+    /// println!("{}", serde_json::to_string_pretty(&doc).unwrap());
+    /// ```
     pub fn module_doc(&self, code: &str) -> Result<JsonValue> {
         let module: Table = self.lua.load(code).eval()?;
         let doc: Value = module.get(RuntimeSpec::DocumentationFunction.to_string())?;
@@ -128,18 +175,62 @@ impl LuaRuntime {
         self.exec_str(&code).map_err(|e| LuaRuntimeError::Context { msg: format!("lua exec_file failed: {path}"), source: Box::new(e) })
     }
 
+    /// Call a Lua function with arguments
+    /// # Arguments
+    /// * `name` - Function name
+    /// * `args` - Function arguments
+    /// # Returns
+    /// * `R` - Return type of the function
+    /// # Errors
+    /// * `LuaRuntimeError` - If the function call fails
+    /// # Example
+    /// ```no_run
+    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
+    /// rt.exec_str(r#"function add(a, b) return a + b end"#)?;
+    /// let result: i64 = rt.call_fn("add", (2, 3))?;
+    /// assert_eq!(result, 5);
+    /// ```
     pub fn call_fn<R: mlua::FromLua>(&self, name: &str, args: impl mlua::IntoLuaMulti) -> Result<R> {
         let globals = self.lua.globals();
         let f: mlua::Function = globals.get(name)?;
         Ok(f.call(args)?)
     }
 
+    /// Set a global variable in Lua
+    /// # Arguments
+    /// * `key` - Variable name
+    /// * `val` - Variable value
+    /// # Returns
+    /// * `Result<()>` - Result of the operation
+    /// # Errors
+    /// * `LuaRuntimeError` - If setting the global variable fails
+    /// # Example
+    /// ```no_run
+    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
+    /// rt.set_global("my_var", 42)?;
+    /// let value: i64 = rt.get_global("my_var")?;
+    /// assert_eq!(value, 42);
+    /// ```
     pub fn set_global(&self, key: &str, val: impl mlua::IntoLua) -> Result<()> {
         let v = val.into_lua(&self.lua)?;
         self.lua.globals().set(key, v)?;
         Ok(())
     }
 
+    /// Get a global variable from Lua
+    /// # Arguments
+    /// * `key` - Variable name
+    /// # Returns
+    /// * `Result<T>` - Value of the variable
+    /// # Errors
+    /// * `LuaRuntimeError` - If getting the global variable fails
+    /// # Example
+    /// ```no_run
+    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
+    /// rt.set_global("my_var", 42)?;
+    /// let value: i64 = rt.get_global("my_var")?;
+    /// assert_eq!(value, 42);
+    /// ```
     pub fn get_global<T: mlua::FromLua>(&self, key: &str) -> Result<T> {
         Ok(self.lua.globals().get(key)?)
     }
