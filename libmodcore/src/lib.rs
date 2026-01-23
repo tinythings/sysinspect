@@ -5,6 +5,7 @@ pub mod manrndr;
 pub mod modcli;
 pub mod modinit;
 pub mod response;
+pub mod rtspec;
 pub mod runtime;
 pub mod tpl;
 
