@@ -1,5 +1,6 @@
 use super::response::ModResponse;
 use indexmap::IndexMap;
+use libsysinspect::cfg::mmconf::DEFAULT_MODULES_SHARELIB;
 use libsysinspect::util;
 use serde::{Deserialize, Serialize};
 use std::io::Error;
@@ -85,7 +86,15 @@ impl ModRequest {
     }
 
     pub fn config(&self) -> IndexMap<String, ArgValue> {
-        self.config.clone().unwrap_or_default()
+        // Inject sharelib path if not defined
+        // Modules not supposed to take explicit care where is their shared library located,
+        // but simply read the configuration. For example, runtimes need to know where to find their
+        // modules.
+        let mut config = self.config.clone().unwrap_or_default();
+        if config.get("path.sharelib").is_none() {
+            config.insert("path.sharelib".to_string(), ArgValue(serde_json::Value::String(DEFAULT_MODULES_SHARELIB.to_string())));
+        }
+        config
     }
 
     /// Get all param args
@@ -96,9 +105,10 @@ impl ModRequest {
     /// Get arg
     pub fn get_arg(&self, kw: &str) -> Option<ArgValue> {
         if let Some(a) = &self.arguments
-            && let Some(a) = a.get(kw) {
-                return Some(a.clone());
-            };
+            && let Some(a) = a.get(kw)
+        {
+            return Some(a.clone());
+        };
 
         None
     }
