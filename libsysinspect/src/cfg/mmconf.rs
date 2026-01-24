@@ -494,9 +494,9 @@ impl MinionConfig {
     }
 
     /// Forward logs from actions and modules to the main sysinspect log
-    /// Default: false
+    /// Default: true
     pub fn forward_logs(&self) -> bool {
-        self.log_forward.unwrap_or(false)
+        self.log_forward.unwrap_or(true)
     }
 
     /// Return main logfile in daemon mode
