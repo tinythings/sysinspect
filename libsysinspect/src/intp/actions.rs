@@ -4,7 +4,7 @@ use super::{
     functions,
     inspector::SysInspector,
 };
-use crate::SysinspectError;
+use crate::{SysinspectError, logger::log_forward, util::dataconv};
 use colored::Colorize;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -133,10 +133,49 @@ impl Action {
     }
 
     /// Run action
-    pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
+    pub fn run(&self, forward_logs: bool) -> Result<Option<ActionResponse>, SysinspectError> {
         if let Some(call) = &self.call {
             log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
-            return call.run();
+            let r: Option<ActionResponse> = match call.run() {
+                Ok(mut r_opt) => {
+                    if let Some(ref mut r) = r_opt
+                        && let Some(mut data) = r.response.data()
+                    {
+                        if forward_logs
+                            && let serde_json::Value::Object(ref mut map) = data
+                            && let Some(logs_val) = map.remove("logs")
+                        {
+                            // forward captured logs
+                            match logs_val {
+                                serde_json::Value::Array(items) => {
+                                    for item in items {
+                                        if let Some(line) = item.as_str() {
+                                            if forward_logs {
+                                                log_forward(line);
+                                            }
+                                        } else if forward_logs {
+                                            log_forward(&dataconv::as_str(Some(item)));
+                                        }
+                                    }
+                                }
+                                other => {
+                                    if forward_logs {
+                                        log_forward(&dataconv::as_str(Some(other)));
+                                    }
+                                }
+                            }
+                        }
+
+                        r.response.set_data(data);
+                    }
+
+                    r_opt
+                }
+                Err(err) => {
+                    return Err(SysinspectError::ModelDSLError(format!("Action {} failed to run: {}", self.id(), err)));
+                }
+            };
+            return Ok(r);
         }
 
         Ok(None)
