@@ -213,8 +213,11 @@ Example model snippet:
        state:
          $:
            opts:
-             args:
-               rt.mod: reader
+             # Enable logging from Lua scripts to SysInspect logs
+             # Logs will be included in the action result under 'logs' namespace
+             - rt.logs
+           args:
+             rt.mod: reader
 
 The confusing part here is the ``rt.mod`` argument under ``opts.args``. All arguments with the ``rt.*``
 prefix are special runtime arguments that the Lua runtime module understands and are **not** passed to
