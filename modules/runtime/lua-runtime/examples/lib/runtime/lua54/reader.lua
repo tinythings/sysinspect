@@ -49,7 +49,10 @@ function M.run(_req)
   local version = read_os_release()
 
   if not version then
-    error("VERSION not found in /etc/os-release")
+    -- "log" is already preinstalled from SysInspect environment automatically
+    log.error("VERSION not found in /etc/os-release")
+  else
+    log.info("Detected OS VERSION: " .. version)
   end
 
   return {
