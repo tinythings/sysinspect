@@ -10,18 +10,10 @@ options:
 
 # Keyword arguments
 arguments:
-  - name: mod
+  - name: rt.mod
     type: string
     required: true
     description: "The name of a Lua script to be executed. This script will be looked up in the predefined configured scripts directory."
-
-  - name: man
-    type: boolean
-    required: false
-    description: |
-      "Show the module documentation for the specified Lua script.
-      The Lua script must export a 'doc' table.
-      See the documentation for writing Lua modules to get more details."
 
   - name: "[ANY]"
     type: string
@@ -36,7 +28,7 @@ examples:
       {
         "opts": [],
         "arguments": {
-          "mod": "hello_world",
+          "rt.mod": "hello_world",
           "name": "Germany"
         }
       }

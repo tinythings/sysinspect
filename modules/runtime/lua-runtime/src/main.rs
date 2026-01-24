@@ -7,6 +7,7 @@ use libmodcore::{
     modcli::ModuleCli,
     modinit::ModInterface,
     response::ModResponse,
+    rtspec::RuntimeParams,
     runtime::{ModRequest, get_call_args, send_call_response},
 };
 use serde_json::Value;
@@ -54,14 +55,14 @@ fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeEr
 
 /// Run the Lua runtime with the provided request.
 fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
-    let modpath = match rq.args().get("mod") {
+    let modpath = match rq.args_all().get(&RuntimeParams::ModuleName.to_string()) {
         Some(v) => v.as_string().unwrap_or_default(),
         None => String::new(),
     };
 
     if modpath.is_empty() {
         let mut resp = ModResponse::new_cm();
-        resp.set_message("No module name provided. Set 'mod' argument properly.");
+        resp.set_message(&format!("No module name provided. Set '{}' argument properly.", RuntimeParams::ModuleName));
         return resp;
     }
 

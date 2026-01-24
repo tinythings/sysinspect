@@ -1,3 +1,5 @@
+use crate::rtspec::RuntimeParams;
+
 use super::response::ModResponse;
 use indexmap::IndexMap;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_SHARELIB;
@@ -80,9 +82,20 @@ impl ModRequest {
         self.quiet.unwrap_or(false).to_owned()
     }
 
+    pub fn options_all(&self) -> Vec<ArgValue> {
+        self.options.to_owned().unwrap_or_default()
+    }
+
     /// Get param options
     pub fn options(&self) -> Vec<ArgValue> {
-        self.options.to_owned().unwrap_or_default()
+        let mut out = Vec::new();
+        for av in self.options.to_owned().unwrap_or_default() {
+            if let Some(s) = av.as_string()
+                && !s.starts_with(&RuntimeParams::RtPrefix.to_string()) {
+                    out.push(av);
+                }
+        }
+        out
     }
 
     pub fn config(&self) -> IndexMap<String, ArgValue> {
@@ -97,9 +110,20 @@ impl ModRequest {
         config
     }
 
-    /// Get all param args
-    pub fn args(&self) -> IndexMap<String, ArgValue> {
+    /// Get all param args including runtime-specific ones (those starting with "rt.")
+    pub fn args_all(&self) -> IndexMap<String, ArgValue> {
         self.arguments.clone().unwrap_or_default()
+    }
+
+    /// Get all param args without runtime-specific ones (those starting with "rt.")
+    pub fn args(&self) -> IndexMap<String, ArgValue> {
+        let mut target_args = IndexMap::new();
+        for (k, v) in self.arguments.clone().unwrap_or_default() {
+            if !k.starts_with(&RuntimeParams::RtPrefix.to_string()) {
+                target_args.insert(k, v);
+            }
+        }
+        target_args
     }
 
     /// Get arg

@@ -4,8 +4,14 @@ use strum_macros::{Display, EnumString};
 /// Holds runtime parameter names
 #[derive(Debug, Display, EnumString)]
 pub enum RuntimeParams {
-    #[strum(serialize = "rt:mod")]
+    #[strum(serialize = "rt.mod")]
     ModuleName,
+
+    #[strum(serialize = "rt.man")]
+    ModuleManual,
+
+    #[strum(serialize = "rt.")]
+    RtPrefix,
 }
 
 /// RuntimeSpec enum
