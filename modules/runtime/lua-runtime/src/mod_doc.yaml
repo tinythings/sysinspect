@@ -11,6 +11,9 @@ options:
   - name: rt.logs
     description: "Enable logging from Lua scripts to SysInspect logs."
 
+  - name: rt.native
+    description: "Enable native Lua libraries loading. Use with caution."
+
 # Keyword arguments
 arguments:
   - name: rt.mod
