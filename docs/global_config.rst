@@ -557,6 +557,23 @@ Example configuration for the Sysinspect Minion:
             master.ip: 192.168.2.31
             master.port: 4200
 
+``log.forward``
+##################
+
+    Type: **boolean**
+
+    Forward logs from actions and modules to the main sysinspect log, landing them in the main log file.
+    If disabled, logs from actions and modules will not be forwarded to the main sysinspect log but are kept
+    within their own context inside the returned data and will travel across the whole network back to the master.
+
+    Thus, disabling this feature on a large cluster might inflate your network traffic so much that your network
+    admin will start believe in ghosts and aliens.
+
+    .. warning::
+
+        Disable this option only if you really know what you are doing.
+
+    Default is ``true``
 
 Layout of ``/etc/sysinspect``
 -----------------------------
