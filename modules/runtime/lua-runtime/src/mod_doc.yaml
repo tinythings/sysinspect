@@ -8,6 +8,9 @@ options:
   - name: rt.list
     description: "List of available Lua scripts, ready to be called as modules."
 
+  - name: rt.logs
+    description: "Enable logging from Lua scripts to SysInspect logs."
+
 # Keyword arguments
 arguments:
   - name: rt.mod

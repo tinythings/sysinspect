@@ -9,7 +9,7 @@ use std::io::Error;
 use std::io::{self, Read};
 
 /// ArgValue is a type converter from input JSON to the internal types
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ArgValue(serde_json::Value);
 
 impl ArgValue {
@@ -91,11 +91,22 @@ impl ModRequest {
         let mut out = Vec::new();
         for av in self.options.to_owned().unwrap_or_default() {
             if let Some(s) = av.as_string()
-                && !s.starts_with(&RuntimeParams::RtPrefix.to_string()) {
-                    out.push(av);
-                }
+                && !s.starts_with(&RuntimeParams::RtPrefix.to_string())
+            {
+                out.push(av);
+            }
         }
         out
+    }
+
+    /// Check if an option is present
+    pub fn has_option(&self, opt: &str) -> bool {
+        for av in self.options_all() {
+            if av.as_string().unwrap_or_default().eq(opt) {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn config(&self) -> IndexMap<String, ArgValue> {

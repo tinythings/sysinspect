@@ -3259,9 +3259,11 @@ name = "lua-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "libmodcore",
  "libsysinspect",
+ "log",
  "mlua",
  "serde",
  "serde_json",

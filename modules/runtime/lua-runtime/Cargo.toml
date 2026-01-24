@@ -13,3 +13,5 @@ mlua = { version = "0.11.5", features = ["lua54", "serde", "serialize", "vendore
 anyhow = "1.0.100"
 thiserror = "2.0.18"
 clap = "4.5.54"
+log = "0.4.29"
+chrono = "0.4.43"

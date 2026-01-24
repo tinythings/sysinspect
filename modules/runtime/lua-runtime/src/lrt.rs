@@ -1,7 +1,10 @@
 use libmodcore::{rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
-use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
+use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue, Variadic};
 use serde_json::Value as JsonValue;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum LuaRuntimeError {
@@ -31,6 +34,8 @@ pub type Result<T> = std::result::Result<T, LuaRuntimeError>;
 pub struct LuaRuntime {
     lua: Lua,
     scripts_dir: PathBuf,
+    logs: Arc<Mutex<Vec<String>>>,
+    modulename: Arc<Mutex<String>>,
 }
 
 impl LuaRuntime {
@@ -59,26 +64,111 @@ impl LuaRuntime {
 
         package.set("path", path)?;
 
-        // Optional: disable native module loading unless you want it
+        // XXX: There should be the way to disable native module loading unless we want it
         // package.set("cpath", "")?;
 
-        // ----- sys.echo to stderr -----
-        let sys: mlua::Table = lua.create_table()?;
-        sys.set(
-            "echo",
-            lua.create_function(|_, msg: String| {
-                eprintln!("[lua] {}", msg);
-                Ok(())
-            })?,
-        )?;
-        globals.set("sys", sys)?;
+        let rt = Self {
+            lua,
+            scripts_dir: sharelib_root.join("lib/runtime/lua54"),
+            logs: Arc::new(Mutex::new(Vec::new())),
+            modulename: Arc::new(Mutex::new("Lua module".into())),
+        };
+        rt.set_logger()?;
 
-        Ok(Self { lua, scripts_dir: sharelib_root.join("lib/runtime/lua54") })
+        Ok(rt)
     }
 
     // Get scripts path fragment for Lua package.path
     pub fn get_scripts_dir(&self) -> &Path {
         &self.scripts_dir
+    }
+
+    fn join_vals(vals: Variadic<LuaValue>) -> String {
+        vals.into_iter().map(Self::v2s).collect::<Vec<_>>().join(" ")
+    }
+
+    fn v2s(v: LuaValue) -> String {
+        match v {
+            LuaValue::Nil => "nil".to_string(),
+            LuaValue::Boolean(b) => b.to_string(),
+            LuaValue::Integer(i) => i.to_string(),
+            LuaValue::Number(n) => n.to_string(),
+            LuaValue::String(s) => s.to_string_lossy().to_string(),
+            // Keep it simple: don't try to serialize tables here.
+            other => format!("<lua:{:?}>", other.type_name()),
+        }
+    }
+
+    /// Set up logging functions in Lua environment
+    /// # Returns
+    /// * `mlua::Result<()>` - Result of the operation
+    fn set_logger(&self) -> mlua::Result<()> {
+        fn push_line(logs: &Arc<Mutex<Vec<String>>>, current: &Arc<Mutex<String>>, level: &'static str, msg: String) {
+            let module = current.lock().map(|s| s.clone()).unwrap_or_else(|_| "Lua".into());
+            let ts = chrono::Local::now().format("%d/%m/%Y %H:%M:%S");
+            let line = format!("[{ts}] - {level}: [{module}] {msg}");
+            if let Ok(mut g) = logs.lock() {
+                g.push(line);
+            }
+        }
+
+        let globals = self.lua.globals();
+        let logtbl: Table = self.lua.create_table()?;
+
+        // error(...)
+        {
+            let logs = self.logs.clone();
+            let m = self.modulename.clone();
+            logtbl.set(
+                "error",
+                self.lua.create_function(move |_, vals: Variadic<LuaValue>| {
+                    push_line(&logs, &m, "ERROR", LuaRuntime::join_vals(vals));
+                    Ok(())
+                })?,
+            )?;
+        }
+
+        // warn(...)
+        {
+            let logs = self.logs.clone();
+            let m = self.modulename.clone();
+            logtbl.set(
+                "warn",
+                self.lua.create_function(move |_, vals: Variadic<LuaValue>| {
+                    push_line(&logs, &m, "WARN", LuaRuntime::join_vals(vals));
+                    Ok(())
+                })?,
+            )?;
+        }
+
+        // info(...)
+        {
+            let logs = self.logs.clone();
+            let m = self.modulename.clone();
+            logtbl.set(
+                "info",
+                self.lua.create_function(move |_, vals: Variadic<LuaValue>| {
+                    push_line(&logs, &m, "INFO", LuaRuntime::join_vals(vals));
+                    Ok(())
+                })?,
+            )?;
+        }
+
+        // debug(...)
+        {
+            let logs = self.logs.clone();
+            let m = self.modulename.clone();
+            logtbl.set(
+                "debug",
+                self.lua.create_function(move |_, vals: Variadic<LuaValue>| {
+                    push_line(&logs, &m, "DEBUG", LuaRuntime::join_vals(vals));
+                    Ok(())
+                })?,
+            )?;
+        }
+
+        globals.set("log", logtbl)?;
+        Ok(())
     }
 
     // Lua package.path uses ; separated patterns with ?
@@ -119,26 +209,42 @@ impl LuaRuntime {
     /// let resp = rt.call_module(r#"return { run = function(req) return { message = "Hello, " .. req.name } end }"#, &serde_json::json!({ "name": "World" }))?;
     /// println!("{}", serde_json::to_string_pretty(&resp).unwrap());
     /// ```
-    pub fn call_module(&self, code: &str, req: &JsonValue) -> Result<JsonValue> {
+    pub fn call_module(&self, modname: &str, code: &str, req: &JsonValue, with_logs: bool) -> Result<JsonValue> {
+        // clear per-call log buffer, in case lrt is called multiple times
+        if let Ok(mut g) = self.logs.lock() {
+            g.clear();
+        }
+
+        // Set module name for logging
+        if let Ok(mut m) = self.modulename.lock() {
+            *m = modname.to_string();
+        }
+
+        // Tell Lua module its name
+        self.lua.globals().set("__module_name", modname)?;
+
         let module: Table = self.lua.load(code).eval()?;
         let run: Function =
             module.get(RuntimeSpec::MainEntryFunction.to_string()).map_err(|_| mlua::Error::runtime("Lua module must export run(req) function!"))?;
 
         let lua_req = self.lua.to_value(req)?;
-        let result: Value = run.call(lua_req)?;
+        let result: LuaValue = run.call(lua_req)?;
 
-        // Accept table OR string
-        match result {
-            Value::Table(t) => {
-                let json: JsonValue = self.lua.from_value(Value::Table(t))?;
-                Ok(json)
-            }
-            Value::String(s) => {
-                let parsed: JsonValue = serde_json::from_str(&s.to_str()?).map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                Ok(parsed)
-            }
-            _ => Err(mlua::Error::runtime("Lua run() must return table or JSON string").into()),
-        }
+        // Parse module return into JSON "data"
+        let data: JsonValue = match result {
+            LuaValue::Table(t) => self.lua.from_value(LuaValue::Table(t))?,
+            LuaValue::String(s) => serde_json::from_str(&s.to_str()?).map_err(|e| mlua::Error::runtime(e.to_string()))?,
+            _ => return Err(mlua::Error::runtime("Lua run() must return table or JSON string").into()),
+        };
+
+        // Grab buffered logs
+        let logs = if with_logs { if let Ok(g) = self.logs.lock() { g.clone() } else { Vec::new() } } else { Vec::new() };
+
+        // Return { data, logs }
+        Ok(serde_json::json!({
+            "data": data,
+            "logs": logs
+        }))
     }
 
     /// Get module documentation from Lua code
@@ -156,11 +262,11 @@ impl LuaRuntime {
     /// ```
     pub fn module_doc(&self, code: &str) -> Result<JsonValue> {
         let module: Table = self.lua.load(code).eval()?;
-        let doc: Value = module.get(RuntimeSpec::DocumentationFunction.to_string())?;
+        let doc: LuaValue = module.get(RuntimeSpec::DocumentationFunction.to_string())?;
 
         let json = match doc {
-            Value::Table(t) => self.lua.from_value(Value::Table(t))?,
-            Value::Nil => serde_json::json!({}),
+            LuaValue::Table(t) => self.lua.from_value(LuaValue::Table(t))?,
+            LuaValue::Nil => serde_json::json!({}),
             _ => return Err(mlua::Error::runtime("module doc must be a table").into()),
         };
 
