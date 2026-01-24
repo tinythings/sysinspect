@@ -382,6 +382,11 @@ pub struct MinionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     log_err: Option<String>,
 
+    // Forward logs from actions and modules to the main sysinspect log
+    #[serde(rename = "log.forward")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    log_forward: Option<bool>,
+
     // Pidfile
     #[serde(rename = "pidfile")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -486,6 +491,12 @@ impl MinionConfig {
         }
 
         PathBuf::from(format!("/run/user/{}/sysminion.pid", unsafe { libc::getuid() }))
+    }
+
+    /// Forward logs from actions and modules to the main sysinspect log
+    /// Default: false
+    pub fn forward_logs(&self) -> bool {
+        self.log_forward.unwrap_or(false)
     }
 
     /// Return main logfile in daemon mode
