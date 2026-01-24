@@ -42,7 +42,7 @@ fn list_lua_modules(scripts_dir: &Path) -> Vec<String> {
 
 /// Get module documentation from Lua runtime
 fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeError> {
-    let rt = match LuaRuntime::new(PathBuf::from(cli.get_sharelib())) {
+    let rt = match LuaRuntime::new(PathBuf::from(cli.get_sharelib()), false) {
         Ok(rt) => rt,
         Err(err) => {
             eprintln!("Failed to create Lua runtime: {}", err);
@@ -59,7 +59,7 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
 
     // Get sharelib path from passed config or override from CLI or default
     let sharelib = rq.config().get("path.sharelib").and_then(|v| v.as_string()).unwrap_or(cli.get_sharelib());
-    let rt = match LuaRuntime::new(PathBuf::from(&sharelib)) {
+    let rt = match LuaRuntime::new(PathBuf::from(&sharelib), rq.has_option(&format!("{}{}", RuntimeParams::RtPrefix, "native"))) {
         Ok(rt) => rt,
         Err(err) => {
             resp.set_message(&format!("Failed to create Lua runtime: {}", err));

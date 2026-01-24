@@ -48,14 +48,18 @@ impl LuaRuntime {
     /// ```no_run
     /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
     /// ```
-    pub fn new(sharelib_root: PathBuf) -> Result<Self> {
+    pub fn new(sharelib_root: PathBuf, enable_native: bool) -> Result<Self> {
         let lua = Lua::new();
 
         // Runtime configuration
         let lib_dir = sharelib_root.join("lib/runtime/lua54/site-lua");
         let globals = lua.globals();
         let package: mlua::Table = globals.get("package")?;
-        package.set("cpath", "")?; // disable native module loading
+
+        // Configure native library loader
+        if !enable_native {
+            package.set("cpath", "")?;
+        }
 
         let mut path = String::new();
         path.push_str(&LuaRuntime::path_fragment(&sharelib_root.join("lib/runtime/lua54")));
@@ -63,9 +67,6 @@ impl LuaRuntime {
         path.push_str(&LuaRuntime::path_fragment(&lib_dir));
 
         package.set("path", path)?;
-
-        // XXX: There should be the way to disable native module loading unless we want it
-        // package.set("cpath", "")?;
 
         let rt = Self {
             lua,
