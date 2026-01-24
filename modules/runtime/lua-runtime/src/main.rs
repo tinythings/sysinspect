@@ -55,17 +55,6 @@ fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeEr
 
 /// Run the Lua runtime with the provided request.
 fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
-    let modpath = match rq.args_all().get(&RuntimeParams::ModuleName.to_string()) {
-        Some(v) => v.as_string().unwrap_or_default(),
-        None => String::new(),
-    };
-
-    if modpath.is_empty() {
-        let mut resp = ModResponse::new_cm();
-        resp.set_message(&format!("No module name provided. Set '{}' argument properly.", RuntimeParams::ModuleName));
-        return resp;
-    }
-
     let mut resp = ModResponse::new_cm();
 
     // Get sharelib path from passed config or override from CLI or default
@@ -78,7 +67,34 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
         }
     };
 
+    // list modules only?
+    for opt in rq.options_all() {
+        if opt.as_string().unwrap_or_default().eq(&format!("{}{}", RuntimeParams::RtPrefix, "list")) {
+            let modules = list_lua_modules(rt.get_scripts_dir());
+            match resp.set_data(serde_json::json!({ "modules": modules })) {
+                Ok(_) => {}
+                Err(err) => {
+                    resp.set_message(&format!("Failed to set response data: {}", err));
+                    return resp;
+                }
+            }
+            resp.set_retcode(0);
+            resp.set_message("Listed available Lua modules successfully.");
+            return resp;
+        }
+    }
+
     // Call the module
+    let modpath = match rq.args_all().get(&RuntimeParams::ModuleName.to_string()) {
+        Some(v) => v.as_string().unwrap_or_default(),
+        None => String::new(),
+    };
+
+    if modpath.is_empty() {
+        let mut resp = ModResponse::new_cm();
+        resp.set_message(&format!("No module name provided. Set '{}' argument properly.", RuntimeParams::ModuleName));
+        return resp;
+    }
     match rt.call_module(
         &read_module_code(&modpath, rt.get_scripts_dir()).unwrap_or_default(),
         &serde_json::json!({"args": rq.args(), "config": rq.config(), "opts": rq.options(), "ext": rq.ext()}),
@@ -109,6 +125,8 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
 fn main() {
     let mod_doc = init_mod_doc!(ModInterface);
     let cli = ModuleCli::parse();
+
+    // CLI calls from the terminal directly
     if cli.is_manual() {
         print!("{}", mod_doc.help());
         return;
@@ -130,6 +148,7 @@ fn main() {
         return;
     }
 
+    // Runtime call (integrated via JSON protocol)
     match get_call_args() {
         Ok(rq) => match send_call_response(&call_runtime(&cli, &rq)) {
             Ok(_) => {}

@@ -5,7 +5,7 @@ description: Lua runtime module.
 
 # Options, flags, switches
 options:
-  - name: list
+  - name: rt.list
     description: "List of available Lua scripts, ready to be called as modules."
 
 # Keyword arguments
