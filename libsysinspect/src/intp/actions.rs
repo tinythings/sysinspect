@@ -134,51 +134,59 @@ impl Action {
 
     /// Run action
     pub fn run(&self, forward_logs: bool) -> Result<Option<ActionResponse>, SysinspectError> {
-        if let Some(call) = &self.call {
-            log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
-            let r: Option<ActionResponse> = match call.run() {
-                Ok(mut r_opt) => {
-                    if let Some(ref mut r) = r_opt
-                        && let Some(mut data) = r.response.data()
-                    {
-                        if forward_logs
-                            && let serde_json::Value::Object(ref mut map) = data
-                            && let Some(logs_val) = map.remove("logs")
-                        {
-                            // forward captured logs
-                            match logs_val {
-                                serde_json::Value::Array(items) => {
-                                    for item in items {
-                                        if let Some(line) = item.as_str() {
-                                            if forward_logs {
-                                                log_forward(line);
-                                            }
-                                        } else if forward_logs {
-                                            log_forward(&dataconv::as_str(Some(item)));
-                                        }
-                                    }
-                                }
-                                other => {
-                                    if forward_logs {
-                                        log_forward(&dataconv::as_str(Some(other)));
-                                    }
-                                }
-                            }
-                        }
+        let Some(call) = &self.call else {
+            return Ok(None);
+        };
 
-                        r.response.set_data(data);
-                    }
+        log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
 
-                    r_opt
-                }
-                Err(err) => {
-                    return Err(SysinspectError::ModelDSLError(format!("Action {} failed to run: {}", self.id(), err)));
-                }
-            };
-            return Ok(r);
+        let mut r_opt = call.run().map_err(|err| SysinspectError::ModelDSLError(format!("Action {} failed to run: {}", self.id(), err)))?;
+
+        let Some(ref mut r) = r_opt else {
+            return Ok(r_opt);
+        };
+        let Some(mut data) = r.response.data() else {
+            return Ok(r_opt);
+        };
+        let serde_json::Value::Object(ref mut map) = data else {
+            r.response.set_data(data);
+            return Ok(r_opt);
+        };
+
+        // XXX: Logs entry key must be picked from RuntimeSpec::LogsSectionField, but
+        //      currently it is a cycle dependency. The rtspec must be split into a separate crate.
+        //
+        //      At some point in future...
+        //
+        if let Some(logs_val) = map.remove("__sysinspect-module-logs") {
+            if forward_logs {
+                Self::forward_logs(&logs_val);
+            } else {
+                map.insert("logs".to_string(), logs_val);
+            }
         }
 
-        Ok(None)
+        r.response.set_data(data);
+
+        Ok(r_opt)
+    }
+
+    /// Forward logs value (string/array/anything) to internal logger.
+    fn forward_logs(logs_val: &serde_json::Value) {
+        match logs_val {
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    if let Some(line) = item.as_str() {
+                        log_forward(line);
+                    } else {
+                        log_forward(&dataconv::as_str(Some(item.clone())));
+                    }
+                }
+            }
+            other => {
+                log_forward(&dataconv::as_str(Some(other.clone())));
+            }
+        }
     }
 
     fn resolve_claims(

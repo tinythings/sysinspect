@@ -23,6 +23,14 @@ pub enum RuntimeSpec {
 
     #[strum(serialize = "doc")]
     DocumentationFunction,
+
+    /// Logs section field for returning logs from module
+    /// within the returned data object.
+    #[strum(serialize = "__sysinspect-module-logs")]
+    LogsSectionField,
+
+    #[strum(serialize = "data")]
+    DataSectionField,
 }
 
 /// RuntimeModuleDocumentation enum

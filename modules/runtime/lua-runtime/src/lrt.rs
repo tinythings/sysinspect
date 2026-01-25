@@ -243,8 +243,8 @@ impl LuaRuntime {
 
         // Return { data, logs }
         Ok(serde_json::json!({
-            "data": data,
-            "logs": logs
+            RuntimeSpec::DataSectionField.to_string(): data,
+            RuntimeSpec::LogsSectionField.to_string(): logs
         }))
     }
 
