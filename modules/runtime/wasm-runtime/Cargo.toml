@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 libsysinspect = { path = "../../../libsysinspect" }
 libmodcore = { path = "../../../libmodcore" }
-wasmruntime = { path = "../../../../wasmruntime" }
-# wasmruntime = {git = "https://github.com/isbm/wasmruntime.git"}
+# wasmruntime = { path = "../../../../wasmruntime" }
+wasmruntime = {git = "https://github.com/isbm/wasmruntime.git"}
 tokio = { version = "1.47.1", features = ["full"] }
 serde = "1.0.228"
 serde_json = "1.0.149"
