@@ -5,6 +5,7 @@ Python virtual machine
 use crate::{SysinspectError, pylang::PY_MAIN_FUNC};
 use colored::Colorize;
 use indexmap::IndexMap;
+use rustpython::InterpreterBuilderExt;
 use rustpython_vm::{
     AsObject, PyResult,
     compiler::Mode::Exec,
@@ -30,18 +31,14 @@ pub struct PyVm {
 impl PyVm {
     pub fn new(libpath: PathBuf, modpath: PathBuf) -> Self {
         let mut cfg = Settings::default();
-        let libpath = libpath.to_str().unwrap_or_default();
-        cfg.path_list.push(libpath.to_string());
 
-        let itp = rustpython::InterpreterConfig::new()
-            .init_stdlib()
-            .settings(cfg)
-            .init_hook(Box::new(|vm| {
-                vm.add_native_module("syscore".to_owned(), Box::new(syscore::make_module));
-            }))
-            .interpreter();
+        let libpath_str = libpath.to_str().unwrap_or_default().to_string();
+        cfg.path_list.push(libpath_str.clone());
+        let builder = rustpython::Interpreter::builder(cfg);
 
-        Self { itp, libpath: libpath.to_string(), modpath: modpath.to_str().unwrap_or_default().to_string() }
+        let syscore_def = syscore::module_def(&builder.ctx);
+        let itp = builder.init_stdlib().add_native_module(syscore_def).build();
+        Self { itp, libpath: libpath_str, modpath: modpath.to_str().unwrap_or_default().to_string() }
     }
 
     /// Load main script of a module by a regular namespace
