@@ -53,26 +53,31 @@ fn call(mrg: ModArgs) -> ModResponse {
         return resp;
     }
 
-    if mrg.rsa_prk.is_none() {
-        if let Some(password) = mrg.password {
-            // Mad Idea ™, but the user still wants that... ¯\_(ツ)_/¯
-            if let Err(err) = sess.userauth_password(&mrg.user, &password).context("SSH password authentication failed") {
+    match mrg.rsa_prk.as_deref() {
+        None => {
+            if let Some(password) = mrg.password.as_deref() {
+                // Mad Idea ™, but the user still wants that... ¯\_(ツ)_/¯
+                if let Err(err) = sess.userauth_password(&mrg.user, password).context("SSH password authentication failed") {
+                    resp.set_message(&format!("Authentication error: {err}"));
+                    return resp;
+                }
+            } else {
+                resp.set_message("RSA key or a password must be supplied");
+                return resp;
+            }
+        }
+        Some(prk_path) => {
+            if let Err(err) = sess.userauth_pubkey_file(&mrg.user, None, prk_path, mrg.password.as_deref()).with_context(|| {
+                if mrg.password.is_some() {
+                    "SSH key authentication failed: Incorrect passphrase or key."
+                } else {
+                    "SSH key authentication failed: Incorrect key or permissions."
+                }
+            }) {
                 resp.set_message(&format!("Authentication error: {err}"));
                 return resp;
             }
-        } else {
-            resp.set_message("RSA key or a password must be supplied");
-            return resp;
         }
-    } else if let Err(err) = sess.userauth_pubkey_file(&mrg.user, None, mrg.rsa_prk.unwrap().as_path(), mrg.password.as_deref()).with_context(|| {
-        if mrg.password.is_some() {
-            "SSH key authentication failed: Incorrect passphrase or key."
-        } else {
-            "SSH key authentication failed: Incorrect key or permissions."
-        }
-    }) {
-        resp.set_message(&format!("Authentication error: {err}"));
-        return resp;
     }
 
     if !sess.authenticated() {
