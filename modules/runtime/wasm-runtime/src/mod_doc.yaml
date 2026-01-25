@@ -1,35 +1,43 @@
-name: "runtime.lua"
-version: "0.2.0"
+name: "runtime.wasm"
+version: "0.1.0"
 author: "Bo Maryniuk"
-description: Lua runtime module.
+description: Wasm runtime module.
 
 # Options, flags, switches
 options:
   - name: rt.list
-    description: "List of available Lua scripts, ready to be called as modules."
+    description: "List of available Wasm scripts, ready to be called as modules."
 
   - name: rt.logs
-    description: "Enable logging from Lua scripts to SysInspect logs."
+    description: "Enable logging from Wasm scripts to SysInspect logs."
 
-  - name: rt.native
-    description: "Enable native Lua libraries loading. Use with caution."
+  - name: rt.sandbox
+    description: "Run Wasm binaries in sandboxed environment."
 
 # Keyword arguments
 arguments:
   - name: rt.mod
     type: string
     required: true
-    description: "The name of a Lua script to be executed. This script will be looked up in the predefined configured scripts directory."
+    description: "The name of a Wasm binary to be executed. This binary will be looked up in the predefined configured scripts directory."
+
+  - name: rt.rootfs
+    type: string
+    required: false
+    description: |
+      Path to the root filesystem directory that will be mounted
+      inside the Wasm runtime environment. This allows the Wasm binary
+      to access files and directories within the specified rootfs.
 
   - name: "[ANY]"
     type: string
     required: false
     description: |
-      Additional arguments that will be passed to the Lua script being executed. These arguments will be available within the Lua script
+      Additional arguments that will be passed to the Wasm binary being executed. These arguments will be available within the Wasm binary
       as global variables.
 
 examples:
-  - description: "Call a Lua script named 'hello_world.lua' so it will greet Germany"
+  - description: "Call a Wasm binary named 'hello_world.wasm' so it will greet Germany"
     code: |
       {
         "opts": [],
@@ -47,25 +55,18 @@ returns:
     :description: |
       Returns just a regular text of the command STDOUT.
     retcode: 0
-    message: "Called Lua script successfully."
+    message: "Called Wasm binary successfully."
     data:
       changed: false
 
 manpage: |
-  This module allows executing Lua scripts as modules within
-  the SysInspect framework. Lua scripts should be placed
-  in the configured scripts directory and can be called by
-  specifying their name.
-
-  The module supports passing additional arguments to the Lua
-  script, which will be available as global variables within
-  the script.
+  This module allows executing Wasm binaries as modules within
+  the SysInspect framework. The module supports passing additional
+  arguments to the Wasm binary, which will be available as global
+  variables within the binary.
 
   Important to keep the following directory structure for your
-  Lua scripts and their dependencies:
+  Wasm binaries and their dependencies. The [W::b]main Wasm binaries[N]
+  (modules) for this runtime must be installed in the following directory:
+  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/wasm/[N]
 
-  1. The [W::b]main Lua scripts[N] (modules) for this runtime must be installed
-  in [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/lua54/[N] directory,
-
-  2. The [W::b]dependency libraries[N] for these scripts should be placed in the
-  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/lua54/site-lua/[N] directory.
