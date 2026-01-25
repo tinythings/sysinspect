@@ -1,12 +1,15 @@
+use crate::rtspec::RuntimeParams;
+
 use super::response::ModResponse;
 use indexmap::IndexMap;
+use libsysinspect::cfg::mmconf::DEFAULT_MODULES_SHARELIB;
 use libsysinspect::util;
 use serde::{Deserialize, Serialize};
 use std::io::Error;
 use std::io::{self, Read};
 
 /// ArgValue is a type converter from input JSON to the internal types
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ArgValue(serde_json::Value);
 
 impl ArgValue {
@@ -79,26 +82,68 @@ impl ModRequest {
         self.quiet.unwrap_or(false).to_owned()
     }
 
-    /// Get param options
-    pub fn options(&self) -> Vec<ArgValue> {
+    pub fn options_all(&self) -> Vec<ArgValue> {
         self.options.to_owned().unwrap_or_default()
     }
 
-    pub fn config(&self) -> IndexMap<String, ArgValue> {
-        self.config.clone().unwrap_or_default()
+    /// Get param options
+    pub fn options(&self) -> Vec<ArgValue> {
+        let mut out = Vec::new();
+        for av in self.options.to_owned().unwrap_or_default() {
+            if let Some(s) = av.as_string()
+                && !s.starts_with(&RuntimeParams::RtPrefix.to_string())
+            {
+                out.push(av);
+            }
+        }
+        out
     }
 
-    /// Get all param args
-    pub fn args(&self) -> IndexMap<String, ArgValue> {
+    /// Check if an option is present
+    pub fn has_option(&self, opt: &str) -> bool {
+        for av in self.options_all() {
+            if av.as_string().unwrap_or_default().eq(opt) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn config(&self) -> IndexMap<String, ArgValue> {
+        // Inject sharelib path if not defined
+        // Modules not supposed to take explicit care where is their shared library located,
+        // but simply read the configuration. For example, runtimes need to know where to find their
+        // modules.
+        let mut config = self.config.clone().unwrap_or_default();
+        if config.get("path.sharelib").is_none() {
+            config.insert("path.sharelib".to_string(), ArgValue(serde_json::Value::String(DEFAULT_MODULES_SHARELIB.to_string())));
+        }
+        config
+    }
+
+    /// Get all param args including runtime-specific ones (those starting with "rt.")
+    pub fn args_all(&self) -> IndexMap<String, ArgValue> {
         self.arguments.clone().unwrap_or_default()
+    }
+
+    /// Get all param args without runtime-specific ones (those starting with "rt.")
+    pub fn args(&self) -> IndexMap<String, ArgValue> {
+        let mut target_args = IndexMap::new();
+        for (k, v) in self.arguments.clone().unwrap_or_default() {
+            if !k.starts_with(&RuntimeParams::RtPrefix.to_string()) {
+                target_args.insert(k, v);
+            }
+        }
+        target_args
     }
 
     /// Get arg
     pub fn get_arg(&self, kw: &str) -> Option<ArgValue> {
         if let Some(a) = &self.arguments
-            && let Some(a) = a.get(kw) {
-                return Some(a.clone());
-            };
+            && let Some(a) = a.get(kw)
+        {
+            return Some(a.clone());
+        };
 
         None
     }

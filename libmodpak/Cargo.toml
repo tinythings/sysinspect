@@ -23,3 +23,4 @@ cruet = "0.15.0"
 prettytable = "0.10.0"
 glob = "0.3.3"
 regex = "1.12.2"
+textwrap = { version = "0.16.2", features = ["hyphenation"] }

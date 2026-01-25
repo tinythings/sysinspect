@@ -1,0 +1,71 @@
+name: "runtime.lua"
+version: "0.2.0"
+author: "Bo Maryniuk"
+description: Lua runtime module.
+
+# Options, flags, switches
+options:
+  - name: rt.list
+    description: "List of available Lua scripts, ready to be called as modules."
+
+  - name: rt.logs
+    description: "Enable logging from Lua scripts to SysInspect logs."
+
+  - name: rt.native
+    description: "Enable native Lua libraries loading. Use with caution."
+
+# Keyword arguments
+arguments:
+  - name: rt.mod
+    type: string
+    required: true
+    description: "The name of a Lua script to be executed. This script will be looked up in the predefined configured scripts directory."
+
+  - name: "[ANY]"
+    type: string
+    required: false
+    description: |
+      Additional arguments that will be passed to the Lua script being executed. These arguments will be available within the Lua script
+      as global variables.
+
+examples:
+  - description: "Call a Lua script named 'hello_world.lua' so it will greet Germany"
+    code: |
+      {
+        "opts": [],
+        "arguments": {
+          "rt.mod": "hello_world",
+          "name": "Germany"
+        }
+      }
+
+# Description of additional data format
+returns:
+  # Output data structure as a sample
+  # Happens by default
+  fill:
+    :description: |
+      Returns just a regular text of the command STDOUT.
+    retcode: 0
+    message: "Called Lua script successfully."
+    data:
+      changed: false
+
+manpage: |
+  This module allows executing Lua scripts as modules within
+  the SysInspect framework. Lua scripts should be placed
+  in the configured scripts directory and can be called by
+  specifying their name.
+
+  The module supports passing additional arguments to the Lua
+  script, which will be available as global variables within
+  the script.
+
+  Important to keep the following directory structure for your
+  Lua scripts and their dependencies:
+
+  1. The [W::b]main Lua scripts[N] (modules) for this runtime must be installed
+  in [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/lua54/[N] directory,
+
+  2. The [W::b]dependency libraries[N] for these scripts should be placed in the
+  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/lua54/site-lua/[N] directory.

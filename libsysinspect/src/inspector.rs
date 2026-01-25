@@ -155,7 +155,7 @@ impl SysInspectRunner {
                                     match self.action_allowed(&ac) {
                                         Ok(is_allowed) => {
                                             if is_allowed {
-                                                match ac.run() {
+                                                match ac.run(Self::minion_cfg().clone().forward_logs()) {
                                                     Ok(response) => {
                                                         let response = response.unwrap_or(ActionResponse::default());
                                                         self.update_cstr_eval(&response);

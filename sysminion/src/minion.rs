@@ -43,6 +43,7 @@ use libsysinspect::{
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
+use serde_yaml::Value as YamlValue;
 use std::{
     fs,
     path::PathBuf,
@@ -289,9 +290,10 @@ impl SysMinion {
                     }
                     RequestType::Traits => {
                         if self.as_ptr().get_minion_id().eq(msg.target().id())
-                            && let Err(err) = self.as_ptr().send_traits().await {
-                                log::error!("Unable to send traits: {err}");
-                            }
+                            && let Err(err) = self.as_ptr().send_traits().await
+                        {
+                            log::error!("Unable to send traits: {err}");
+                        }
                     }
                     RequestType::AgentUnknown => {
                         let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
@@ -801,7 +803,7 @@ pub(crate) fn launch_module(cfg: MinionConfig, args: &ArgMatches) -> Result<(), 
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect::<Vec<(String, String)>>()
     {
-        modcaller.add_kwargs(k.to_string(), v.to_string());
+        modcaller.add_kwargs(k.to_string(), YamlValue::String(v));
     }
 
     for o in args.get_many::<Vec<String>>("opts").unwrap_or_default().flatten().cloned().collect::<Vec<String>>() {

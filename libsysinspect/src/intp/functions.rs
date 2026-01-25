@@ -102,7 +102,12 @@ where
 }
 
 /// Detect if an argument is a function
-pub fn is_function(arg: &str) -> Result<Option<ModArgFunction>, SysinspectError> {
+pub fn is_function(arg: &YamlValue) -> Result<Option<ModArgFunction>, SysinspectError> {
+    let arg = match arg.as_str() {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
     if !arg.contains("(") || !arg.ends_with(")") {
         return Ok(None);
     }

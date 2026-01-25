@@ -36,10 +36,10 @@ programs etc. However there are few rules that needs to be complied:
     Refer to the detailed communication protocol documentation in chapter :ref:`commproto`.
 
 
-Available modules
------------------
+Control Modules
+---------------
 
-Below is a list of available modules and their documentation:
+Below is a list of available control modules and their documentation:
 
 .. toctree::
    :maxdepth: 1
@@ -49,3 +49,22 @@ Below is a list of available modules and their documentation:
    sys_run
    sys_ssrun
    fs_file
+
+Runtime Modules
+----------------
+
+Runtime modules are the same control modules as usual, but they are simply additionally
+running specific targets they are meant to run. For example, WASM runtime, Python runtime, Lua etc.
+These modules are enabling certain types of user-written modules to be executed
+inside Sysinspect ecosystem.
+
+This is done for the reason of security, isolation, portability and customisation.
+For example, there are cases where no Python interpreter is needed at all, so user
+can simply remove that module from the Minion in a whole.
+
+Below is a list of available runtime modules and their documentation:
+
+.. toctree::
+   :maxdepth: 1
+
+   runtime_lua

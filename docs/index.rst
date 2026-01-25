@@ -45,6 +45,7 @@ welcome—see the section on contributing for how to get involved.
    tutorial/cfgmgmt_tutor
    tutorial/action_chain_tutor
    tutorial/module_management
+   tutorial/lua_modules_tutor
 
 
 Licence

@@ -151,6 +151,11 @@ impl ActionModResponse {
         self.data.to_owned()
     }
 
+    /// Set data payload
+    pub fn set_data(&mut self, v: Value) {
+        self.data = Some(v);
+    }
+
     /// Add or merge a key-value pair into the data object.
     pub fn add_data(&mut self, key: &str, v: Value) {
         match &mut self.data {

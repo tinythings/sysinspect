@@ -7,11 +7,12 @@ use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAUL
 use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use once_cell::sync::Lazy;
-use prettytable::Table;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
+use prettytable::{Cell, Row, Table, format};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::{collections::HashMap, fs, path::PathBuf};
+use textwrap::{Options, wrap};
 use tokio::sync::Mutex;
 
 pub mod mpk;
@@ -471,44 +472,40 @@ impl SysInspectModPak {
             println!("{} {}", padded.bright_yellow(), descr.white());
         }
     }
-    /// Prints a table of modules with their attributes.
-    fn print_table(modules: &IndexMap<String, ModAttrs>, verbose: bool) {
-        let mw = modules.keys().map(|s| s.len()).max().unwrap_or(0);
-        let kw = "descr".len().max("type".len());
-        let mut mods: Vec<_> = modules.iter().collect();
-        mods.sort_by_key(|(name, _)| *name);
 
-        for (mname, attrs) in mods {
-            let mut m_attrs = [("descr", attrs.descr()), ("type", attrs.mod_type())];
-            m_attrs.sort_by_key(|(k, _)| *k);
-            if let Some((first_key, first_value)) = m_attrs.first() {
-                println!("    {:<mw$}  {:>kw$}: {}", mname.bright_white().bold(), first_key.yellow(), first_value, mw = mw, kw = kw,);
-                for (k, v) in m_attrs.iter().skip(1) {
-                    println!("    {:<mw$}  {:>kw$}: {}", "", k.yellow(), v, mw = mw, kw = kw,);
-                }
+    fn print_table(modules: &IndexMap<String, ModAttrs>, _verbose: bool) {
+        let mut t = Table::new();
+        t.set_format(*format::consts::FORMAT_CLEAN);
+        /*
+        t.set_titles(Row::new(vec![
+            Cell::new("  "),
+            Cell::new(&"Name".bright_yellow().bold().to_string()),
+            Cell::new(&"Description".bright_white().bold().to_string()),
+        ]));
+        */
 
-                // Print additional data, if any
-                if verbose {
-                    if let Some(opts) = attrs.opts() {
-                        println!("{}", "    Options:".yellow());
-                        for opt in opts {
-                            Self::print_kv(opt.name(), opt.required(), &opt.description(), 15);
-                        }
-                        println!()
-                    }
+        // Sort modules by name
+        let mut entries: Vec<(&String, &ModAttrs)> = modules.iter().collect();
+        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
-                    if let Some(args) = attrs.args() {
-                        println!("{}", "    Arguments:".yellow());
-                        for arg in args {
-                            Self::print_kv(arg.name(), arg.required(), &arg.description(), 15);
-                        }
-                    }
-                }
-            } else {
-                println!("    {mname:<mw$}");
+        let wrap_opts = Options::new(50);
+        for (modname, modattr) in entries {
+            let lines = wrap(modattr.descr(), &wrap_opts);
+            if lines.is_empty() {
+                t.add_row(Row::new(vec![Cell::new("  "), Cell::new(&modname.bright_yellow().to_string()), Cell::new("")]));
+                continue;
             }
-            println!();
+
+            t.add_row(Row::new(vec![Cell::new("  "), Cell::new(&modname.bright_yellow().to_string()), Cell::new(&lines[0])]));
+            for l in lines.iter().skip(1) {
+                t.add_row(Row::new(vec![Cell::new(""), Cell::new(""), Cell::new(l)]));
+            }
+            if lines.len() > 1 {
+                t.add_row(Row::new(vec![Cell::new(""), Cell::new(""), Cell::new("")]));
+            }
         }
+
+        t.printstd();
     }
 
     /// Lists all libraries in the repository.

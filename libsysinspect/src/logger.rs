@@ -69,3 +69,55 @@ impl log::Log for MemoryLogger {
 
     fn flush(&self) {}
 }
+
+/// Forward a log line to the internal logger
+/// This is used to forward logs from subprocesses (modules, typically) or external tools.
+/// A module would return a structure with "data" and "logs" fields, where "logs" is a list of log lines
+/// in the expected format. This function would be called for each log line to forward it to the main logger.
+///
+/// IMPORTANT: The formatting must be equal!
+///
+/// Expected wire format:
+/// ```
+/// "[..timestamp..] - LEVEL: [highlight] message"
+/// ```
+///
+/// Example log line:
+/// ```
+/// 2024-10-05 14:23:01 - INFO: [ModuleXYZ] This is a log message
+/// ```
+pub fn log_forward(line: &str) {
+    // timestamp
+    let after_ts = match line.split_once(" - ") {
+        Some((_ts, rest)) => rest,
+        None => line,
+    };
+
+    // level
+    let (level, msg) = match after_ts.split_once(':') {
+        Some((lvl, rest)) => (lvl.trim(), rest.trim()),
+        None => ("INFO", after_ts.trim()),
+    };
+
+    // Highlight leading [xxx]
+    let painted_msg = if let Some(rest) = msg.strip_prefix('[') {
+        if let Some((tag, tail)) = rest.split_once(']') {
+            let tag = format!("[{}]", tag).bright_magenta();
+            let tail = tail.trim_start(); // eat leading space
+            format!("{tag} {tail}")
+        } else {
+            msg.to_string()
+        }
+    } else {
+        msg.to_string()
+    };
+
+    match level {
+        "ERROR" => log::error!("{painted_msg}"),
+        "WARN" | "WARNING" => log::warn!("{painted_msg}"),
+        "DEBUG" => log::debug!("{painted_msg}"),
+        "TRACE" => log::trace!("{painted_msg}"),
+        "INFO" => log::info!("{painted_msg}"),
+        _ => log::info!("{painted_msg}"),
+    }
+}

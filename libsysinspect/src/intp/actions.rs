@@ -4,7 +4,7 @@ use super::{
     functions,
     inspector::SysInspector,
 };
-use crate::{SysinspectError, util::dataconv};
+use crate::{SysinspectError, logger::log_forward, util::dataconv};
 use colored::Colorize;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub struct ModArgs {
     options: Option<Vec<String>>,
 
     #[serde(alias = "args")]
-    arguments: Option<IndexMap<String, String>>,
+    arguments: Option<IndexMap<String, Value>>,
 
     #[serde(alias = "ctx")]
     context: Option<IndexMap<String, String>>, // Context variables definition for Jinja templates. Used only for model documentation.
@@ -28,7 +28,7 @@ pub struct ModArgs {
 
 impl ModArgs {
     /// Return args
-    pub fn args(&self) -> IndexMap<String, String> {
+    pub fn args(&self) -> IndexMap<String, Value> {
         if let Some(args) = &self.arguments {
             return args.to_owned();
         }
@@ -133,13 +133,60 @@ impl Action {
     }
 
     /// Run action
-    pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
-        if let Some(call) = &self.call {
-            log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
-            return call.run();
+    pub fn run(&self, forward_logs: bool) -> Result<Option<ActionResponse>, SysinspectError> {
+        let Some(call) = &self.call else {
+            return Ok(None);
+        };
+
+        log::debug!("Calling action {} on state {}", self.id().yellow(), call.state().yellow());
+
+        let mut r_opt = call.run().map_err(|err| SysinspectError::ModelDSLError(format!("Action {} failed to run: {}", self.id(), err)))?;
+
+        let Some(ref mut r) = r_opt else {
+            return Ok(r_opt);
+        };
+        let Some(mut data) = r.response.data() else {
+            return Ok(r_opt);
+        };
+        let serde_json::Value::Object(ref mut map) = data else {
+            r.response.set_data(data);
+            return Ok(r_opt);
+        };
+
+        // XXX: Logs entry key must be picked from RuntimeSpec::LogsSectionField, but
+        //      currently it is a cycle dependency. The rtspec must be split into a separate crate.
+        //
+        //      At some point in future...
+        //
+        if let Some(logs_val) = map.remove("__sysinspect-module-logs") {
+            if forward_logs {
+                Self::forward_logs(&logs_val);
+            } else {
+                map.insert("logs".to_string(), logs_val);
+            }
         }
 
-        Ok(None)
+        r.response.set_data(data);
+
+        Ok(r_opt)
+    }
+
+    /// Forward logs value (string/array/anything) to internal logger.
+    fn forward_logs(logs_val: &serde_json::Value) {
+        match logs_val {
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    if let Some(line) = item.as_str() {
+                        log_forward(line);
+                    } else {
+                        log_forward(&dataconv::as_str(Some(item.clone())));
+                    }
+                }
+            }
+            other => {
+                log_forward(&dataconv::as_str(Some(other.clone())));
+            }
+        }
     }
 
     fn resolve_claims(
@@ -147,7 +194,7 @@ impl Action {
     ) -> Result<Vec<Expression>, SysinspectError> {
         let mut out: Vec<Expression> = Vec::default();
         for mut expr in v_expr {
-            if let Some(modfunc) = functions::is_function(&dataconv::to_string(expr.get_op()).unwrap_or_default()).ok().flatten() {
+            if let Some(modfunc) = functions::is_function(&expr.get_op().unwrap_or(Value::String("".to_string()))).ok().flatten() {
                 match inspector.call_function(Some(eid), &state, &modfunc) {
                     Ok(Some(v)) => expr.set_active_op(v)?,
                     Ok(_) => {}
@@ -223,8 +270,7 @@ impl Action {
                             )));
                         }
                         Ok(Some(v)) => {
-                            // XXX: Passing args to the modcall are for now always strings
-                            arg = dataconv::to_string(Some(v)).unwrap_or_default();
+                            arg = v;
                         }
                         Err(err) => return Err(err),
                     }

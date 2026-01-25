@@ -1,8 +1,8 @@
 project = "Sysinspect"
-copyright = "2024, Bo Maryniuk"
+copyright = "2026, Bo Maryniuk"
 author = "Bo Maryniuk"
 version = "0.4.0"
-release = "Alpha"
+# release = "Alpha"
 
 extensions = [
     "myst_parser",
