@@ -1,0 +1,29 @@
+[package]
+name = "wasm-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libsysinspect = { path = "../../../libsysinspect" }
+libmodcore = { path = "../../../libmodcore" }
+wasmruntime = { path = "../../../../wasmruntime" }
+# wasmruntime = {git = "https://github.com/isbm/wasmruntime.git"}
+tokio = { version = "1.47.1", features = ["full"] }
+serde = "1.0.228"
+serde_json = "1.0.149"
+serde_yaml = "0.9.34"
+anyhow = "1.0.100"
+thiserror = "2.0.18"
+futures = "0.3.31"
+pin-utils = "0.1.0"
+clap = "4.5.54"
+log = "0.4.29"
+chrono = "0.4.43"
+colored = "3.0.0"
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
