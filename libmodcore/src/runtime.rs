@@ -40,7 +40,7 @@ impl ArgValue {
 }
 
 /// Struct to call plugin parameters
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModRequest {
     /// Timeout of the module running.
     /// If timeout is exceeded, module quits.
