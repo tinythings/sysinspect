@@ -68,7 +68,7 @@ release:
 	@# Optional: squeeze harder with wasm-opt if available
 	@if command -v $(WASM_OPT) >/dev/null 2>&1; then \
 		echo "Running wasm-opt for extra shrink..."; \
-		$(WASM_OPT) -Oz --strip-debug --strip-producers $(RELEASE_WASM) -o $(RELEASE_WASM); \
+		$(WASM_OPT) --all-features -Oz --strip-debug --strip-producers $(RELEASE_WASM) -o $(RELEASE_WASM); \
 	else \
 		echo "wasm-opt not found; skipping extra squeezing."; \
 	fi
