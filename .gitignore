@@ -10,3 +10,4 @@ package/
 /*/.bin/
 /*/html-docs
 .gitignore
+**/build/
