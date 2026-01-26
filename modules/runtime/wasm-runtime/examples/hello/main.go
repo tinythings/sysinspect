@@ -128,26 +128,40 @@ func doc() map[string]any {
 	}
 }
 
-func run(_hdr Header) map[string]any {
+func run(hdr Header) map[string]any {
 	osr, err := readOSRelease()
 	if err != nil {
 		return map[string]any{
 			"error":  "failed to read /etc/os-release",
 			"detail": err.Error(),
-			"output": "hello, dude",
-			"os":     nil,
 		}
 	}
 
-	return map[string]any{
-		"output": "hello, dude",
-		"os": map[string]any{
-			"NAME":        osr["NAME"],
-			"ID":          osr["ID"],
-			"VERSION_ID":  osr["VERSION_ID"],
-			"PRETTY_NAME": osr["PRETTY_NAME"],
-		},
+	key := "VERSION" // Default key
+	if hdr.Args != nil {
+		if v, ok := hdr.Args["key"]; ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				key = strings.TrimSpace(s)
+			}
+		}
 	}
+
+	val, ok := osr[key]
+	if !ok {
+		return map[string]any{
+			"error": "unknown os-release key",
+			"key":   key,
+		}
+	}
+
+	out := map[string]any{
+		key: val,
+	}
+	if !hasOpt(hdr.Opts, "nohello") {
+		out["output"] = "hello, dude"
+	}
+
+	return out
 }
 
 func main() {

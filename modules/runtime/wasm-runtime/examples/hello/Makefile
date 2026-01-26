@@ -43,7 +43,7 @@ define REQUIRE_COMPILER
 	fi
 endef
 
-debug:
+debug: clean
 	@mkdir -p $(OUTDIR)
 	@$(REQUIRE_COMPILER)
 	@if [ "$(WASM_COMPILER)" = "tinygo" ]; then \
@@ -55,7 +55,7 @@ debug:
 	fi
 	@echo "Built debug: $(DEBUG_WASM)"
 
-release:
+release: clean
 	@mkdir -p $(OUTDIR)
 	@$(REQUIRE_COMPILER)
 	@if [ "$(WASM_COMPILER)" = "tinygo" ]; then \
