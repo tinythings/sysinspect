@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, to_value, Value};
+use serde_json::{Value, json, to_value};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModResponse {
@@ -30,6 +30,11 @@ fn is_json_null(v: &Value) -> bool {
 impl ModResponse {
     pub fn new() -> Self {
         ModResponse::default()
+    }
+
+    /// Get data
+    pub fn get_data(&self) -> &Value {
+        &self.data
     }
 
     /// New response with default negative/unsuccessful data for CM.
