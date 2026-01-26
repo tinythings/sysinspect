@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+mod wart;
 
 use clap::Parser;
 use libmodcore::{
@@ -11,6 +11,7 @@ use libmodcore::{
 };
 use libsysinspect::SysinspectError;
 use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
 
 /// List available Wasm modules in the scripts directory
 fn list_wasm_modules(_wasm_dir: &Path) -> Vec<String> {
@@ -23,8 +24,19 @@ fn module_doc_help(_cli: &ModuleCli, _modname: &str) -> Result<Value, Sysinspect
 }
 
 /// Run the Wasm runtime with the provided request.
-fn call_runtime(_cli: &ModuleCli, _rq: &ModRequest) -> ModResponse {
-    ModResponse::default()
+fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
+    let mut r = ModResponse::new_cm();
+    let rt = match wart::WasmRuntime::new(rq) {
+        Err(err) => {
+            r.set_message(&format!("Failed to initialize Wasm runtime: {err}"));
+            r.set_retcode(4);
+            return r;
+        }
+        Ok(rt) => rt,
+    };
+    let out = rt.run();
+
+    out
 }
 
 fn main() {
