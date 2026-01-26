@@ -1,6 +1,6 @@
 MODULE := hellodude
 SRC    := main.go
-OUTDIR := build
+OUTDIR := build/lib/runtime/wasm
 
 # You MUST set this: WASM_COMPILER=go or WASM_COMPILER=tinygo
 WASM_COMPILER ?=
@@ -74,5 +74,11 @@ release:
 	fi
 	@echo "Built release: $(RELEASE_WASM)"
 
+run:
+	@echo "Running module (test preview)..."
+	@echo '{"config": {"path.sharelib": "${PWD}/build"}, "args": {"rt.mod": "hellodude"}}' | ../../../../../target/debug/runtime/wasm-runtime | jq
+
+
 clean:
 	rm -rf $(OUTDIR)
+	rm -rf build
