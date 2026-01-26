@@ -27,6 +27,15 @@ func scalar2bool(v interface{}) bool {
 	}
 }
 
+func hasOpt(opts []string, want string) bool {
+	for _, o := range opts {
+		if o == want {
+			return true
+		}
+	}
+	return false
+}
+
 func readHeader() (Header, error) {
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -44,7 +53,6 @@ func readHeader() (Header, error) {
 	return hdr, nil
 }
 
-// Small parser for /etc/os-release file
 func readOSRelease() (map[string]string, error) {
 	b, err := os.ReadFile("/etc/os-release")
 	if err != nil {
@@ -68,9 +76,13 @@ func readOSRelease() (map[string]string, error) {
 	return out, nil
 }
 
-// Module documentation
+// Documentation of the module
+//
+// This is an example how to document your module so that sysinspect can
+// generate manual pages and help texts automatically.
+//
+// Important is to keep the structure and the field names as they are here.
 func doc() map[string]any {
-	// SAME SHAPE as your Lua docs: arguments/options/examples arrays, returns object.
 	return map[string]any{
 		"name":        "hellodude",
 		"version":     "0.1.0",
@@ -78,58 +90,66 @@ func doc() map[string]any {
 		"description": "Says hello and returns OS version from /etc/os-release.",
 
 		"arguments": []any{
-			// none required; keep it empty array, not null, not map.
+			map[string]any{
+				"name":        "key",
+				"type":        "string",
+				"description": "A key inside the /etc/os-release file to retrieve (not used in this example). Default: VERSION",
+				"required":    true,
+			},
 		},
-
 		"options": []any{
-			// none
+			map[string]any{
+				"name":        "nohello",
+				"description": "Do not say hello",
+			},
 		},
 
 		"examples": []any{
 			map[string]any{
 				"description": "Get module output",
-				"code":        `{ "args": { "mod": "hellodude" } }`,
+				"code":        `{ "args": { "key": "VERSION" } }`,
 			},
 			map[string]any{
 				"description": "Get module documentation",
-				"code":        `{ "args": { "mod": "hellodude", "rt.man": true } }`,
+				"code":        `{ "args": { "key": "VERSION" }, "opts": ["man"] }`,
 			},
 		},
 
 		"returns": map[string]any{
-			"description": "Returns a greeting and OS release info (if accessible).",
+			"description": "Returns greeting and OS release info (if accessible).",
 			"sample": map[string]any{
 				"output": "hello, dude",
 				"os": map[string]any{
-					"NAME":        "Debian GNU/Linux",
-					"VERSION_ID":  "12",
 					"PRETTY_NAME": "Debian GNU/Linux 12 (bookworm)",
+					"VERSION_ID":  "12",
 				},
 			},
 		},
 	}
 }
 
-// Run the module logic
-func run(hdr Header) map[string]any {
-	_ = hdr // args/opts currently unused, but kept for future “CfgMgmt shit”.
-
+func run(_hdr Header) map[string]any {
 	osr, err := readOSRelease()
 	if err != nil {
 		return map[string]any{
 			"error":  "failed to read /etc/os-release",
 			"detail": err.Error(),
+			"output": "hello, dude",
+			"os":     nil,
 		}
 	}
 
-	// Return the module data
 	return map[string]any{
-		"output":  "Hello, world!",
-		"VERSION": osr["VERSION"],
+		"output": "hello, dude",
+		"os": map[string]any{
+			"NAME":        osr["NAME"],
+			"ID":          osr["ID"],
+			"VERSION_ID":  osr["VERSION_ID"],
+			"PRETTY_NAME": osr["PRETTY_NAME"],
+		},
 	}
 }
 
-// WASI entry function
 func main() {
 	hdr, err := readHeader()
 	if err != nil {
@@ -137,13 +157,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// doc-mode: args["rt.man"] == true
-	if hdr.Args != nil && scalar2bool(hdr.Args["rt.man"]) {
-		b, _ := json.Marshal(doc())
-		fmt.Println(string(b))
-		return
-	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
 
-	b, _ := json.Marshal(run(hdr))
-	fmt.Println(string(b))
+	if hasOpt(hdr.Opts, "man") {
+		_ = enc.Encode(doc())
+	} else {
+		_ = enc.Encode(run(hdr))
+	}
 }
