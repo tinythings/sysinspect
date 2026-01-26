@@ -24,7 +24,7 @@ fn module_doc_help(_cli: &ModuleCli, _modname: &str) -> Result<Value, Sysinspect
 }
 
 /// Run the Wasm runtime with the provided request.
-fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
+fn call_runtime(_cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
     let mut r = ModResponse::new_cm();
     let rt = match wart::WasmRuntime::new(rq) {
         Err(err) => {
@@ -34,9 +34,9 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
         }
         Ok(rt) => rt,
     };
-    let out = rt.run();
+    
 
-    out
+    rt.run()
 }
 
 fn main() {
@@ -48,13 +48,14 @@ fn main() {
         print!("{}", mod_doc.help());
         return;
     } else if !cli.get_help_on().is_empty() {
-        match module_doc_help(&cli, &cli.get_help_on()) {
-            Ok(doc) => {
-                print_mod_manual(doc);
+        match get_call_args() {
+            Ok(mut rq) => {
+                rq.add_opt("man");
+                rq.add_arg("man", Value::Bool(true));
+                let mr = &call_runtime(&cli, &rq);
+                print_mod_manual(mr.get_data());
             }
-            Err(err) => {
-                eprintln!("Failed to get module documentation: {}", err);
-            }
+            Err(err) => println!("Arguments error: {err}"),
         }
         return;
     } else if cli.is_list_modules() {

@@ -1,7 +1,6 @@
 use futures::executor;
 use libmodcore::{response::ModResponse, runtime::ModRequest};
 use libsysinspect::SysinspectError;
-use std::collections::HashMap;
 use wasmruntime::cfg::WasmConfig;
 
 /// Config entry for path to shared library
@@ -39,11 +38,8 @@ impl WasmRuntime {
         // Go modules require guest path to be explicitly "/"
         // TinyGo is permissive and "." is enough, but native Go is not.
         wcfg.set_guest_path("/");
-        match wcfg.set_host_path("/") {
-            Err(err) => {
-                return Err(SysinspectError::ConfigError(format!("Failed to set default host path: {err}")));
-            }
-            Ok(_) => {}
+        if let Err(err) = wcfg.set_host_path("/") {
+            return Err(SysinspectError::ConfigError(format!("Failed to set default host path: {err}")));
         }
 
         let sharelib = Self::get_sharelib(rq);
@@ -103,7 +99,12 @@ impl WasmRuntime {
         }
 
         // `run` is async and returns a Future; we must drive it to completion.
-        let out = match executor::block_on(self.rt.run(&mod_id, vec![], HashMap::new(), vec![])) {
+        let out = match executor::block_on(self.rt.run(
+            &mod_id,
+            self.rq.options().iter().map(|v| v.as_string().unwrap_or_default()).filter(|s| !s.is_empty()).collect(),
+            self.rq.args().into_iter().map(|(k, v)| (k, v.into())).collect(),
+            vec![], // This is incoming NDJSON (usually for databases). Unused in this scenario.
+        )) {
             Err(err) => {
                 r.set_message(&format!("Failed to run module \"{mod_id}\": {err}"));
                 r.set_retcode(5);
@@ -114,13 +115,10 @@ impl WasmRuntime {
 
         r.set_message("Wasm runtime executed successfully");
         r.set_retcode(0);
-        match r.set_data(out) {
-            Err(err) => {
-                r.set_message(&format!("Failed to set response data: {err}"));
-                r.set_retcode(6);
-                return r;
-            }
-            Ok(_) => {}
+        if let Err(err) = r.set_data(out) {
+            r.set_message(&format!("Failed to set response data: {err}"));
+            r.set_retcode(6);
+            return r;
         }
 
         r

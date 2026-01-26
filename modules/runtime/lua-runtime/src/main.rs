@@ -135,7 +135,7 @@ fn main() {
     } else if !cli.get_help_on().is_empty() {
         match module_doc_help(&cli, &cli.get_help_on()) {
             Ok(doc) => {
-                print_mod_manual(doc);
+                print_mod_manual(&doc);
             }
             Err(err) => {
                 eprintln!("Failed to get module documentation: {}", err);
