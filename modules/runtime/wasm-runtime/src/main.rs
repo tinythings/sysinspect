@@ -1,6 +1,7 @@
 mod wart;
 
 use clap::Parser;
+use colored::Colorize;
 use libmodcore::{
     init_mod_doc,
     manrndr::print_mod_manual,
@@ -14,8 +15,27 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 /// List available Wasm modules in the scripts directory
-fn list_wasm_modules(_wasm_dir: &Path) -> Vec<String> {
-    Vec::new()
+fn list_wasm_modules(wasm_dir: &Path) {
+    let rt = match wart::WasmRuntime::new(&ModRequest::default()) {
+        Err(err) => {
+            println!("Failed to initialize Wasm runtime: {err}");
+            return;
+        }
+        Ok(rt) => rt,
+    };
+    let mut mods = match rt.get_wasm_modules() {
+        Ok(mods) => mods,
+        Err(_) => {
+            println!("Failed to list Wasm modules in {}", wasm_dir.display());
+            return;
+        }
+    };
+    mods.sort();
+
+    println!("Available Wasm/WASI modules:");
+    for (i, m) in mods.iter().enumerate() {
+        println!(" {}. {}", i + 1, m.bright_green());
+    }
 }
 
 /// Get module documentation from Wasm runtime
@@ -34,7 +54,6 @@ fn call_runtime(_cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
         }
         Ok(rt) => rt,
     };
-    
 
     rt.run()
 }
@@ -59,10 +78,7 @@ fn main() {
         }
         return;
     } else if cli.is_list_modules() {
-        println!("Available Wasm runtime modules:");
-        for module in list_wasm_modules(PathBuf::from(cli.get_sharelib()).as_path()) {
-            println!("  - {}", module);
-        }
+        list_wasm_modules(PathBuf::from(cli.get_sharelib()).as_path());
         return;
     }
 

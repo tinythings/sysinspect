@@ -47,7 +47,7 @@ impl From<ArgValue> for serde_json::Value {
 }
 
 /// Struct to call plugin parameters
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ModRequest {
     /// Timeout of the module running.
     /// If timeout is exceeded, module quits.
