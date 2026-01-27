@@ -86,6 +86,9 @@ func Log(level int32, format string, args ...any) {
 		return
 	}
 	b := []byte(msg)
+	if len(b) == 0 {
+		return
+	}
 	__hostLog(
 		level,
 		uint32(uintptr(unsafe.Pointer(&b[0]))),
