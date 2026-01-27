@@ -1,6 +1,6 @@
-// Package sysinspect provides a way to run system inspection commands
+// Package log provides a way to run system inspection commands
 // on the host system from within a WebAssembly module.
-package sysinspect
+package api
 
 import (
 	"encoding/json"
@@ -9,7 +9,10 @@ import (
 )
 
 //go:wasmimport api exec
-func execJSON(reqPtr, reqLen, outPtr, outCap uint32) int32
+func __execJSON(reqPtr, reqLen, outPtr, outCap uint32) int32
+
+//go:wasmimport api log
+func __hostLog(level int32, msgPtr, msgLen uint32)
 
 type Cmd struct {
 	Argv []string
@@ -39,7 +42,7 @@ func (c *Cmd) Output() (string, error) {
 
 	out := make([]byte, 256*1024) // a buffer for host response
 
-	n := execJSON(
+	n := __execJSON(
 		uint32(uintptr(unsafe.Pointer(&reqb[0]))),
 		uint32(len(reqb)),
 		uint32(uintptr(unsafe.Pointer(&out[0]))),
@@ -62,4 +65,25 @@ func (c *Cmd) Output() (string, error) {
 		return resp.Stdout, fmt.Errorf("exit %d: %s", resp.ExitCode, resp.Stderr)
 	}
 	return resp.Stdout, nil
+}
+
+const (
+	Debug = 0
+	Info  = 1
+	Warn  = 2
+	Error = 3
+)
+
+// Log sends a formatted log line to the host runtime.
+func Log(level int32, format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if msg == "" {
+		return
+	}
+	b := []byte(msg)
+	__hostLog(
+		level,
+		uint32(uintptr(unsafe.Pointer(&b[0]))),
+		uint32(len(b)),
+	)
 }
