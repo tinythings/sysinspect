@@ -4,15 +4,15 @@ author: "Bo Maryniuk"
 description: Wasm runtime module.
 
 # Options, flags, switches
-options:
-  - name: rt.list
-    description: "List of available Wasm scripts, ready to be called as modules."
-
-  - name: rt.logs
-    description: "Enable logging from Wasm scripts to SysInspect logs."
-
-  - name: rt.sandbox
-    description: "Run Wasm binaries in sandboxed environment."
+# options:
+#  - name: rt.list
+#    description: "List of available Wasm scripts, ready to be called as modules."
+#
+#  - name: rt.logs
+#    description: "Enable logging from Wasm scripts to SysInspect logs."
+#
+#  - name: rt.sandbox
+#    description: "Run Wasm binaries in sandboxed environment."
 
 # Keyword arguments
 arguments:
