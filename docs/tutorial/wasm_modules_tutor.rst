@@ -183,30 +183,54 @@ Language Support
 
 Any language capable of compiling to **WASI** can theoretically be used.
 
-In practice:
+In practice, Ssysinspect focuses on languages that produce **small**, **fast**, and
+**predictable** Wasm binaries. There are two primary recommendations:
 
-1. **TinyGo** is the recommended choice. It offers:
+1. **TinyGo** is the recommended choice if you want it "in 10 minutes", **Rust** otherwise. TinyGo offers:
 
-   - small binaries
-   - predictable output
-   - good WASI support
+   - Relatively small binaries
+   - Predictable output
+   - Excellent WASI support
+   - One can learn Go in a few hours
+   - "Tons" of ready to use libraries
 
-  You can also use standard Go with ``GOOS=js GOARCH=wasm``, but TinyGo produces much smaller
-  and faster binaries.
+  .. important::
 
-2. Rust or C/C++ are also very well supported. But practically you most likely want
-to be productive and make your module as fast as possible with as minimal overhead.
-From this perspective TinyGo/Go is still a better choice.
+    You can also use standard Go with ``GOOS=js GOARCH=wasm``, but TinyGo produces much smaller
+    and faster binaries.
 
-3. Other languages do work well, but then you should be prepared for one or more side effects:
+2. **Rust** is your primary choice if you want maximum performance and control, but don't want it "in 10 minutes". **Rust** offers:
 
-   - larger binaries
-   - poor(-er) performance
-   - unstable toolchains
-   - other surprises
+   - **Smallest/fastest binaries**
+   - Excellent WASI support
+   - Very mature toolchain
+   - Excellent performance
+   - Memory safety
+   - Rich ecosystem
+
+  .. note::
+
+    Although Rust makes many things "right", yet it has a way much steeper learning curve. Even if you've
+    mastered it enough, the development speed is not necessarily faster than with Go.
+
+    At last, Configuration Management does not require systems programming skills and usually any
+    CM module code is typically a "glue boilerplate", that can be done with higher-level languages.
+
+  But it is still fun. :-)
+
+C/C++ is also a solid choice, but you must take care of memory management and other low-level details yourself.
+Other languages do *technically* work as well (Grain, Swift etc), but they aren't supported
+in SysInspect realm. If you want to try them out, you should be prepared for one or more side effects:
+
+   - Significantly larger binaries
+   - Poor(-er) performance
+   - Unstable toolchains
+   - Randomly missing WASI features
+   - Other bad surprises
 
 While experimentation is encouraged, production modules should prioritise simplicity
-and predictability.
+and predictability. In any case, if you find a language that works well, please share your experience
+with the community.
 
 SDKs and Helper Libraries
 -------------------------
