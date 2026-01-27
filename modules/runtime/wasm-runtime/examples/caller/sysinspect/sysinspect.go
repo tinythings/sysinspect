@@ -1,4 +1,4 @@
-// Package log provides a way to run system inspection commands
+// Package api provides a way to run system inspection commands
 // on the host system from within a WebAssembly module.
 package api
 
