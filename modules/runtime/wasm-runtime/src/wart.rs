@@ -1,6 +1,11 @@
 use futures::executor;
-use libmodcore::{response::ModResponse, runtime::ModRequest};
+use libmodcore::{
+    response::ModResponse,
+    rtspec::RuntimeSpec,
+    runtime::ModRequest,
+};
 use libsysinspect::SysinspectError;
+use serde_json::Value;
 use wasmruntime::cfg::WasmConfig;
 
 /// Config entry for path to shared library
@@ -99,7 +104,7 @@ impl WasmRuntime {
         }
 
         // `run` is async and returns a Future; we must drive it to completion.
-        let out = match executor::block_on(self.rt.run(
+        let mut out = match executor::block_on(self.rt.run(
             &mod_id,
             self.rq.options().iter().map(|v| v.as_string().unwrap_or_default()).filter(|s| !s.is_empty()).collect(),
             self.rq.args().into_iter().map(|(k, v)| (k, v.into())).collect(),
@@ -112,6 +117,11 @@ impl WasmRuntime {
             }
             Ok(val) => val,
         };
+
+        if let Value::Object(ref mut map) = out
+            && let Some(v) = map.remove("__module-logs") {
+                map.insert(RuntimeSpec::LogsSectionField.to_string(), v);
+            }
 
         r.set_message("Wasm runtime executed successfully");
         r.set_retcode(0);
