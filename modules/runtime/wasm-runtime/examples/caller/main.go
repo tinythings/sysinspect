@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"stuffspawner/sysinspect"
+	api "stuffspawner/sysinspect"
 )
 
 type Header struct {
@@ -59,10 +59,15 @@ func main() {
 		}
 	}
 
-	out, err := sysinspect.Command("/usr/bin/uname", "-a").Output()
+	out, err := api.Command("/usr/bin/uname", "-a").Output()
+	api.Log(api.Info, "Executed: \"uname -a\", output length: %d", len(out))
 	if err != nil {
 		_ = enc.Encode(map[string]any{"error": err.Error()})
 		return
 	}
 	_ = enc.Encode(map[string]any{"output": out})
+
+	api.Log(api.Error, "This is an error log example")
+	api.Log(api.Warn, "This is a warning log example")
+	api.Log(api.Info, "Finished successfully")
 }
