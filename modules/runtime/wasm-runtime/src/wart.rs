@@ -1,9 +1,5 @@
 use futures::executor;
-use libmodcore::{
-    response::ModResponse,
-    rtspec::RuntimeSpec,
-    runtime::ModRequest,
-};
+use libmodcore::{response::ModResponse, rtspec::RuntimeSpec, runtime::ModRequest};
 use libsysinspect::SysinspectError;
 use serde_json::Value;
 use wasmruntime::cfg::WasmConfig;
@@ -72,7 +68,7 @@ impl WasmRuntime {
         Ok(wcfg)
     }
 
-    fn get_wasm_modules(&self) -> Result<Vec<String>, SysinspectError> {
+    pub fn get_wasm_modules(&self) -> Result<Vec<String>, SysinspectError> {
         let mods: Vec<String> = match self.rt.objects() {
             Err(err) => {
                 return Err(SysinspectError::ConfigError(format!("Failed to list userlets: {err}")));
@@ -119,9 +115,10 @@ impl WasmRuntime {
         };
 
         if let Value::Object(ref mut map) = out
-            && let Some(v) = map.remove("__module-logs") {
-                map.insert(RuntimeSpec::LogsSectionField.to_string(), v);
-            }
+            && let Some(v) = map.remove("__module-logs")
+        {
+            map.insert(RuntimeSpec::LogsSectionField.to_string(), v);
+        }
 
         r.set_message("Wasm runtime executed successfully");
         r.set_retcode(0);
