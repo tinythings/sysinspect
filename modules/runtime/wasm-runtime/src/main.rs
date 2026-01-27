@@ -24,8 +24,8 @@ fn list_wasm_modules(wasm_dir: &Path) {
     };
     let mut mods = match rt.get_wasm_modules() {
         Ok(mods) => mods,
-        Err(_) => {
-            println!("Failed to list Wasm modules in {}", wasm_dir.display());
+        Err(err) => {
+            println!("Failed to list Wasm modules in {}: {err}", wasm_dir.display());
             return;
         }
     };
