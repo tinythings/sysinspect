@@ -76,7 +76,7 @@ release: clean
 
 run:
 	@echo "Running module (test preview)..."
-	@echo '{"config": {"path.sharelib": "${PWD}/build"}, "args": {"rt.mod": "hellodude"}}' | ../../../../../target/debug/runtime/wasm-runtime | jq
+	@echo '{"config": {"path.sharelib": "${PWD}/build"}, "args": {"rt.mod": "caller"}}' | ../../../../../target/debug/runtime/wasm-runtime | jq
 
 
 clean:
