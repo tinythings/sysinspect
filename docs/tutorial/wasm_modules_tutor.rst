@@ -183,7 +183,7 @@ Language Support
 
 Any language capable of compiling to **WASI** can theoretically be used.
 
-In practice, Ssysinspect focuses on languages that produce **small**, **fast**, and
+In practice, Sysinspect focuses on languages that produce **small**, **fast**, and
 **predictable** Wasm binaries. There are two primary recommendations:
 
 1. **TinyGo** is the recommended choice if you want it "in 10 minutes", **Rust** otherwise. TinyGo offers:
