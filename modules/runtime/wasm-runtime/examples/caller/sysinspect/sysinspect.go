@@ -42,8 +42,13 @@ func (c *Cmd) Output() (string, error) {
 
 	out := make([]byte, 256*1024) // a buffer for host response
 
+	var reqPtr uint32
+	if len(reqb) > 0 {
+		reqPtr = uint32(uintptr(unsafe.Pointer(&reqb[0])))
+	}
+
 	n := __execJSON(
-		uint32(uintptr(unsafe.Pointer(&reqb[0]))),
+		reqPtr,
 		uint32(len(reqb)),
 		uint32(uintptr(unsafe.Pointer(&out[0]))),
 		uint32(len(out)),
