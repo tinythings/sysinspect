@@ -196,7 +196,7 @@ In practice, Sysinspect focuses on languages that produce **small**, **fast**, a
 
   .. important::
 
-    You can also use standard Go with ``GOOS=js GOARCH=wasm``, but TinyGo produces much smaller
+    You can also use standard Go with ``GOOS=wasip1 GOARCH=wasm``, but TinyGo produces much smaller
     and faster binaries.
 
 2. **Rust** is your primary choice if you want maximum performance and control, but don't want it "in 10 minutes". **Rust** offers:
