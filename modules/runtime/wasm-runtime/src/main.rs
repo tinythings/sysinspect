@@ -10,8 +10,7 @@ use libmodcore::{
     response::ModResponse,
     runtime::{ModRequest, get_call_args, send_call_response},
 };
-use libsysinspect::SysinspectError;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 /// List available Wasm modules in the scripts directory
@@ -38,11 +37,6 @@ fn list_wasm_modules(wasm_dir: &Path) {
     }
 }
 
-/// Get module documentation from Wasm runtime
-fn module_doc_help(_cli: &ModuleCli, _modname: &str) -> Result<Value, SysinspectError> {
-    Ok(json!({}))
-}
-
 /// Run the Wasm runtime with the provided request.
 fn call_runtime(_cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
     let mut r = ModResponse::new_cm();
@@ -67,15 +61,10 @@ fn main() {
         print!("{}", mod_doc.help());
         return;
     } else if !cli.get_help_on().is_empty() {
-        match get_call_args() {
-            Ok(mut rq) => {
-                rq.add_opt("man");
-                rq.add_arg("man", Value::Bool(true));
-                let mr = &call_runtime(&cli, &rq);
-                print_mod_manual(mr.get_data());
-            }
-            Err(err) => println!("Arguments error: {err}"),
-        }
+        let mut rq = ModRequest::default();
+        rq.add_opt("man");
+        rq.add_arg("rt.mod", Value::String(cli.get_help_on()));
+        print_mod_manual(call_runtime(&cli, &rq).get_data());
         return;
     } else if cli.is_list_modules() {
         list_wasm_modules(PathBuf::from(cli.get_sharelib()).as_path());

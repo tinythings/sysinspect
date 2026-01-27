@@ -80,7 +80,6 @@ impl WasmRuntime {
 
     pub fn run(&self) -> ModResponse {
         let mut r = ModResponse::new_cm();
-
         // Get Wasm modules
         let wmod = match self.get_wasm_modules() {
             Err(err) => {
