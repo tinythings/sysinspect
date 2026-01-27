@@ -4,7 +4,7 @@ author: "Bo Maryniuk"
 description: Wasm runtime module.
 
 # Options, flags, switches
-# options:
+options:
 #  - name: rt.list
 #    description: "List of available Wasm scripts, ready to be called as modules."
 #
