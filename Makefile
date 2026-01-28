@@ -47,7 +47,8 @@ define move_bin
 	mv $$dir/run $$dir/sys/; \
 	mv $$dir/ssrun $$dir/sys/; \
 	mv $$dir/file $$dir/fs/; \
-	mv $$dir/lua-runtime $$dir/runtime/;
+	mv $$dir/lua-runtime $$dir/runtime/; \
+	mv $$dir/wasm-runtime $$dir/runtime/;
 endef
 
 setup:

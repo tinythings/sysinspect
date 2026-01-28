@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_SHARELIB;
 use libsysinspect::util;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::io::Error;
 use std::io::{self, Read};
 
@@ -39,8 +40,14 @@ impl ArgValue {
     }
 }
 
+impl From<ArgValue> for serde_json::Value {
+    fn from(val: ArgValue) -> Self {
+        val.0
+    }
+}
+
 /// Struct to call plugin parameters
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ModRequest {
     /// Timeout of the module running.
     /// If timeout is exceeded, module quits.
@@ -151,6 +158,27 @@ impl ModRequest {
     /// Get optional extra data payload
     pub fn ext(&self) -> &IndexMap<String, serde_json::Value> {
         &self.ext
+    }
+
+    /// Add an option
+    ///
+    /// This method typically used to alter a ModRequest by runtimes and
+    /// not supposed to be used within modules realm.
+    pub fn add_opt(&mut self, arg: &str) {
+        let arg = ArgValue(serde_json::Value::String(arg.to_string()));
+        let mut opts = self.options.clone().unwrap_or_default();
+        opts.push(arg);
+        self.options = Some(opts);
+    }
+
+    /// Add an argument
+    ///
+    /// This method typically used to alter a ModRequest by runtimes and
+    /// not supposed to be used within modules realm.
+    pub fn add_arg(&mut self, key: &str, val: Value) {
+        let mut args = self.arguments.clone().unwrap_or_default();
+        args.insert(key.to_string(), ArgValue(val));
+        self.arguments = Some(args);
     }
 }
 

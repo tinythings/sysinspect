@@ -95,8 +95,8 @@ where
     }
 }
 
-pub fn print_mod_manual(doc_val: Value) {
-    let doc: ModuleDoc = match serde_json::from_value(doc_val) {
+pub fn print_mod_manual(doc_val: &Value) {
+    let doc: ModuleDoc = match serde_json::from_value(doc_val.clone()) {
         Ok(d) => d,
         Err(err) => {
             eprintln!("Failed to parse module doc: {err}");
