@@ -16,7 +16,6 @@ use crate::{
     pylang,
     util::dataconv,
 };
-use colored::Colorize;
 use core::str;
 use indexmap::IndexMap;
 use nix::unistd::{Gid, setgid, setgroups};
