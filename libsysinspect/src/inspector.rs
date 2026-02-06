@@ -144,8 +144,10 @@ impl SysInspectRunner {
                         }
 
                         let actions = if !self.cb_labels.is_empty() {
+                            log::info!("Querying actions by checkbook labels: {:?}", self.cb_labels);
                             isp.actions_by_relations(self.cb_labels.to_owned(), self.state.to_owned())
                         } else {
+                            log::info!("Querying actions by entities: {:?}", self.entities);
                             isp.actions_by_entities(self.entities.to_owned(), self.state.to_owned())
                         };
 
@@ -159,6 +161,7 @@ impl SysInspectRunner {
                                                     Ok(response) => {
                                                         let response = response.unwrap_or(ActionResponse::default());
                                                         self.update_cstr_eval(&response);
+                                                        log::trace!("Action response for '{}': {:#?}", ac.id(), response);
                                                         evtproc.receiver().register(response.eid().to_owned(), response);
                                                     }
                                                     Err(err) => {
