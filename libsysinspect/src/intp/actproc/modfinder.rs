@@ -182,6 +182,7 @@ impl ModCall {
         let mut er: Vec<ExprRes> = Vec::new();
         let exp = cstr.all(self.state());
         if exp.is_empty() {
+            log::debug!("Constraint \"{}\" has no expressions for 'all' condition. Skipping evaluation.", cstr.id());
             return (None, None, er);
         }
 
@@ -215,6 +216,7 @@ impl ModCall {
         let mut er: Vec<ExprRes> = Vec::new();
         let exp = cstr.any(self.state());
         if exp.is_empty() {
+            log::debug!("Constraint \"{}\" has no expressions for 'any' condition. Skipping evaluation.", cstr.id());
             return (None, None, er);
         }
 
@@ -242,6 +244,7 @@ impl ModCall {
         let mut er: Vec<ExprRes> = Vec::new();
         let exp = cstr.none(self.state());
         if exp.is_empty() {
+            log::debug!("Constraint \"{}\" has no expressions for 'none' condition. Skipping evaluation.", cstr.id());
             return (None, None, er);
         }
 
