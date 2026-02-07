@@ -43,6 +43,7 @@ welcome—see the section on contributing for how to get involved.
    :caption: Tutorials
 
    tutorial/cfgmgmt_tutor
+   tutorial/checkbook_tutor
    tutorial/action_chain_tutor
    tutorial/module_management
    tutorial/wasm_modules_tutor
