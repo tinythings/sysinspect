@@ -8,6 +8,62 @@
        font-weight: bold;
        font-style: italic;
      }
+
+    /* target the actual Sphinx TOC container */
+      .tight-toc,
+      div.contents.tight-toc,
+      div.topic.contents.tight-toc {
+        background: #fcfcfc;
+        border: none;
+        border-radius: 4px;
+        padding: 12px 16px;
+        display: inline-block;
+        min-width: 260px;
+      }
+
+      /* Sphinx uses ul.simple and also inserts p tags */
+      .tight-toc ul,
+      .tight-toc ul.simple {
+        list-style: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      .tight-toc li {
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1.2 !important;
+      }
+
+      /* THIS is the missing piece: paragraphs inside list items */
+      .tight-toc li > p,
+      .tight-toc li p {
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1.2 !important;
+      }
+
+      /* nested lists spacing */
+      .tight-toc li > ul,
+      .tight-toc li > ul.simple {
+        margin: 2px 0 0 1.2em !important;
+        padding-left: 0.6em !important;
+      }
+
+      /* title spacing */
+      .tight-toc .topic-title {
+        margin: 0 0 6px 0 !important;
+        padding: 0 0 4px 0 !important;
+        border-bottom: 1px solid #ddd;
+        font-size: 0.8em;
+        font-weight: 700;
+        color: #777;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .tight-toc a { text-decoration: none; }
+
    </style>
 
 .. role:: u
@@ -18,8 +74,14 @@
 
 .. _checkbook_tutorial:
 
+
+.. contents:: Table of Contents
+   :local:
+   :depth: 3
+   :class: tight-toc
+
 Checkbook Tutorial
-===================
+^^^^^^^^^^^^^^^^^^
 
 .. note::
     This tutorial must walk you through a minimal Checkbook definition in Sysinspect model.
@@ -36,12 +98,20 @@ Checkbook Tutorial
 Before You Start
 ================
 
-Sysinspect keeps the philosophy of UNIX: a chain of small, composable tools. It doesn't try to describe the whole Universe
-in its own language, but rather provides a powerful framework to define your own models and tools. Therefore, you should not expect
-a "quick-n-dirty" easy stuff — this is what other Configuration Management systems are for. 😊
+Sysinspect keeps the philosophy of UNIX: a chain of small, composable tools. It doesn't try to describe the whole
+Universe in its own language, but rather provides a powerful framework to define your own models and tools. Think of it
+as a Swiss Army knife for system inspection and validation—you build exactly what you need, nothing more.
 
-A Checkbook is what one would call a "playbook" in Ansible or a "formula" in SaltStack. It is a collection of "relations"
-(facts, assertions, actions) aligned in a logical pipeline flow, that are evaluated and executed in a certain order.
+A Checkbook is what one would call a "playbook" in Ansible or a "formula" in SaltStack. It's essentially your
+automation script—a collection of inspections and actions bundled together. The clever part is that Sysinspect breaks
+things down into "relations" (facts, assertions, actions) that run one after another in a logical order. If you're
+used to Ansible, think of it as a more granular way to organize your plays with built-in validation checks.
+
+Requirements
+============
+
+This tutorial requires ``sys.run`` module to be available in your Sysinspect installation. Also you will need only ``sysinspect``
+CLI tool to run the Checkbook locally.
 
 
 Model Definition
@@ -64,13 +134,6 @@ everything in one file.
 
 Checkbook Definition
 --------------------
-
-# 1. Define a checkbook
-#
-#    Call is by a label "os-check"
-#    This label is basically a collection of
-#    various entities that needs to be fired in the order
-#    to call a chain of actions per each entity
 
 Checkbook has quite a simplle syntax: a unique ID (``os-check`` in this case) and a list of relations to be called.
 Relations are defined in the next section. You can refer to the Model Definition documentation for more details on the syntax.
@@ -118,8 +181,17 @@ Entities Definition
 -------------------
 
 In the relation definition above, we had ``general-info``, ``packages-info`` and ``routing-info`` as the required entities.
-Now we need to define these entities. To make this example more complete, entity definitions can also contain facts they carry.
-Let's update ``routing-info`` entity to contain a fact with some relevant information:
+Now we define those entities.
+
+An *entity* is a named bucket of context. Relations pull in entities via ``requires:``, and then Sysinspect runs any
+actions that are ``bind:``-attached to those entities.
+
+Minimum viable entity definition is just a name + optional ``description``. You can also add ``claims``. Claims are
+model-declared facts you expect to be true for that entity (or at least worth checking). They are not command output.
+They are your own structured data that constraints and handlers can reference.
+
+Below we extend ``routing-info`` with a claim. We declare that this host should have a route/subnet
+``192.168.122.0/24`` (common for libvirt / NAT setups). Later we can verify it against the real command output.
 
 .. code-block:: yaml
 
@@ -135,25 +207,45 @@ Let's update ``routing-info`` entity to contain a fact with some relevant inform
             - addresses:
                 subnet: "192.168.122.0/24"
 
-In this case it is expected that once ``routing-info`` is called, it will may be able to inquire about the routing information
-and claim that there is a subnet ``192.168.122.0/24``.
+What this means in plain terms:
+
+* ``routing-info`` is the entity that groups network routing-related stuff.
+* ``claims`` is where you put the "expected" values for that entity.
+* The ``$`` key is the usual Sysinspect container for a list payload.
+* We are storing a nested structure (``addresses`` ➡️ ``subnet``).
+
+On its own, this claim does not run any command and does not prove anything. It is just data attached to the entity.
+The actual check happens when an action (here: ``routing`` running ``ip route``) produces facts like ``stdout``, and a
+constraint compares those facts to what you expect.
 
 .. note::
-    SysInspect assertions/inquiries are **fully separated**, are optional and decoupled from the action execution flow.
-    You can assert anything you want, or omit the whole assertion part.
+  Assertions/inquiries are optional and separate from action execution.
 
-    Also note, that results of these assertions are also completely decoupled and supposed to be handled separately
-    by event handlers. An assertion is just that: an event.
+  Actions do work and produce facts (``stdout``, ``stderr``, return code, and any module-specific fields). Constraints
+  read those facts and emit pass/fail outcomes. They do not "change" the action result; they just gate follow-ups.
+
+  Also: assertion results are handled by event handlers. A constraint outcome is an event you can log, filter, or
+  route elsewhere.
 
 
 Actions Definition
 ------------------
 
-Let's define some simple actions. In this case we will be using ``sys.run`` module to just execute some existing commands on the
-target and simply get the text output. The result of these actions and the way we obtain the data is not that important here,
-as this is not the topic of this particular tutorial.
+Now we wire up a few actions. For this tutorial we keep it straight simple on purpose: we use ``sys.run`` to just run a
+shell command every time, and capture its output.
 
-These actions will be called by the relations defined above.
+What you should know about these actions:
+
+* They are listed under ``actions:`` section.
+* The action key (for example ``machine-id``) is the action name you reference from relations/constraints.
+* ``module: sys.run`` means "execute a command".
+* ``bind:`` attaches the action to one or more entities. If a relation requires an entity, actions bound to
+  that entity become eligible to run for that relation.
+* ``state: $: args: cmd: ...`` is where the module arguments go.
+* The usual outputs land in facts like ``stdout``, ``stderr``, and a return code (often ``retcode``). Those
+  facts are what constraints can read later.
+
+These actions are pulled in by the relations from the previous section (``os-info`` and ``net-info``).
 
 
 .. code-block:: yaml
@@ -203,34 +295,45 @@ These actions will be called by the relations defined above.
             args:
               cmd: "ip route"
 
-Here we define the last action for the second relation. Note that it has a constraint defined in the
-next section, so it will be executed only if the previous action ``routing`` is successful.
+One more action for the network relation: ``addr``. It's chained behind ``routing``.
+
+When ``if-true:`` is listing ``routing`` action, that means Sysinspect will only run ``addr`` action after ``routing`` has completed and
+successfully pass its constraints. In practice that means:
+
+* the ``routing`` action ran and didn't error out
+* if you attach any kind of assertion to ``routing`` (next section), that assertion must pass
 
 .. code-block:: yaml
 
-  actions:
-    # This action will display the network addresses by executing "ip addr" command
-    addr:
-      if-true:
-        - routing
-      descr: Display network addresses
-      module: sys.run
-      bind:
-        - routing-info
-      state:
-        $:
-          args:
-            cmd: "ip addr"
+    actions:
+      # This action will display the network addresses by executing "ip addr" command
+      addr:
+        if-true:
+          - routing
+        descr: Display network addresses
+        module: sys.run
+        bind:
+          - routing-info
+        state:
+          $:
+            args:
+              cmd: "ip addr"
 
 
 Asserts Definition
 ------------------
 
-Assertions are defined in the ``constraints`` section. They are basically a set of conditions that
-needs to be satisfied for the action to be executed. As this tutorial is not focused on assertion
-details, we defined one only to demonstrate the concept. In this case, we want to check if the output
-of the ``routing`` action contains the subnet ``192.168.122.0/24``, and fail if it doesn't, effectively
-preventing the next action ``addr`` from being executed.
+Assertions live under the ``constraints`` section. Think of them as guardrails for actions: run an
+action, look at what it returned, then decide if we keep going.
+
+In this tutorial we keep it simple and define one constraint for the ``routing`` action. The idea:
+
+* run ``routing`` (which executes ``ip route``)
+* inspect its ``stdout``
+* require that it mentions the subnet ``192.168.122.0/24``
+
+If the check fails, Sysinspect marks the constraint as failed and anything chained after it (like
+``addr`` which has ``if-true: - routing``) won't run. No magic: it's just a gate.
 
 .. code-block:: yaml
 
@@ -244,24 +347,50 @@ preventing the next action ``addr`` from being executed.
           - fact: stdout
             contains: "192.168.122.0/24"
 
+In this case, the assertion checks if the ``stdout`` fact (the output of the command) contains the specified subnet
+within the output text.
+
+More detail on what is happening here:
+
+* ``constraints: routing:`` attaches this constraint to the action named ``routing``.
+* ``entities:`` scopes it to the ``routing-info`` entity (so the event is tied to that entity).
+* ``all:`` means every listed rule must pass.
+* ``fact: stdout`` refers to the action result field called ``stdout``.
+* ``contains: "192.168.122.0/24"`` is a substring match.
+
+So if your routes don't show that subnet, the constraint fails and the next step is blocked. If the
+subnet is present, the constraint passes and Sysinspect is allowed to run ``addr``.
+
 Events Definition
 -----------------
 
-Everything in Sysinspect is an event, and you can handle these events in any way you want. For example,
-you can log them to the console, or send them to some external system for further processing. In this
-section we define two event handlers: one for logging all events to the console, and another one for
-logging only the results of assertions (constraints) to a separate file.
+Sysinspect emits events while it runs your checkbook. Treat it like a small event bus: actions,
+constraints, and other steps produce messages you can route to handlers.
+
+Typical events you will see:
+
+* Action lifecycle (started/finished/failed)
+* Command output (``stdout``/``stderr``) and return code
+* Constraint results (pass/fail + what matched or did not match)
+
+You decide what to do with these events: print them, write them to a file, ship them to a log system,
+or trigger some side-effect. In this tutorial we configure two simple handlers:
+
+* ``console-logger``: dumps everything to the console (good for local runs and debugging)
+* ``outcome-logger``: focuses on constraint outcomes (useful when you only care about assertions)
 
 .. warning::
 
-  **Events section** will be extended from the scope of just model definition, to share the
-  namespace with **Sensors section** which will be introduced in the next major release.
+  In the next major release, **Events** will share a namespace with **Sensors**.
 
+  The syntax shown here is expected to stay, but sensor-defined events may override model-defined
+  events if names collide.
 
-  While the current syntax itself won't change, model events will be overridden by the events of sensors,
-  so you will need to make sure your model events do not clash with the sensor events.
+  Practical advice:
 
-  Please refer to the documentation of the next major release for more details on this topic.
+  * Use unique handler names (prefix them, for example ``tutorial-console-logger``)
+  * Avoid generic names if you plan to mix models and sensors
+  * Re-check your handler names after upgrading
 
 .. code-block:: yaml
 
@@ -277,3 +406,24 @@ logging only the results of assertions (constraints) to a separate file.
 
       outcome-logger:
         prefix: Constraints
+
+Trying It Out
+=============
+
+Now that we have our Checkbook defined, we can run it locally using the Sysinspect CLI tool.
+This is a great way to test and debug your checkbook before deploying it in a more complex environment.
+
+Ensure you've done these steps:
+
+1. Save the whole model definition in just one file named ``model.cfg`` under some directory, say ``./checkbook``.
+2. Ensure your local machine has installed Sysinspect and the ``sys.run`` module is available as for *sysminion*.
+3. Run the checkbook using the CLI:
+
+   .. code-block:: bash
+
+     sysinspect --model ./checkbook --labels os-check
+
+This should execute the checkbook, run the defined actions, evaluate the constraints, and print the events to the
+console via the configured handlers.
+
+Note, that argument ``--labels`` is plural: you can specify multuple labels to run multiple checkbooks at once, comma separated.
