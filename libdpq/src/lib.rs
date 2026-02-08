@@ -98,7 +98,6 @@ impl DiskPersistentQueue {
     /// let job_id = q.next_id()?;
     /// println!("Next job ID: {job_id}");
     /// ```
-
     fn next_id(&self) -> Result<u64, SysinspectError> {
         let key = b"next_id";
         let old = self.meta.fetch_and_update(key, |old| {
@@ -353,7 +352,7 @@ impl DiskPersistentQueue {
     ///         Err(SysinspectError::new("Job failed"))
     ///     }
     /// });
-
+    /// ```
     pub fn start_ack<F, Fut>(&self, mut exec: F) -> tokio::task::JoinHandle<()>
     where
         F: FnMut(u64, WorkItem) -> Fut + Send + 'static,
