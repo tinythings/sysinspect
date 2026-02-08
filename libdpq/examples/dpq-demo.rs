@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            if let Err(e) = q3.ack_done(job_id) {
+            if let Err(e) = q3.ack(job_id) {
                 eprintln!("Ack failed for {job_id}: {e}");
             }
         }
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut msg = MasterMessage::new(RequestType::Ping, json!("Hello from DPQ demo!"));
     msg.set_target(target);
 
-    let id = q.enqueue(WorkItem::MasterCommand(msg))?;
+    let id = q.add(WorkItem::MasterCommand(msg))?;
     println!("Enqueued job id={id}");
 
     // Keep alive so runner can run
