@@ -7049,6 +7049,7 @@ dependencies = [
  "glob",
  "indexmap 2.13.0",
  "libc",
+ "libdpq",
  "libmodpak",
  "libsetup",
  "libsysinspect",

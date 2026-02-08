@@ -24,6 +24,7 @@ tokio = { version = "1.49.0", features = ["full"] }
 libsysinspect = { path = "../libsysinspect" }
 libsetup = { path = "../libsetup" }
 libmodpak = { path = "../libmodpak" }
+libdpq = { path = "../libdpq" }
 log = "0.4.29"
 serde_yaml = "0.9.34"
 serde = { version = "1.0.228", features = ["derive"] }
