@@ -1,5 +1,6 @@
 pub mod cstr_stdhdl;
 pub mod evthandler;
+pub mod pipeline;
 pub mod pipescript;
 pub mod stdhdl;
 
