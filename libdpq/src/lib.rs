@@ -33,7 +33,7 @@ pub enum WorkItem {
 ///     }
 /// });
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DiskPersistentQueue {
     db: Arc<Db>,
     meta: Tree,
@@ -98,23 +98,19 @@ impl DiskPersistentQueue {
     /// let job_id = q.next_id()?;
     /// println!("Next job ID: {job_id}");
     /// ```
+
     fn next_id(&self) -> Result<u64, SysinspectError> {
         let key = b"next_id";
+        let old = self.meta.fetch_and_update(key, |old| {
+            let current = old.as_ref().and_then(|x| Self::bytes_to_u64(&x[..])).unwrap_or(1);
 
-        let updated = self.meta.fetch_and_update(key, |old| {
-            let mut v = old.as_ref().and_then(|x| Self::bytes_to_u64(&x[..])).unwrap_or(1);
-
-            let out = v.to_be_bytes().to_vec();
-            v = v.saturating_add(1);
-            Some(out)
+            let next = current.saturating_add(1);
+            Some(next.to_be_bytes().to_vec())
         })?;
 
-        let next = updated.as_ref().and_then(|x| Self::bytes_to_u64(&x[..])).unwrap_or_else(|| {
-            log::warn!("Corrupt next_id in queue meta, resetting to 1");
-            1
-        });
+        let assigned = old.as_ref().and_then(|x| Self::bytes_to_u64(&x[..])).unwrap_or(1);
 
-        Ok(next)
+        Ok(assigned)
     }
 
     /// Store the task payload in the jobs tree, keyed by the job ID.
@@ -220,13 +216,12 @@ impl DiskPersistentQueue {
         self.db.flush()?;
 
         let Some(item) = self.load_task(id)? else {
-            log::warn!("Job payload missing for id={id}, requeueing marker");
+            log::error!("Job payload missing for id={id}; dropping markers (queue corruption or race)");
             self.inflight.remove(Self::u64_key(id))?;
-            self.pending.insert(Self::u64_key(id), IVec::from(&b""[..]))?;
+            self.pending.remove(Self::u64_key(id))?; // just in case
             self.db.flush()?;
             return Ok(None);
         };
-
         Ok(Some((id, item)))
     }
 
@@ -358,7 +353,8 @@ impl DiskPersistentQueue {
     ///         Err(SysinspectError::new("Job failed"))
     ///     }
     /// });
-    fn start_ack<F, Fut>(&self, mut exec: F)
+
+    pub fn start_ack<F, Fut>(&self, mut exec: F) -> tokio::task::JoinHandle<()>
     where
         F: FnMut(u64, WorkItem) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(), SysinspectError>> + Send + 'static,
@@ -397,6 +393,6 @@ impl DiskPersistentQueue {
                     _ = tokio::time::sleep(Duration::from_millis(500)) => {},
                 }
             }
-        });
+        })
     }
 }
