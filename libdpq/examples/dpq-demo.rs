@@ -1,10 +1,10 @@
-use libdpq::{WorkItem, WorkQueue};
+use libdpq::{DiskPersistentQueue, WorkItem};
 use libsysinspect::proto::{MasterMessage, MinionTarget, rqtypes::RequestType};
 use serde_json::json;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let q = WorkQueue::open("/tmp/libdpq-demo-queue")?;
+    let q = DiskPersistentQueue::open("/tmp/libdpq-demo-queue")?;
     let q2 = q.clone();
     q.start(move |job_id, item| {
         let q3 = q2.clone();
