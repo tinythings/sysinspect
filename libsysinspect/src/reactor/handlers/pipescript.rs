@@ -11,6 +11,8 @@ use crate::intp::{
 use colored::Colorize;
 use core::str;
 use serde_json::{Value, json};
+use std::process::{Child, ExitStatus};
+use std::time::{Duration, Instant};
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -31,14 +33,27 @@ impl PipeScriptHandler {
         }
     }
 
+    fn wait_with_timeout(child: &mut Child, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
+        let start = Instant::now();
+        loop {
+            if let Some(status) = child.try_wait()? {
+                return Ok(Some(status));
+            }
+            if start.elapsed() >= timeout {
+                return Ok(None);
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
     /// Call user-defined script
     fn call_script(&self, evt: &ActionResponse) {
-        // Successfull responses only
-        if evt.response.retcode() > 0 {
+        // Successful responses only
+        if evt.response.retcode() != 0 {
             return;
         }
 
-        // Skip events that doesn't belong
+        // Skip events that don't belong
         if !evt.match_eid(&self.eid) {
             log::debug!("Event {} doesn't match handler {}", evt.eid().bright_yellow(), self.eid.bright_yellow());
             return;
@@ -56,13 +71,32 @@ impl PipeScriptHandler {
             None => return,
         };
 
+        if cmd.is_empty() {
+            return;
+        }
+
         // Verbosity
         let quiet = cfg.as_bool("quiet").unwrap_or(false);
 
         // Communication format
         let format = cfg.as_string("format").unwrap_or("json".to_string());
 
-        match Command::new(&cmd[0]).args(&cmd[1..]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+        // Timeout (ms) - default 10s
+        let timeout = Duration::from_secs(cfg.as_int("timeout").unwrap_or(10).max(0) as u64);
+
+        // Spawn policy:
+        // - keep stdin piped for payload
+        // - avoid stdout/stderr pipe deadlocks: inherit for noisy mode, null for quiet
+        let mut command = Command::new(&cmd[0]);
+        command.args(&cmd[1..]).stdin(Stdio::piped());
+
+        if quiet {
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+        } else {
+            command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+        }
+
+        match command.spawn() {
             Ok(mut p) => {
                 if let Some(mut stdin) = p.stdin.take() {
                     let data = json!({
@@ -75,29 +109,30 @@ impl PipeScriptHandler {
                         "ret.data": evt.response.data(),
                         "timestamp": evt.ts_rfc_3339(),
                     });
+
                     if let Err(err) = stdin.write_all(self.fmt(data, &format).as_bytes()) {
                         log::error!("Unable to pipe data to '{}': {}", cmd.join(" "), err);
                     } else if !quiet {
                         log::info!("{} - {}", "Pipescript".cyan(), cmd.join(" "));
                     }
+                    // stdin dropped here => EOF for child
                 }
 
-                // Log stuff
-                if !quiet {
-                    match p.wait_with_output() {
-                        Ok(output) => {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-
-                            if !stdout.trim().is_empty() {
-                                log::info!("{} STDOUT: {}", "Pipescript".cyan(), stdout.trim());
-                            }
-
-                            if !stderr.trim().is_empty() {
-                                log::warn!("{} STDERR: {}", "Pipescript".cyan(), stderr.trim());
-                            }
+                // Always reap; enforce timeout
+                match Self::wait_with_timeout(&mut p, timeout) {
+                    Ok(Some(status)) => {
+                        if !quiet {
+                            log::debug!("{} exit: {}", "Pipescript".cyan(), status);
                         }
-                        Err(e) => log::error!("Failed to read output from '{}': {}", cmd.join(" "), e),
+                    }
+                    Ok(None) => {
+                        log::error!("{} timeout after {}s: killing '{}'", "Pipescript".cyan(), timeout.as_secs(), cmd.join(" "));
+                        let _ = p.kill();
+                        let _ = p.wait(); // reap no matter what
+                    }
+                    Err(e) => {
+                        log::error!("{} wait error for '{}': {}", "Pipescript".cyan(), cmd.join(" "), e);
+                        let _ = p.wait(); // best-effort reap
                     }
                 }
             }
