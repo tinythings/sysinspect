@@ -44,7 +44,7 @@ members = [
     "libtelemetry",
     "libwebapi",
     "sysclient"
-]
+, "libdpq"]
 
 [profile.release]
 strip = true

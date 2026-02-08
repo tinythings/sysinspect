@@ -3270,6 +3270,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
 
 [[package]]
+name = "libdpq"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libsysinspect",
+ "log",
+ "serde",
+ "serde_json",
+ "sled",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "libeventreg"
 version = "0.4.0"
 dependencies = [
