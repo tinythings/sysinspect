@@ -314,10 +314,13 @@ impl DiskPersistentQueue {
 
     /// Start a runner that continuously tries to dequeue and execute jobs using the provided async closure.
     /// The closure receives the job ID and the WorkItem, and should return a Future that completes when the job is done.
-    /// Note: the closure should not block for a long time, as it runs in a single task. If you need to do heavy work, consider spawning a new task inside the closure.
+    /// The runner will automatically ack successful jobs. If the job fails, the caller is responsible for calling nack(id) inside the closure.
+    ///
+    /// This is a convenience method that wraps the start_ack() method, but does not handle nacking for you.
+    ///
     /// Example usage:
     /// ```
-    /// q.start_runner(|job_id, item| async move {
+    /// q.start(|job_id, item| async move {
     ///     // Process the item...
     ///     // Then ack or nack:
     ///     if success {
@@ -331,27 +334,11 @@ impl DiskPersistentQueue {
         F: FnMut(u64, WorkItem) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        let (tx, mut rx) = mpsc::channel::<()>(1);
-        let mut q = self.clone();
-        q.tx = tx;
-
-        tokio::spawn(async move {
-            loop {
-                loop {
-                    match q.fetch() {
-                        Ok(Some((id, item))) => exec(id, item).await,
-                        Ok(None) => break,
-                        Err(e) => {
-                            log::error!("queue dequeue error: {e}");
-                            break;
-                        }
-                    }
-                }
-
-                tokio::select! {
-                    _ = rx.recv() => {},
-                    _ = tokio::time::sleep(Duration::from_millis(500)) => {},
-                }
+        self.start_ack(move |id, item| {
+            let fut = exec(id, item);
+            async move {
+                fut.await;
+                Ok(())
             }
         });
     }
@@ -359,8 +346,6 @@ impl DiskPersistentQueue {
     /// Start a runner that continuously tries to dequeue and execute jobs using the provided async closure,
     /// and automatically acks successful jobs or nacks failed jobs. The closure receives the job ID and the WorkItem,
     /// and should return a Future that completes with a Result indicating whether the job was successful or not.
-    /// This is a convenience method that wraps the start() method and handles the ack/nack logic for you, so you
-    /// can focus on the actual job processing.
     ///
     /// Example usage:
     /// ```
@@ -373,7 +358,7 @@ impl DiskPersistentQueue {
     ///         Err(SysinspectError::new("Job failed"))
     ///     }
     /// });
-    pub fn start_ack<F, Fut>(&self, mut exec: F)
+    fn start_ack<F, Fut>(&self, mut exec: F)
     where
         F: FnMut(u64, WorkItem) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(), SysinspectError>> + Send + 'static,
