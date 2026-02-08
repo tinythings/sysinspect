@@ -65,6 +65,9 @@ impl DiskPersistentQueue {
         let q = Self { db, meta, pending, inflight, jobs, tx };
         q.recover()?;
 
+        // Wake up any runners waiting for jobs
+        let _ = q.tx.try_send(());
+
         Ok(q)
     }
 
