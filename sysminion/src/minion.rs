@@ -563,8 +563,7 @@ impl SysMinion {
 
             match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
                 Ok(()) => {
-                    log::debug!("Sysinspect model cycle finished");
-                    log::info!("Task {} finished", cycle_id);
+                    log::debug!("Task {} finished", cycle_id);
                 }
                 Err(e) => {
                     log::error!("Blocking task crashed: {e}");

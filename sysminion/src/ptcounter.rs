@@ -199,7 +199,7 @@ impl PTCounter {
         let mut top: Vec<&DiskStats> = self.disk_stats.iter().collect();
         top.sort_by(|a, b| b.write_bps.partial_cmp(&a.write_bps).unwrap_or(std::cmp::Ordering::Equal));
 
-        log::trace!(
+        log::debug!(
             "Stats: loadavg(5m)={:.2}, cpu={:.1}%, procs={}, top_writers={:#?}",
             self.loadaverage,
             self.cpu_usage,
@@ -211,14 +211,14 @@ impl PTCounter {
     /// Increment task counter
     pub fn inc(&mut self, cid: &str) {
         self.tasks.insert(cid.to_string());
-        log::info!("Added task {}, count increased to {}, load average: {}", cid, self.tasks.len(), self.loadaverage);
+        log::debug!("Added task {}, count increased to {}, load average: {}", cid, self.tasks.len(), self.loadaverage);
     }
 
     /// Decrement task counter
     pub fn dec(&mut self, cid: &str) {
         self.tasks.remove(cid);
         self.done.insert(cid.to_string());
-        log::info!("Removed task {}, count decreased to {}, load average: {}", cid, self.tasks.len(), self.loadaverage);
+        log::debug!("Removed task {}, count decreased to {}, load average: {}", cid, self.tasks.len(), self.loadaverage);
     }
 
     /// Get current task count
