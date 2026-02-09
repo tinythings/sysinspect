@@ -21,6 +21,37 @@ struct Call {
     context: IndexMap<String, Value>,
 }
 
+impl Call {
+    fn context(&self) -> String {
+        fn qstr(s: &str) -> String {
+            let s = s.trim_end();
+            let safe = !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'));
+
+            if safe {
+                s.to_string()
+            } else {
+                // single-quote and escape single quotes by doubling them
+                format!("'{}'", s.replace('\'', "''"))
+            }
+        }
+
+        self.context
+            .iter()
+            .map(|(k, v)| {
+                let rendered = match v {
+                    serde_yaml::Value::String(s) => qstr(s),
+                    serde_yaml::Value::Number(n) => n.to_string(),
+                    serde_yaml::Value::Bool(b) => b.to_string(),
+                    serde_yaml::Value::Null => "null".to_string(),
+                    other => qstr(&PipelineHandler::scalar2s(other)),
+                };
+                format!("{k}:{rendered}")
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct PipelineHandler {
     eid: String,
@@ -120,19 +151,20 @@ impl EventHandler for PipelineHandler {
         }
 
         let calls = self.get_calls(evt);
-        log::info!("Calls: {:#?}", calls);
+        for call in calls {
+            let mut target = MinionTarget::default();
+            target.add_hostname("*");
+            target.set_scheme(&call.query);
+            target.set_context_query(&call.context());
 
-        log::info!("Action response data: {:#?}", evt.response.data());
+            let mut msg = MasterMessage::command();
+            msg.set_target(target);
+            msg.payload();
 
-        let mut target = MinionTarget::default();
-        //target.add_hostname(&traits::get_minion_traits(None).get("system.hostname.fqdn").map(|v| v.to_string()).unwrap_or("*".to_string()));
-        target.add_hostname("*");
-        target.set_scheme("single/wasm");
-        target.set_context_query("");
-
-        let mut msg = MasterMessage::command();
-        msg.set_target(target);
-        msg.payload();
+            if let Err(e) = dpq.add(WorkItem::MasterCommand(msg)) {
+                log::error!("[{}]: DPQ failed: {e}", PipelineHandler::id().bright_blue());
+                return;
+            }
 
             log::info!("[{}] added call to {}", PipelineHandler::id().bright_blue(), call.query.bright_yellow());
         }
