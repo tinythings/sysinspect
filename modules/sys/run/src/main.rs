@@ -6,7 +6,6 @@ use libmodcore::{
     response::ModResponse,
     runtime::{self, ModRequest, get_arg, get_call_args, get_opt, send_call_response},
 };
-
 use serde_json::json;
 use std::{
     io::Write,
@@ -78,7 +77,7 @@ fn call(cmd: &str, send: &str, locale: &str, env: &str, disown: bool) -> ModResp
                                     resp.set_message(&err.to_string());
                                 } else {
                                     resp.set_retcode(0);
-                                    resp.set_message(&format!("\"{cmd}\" finished"));
+                                    resp.set_message("module sys.run finished");
                                 }
                                 resp
                             }

@@ -158,7 +158,7 @@ impl SysInspector {
                     self.config.set_events(v_obj.unwrap())?;
                 }
             } else {
-                log::warn!("Directive '{}' is expected to be a mapping, but it's not. Skipping.", directive);
+                log::debug!("Directive '{}' is expected to be a mapping, but it's not. Skipping.", directive);
             }
 
             log::debug!("Loaded {amt} instances of {directive}");

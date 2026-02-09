@@ -78,11 +78,10 @@ impl PipelineHandler {
             })
             .collect();
 
-        // 3) Apply updates
         for (k, v) in updates {
             let logv = Self::scalar2s(&v);
             call.context.insert(k.clone(), v);
-            log::info!("Setting context variable {} to {}", k.bright_green(), logv.bright_blue());
+            log::debug!("[{}] Setting context variable {} to {}", PipelineHandler::id().bright_blue(), k.bright_green(), logv.bright_blue());
         }
     }
 }
@@ -103,15 +102,20 @@ impl EventHandler for PipelineHandler {
     }
 
     fn handle(&self, evt: &ActionResponse) {
-        log::info!("Pipeline handler received event {}", evt.eid());
+        log::info!("[{}] handler received event {}", PipelineHandler::id().bright_blue(), evt.eid());
         let Some(dpq) = crate::inspector::SysInspectRunner::dpq() else {
-            log::error!("pipeline: DPQ not set");
+            log::error!("[{}]: DPQ not set", PipelineHandler::id().bright_blue());
             return;
         };
 
         // Skip events that don't belong
         if !evt.match_eid(&self.eid) {
-            log::info!("Event {} doesn't match handler {}", evt.eid().bright_yellow(), self.eid.bright_yellow());
+            log::info!(
+                "[{}] Event {} doesn't match handler {}",
+                PipelineHandler::id().bright_blue(),
+                format!("{}/{}/{}/{}", evt.aid(), evt.eid(), evt.sid(), evt.response.retcode()).bright_yellow(),
+                self.eid.bright_yellow()
+            );
             return;
         }
 
@@ -130,12 +134,8 @@ impl EventHandler for PipelineHandler {
         msg.set_target(target);
         msg.payload();
 
-        // Stupid bypass for now
-        if let Err(e) = dpq.add(WorkItem::MasterCommand(msg)) {
-            log::error!("pipeline: dpq enqueue failed: {e}");
-            return;
+            log::info!("[{}] added call to {}", PipelineHandler::id().bright_blue(), call.query.bright_yellow());
         }
-        log::info!("pipeline: enqueued ping to DPQ with eid {}", self.eid);
     }
 
     fn config(&self) -> Option<EventConfigOption> {

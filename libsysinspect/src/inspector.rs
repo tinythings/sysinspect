@@ -140,10 +140,10 @@ impl SysInspectRunner {
 
     /// Start the inspector
     pub async fn start(&mut self) {
-        log::info!("Starting sysinspect runner");
+        log::debug!("Starting sysinspect runner");
         match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone(), self.context.clone()) {
             Ok(spec) => {
-                log::info!("Model spec loaded");
+                log::debug!("Model spec loaded");
                 match SysInspector::new(spec.clone(), Some(Self::minion_cfg().sharelib_dir().clone()), self.context.clone().unwrap_or_default()) {
                     Ok(isp) => {
                         // Setup event processor
@@ -156,10 +156,10 @@ impl SysInspectRunner {
                         }
 
                         let actions = if !self.cb_labels.is_empty() {
-                            log::info!("Querying actions by checkbook labels: {:?}", self.cb_labels);
+                            log::info!("Querying actions by checkbook labels: {}", self.cb_labels.join(", ").bright_green());
                             isp.actions_by_relations(self.cb_labels.to_owned(), self.state.to_owned())
                         } else {
-                            log::info!("Querying actions by entities: {:?}", self.entities);
+                            log::info!("Querying actions by entities: {}", self.entities.join(", ").bright_green());
                             isp.actions_by_entities(self.entities.to_owned(), self.state.to_owned())
                         };
 
@@ -195,9 +195,9 @@ impl SysInspectRunner {
                                 log::error!("{err}");
                             }
                         }
-                        log::info!("Starting event processor cycle");
+                        log::debug!("Starting event processor cycle");
                         evtproc.process().await;
-                        log::info!("Event processing cycle finished");
+                        log::debug!("Event processing cycle finished");
                     }
                     Err(err) => log::error!("{err}"),
                 }
