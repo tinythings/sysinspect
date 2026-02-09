@@ -84,7 +84,7 @@ impl SysMinion {
         log::debug!("Trying to connect at {}", cfg.master());
 
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
-        let dpq = DiskPersistentQueue::open(cfg.root_dir().join("queue"))?;
+        let dpq = DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks"))?;
 
         log::debug!("Network bound at {}", cfg.master());
         let instance = SysMinion {
