@@ -422,7 +422,30 @@ impl ModCall {
         if !status.success() {
             return Err(io::Error::other(format!("child exit {status:?}; stderr: {}", String::from_utf8_lossy(&err))));
         }
-        Ok(out)
+
+        Ok(out.trim().to_string())
+    }
+
+    fn cleanup_stdout(out: &str) -> Result<String, SysinspectError> {
+        let out = out.trim();
+        if out.is_empty() {
+            return Err(SysinspectError::ModuleError("Module returned empty stdout".to_string()));
+        }
+
+        if out.starts_with('{') || out.starts_with('[') {
+            return Ok(out.to_string());
+        }
+
+        if out.starts_with('"') && out.ends_with('"') {
+            match serde_json::from_str::<String>(out) {
+                Ok(unquoted) => return Ok(unquoted.trim().to_string()),
+                Err(e) => {
+                    return Err(SysinspectError::ModuleError(format!("STDOUT looked like quoted JSON but could not be decoded: {e}")));
+                }
+            }
+        }
+
+        Err(SysinspectError::ModuleError(format!("Module returned non-JSON stdout: {}", out)))
     }
 
     /// Runs native external module
@@ -435,9 +458,9 @@ impl ModCall {
         let muid = unsafe { libc::getuid() };
         let mgid = unsafe { libc::getgid() };
 
+        // Root path: use hardened spawn() (drops privs etc.)
         if muid == 0 && mgid == 0 {
             let binding = self.params_json();
-            // XXX: fsize-cap, working dir/disk and vmem still needs to be implemented
             let spec = SpawnSpec {
                 module: self.module.as_os_str(),
                 args: &[],
@@ -450,70 +473,75 @@ impl ModCall {
 
             log::debug!("Spawning module with spec: {:?}", spec);
 
-            match Self::spawn(self, &spec) {
-                Ok(out) => match str::from_utf8(out.as_bytes()) {
-                    Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
-                        Ok(r) => {
-                            let mut data = r.clone();
-                            data.add_data("run-uid", json!(spec.uid));
-                            data.add_data("run-gid", json!(spec.gid));
+            let raw_out = Self::spawn(self, &spec).map_err(|e| SysinspectError::ModuleError(format!("Error calling module: {e}")))?;
+            let cleaned = match Self::cleanup_stdout(&raw_out) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    return Err(e);
+                }
+            };
 
-                            Ok(Some(ActionResponse::new(
-                                self.eid.to_owned(),
-                                self.aid.to_owned(),
-                                self.state.to_owned(),
-                                data,
-                                self.eval_constraints(&r),
-                            )))
-                        }
-                        Err(e) => {
-                            log::debug!("STDOUT: {out}");
-                            Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
-                        }
-                    },
-                    Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
-                },
-                Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {err}"))),
+            match serde_json::from_str::<ActionModResponse>(&cleaned) {
+                Ok(r) => {
+                    let mut data = r.clone();
+                    data.add_data("run-uid", json!(spec.uid));
+                    data.add_data("run-gid", json!(spec.gid));
+
+                    Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), data, self.eval_constraints(&r))))
+                }
+                Err(e) => {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    log::debug!("STDOUT (cleaned): {cleaned}");
+                    Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
+                }
             }
         } else {
             log::debug!("Spawning module with default privileges");
-            match Command::new(&self.module).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
-                Ok(mut p) => {
-                    // Send options
-                    if let Some(mut stdin) = p.stdin.take()
-                        && let Err(err) = stdin.write_all(self.params_json().as_bytes())
-                    {
-                        return Err(SysinspectError::ModuleError(format!("Error while communicating with the module: {err}")));
-                    }
+            let mut p = Command::new(&self.module)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| SysinspectError::ModuleError(format!("Error calling module: {e}")))?;
 
-                    // Get the output
-                    if let Ok(out) = p.wait_with_output() {
-                        match str::from_utf8(&out.stdout) {
-                            Ok(out) => match serde_json::from_str::<ActionModResponse>(out) {
-                                Ok(r) => {
-                                    let mut data = r.clone();
-                                    data.add_data("run-uid", json!(muid));
-                                    data.add_data("run-gid", json!(mgid));
-                                    Ok(Some(ActionResponse::new(
-                                        self.eid.to_owned(),
-                                        self.aid.to_owned(),
-                                        self.state.to_owned(),
-                                        data,
-                                        self.eval_constraints(&r),
-                                    )))
-                                }
-                                Err(e) => {
-                                    log::debug!("STDOUT: {out}");
-                                    Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
-                                }
-                            },
-                            Err(err) => Err(SysinspectError::ModuleError(format!("Error obtaining the output: {err}"))),
-                        }
-                    } else {
-                        Err(SysinspectError::ModuleError("Module returned no output".to_string()))
-                    }
+            // Send params JSON to stdin and close
+            if let Some(mut stdin) = p.stdin.take() {
+                stdin
+                    .write_all(self.params_json().as_bytes())
+                    .map_err(|e| SysinspectError::ModuleError(format!("Error while communicating with the module: {e}")))?;
+                drop(stdin);
+            }
+
+            let out = p.wait_with_output().map_err(|e| SysinspectError::ModuleError(format!("Error obtaining module output: {e}")))?;
+
+            if !out.status.success() {
+                return Err(SysinspectError::ModuleError(format!("child exit {:?}; stderr: {}", out.status, String::from_utf8_lossy(&out.stderr))));
+            }
+
+            let raw_out = String::from_utf8(out.stdout).map_err(|e| SysinspectError::ModuleError(format!("STDOUT not UTF-8: {e}")))?;
+
+            let cleaned = match Self::cleanup_stdout(&raw_out) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    return Err(e);
                 }
-                Err(err) => Err(SysinspectError::ModuleError(format!("Error calling module: {err}"))),
+            };
+
+            match serde_json::from_str::<ActionModResponse>(&cleaned) {
+                Ok(r) => {
+                    let mut data = r.clone();
+                    data.add_data("run-uid", json!(muid));
+                    data.add_data("run-gid", json!(mgid));
+
+                    Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), data, self.eval_constraints(&r))))
+                }
+                Err(e) => {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    log::debug!("STDOUT (cleaned): {cleaned}");
+                    Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
+                }
             }
         }
     }

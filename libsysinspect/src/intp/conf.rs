@@ -35,6 +35,11 @@ impl EventConfigOption {
     pub fn as_str_list(&self, cfg: &str) -> Option<Vec<String>> {
         as_str_list_opt(self.data.get(cfg).cloned())
     }
+
+    /// Get an element by the key, if you know it
+    pub fn get(&self, cfg: &str) -> Option<Value> {
+        self.data.get(cfg).cloned()
+    }
 }
 
 /// A configuration of an event. It contains an array of

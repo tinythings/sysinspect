@@ -15,7 +15,7 @@ use lazy_static::lazy_static;
 /// 2. Add into registry variable in init_handlers() function
 pub mod registry {
     use super::*;
-    use crate::intp::conf::EventConfig;
+    use crate::{intp::conf::EventConfig, reactor::handlers::pipeline::PipelineHandler};
     use cstr_stdhdl::ConstraintHandler;
     use dashmap::DashMap;
     use evthandler::EventHandler;
@@ -44,6 +44,7 @@ pub mod registry {
         REGISTRY_MAP.insert(StdoutEventHandler::id(), |eid, cfg| Box::new(StdoutEventHandler::new(eid, cfg)));
         REGISTRY_MAP.insert(ConstraintHandler::id(), |eid, cfg| Box::new(ConstraintHandler::new(eid, cfg)));
         REGISTRY_MAP.insert(PipeScriptHandler::id(), |eid, cfg| Box::new(PipeScriptHandler::new(eid, cfg)));
+        REGISTRY_MAP.insert(PipelineHandler::id(), |eid, cfg| Box::new(PipelineHandler::new(eid, cfg)));
     }
 
     /// Get all registered handlers.

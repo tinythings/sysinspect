@@ -9,7 +9,7 @@ use errcodes::ProtoErrorCode;
 use libcommon::SysinspectError;
 use rqtypes::RequestType;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::Value;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// Master message
@@ -36,6 +36,12 @@ impl MasterMessage {
     /// Master message constructor
     pub fn new(rtype: RequestType, data: Value) -> MasterMessage {
         MasterMessage { target: Default::default(), request: rtype, data, retcode: ProtoErrorCode::Undef as usize, cycle: Uuid::new_v4().to_string() }
+    }
+
+    /// Creates a command message with a new cycle ID. This is used by the pipeline handler to create a master
+    /// message with the URI specified in the event configuration.
+    pub fn command() -> MasterMessage {
+        MasterMessage::new(RequestType::Command, json!({"files": {}, "sid": "", "models_root": "", "uri": ""}))
     }
 
     /// Add a target.
