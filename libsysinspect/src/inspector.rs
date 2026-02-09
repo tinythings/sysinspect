@@ -9,10 +9,12 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use intp::actproc::response::ActionResponse;
 use libcommon::SysinspectError;
+use libdpq::DiskPersistentQueue;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
+static DPQ_HANDLE: OnceCell<DiskPersistentQueue> = OnceCell::new();
 
 #[derive(Debug, Default)]
 pub struct SysInspectRunner {
@@ -86,6 +88,16 @@ impl SysInspectRunner {
     /// Set checkbook labels
     pub fn set_checkbook_labels(&mut self, labels: Vec<String>) {
         self.cb_labels = labels;
+    }
+
+    /// Set the disk persistent queue handle to be used by actions
+    pub fn set_dpq(dpq: DiskPersistentQueue) {
+        let _ = DPQ_HANDLE.set(dpq);
+    }
+
+    /// Get the disk persistent queue handle, if set
+    pub fn dpq() -> Option<&'static DiskPersistentQueue> {
+        DPQ_HANDLE.get()
     }
 
     /// Verify if an action can proceed

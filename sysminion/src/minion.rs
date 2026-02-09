@@ -549,6 +549,8 @@ impl SysMinion {
             let mqr_guard = mqr.lock().await;
 
             let mut sr = SysInspectRunner::new(&self.cfg);
+            SysInspectRunner::set_dpq(self.as_ptr().dpq.clone());
+
             sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_guard.target()).to_str().unwrap_or_default());
             sr.set_state(mqr_guard.state());
             sr.set_entities(mqr_guard.entities());
