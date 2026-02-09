@@ -616,7 +616,7 @@ impl SysMinion {
 
         // Is command minion-specific?
         if !tgt.id().is_empty() && tgt.id().ne(&self.get_minion_id()) {
-            log::trace!("Command was dropped as it was specifically addressed for another minion");
+            log::debug!("Command was dropped as it was specifically addressed for another minion");
             return;
         } else if tgt.id().is_empty() {
             let traits = traits::get_minion_traits(None);
@@ -634,7 +634,7 @@ impl SysMinion {
                     }
                 }
                 if skip {
-                    log::trace!("Command was dropped as it is specifically targeting different hosts");
+                    log::debug!("Command was dropped as it is specifically targeting different hosts");
                     return;
                 }
             }
@@ -649,7 +649,7 @@ impl SysMinion {
                         match traits::to_typed_query(q) {
                             Ok(tpq) => {
                                 if !traits::matches_traits(tpq, traits::get_minion_traits(None)) {
-                                    log::trace!("Command was dropped as it does not match the traits");
+                                    log::debug!("Command was dropped as it does not match the traits");
                                     return;
                                 }
                             }
@@ -675,7 +675,7 @@ impl SysMinion {
                 }
             }
             Ok(PayloadType::Undef(pld)) => {
-                log::error!("Unknown command: {pld:#?}");
+                log::error!("Rejected due to the undefined payload in the command: {pld:#?}");
             }
             Err(err) => {
                 log::error!("Error dispatching command: {err}");
