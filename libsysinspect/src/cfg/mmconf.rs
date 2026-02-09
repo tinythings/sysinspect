@@ -37,6 +37,10 @@ pub static DEFAULT_SYSINSPECT_ROOT: &str = "/etc/sysinspect";
 /// `DEFAULT_MODULES_*` prefix.
 pub static DEFAULT_MODULES_SHARELIB: &str = "/usr/share/sysinspect";
 
+/// Default temporary directory for modules. It is used for storing temporary files
+/// during module execution, e.g. for storing intermediate results, caching, etc.
+pub static DEFAULT_TMP: &str = "/tmp/sysinspect";
+
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for modules
 pub static DEFAULT_MODULES_DIR: &str = "modules";
 
@@ -323,6 +327,11 @@ pub struct MinionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     sharelib_path: Option<String>,
 
+    /// Path to the temporary directory for modules. Default: system temp dir.
+    #[serde(rename = "path.tmp")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tmp_path: Option<String>,
+
     /// Check module checksup on startup. It has three values:
     /// - full: calculate the checksum of each module
     /// - fast: compare the checksum of each module with the one stored in the cache
@@ -435,6 +444,11 @@ impl MinionConfig {
     /// Set pidfile path
     pub fn set_pid_path(&mut self, p: &str) {
         self.pidfile = Some(p.to_string());
+    }
+
+    /// Set temporary directory path for modules
+    pub fn set_tmp_path(&mut self, p: &str) {
+        self.tmp_path = Some(p.to_string());
     }
 
     /// Return master addr
@@ -561,6 +575,35 @@ impl MinionConfig {
         }
 
         rand::random::<u64>() % 30 + 5
+    }
+
+    /// Get temp path
+    pub fn get_temp_path(&self) -> Result<PathBuf, SysinspectError> {
+        let p = self.tmp_path.clone().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_TMP));
+
+        // Precreate/check
+        if !p.exists() {
+            if let Err(e) = fs::create_dir_all(&p) {
+                return Err(SysinspectError::ConfigError(format!("Failed to create temp directory at {p:?}: {e}")));
+            }
+
+            // Set permissions to 700
+            if let Err(e) = fs::set_permissions(&p, fs::Permissions::from_mode(0o700)) {
+                return Err(SysinspectError::ConfigError(format!("Failed to set permissions for temp directory at {p:?}: {e}")));
+            }
+        } else {
+            // Check if it is a directory
+            if !p.is_dir() {
+                return Err(SysinspectError::ConfigError(format!("Temp path {p:?} is not a directory")));
+            }
+
+            // Check permissions
+            if (fs::metadata(&p)?.permissions().mode() & 0o700) != 0o700 {
+                return Err(SysinspectError::ConfigError(format!("Temp directory at {p:?} must have permissions 700")));
+            }
+        }
+
+        Ok(p)
     }
 }
 
