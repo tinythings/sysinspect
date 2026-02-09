@@ -19,15 +19,20 @@ fn call(cmd: &str, send: &str, locale: &str, env: &str, disown: bool) -> ModResp
     let mut resp = runtime::new_call_response();
     resp.set_retcode(1);
 
-    let args = cmd.split_whitespace().collect::<Vec<&str>>();
+    let argv = shlex::split(cmd).unwrap_or_default();
+    if argv.is_empty() {
+        resp.set_message("Missing/invalid command");
+        return resp;
+    }
+
     let mut l_loc = locale;
     if locale.is_empty() {
         l_loc = "C";
     }
 
-    let mut process = Command::new(args[0]);
+    let mut process = Command::new(&argv[0]);
     process.env_clear();
-    process.args(&args[1..]);
+    process.args(&argv[1..]);
 
     // Set locale
     [("LC_ALL", l_loc), ("LANG", l_loc)].iter().for_each(|(n, v)| {
@@ -54,10 +59,11 @@ fn call(cmd: &str, send: &str, locale: &str, env: &str, disown: bool) -> ModResp
         Ok(mut p) => {
             if !send.is_empty()
                 && let Some(mut stdin) = p.stdin.take()
-                    && let Err(err) = stdin.write_all(send.as_bytes()) {
-                        resp.set_message(&err.to_string());
-                        return resp;
-                    }
+                && let Err(err) = stdin.write_all(send.as_bytes())
+            {
+                resp.set_message(&err.to_string());
+                return resp;
+            }
 
             // XXX: In the moment this is blocking. If a command blocks,
             // then the whole thing will wait until forever. A better approach
