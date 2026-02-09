@@ -3289,7 +3289,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "libcommon",
- "libsysinspect",
  "libsysproto",
  "log",
  "serde",
@@ -3504,6 +3503,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libcommon",
+ "libdpq",
  "libsysproto",
  "log",
  "nix 0.29.0",
@@ -5696,6 +5696,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "shlex",
 ]
 
 [[package]]
