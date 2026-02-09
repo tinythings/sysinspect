@@ -1,4 +1,5 @@
-use libsysinspect::{SysinspectError, proto::MasterMessage};
+use libcommon::SysinspectError;
+use libsysproto::MasterMessage;
 use serde::{Deserialize, Serialize};
 use sled::{Db, IVec, Tree};
 use std::{path::Path, sync::Arc, time::Duration};

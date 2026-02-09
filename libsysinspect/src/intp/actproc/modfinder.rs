@@ -1,6 +1,5 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
-    SysinspectError,
     cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR},
     inspector::SysInspectRunner,
     intp::{
@@ -18,6 +17,7 @@ use crate::{
 };
 use core::str;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use nix::unistd::{Gid, setgid, setgroups};
 use serde::{Deserialize, Serialize};
 use serde_json::json;

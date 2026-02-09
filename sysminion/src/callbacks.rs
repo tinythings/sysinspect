@@ -1,7 +1,7 @@
 use crate::minion::SysMinion;
 use async_trait::async_trait;
+use libcommon::SysinspectError;
 use libsysinspect::{
-    SysinspectError,
     intp::actproc::response::{ActionModResponse, ActionResponse, ConstraintResponse},
     mdescr::telemetry::TelemetrySpec,
     reactor::callback::EventProcessorCallback,

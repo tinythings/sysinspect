@@ -9,6 +9,7 @@ serde_json = "1.0.149"
 serde_yaml = "0.9.34"
 libsysinspect = { path = "../libsysinspect" }
 libmodcore = { path = "../libmodcore" }
+libcommon = { path = "../libcommon" }
 log = "0.4.29"
 clap = { version = "4.5.54", features = ["unstable-styles"] }
 goblin = "0.9.3"

@@ -1,8 +1,6 @@
-use crate::{
-    SysinspectError,
-    util::dataconv::{self, as_bool_opt, as_int_opt, as_str_opt},
-};
+use crate::util::dataconv::{self, as_bool_opt, as_int_opt, as_str_opt};
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;

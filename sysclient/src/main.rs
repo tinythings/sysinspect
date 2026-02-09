@@ -5,7 +5,7 @@
 //! server. If successful, it prints the session ID; otherwise, it indicates that authentication failed.
 //!
 
-use libsysinspect::SysinspectError;
+use libcommon::SysinspectError;
 use rpassword::prompt_password;
 use serde_json::json;
 use std::io::{Write, stdin, stdout};

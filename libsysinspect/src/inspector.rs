@@ -1,5 +1,4 @@
 use crate::{
-    SysinspectError,
     cfg::mmconf::MinionConfig,
     intp::{self, actions::Action, inspector::SysInspector},
     mdescr::mspec,
@@ -9,6 +8,7 @@ use crate::{
 use colored::Colorize;
 use indexmap::IndexMap;
 use intp::actproc::response::ActionResponse;
+use libcommon::SysinspectError;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 

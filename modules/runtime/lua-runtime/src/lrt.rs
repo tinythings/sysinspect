@@ -12,7 +12,7 @@ pub enum LuaRuntimeError {
     Lua(#[from] mlua::Error),
 
     #[error("sysinspect error: {0}")]
-    Sysinspect(#[from] libsysinspect::SysinspectError),
+    Sysinspect(#[from] libcommon::SysinspectError),
 
     #[error("failed to read lua file '{path}': {source}")]
     ReadFile {

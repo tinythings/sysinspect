@@ -1,7 +1,8 @@
 pub mod systraits;
 
-use crate::{SysinspectError, cfg::mmconf::MinionConfig};
+use crate::cfg::mmconf::MinionConfig;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use once_cell::sync::OnceCell;
 use pest::Parser;
 use pest_derive::Parser;

@@ -1,5 +1,6 @@
-use crate::{SysinspectError, intp::functions::get_by_namespace, util};
+use crate::{intp::functions::get_by_namespace, util};
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use nix::libc;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Value, from_str, from_value};

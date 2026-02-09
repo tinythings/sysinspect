@@ -1,11 +1,11 @@
 use super::{datapatch, mspecdef::ModelSpec};
 use crate::{
-    SysinspectError,
     cfg::mmconf::{MinionConfig, SysInspectConfig},
     tmpl::render::ModelTplRender,
     traits::systraits::SystemTraits,
 };
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde_yaml::Value;
 use std::{
     fs::{self},

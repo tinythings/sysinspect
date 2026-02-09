@@ -2,7 +2,8 @@ use crate::master::SHARED_SESSION;
 
 use super::rec::MinionRecord;
 use globset::Glob;
-use libsysinspect::{SysinspectError, proto::MinionTarget};
+use libcommon::SysinspectError;
+use libsysproto::MinionTarget;
 use serde_json::{Value, json};
 use sled::{Db, Tree};
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};

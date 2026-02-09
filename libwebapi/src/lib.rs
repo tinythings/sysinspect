@@ -1,7 +1,8 @@
 use crate::api::ApiVersions;
 use actix_web::{App, HttpServer, web};
 use colored::Colorize;
-use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::MasterConfig;
 use std::{sync::Arc, thread};
 use tokio::sync::Mutex;
 

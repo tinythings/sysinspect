@@ -3,8 +3,8 @@ use crate::registry::{mreg::MinionRegistry, session::SessionKeeper, taskreg::Tas
 use colored::Colorize;
 use globset::Glob;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libsysinspect::{
-    SysinspectError,
     cfg::mmconf::ClusteredMinion,
     traits::{self, systraits::SystemTraits},
 };
@@ -183,10 +183,11 @@ impl VirtualMinionsCluster {
                 // Get minion record matching the exact ID
                 if !id_sel.is_empty()
                     && let Some(mm) = mreg.get(id_sel)?
-                    && !nodes.contains_key(mm.id()) {
-                        log::debug!("  Matched minion for clustered node by ID {}: {:?}", id_sel, mm.id());
-                        nodes.insert(mm.id().to_string(), ClusterNode::new(mm.id(), self.filter_traits(&mm.get_traits().clone())));
-                    }
+                    && !nodes.contains_key(mm.id())
+                {
+                    log::debug!("  Matched minion for clustered node by ID {}: {:?}", id_sel, mm.id());
+                    nodes.insert(mm.id().to_string(), ClusterNode::new(mm.id(), self.filter_traits(&mm.get_traits().clone())));
+                }
 
                 // Get minion records matching the query glob pattern (hostname)
                 if !qr_sel.is_empty() {

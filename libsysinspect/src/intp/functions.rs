@@ -1,4 +1,4 @@
-use crate::SysinspectError;
+use libcommon::SysinspectError;
 use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 use std::hash::Hash;

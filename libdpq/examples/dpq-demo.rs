@@ -1,5 +1,5 @@
 use libdpq::{DiskPersistentQueue, WorkItem};
-use libsysinspect::proto::{MasterMessage, MinionTarget, rqtypes::RequestType};
+use libsysproto::{MasterMessage, MinionTarget, rqtypes::RequestType};
 use serde_json::json;
 
 #[tokio::main]

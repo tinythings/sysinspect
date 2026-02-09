@@ -2,7 +2,7 @@ use crate::kvdb::{EventData, EventMinion, EventSession, EventsRegistry};
 use crate::{QUERY_CMD_PURGE_ALL, QUERY_CYCLES, QUERY_EVENTS, QUERY_MINIONS};
 use ipc::ipc_service_server::{IpcService, IpcServiceServer};
 use ipc::{EmptyRequest, QueryRequest, QueryResponse, Record, RecordsResponse};
-use libsysinspect::SysinspectError;
+use libcommon::SysinspectError;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -1,5 +1,5 @@
-use crate::SysinspectError;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
@@ -17,9 +17,7 @@ impl Relation {
         if let Some(id) = id.as_str() {
             instance = serde_yaml::from_value::<Relation>(states.to_owned()).unwrap_or(instance);
             if instance.states.is_empty() {
-                return Err(SysinspectError::ModelDSLError(
-                    "No relations definitions were found or they are not in right syntax".to_string(),
-                ));
+                return Err(SysinspectError::ModelDSLError("No relations definitions were found or they are not in right syntax".to_string()));
             }
             instance.id = Some(id.to_string());
         } else {

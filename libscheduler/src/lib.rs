@@ -1,5 +1,6 @@
 pub mod pulse;
 
+use libcommon::SysinspectError;
 use pulse::EventsScheduler;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -19,15 +20,15 @@ impl SchedulerService {
         Self { pulse: Arc::new(Mutex::new(EventsScheduler::new())) }
     }
 
-    pub async fn add_event(&self, event: pulse::EventTask) -> Result<(), libsysinspect::SysinspectError> {
+    pub async fn add_event(&self, event: pulse::EventTask) -> Result<(), SysinspectError> {
         self.pulse.lock().await.add(event).await
     }
 
-    pub async fn remove_event(&self, id: &str) -> Result<(), libsysinspect::SysinspectError> {
+    pub async fn remove_event(&self, id: &str) -> Result<(), SysinspectError> {
         self.pulse.lock().await.remove(id).await
     }
 
-    pub async fn start(&self) -> Result<(), libsysinspect::SysinspectError> {
+    pub async fn start(&self) -> Result<(), SysinspectError> {
         self.pulse.lock().await.start().await
     }
 }

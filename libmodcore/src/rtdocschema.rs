@@ -1,5 +1,5 @@
 use crate::rtspec::{RuntimeModuleDocPrefix, RuntimeModuleDocumentation, RuntimeSpec};
-use libsysinspect::SysinspectError;
+use libcommon::SysinspectError;
 use serde_json::Value as JsonValue;
 
 fn expect_string<'a>(v: &'a JsonValue, path: &str) -> Result<&'a str, SysinspectError> {

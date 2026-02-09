@@ -1,5 +1,5 @@
 use colored::Colorize;
-use libsysinspect::SysinspectError;
+use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::CFG_OTLP_COMPRESSION;
 use libsysinspect::cfg::mmconf::MasterConfig;
 use opentelemetry::Key;

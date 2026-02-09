@@ -7,4 +7,5 @@ edition = "2024"
 tokio = { version = "1.49.0", features = ["full"] }
 tokio-task-scheduler = "1.0.0"
 libsysinspect = { path = "../libsysinspect" }
+libcommon = { path = "../libcommon" }
 log = "0.4.29"

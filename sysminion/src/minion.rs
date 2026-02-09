@@ -11,11 +11,11 @@ use crate::{
 use clap::ArgMatches;
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
 use libmodpak::MODPAK_SYNC_STATE;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
-    SysinspectError,
     cfg::{
         get_minion_config,
         mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
@@ -27,20 +27,20 @@ use libsysinspect::{
         inspector::SysInspector,
     },
     mdescr::mspecdef::ModelSpec,
-    proto::{
-        MasterMessage, MinionMessage, ProtoConversion,
-        errcodes::ProtoErrorCode,
-        payload::{ModStatePayload, PayloadType},
-        query::{
-            MinionQuery, SCHEME_COMMAND,
-            commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
-        },
-        rqtypes::{ProtoValue, RequestType},
-    },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     rsa,
     traits::{self},
     util::{self, dataconv},
+};
+use libsysproto::{
+    MasterMessage, MinionMessage, ProtoConversion,
+    errcodes::ProtoErrorCode,
+    payload::{ModStatePayload, PayloadType},
+    query::{
+        MinionQuery, SCHEME_COMMAND,
+        commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
+    },
+    rqtypes::{ProtoValue, RequestType},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;

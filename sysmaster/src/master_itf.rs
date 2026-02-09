@@ -1,4 +1,5 @@
-use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::MasterConfig;
 use libwebapi::MasterInterface;
 
 use crate::master::SysMaster;
@@ -19,7 +20,7 @@ impl MasterInterface for SysMaster {
                 {
                     let master_guard = master.lock().await;
                     let ids = master_guard.get_minion_registry().lock().await.get_targeted_minions(msg.target(), false).await;
-                    log::error!(">>>>>>>>>>>>>>> Targeted minions: {:#?}", ids);
+                    log::error!("Targeted minions: {:#?}", ids);
                 }
             } else {
                 return Err(SysinspectError::InvalidQuery("Master pointer is not set".to_string()));

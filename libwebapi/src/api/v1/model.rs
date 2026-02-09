@@ -4,8 +4,8 @@ use actix_web::{
     web::{Data, Json, Query},
 };
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libsysinspect::{
-    SysinspectError,
     cfg::mmconf::MinionConfig,
     intp::inspector::SysInspector,
     mdescr::{mspec, mspecdef::ModelSpec},

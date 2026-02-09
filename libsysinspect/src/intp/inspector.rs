@@ -8,7 +8,6 @@ use super::{
     relations::Relation,
 };
 use crate::{
-    SysinspectError,
     cfg::mmconf::DEFAULT_MODULES_SHARELIB,
     intp::functions,
     mdescr::{
@@ -19,6 +18,7 @@ use crate::{
 };
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use once_cell::sync::OnceCell;
 use serde_yaml::{Value, to_value};
 use std::{collections::HashSet, path::PathBuf};

@@ -1,4 +1,4 @@
-use crate::SysinspectError;
+use libcommon::SysinspectError;
 use rand::rngs::OsRng;
 use rsa::{
     Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey,

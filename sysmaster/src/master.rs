@@ -11,25 +11,25 @@ use crate::{
 };
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libeventreg::{
     ipcs::DbIPCService,
     kvdb::{EventMinion, EventsRegistry},
 };
 use libsysinspect::{
-    SysinspectError,
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
-    proto::{
-        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
-        errcodes::ProtoErrorCode,
-        payload::{ModStatePayload, PingData},
-        query::{
-            SCHEME_COMMAND,
-            commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
-        },
-        rqtypes::{ProtoKey, ProtoValue, RequestType},
-    },
     util::{self, iofs::scan_files_sha256},
+};
+use libsysproto::{
+    self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
+    errcodes::ProtoErrorCode,
+    payload::{ModStatePayload, PingData},
+    query::{
+        SCHEME_COMMAND,
+        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
+    },
+    rqtypes::{ProtoKey, ProtoValue, RequestType},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -103,7 +103,7 @@ impl SysMaster {
 
     /// Parse minion request
     fn to_request(&self, data: &str) -> Option<MinionMessage> {
-        match serde_json::from_str::<proto::MinionMessage>(data) {
+        match serde_json::from_str::<MinionMessage>(data) {
             Ok(request) => {
                 return Some(request);
             }
@@ -276,7 +276,7 @@ impl SysMaster {
             }
 
             let mut payload = String::from("");
-            if tgt.scheme().eq(proto::query::SCHEME_COMMAND) {
+            if tgt.scheme().eq(SCHEME_COMMAND) {
                 payload = query.to_owned();
             }
 

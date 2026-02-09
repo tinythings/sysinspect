@@ -6,7 +6,8 @@ use actix_web::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use colored::Colorize;
-use libsysinspect::{SysinspectError, cfg::mmconf::MasterConfig};
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::MasterConfig;
 use serde::{Deserialize, Serialize};
 use sodiumoxide::crypto::secretbox::Nonce;
 use std::{collections::HashMap, fmt::Display, str::from_utf8};

@@ -9,8 +9,8 @@ mod telemetry;
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
+use libcommon::SysinspectError;
 use libsysinspect::{
-    SysinspectError,
     cfg::{mmconf::MasterConfig, select_config_path},
     logger::{self, STDOUTLogger},
 };

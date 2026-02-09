@@ -31,6 +31,9 @@ rustpython-vm = { git = "https://github.com/RustPython/RustPython.git", features
     "freeze-stdlib",
 ] }
 
+libcommon = { path = "../libcommon" }
+libsysproto = { path = "../libsysproto" }
+
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_yaml = "0.9.34"

@@ -1,7 +1,8 @@
 use ::rsa::{RsaPrivateKey, RsaPublicKey};
+use libcommon::SysinspectError;
 use libsysinspect::{
     cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB},
-    rsa, SysinspectError,
+    rsa,
 };
 use std::{collections::HashMap, fs, io, path::PathBuf};
 
@@ -134,10 +135,7 @@ impl MinionsKeyRegistry {
             fs::remove_file(k_pth)?;
             self.keys.remove(mid);
         } else {
-            return Err(SysinspectError::IoErr(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("No RSA public key found for {mid}"),
-            )));
+            return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::NotFound, format!("No RSA public key found for {mid}"))));
         }
 
         Ok(())

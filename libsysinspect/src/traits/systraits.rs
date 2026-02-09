@@ -1,5 +1,4 @@
 use crate::{
-    SysinspectError,
     cfg::mmconf::MinionConfig,
     traits::{
         HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME, SYS_NET_HOSTNAME_FQDN,
@@ -8,6 +7,7 @@ use crate::{
     util::sys::to_fqdn_ip,
 };
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{

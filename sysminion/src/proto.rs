@@ -1,21 +1,14 @@
 pub mod msg {
-    use std::{collections::HashMap, sync::atomic::AtomicBool};
-
     use crate::minion::MINION_SID;
-    use libsysinspect::{
-        SysinspectError,
-        proto::{
-            MasterMessage, ProtoConversion,
-            rqtypes::{ProtoKey, ProtoValue},
-        },
-    };
-    use libsysinspect::{
-        proto::{MinionMessage, rqtypes::RequestType},
-        traits,
-        util::dataconv,
+    use libcommon::SysinspectError;
+    use libsysinspect::{traits, util::dataconv};
+    use libsysproto::{
+        MasterMessage, MinionMessage, ProtoConversion,
+        rqtypes::{ProtoKey, ProtoValue, RequestType},
     };
     use once_cell::sync::Lazy;
     use serde_json::{Value, json, to_value};
+    use std::{collections::HashMap, sync::atomic::AtomicBool};
     use tokio::sync::broadcast;
 
     /// Channel for master connection status

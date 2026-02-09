@@ -1,5 +1,6 @@
-use crate::{SysinspectError, intp::actproc::response::ActionResponse, mdescr::telemetry::TelemetrySpec};
+use crate::{intp::actproc::response::ActionResponse, mdescr::telemetry::TelemetrySpec};
 use async_trait::async_trait;
+use libcommon::SysinspectError;
 
 #[async_trait]
 pub trait EventProcessorCallback: std::fmt::Debug + Send + Sync {

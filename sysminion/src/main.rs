@@ -9,8 +9,8 @@ mod rsa;
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
+use libcommon::SysinspectError;
 use libsysinspect::{
-    SysinspectError,
     cfg::{get_minion_config, mmconf::MinionConfig},
     logger,
 };

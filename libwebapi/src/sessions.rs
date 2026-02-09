@@ -3,7 +3,7 @@
 //! This module provides an in-memory session store for user sessions.
 //! It is designed for simplicity and ease of use, but is not suitable for production use.
 
-use libsysinspect::SysinspectError;
+use libcommon::SysinspectError;
 use once_cell::sync::OnceCell;
 use serde::Serialize;
 use serde::de::DeserializeOwned;

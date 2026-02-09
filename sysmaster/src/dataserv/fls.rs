@@ -1,8 +1,6 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, rt::System, web};
-use libsysinspect::{
-    SysinspectError,
-    cfg::mmconf::{CFG_FILESERVER_ROOT, DEFAULT_SYSINSPECT_ROOT, MasterConfig},
-};
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::{CFG_FILESERVER_ROOT, DEFAULT_SYSINSPECT_ROOT, MasterConfig};
 use std::{
     fs,
     path::{Path, PathBuf},

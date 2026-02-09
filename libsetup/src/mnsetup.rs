@@ -1,10 +1,8 @@
 use colored::Colorize;
-use libsysinspect::{
-    SysinspectError,
-    cfg::mmconf::{
-        CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
-        SysInspectConfig,
-    },
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::{
+    CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
+    SysInspectConfig,
 };
 use std::{
     fs::{self, File},
