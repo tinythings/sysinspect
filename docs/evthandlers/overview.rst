@@ -65,8 +65,9 @@ Available Handlers
 Here are the available event handlers:
 
 .. toctree::
-   :maxdepth: 1
+  :maxdepth: 1
 
-   console_logger
-   outcome_logger
-   pipescript
+  console_logger
+  outcome_logger
+  pipescript
+  pipeline
