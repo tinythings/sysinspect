@@ -75,16 +75,15 @@ pub struct SysMinion {
     ping_timeout: Duration,
 
     pt_counter: Mutex<PTCounter>,
-    dpq: DiskPersistentQueue,
+    dpq: Arc<DiskPersistentQueue>,
 }
 
 impl SysMinion {
-    pub async fn new(cfg: MinionConfig, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
+    pub async fn new(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<Arc<SysMinion>, SysinspectError> {
         log::debug!("Configuration: {cfg:#?}");
         log::debug!("Trying to connect at {}", cfg.master());
 
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
-        let dpq = DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks"))?;
 
         log::debug!("Network bound at {}", cfg.master());
         let instance = SysMinion {
@@ -549,7 +548,6 @@ impl SysMinion {
             let mqr_guard = mqr.lock().await;
 
             let mut sr = SysInspectRunner::new(&self.cfg);
-            SysInspectRunner::set_dpq(self.as_ptr().dpq.clone());
 
             sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_guard.target()).to_str().unwrap_or_default());
             sr.set_state(mqr_guard.state());
@@ -684,14 +682,14 @@ impl SysMinion {
 }
 
 /// Constructs and starts an actual minion
-async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>) -> Result<(), SysinspectError> {
+async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
     let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
-    let minion = SysMinion::new(cfg, fingerprint).await?;
+    let minion = SysMinion::new(cfg, fingerprint, dpq).await?;
 
     let m = minion.as_ptr();
 
-    let runner = m.as_ptr().dpq.start_ack({
+    let runner = m.as_ptr().dpq.clone().start_ack({
         let m = m.clone();
         move |_job_id, item| {
             let m = m.clone();
@@ -737,13 +735,15 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>) -> Res
 pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
     let mut reconnect_rx = CONNECTION_TX.subscribe();
     let mut ra = 0;
-
+    let dpq = Arc::new(DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks")).expect("Failed to open DPQ"));
+    SysInspectRunner::set_dpq(dpq.clone());
     loop {
         log::info!("Starting minion instance...");
 
         let c_cfg = cfg.clone();
         let c_fp = fp.clone();
-        let mut mhdl = tokio::spawn(async move { _minion_instance(c_cfg, c_fp).await });
+        let c_dpq = dpq.clone();
+        let mut mhdl = tokio::spawn(async move { _minion_instance(c_cfg, c_fp, c_dpq).await });
 
         tokio::select! {
             res = &mut mhdl => {

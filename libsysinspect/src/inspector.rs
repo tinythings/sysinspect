@@ -14,7 +14,7 @@ use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
-static DPQ_HANDLE: OnceCell<DiskPersistentQueue> = OnceCell::new();
+static DPQ_HANDLE: OnceCell<Arc<DiskPersistentQueue>> = OnceCell::new();
 
 #[derive(Debug, Default)]
 pub struct SysInspectRunner {
@@ -91,13 +91,15 @@ impl SysInspectRunner {
     }
 
     /// Set the disk persistent queue handle to be used by actions
-    pub fn set_dpq(dpq: DiskPersistentQueue) {
-        let _ = DPQ_HANDLE.set(dpq);
+    pub fn set_dpq(dpq: Arc<DiskPersistentQueue>) {
+        if DPQ_HANDLE.set(dpq).is_err() {
+            log::debug!("DPQ_HANDLE already set; reusing existing handle");
+        }
     }
 
     /// Get the disk persistent queue handle, if set
-    pub fn dpq() -> Option<&'static DiskPersistentQueue> {
-        DPQ_HANDLE.get()
+    pub fn dpq() -> Option<Arc<DiskPersistentQueue>> {
+        DPQ_HANDLE.get().cloned()
     }
 
     /// Verify if an action can proceed
