@@ -580,27 +580,20 @@ impl MinionConfig {
     /// Get temp path
     pub fn get_temp_path(&self) -> Result<PathBuf, SysinspectError> {
         let p = self.tmp_path.clone().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_TMP));
+        fs::create_dir_all(&p).map_err(|e| SysinspectError::ConfigError(format!("Failed to create temp directory at {p:?}: {e}")))?;
 
-        // Precreate/check
-        if !p.exists() {
-            if let Err(e) = fs::create_dir_all(&p) {
-                return Err(SysinspectError::ConfigError(format!("Failed to create temp directory at {p:?}: {e}")));
-            }
+        let md = fs::symlink_metadata(&p).map_err(|e| SysinspectError::ConfigError(format!("Failed to stat temp directory at {p:?}: {e}")))?;
+        if md.file_type().is_symlink() {
+            return Err(SysinspectError::ConfigError(format!("Temp path {p:?} must not be a symlink")));
+        }
 
-            // Set permissions to 700
-            if let Err(e) = fs::set_permissions(&p, fs::Permissions::from_mode(0o700)) {
-                return Err(SysinspectError::ConfigError(format!("Failed to set permissions for temp directory at {p:?}: {e}")));
-            }
-        } else {
-            // Check if it is a directory
-            if !p.is_dir() {
-                return Err(SysinspectError::ConfigError(format!("Temp path {p:?} is not a directory")));
-            }
+        if !md.file_type().is_dir() {
+            return Err(SysinspectError::ConfigError(format!("Temp path {p:?} is not a directory")));
+        }
 
-            // Check permissions
-            if (fs::metadata(&p)?.permissions().mode() & 0o700) != 0o700 {
-                return Err(SysinspectError::ConfigError(format!("Temp directory at {p:?} must have permissions 700")));
-            }
+        let mode = md.permissions().mode() & 0o777;
+        if (mode & 0o700) != 0o700 || (mode & 0o077) != 0 {
+            return Err(SysinspectError::ConfigError(format!("Temp directory {p:?} must be 0700 (no group/world access), but has {:o}", mode)));
         }
 
         Ok(p)
