@@ -567,6 +567,22 @@ and contains the following directives:
     - Regular servers with many modules: ``fast``
     - Read-only image / tiny devices: ``shallow``
 
+``modules.autosync.startup``
+############################
+
+    Type: **boolean**
+
+    Check module checksup on startup. It has two values:
+    - true: check modules on startup
+    - false: do not check modules on startup
+
+    Default: true
+
+    .. warning::
+
+        Disable this option only if you really know what you are doing. If you disable it, the minion will not check
+        modules on startup, which might lead to unexpected behaviour if modules are changed or tampered with.
+
 ``log.forward``
 ##################
 
