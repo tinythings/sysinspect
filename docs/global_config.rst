@@ -572,7 +572,7 @@ and contains the following directives:
 
     Type: **boolean**
 
-    Check module checksup on startup. It has two values:
+    Check module checksum on startup. It has two values:
     - true: check modules on startup
     - false: do not check modules on startup
 
