@@ -39,7 +39,7 @@ pub static DEFAULT_MODULES_SHARELIB: &str = "/usr/share/sysinspect";
 
 /// Default temporary directory for modules. It is used for storing temporary files
 /// during module execution, e.g. for storing intermediate results, caching, etc.
-pub static DEFAULT_TMP: &str = "/tmp/sysinspect";
+pub static DEFAULT_TMP: &str = "/var/tmp/sysinspect";
 
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for modules
 pub static DEFAULT_MODULES_DIR: &str = "modules";
