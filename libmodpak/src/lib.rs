@@ -373,12 +373,40 @@ impl SysInspectModPak {
                     goblin::elf::header::EM_X86_64 => "x86_64",
                     goblin::elf::header::EM_ARM => "ARM",
                     goblin::elf::header::EM_AARCH64 => "ARM64",
-                    _ => return Err(SysinspectError::MasterGeneralError("Module is not a supported ELF architecture".to_string())),
+                    goblin::elf::header::EM_RISCV => "RISC-V",
+                    _ => return Err(SysinspectError::MasterGeneralError("Unsupported ELF arch".to_string())),
                 };
-                let osabi = Self::get_osabi_label(elf.header.e_ident[header::EI_OSABI]);
-                Ok((true, arch, osabi))
+                Ok((true, arch, Self::get_os_label(&elf)))
             }
             _ => Ok((false, "noarch", "any")),
+        }
+    }
+
+    /// Heuristic to determine the OS label of an ELF file, since EI_OSABI is often unreliable.
+    fn get_os_label(elf: &goblin::elf::Elf) -> &'static str {
+        // Check section names - BSDs put their identity here
+        for sh in &elf.section_headers {
+            if let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) {
+                if name.contains("netbsd") {
+                    return "netbsd";
+                }
+                if name.contains("freebsd") {
+                    return "freebsd";
+                }
+                if name.contains("openbsd") {
+                    return "openbsd";
+                }
+            }
+        }
+
+        // Fallback: check EI_OSABI (works for Linux, sometimes)
+        let osabi = elf.header.e_ident[goblin::elf::header::EI_OSABI];
+        match osabi {
+            goblin::elf::header::ELFOSABI_LINUX => "linux",
+            goblin::elf::header::ELFOSABI_FREEBSD => "freebsd",
+            goblin::elf::header::ELFOSABI_NETBSD => "netbsd",
+            goblin::elf::header::ELFOSABI_OPENBSD => "openbsd",
+            _ => "linux", // Default assumption
         }
     }
 
