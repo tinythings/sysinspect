@@ -16,7 +16,8 @@ define deps
 		echo "Oops, no fun for $$OS_ID right now. Builds are only possible on Debian/Ubuntu." >&2; \
 		echo "But! You can fix this by sending your PR here: https://github.com/tinythings/sysinspect :-)" >&2; \
 		exit 1; \
-	fi
+	fi; \
+	command -v tokei >/dev/null 2>&1 || cargo install tokei --locked
 endef
 
 define tgt
@@ -92,6 +93,9 @@ devel:
 build:
 	cargo build --release --workspace
 	$(call move_bin,release,)
+
+stats:
+	tokei . --exclude target --exclude .git
 
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
