@@ -830,7 +830,6 @@ impl SysMaster {
                                     if guard.to_drop.contains(&peer_addr.to_string()) {
                                         guard.to_drop.remove(&peer_addr.to_string());
                                         log::info!("Dropping minion: {}", &peer_addr.to_string());
-                                        log::info!("");
                                         if let Err(err) = writer.shutdown().await {
                                             log::error!("Error shutting down outgoing: {err}");
                                         }
