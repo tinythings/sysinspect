@@ -52,7 +52,7 @@ impl SysInspectRunner {
 
     /// Get Minion Config
     pub fn minion_cfg() -> Arc<MinionConfig> {
-        MINION_CONFIG.get().unwrap_or(&Arc::new(MinionConfig::default())).clone()
+        MINION_CONFIG.get().cloned().unwrap_or_else(|| Arc::new(MinionConfig::default()))
     }
 
     /// Adds a callback to be called after every action
