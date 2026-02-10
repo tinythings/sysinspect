@@ -545,27 +545,27 @@ and contains the following directives:
 
     Modules are always automatically synchronised at Minion boot. However, it requires full recalculation
     of each module's SHA256 checksum and it might take a while, if you have a lot of modules and they are big.
+    Think of this as the *startup safety check* for modules:
+
+    - it makes sure the minion has the modules it needs
+    - it optionally verifies them by hashing (SHA256)
+
+    More checking = more boot time. Less checking = faster boot, but you trust that files are unchanged.
+
     This value has the following options:
 
-    - ``full`` — full recalculation of all modules' SHA256 checksums. This is the default value.
+        - ``full`` — safest. Re-hash every module on every boot. Slowest, but detects any change.
+        - ``fast`` — balanced. Use cached hashes when available; hash only what is missing. Good for most setups.
+        - ``shallow`` — fastest. Only checks that module files exist (no hashing). Best for read-only/embedded boxes.
+          Downside: it will not detect tampering or unexpected edits.
 
-    - ``fast`` — read cached SHA256 checksums. If the checksum is not in the cache, it will be calculated and stored in the cache.
+    Default is ``full``.
 
-    - ``shallow`` — no recalculation of the modules' SHA256 checksums, only verify if the module file is present. However, it will not ensure that the module is what is actually expected. This is useful for the embedded systems with read-only root filesystem, where the modules are kept in the ``/usr/share/sysinspect/modules`` directory (default).
+    Rule of thumb:
 
-    By default it is set to ``full``.
-
-Example configuration for the Sysinspect Minion:
-
-.. code-block:: yaml
-
-    config:
-        minion:
-            # Root directory where minion keeps all data.
-            # Default: /etc/sysinspect — same as for master
-            root: /etc/sysinspect
-            master.ip: 192.168.2.31
-            master.port: 4200
+    - Shared server / security-sensitive: ``full``
+    - Regular servers with many modules: ``fast``
+    - Read-only image / tiny devices: ``shallow``
 
 ``log.forward``
 ##################
@@ -584,6 +584,19 @@ Example configuration for the Sysinspect Minion:
         Disable this option only if you really know what you are doing.
 
     Default is ``true``
+
+
+Example configuration for the Sysinspect Minion:
+
+.. code-block:: yaml
+
+    config:
+        minion:
+            # Root directory where minion keeps all data.
+            # Default: /etc/sysinspect — same as for master
+            root: /etc/sysinspect
+            master.ip: 192.168.2.31
+            master.port: 4200
 
 Layout of ``/etc/sysinspect``
 -----------------------------
