@@ -343,6 +343,15 @@ pub struct MinionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     modules_check: Option<String>,
 
+    /// Check module checksup on startup. It has two values:
+    /// - true: check modules on startup
+    /// - false: do not check modules on startup
+    ///
+    /// Default: true
+    #[serde(rename = "modules.autosync.startup")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    modules_autosync_startup: Option<bool>,
+
     /// IP address of Master
     #[serde(rename = "master.ip")]
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -535,6 +544,11 @@ impl MinionConfig {
     /// Return modules.fastsync flag
     pub fn autosync(&self) -> String {
         self.modules_check.as_ref().unwrap_or(&CFG_AUTOSYNC_DEFAULT.to_string()).clone()
+    }
+
+    /// Return modules.autosync.startup flag
+    pub fn autosync_startup(&self) -> bool {
+        self.modules_autosync_startup.unwrap_or(true)
     }
 
     /// Set autosync mode

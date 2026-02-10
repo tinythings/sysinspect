@@ -708,7 +708,7 @@ impl SysMinion {
 async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
     let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
-    let minion = SysMinion::new(cfg, fingerprint, dpq).await?;
+    let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
 
     let m = minion.as_ptr();
 
@@ -738,7 +738,11 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
     } else {
         // ehlo
         minion.as_ptr().send_ehlo().await?;
-        modpak.sync().await?;
+        if cfg.autosync_startup() {
+            modpak.sync().await?;
+        } else {
+            log::warn!("Module auto-sync {} is disabled. Call cluster sync to force modules sync.", "on startup".bright_yellow());
+        }
     }
 
     minion.as_ptr().do_ping_update(state.clone()).await?;
