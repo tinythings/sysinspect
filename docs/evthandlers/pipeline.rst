@@ -1,5 +1,5 @@
-Pipeline
-========
+**Pipeline**: Routing Events into Action/Model Calls
+====================================================
 
 .. note::
 
@@ -24,7 +24,7 @@ You can chain more steps if you want (e.g., validate the fix, then open a ticket
 
 .. important::
 
-  In SysInspect, assertions are events too, and they are emitted alongside action results. So for a single action you may
+  🚨 In SysInspect, assertions are events too, and they are emitted alongside action results. So for a single action you may
   receive multiple related events: one for the action return code/output, and separate ones for each assertion outcome.
   Your pipeline can react to either kind of event, depending on how you set up your event filters.
 

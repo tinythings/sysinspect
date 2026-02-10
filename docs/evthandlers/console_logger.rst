@@ -1,5 +1,5 @@
-Console Logger
-==============
+**Console Logger**: Logging Events to Console
+================================================
 
 .. note::
 
