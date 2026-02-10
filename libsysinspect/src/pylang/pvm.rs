@@ -2,9 +2,10 @@
 Python virtual machine
  */
 
-use crate::{SysinspectError, pylang::PY_MAIN_FUNC};
+use crate::pylang::PY_MAIN_FUNC;
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use rustpython::InterpreterBuilderExt;
 use rustpython_vm::{
     AsObject, PyResult,

@@ -1,11 +1,11 @@
 use super::{datapatch, mspecdef::ModelSpec};
 use crate::{
-    SysinspectError,
     cfg::mmconf::{MinionConfig, SysInspectConfig},
     tmpl::render::ModelTplRender,
     traits::systraits::SystemTraits,
 };
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde_yaml::Value;
 use std::{
     fs::{self},
@@ -138,16 +138,38 @@ impl SpecLoader {
     /// Load model spec by merging all the data parts and validating
     /// its content.
     fn load(&mut self) -> Result<ModelSpec, SysinspectError> {
-        let mpt = self.collect_by_path(&self.pth.to_owned(), false)?;
+        let mpt: Vec<Value> = match self.collect_by_path(&self.pth.to_owned(), false) {
+            Ok(mpt) => mpt,
+            Err(err) => {
+                return Err(SysinspectError::ModelDSLError(format!(
+                    "Unable to load model spec while collecting parts by path from {}: {err}",
+                    self.pth.to_str().unwrap_or_default()
+                )));
+            }
+        };
+
         let mut base: Vec<Value> = Vec::default();
         let mut iht: Vec<Value> = Vec::default();
 
         // Try inheriting
         if !mpt.is_empty() {
-            if let Some(ipth) = serde_yaml::from_value::<ModelSpec>(mpt[0].to_owned())?.inherits() {
+            let basempt: ModelSpec = match serde_yaml::from_value(mpt[0].to_owned()) {
+                Ok(basempt) => basempt,
+                Err(err) => {
+                    return Err(SysinspectError::ModelDSLError(format!(
+                        "Unable to load root model.cfg spec: {}: {err}",
+                        self.pth.to_str().unwrap_or_default()
+                    )));
+                }
+            };
+
+            if let Some(ipth) = basempt.inherits() {
                 let ipth = fs::canonicalize(self.pth.join(ipth))?; // Redirect path
                 base.insert(0, mpt[0].to_owned());
-                base.extend(self.collect_by_path(&ipth, true)?);
+                base.extend(match self.collect_by_path(&ipth, true) {
+                    Ok(parts) => parts,
+                    Err(err) => return Err(SysinspectError::ModelDSLError(format!("Unable to load inherited model spec: {err}"))),
+                });
                 iht.extend(mpt[1..].iter().map(|e| e.to_owned()).collect::<Vec<Value>>());
             } else {
                 base.extend(mpt);

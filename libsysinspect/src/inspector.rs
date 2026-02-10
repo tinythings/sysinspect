@@ -1,5 +1,4 @@
 use crate::{
-    SysinspectError,
     cfg::mmconf::MinionConfig,
     intp::{self, actions::Action, inspector::SysInspector},
     mdescr::mspec,
@@ -9,10 +8,13 @@ use crate::{
 use colored::Colorize;
 use indexmap::IndexMap;
 use intp::actproc::response::ActionResponse;
+use libcommon::SysinspectError;
+use libdpq::DiskPersistentQueue;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
+static DPQ_HANDLE: OnceCell<Arc<DiskPersistentQueue>> = OnceCell::new();
 
 #[derive(Debug, Default)]
 pub struct SysInspectRunner {
@@ -50,7 +52,7 @@ impl SysInspectRunner {
 
     /// Get Minion Config
     pub fn minion_cfg() -> Arc<MinionConfig> {
-        MINION_CONFIG.get().unwrap_or(&Arc::new(MinionConfig::default())).clone()
+        MINION_CONFIG.get().cloned().unwrap_or_else(|| Arc::new(MinionConfig::default()))
     }
 
     /// Adds a callback to be called after every action
@@ -86,6 +88,18 @@ impl SysInspectRunner {
     /// Set checkbook labels
     pub fn set_checkbook_labels(&mut self, labels: Vec<String>) {
         self.cb_labels = labels;
+    }
+
+    /// Set the disk persistent queue handle to be used by actions
+    pub fn set_dpq(dpq: Arc<DiskPersistentQueue>) {
+        if DPQ_HANDLE.set(dpq).is_err() {
+            log::debug!("DPQ_HANDLE already set; reusing existing handle");
+        }
+    }
+
+    /// Get the disk persistent queue handle, if set
+    pub fn dpq() -> Option<Arc<DiskPersistentQueue>> {
+        DPQ_HANDLE.get().cloned()
     }
 
     /// Verify if an action can proceed
@@ -128,10 +142,10 @@ impl SysInspectRunner {
 
     /// Start the inspector
     pub async fn start(&mut self) {
-        log::info!("Starting sysinspect runner");
+        log::debug!("Starting sysinspect runner");
         match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone(), self.context.clone()) {
             Ok(spec) => {
-                log::info!("Model spec loaded");
+                log::debug!("Model spec loaded");
                 match SysInspector::new(spec.clone(), Some(Self::minion_cfg().sharelib_dir().clone()), self.context.clone().unwrap_or_default()) {
                     Ok(isp) => {
                         // Setup event processor
@@ -144,8 +158,10 @@ impl SysInspectRunner {
                         }
 
                         let actions = if !self.cb_labels.is_empty() {
+                            log::info!("Querying actions by checkbook labels: {}", self.cb_labels.join(", ").bright_green());
                             isp.actions_by_relations(self.cb_labels.to_owned(), self.state.to_owned())
                         } else {
+                            log::info!("Querying actions by entities: {}", self.entities.join(", ").bright_green());
                             isp.actions_by_entities(self.entities.to_owned(), self.state.to_owned())
                         };
 
@@ -159,6 +175,7 @@ impl SysInspectRunner {
                                                     Ok(response) => {
                                                         let response = response.unwrap_or(ActionResponse::default());
                                                         self.update_cstr_eval(&response);
+                                                        log::trace!("Action response for '{}': {:#?}", ac.id(), response);
                                                         evtproc.receiver().register(response.eid().to_owned(), response);
                                                     }
                                                     Err(err) => {
@@ -180,9 +197,9 @@ impl SysInspectRunner {
                                 log::error!("{err}");
                             }
                         }
-                        log::info!("Starting event processor cycle");
+                        log::debug!("Starting event processor cycle");
                         evtproc.process().await;
-                        log::info!("Event processing cycle finished");
+                        log::debug!("Event processing cycle finished");
                     }
                     Err(err) => log::error!("{err}"),
                 }

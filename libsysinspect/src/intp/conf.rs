@@ -1,10 +1,10 @@
 use super::inspector::get_cfg_sharelib;
 use crate::{
-    SysinspectError,
     cfg::mmconf::DEFAULT_MODULES_DIR,
     util::dataconv::{as_bool_opt, as_int_opt, as_str_list_opt, as_str_opt},
 };
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::path::PathBuf;
@@ -35,6 +35,11 @@ impl EventConfigOption {
     pub fn as_str_list(&self, cfg: &str) -> Option<Vec<String>> {
         as_str_list_opt(self.data.get(cfg).cloned())
     }
+
+    /// Get an element by the key, if you know it
+    pub fn get(&self, cfg: &str) -> Option<Value> {
+        self.data.get(cfg).cloned()
+    }
 }
 
 /// A configuration of an event. It contains an array of
@@ -50,9 +55,10 @@ impl EventConfig {
     /// Get an event configuration for a handler, if any
     pub fn for_handler(&self, handler: &str) -> Option<EventConfigOption> {
         if let Some(cfg) = &self.cfg
-            && let Some(cfg) = cfg.get(handler) {
-                return Some(cfg.to_owned());
-            }
+            && let Some(cfg) = cfg.get(handler)
+        {
+            return Some(cfg.to_owned());
+        }
         None
     }
 

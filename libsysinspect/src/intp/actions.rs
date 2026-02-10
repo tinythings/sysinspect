@@ -4,9 +4,10 @@ use super::{
     functions,
     inspector::SysInspector,
 };
-use crate::{SysinspectError, logger::log_forward, util::dataconv};
+use crate::{logger::log_forward, util::dataconv};
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::fmt::Display;

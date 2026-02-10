@@ -213,6 +213,12 @@ pub fn get_arg(rt: &ModRequest, arg: &str) -> String {
     "".to_string()
 }
 
+/// Get a string argument with default value
+pub fn get_arg_default(rt: &ModRequest, arg: &str, default: &str) -> String {
+    let s_arg = get_arg(rt, arg);
+    if s_arg.is_empty() { default.to_string() } else { s_arg }
+}
+
 /// Get a presence of a flag/option
 pub fn get_opt(rt: &ModRequest, opt: &str) -> bool {
     for av in rt.options() {

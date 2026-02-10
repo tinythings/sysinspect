@@ -11,10 +11,11 @@ use crate::{
 use clap::ArgMatches;
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
+use libdpq::{DiskPersistentQueue, WorkItem};
 use libmodpak::MODPAK_SYNC_STATE;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
-    SysinspectError,
     cfg::{
         get_minion_config,
         mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
@@ -26,20 +27,20 @@ use libsysinspect::{
         inspector::SysInspector,
     },
     mdescr::mspecdef::ModelSpec,
-    proto::{
-        MasterMessage, MinionMessage, ProtoConversion,
-        errcodes::ProtoErrorCode,
-        payload::{ModStatePayload, PayloadType},
-        query::{
-            MinionQuery, SCHEME_COMMAND,
-            commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
-        },
-        rqtypes::{ProtoValue, RequestType},
-    },
     reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     rsa,
     traits::{self},
     util::{self, dataconv},
+};
+use libsysproto::{
+    MasterMessage, MinionMessage, ProtoConversion,
+    errcodes::ProtoErrorCode,
+    payload::{ModStatePayload, PayloadType},
+    query::{
+        MinionQuery, SCHEME_COMMAND,
+        commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
+    },
+    rqtypes::{ProtoValue, RequestType},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -48,12 +49,13 @@ use std::{
     fs,
     path::PathBuf,
     sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
     vec,
 };
-use tokio::io::AsyncReadExt;
 use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::Mutex;
+use tokio::{io::AsyncReadExt, time::sleep};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
 use uuid::Uuid;
 
@@ -74,14 +76,17 @@ pub struct SysMinion {
     ping_timeout: Duration,
 
     pt_counter: Mutex<PTCounter>,
+    dpq: Arc<DiskPersistentQueue>,
+    connected: AtomicBool,
 }
 
 impl SysMinion {
-    pub async fn new(cfg: MinionConfig, fingerprint: Option<String>) -> Result<Arc<SysMinion>, SysinspectError> {
+    pub async fn new(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<Arc<SysMinion>, SysinspectError> {
         log::debug!("Configuration: {cfg:#?}");
         log::debug!("Trying to connect at {}", cfg.master());
 
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
+
         log::debug!("Network bound at {}", cfg.master());
         let instance = SysMinion {
             cfg: cfg.clone(),
@@ -93,6 +98,8 @@ impl SysMinion {
             last_ping: Mutex::new(Instant::now()),
             ping_timeout: Duration::from_secs(10),
             pt_counter: Mutex::new(PTCounter::new()),
+            dpq,
+            connected: AtomicBool::new(false),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -202,7 +209,7 @@ impl SysMinion {
         let reconnect_sender = CONNECTION_TX.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                sleep(tokio::time::Duration::from_secs(1)).await;
                 if self.as_ptr().last_ping.lock().await.elapsed() > self.as_ptr().ping_timeout {
                     log::warn!("Master seems unresponsive, triggering reconnect.");
                     let _ = reconnect_sender.send(());
@@ -214,10 +221,21 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Set the minion connected flag to true or false, which indicates whether the minion is currently connected to the master or not.
+    /// This is used to bounce self from already connected state. If the connected flag is set to false, then the Minion quits.
+    fn set_connected(&self, connected: bool) {
+        self.connected.store(connected, Ordering::Relaxed);
+    }
+
+    /// Check if the minion connected flag is currently set to true, which indicates that the minion is currently connected to the master.
+    fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
+
     pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                sleep(tokio::time::Duration::from_secs(5)).await;
                 let this = self.as_ptr();
                 let mut ptc = this.pt_counter.lock().await;
                 ptc.update_stats();
@@ -272,13 +290,19 @@ impl SysMinion {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
-                                let cls = self.as_ptr().clone();
-                                tokio::spawn(async move {
-                                    cls.dispatch(msg.to_owned()).await;
-                                });
+                                let scheme = msg.target().scheme().to_string();
+                                if scheme.starts_with(SCHEME_COMMAND) {
+                                    self.as_ptr().call_internal_command(&scheme).await;
+                                    continue;
+                                }
+                                if let Err(e) = self.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+                                    log::error!("Failed to enqueue master command: {e}");
+                                } else {
+                                    log::info!("Scheduled master command: {}", msg.target().scheme());
+                                }
                             }
                             ProtoErrorCode::AlreadyConnected => {
-                                if MINION_SID.eq(msg.payload()) {
+                                if !self.is_connected() {
                                     log::error!("Another minion from this machine is already connected");
                                     std::process::exit(1);
                                 }
@@ -293,6 +317,9 @@ impl SysMinion {
                             && let Err(err) = self.as_ptr().send_traits().await
                         {
                             log::error!("Unable to send traits: {err}");
+                        } else {
+                            log::info!("Connected");
+                            self.as_ptr().set_connected(true);
                         }
                     }
                     RequestType::AgentUnknown => {
@@ -543,6 +570,7 @@ impl SysMinion {
             let mqr_guard = mqr.lock().await;
 
             let mut sr = SysInspectRunner::new(&self.cfg);
+
             sr.set_model_path(self.as_ptr().cfg.models_dir().join(mqr_guard.target()).to_str().unwrap_or_default());
             sr.set_state(mqr_guard.state());
             sr.set_entities(mqr_guard.entities());
@@ -555,8 +583,7 @@ impl SysMinion {
 
             match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
                 Ok(()) => {
-                    log::debug!("Sysinspect model cycle finished");
-                    log::info!("Task {} finished", cycle_id);
+                    log::debug!("Task {} finished", cycle_id);
                 }
                 Err(e) => {
                     log::error!("Blocking task crashed: {e}");
@@ -573,6 +600,7 @@ impl SysMinion {
             CLUSTER_SHUTDOWN => {
                 log::info!("Requesting minion shutdown from a master");
                 self.as_ptr().send_bye().await;
+                std::process::exit(0);
             }
             CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
@@ -597,11 +625,6 @@ impl SysMinion {
     }
 
     async fn dispatch(self: Arc<Self>, cmd: MasterMessage) {
-        if MODPAK_SYNC_STATE.is_syncing().await {
-            log::debug!("Minion is still syncing, request command dropped");
-            return;
-        }
-
         log::debug!("Dispatching message: {cmd:#?}");
 
         if cmd.cycle().is_empty() {
@@ -613,7 +636,7 @@ impl SysMinion {
 
         // Is command minion-specific?
         if !tgt.id().is_empty() && tgt.id().ne(&self.get_minion_id()) {
-            log::trace!("Command was dropped as it was specifically addressed for another minion");
+            log::debug!("Command was dropped as it was specifically addressed for another minion");
             return;
         } else if tgt.id().is_empty() {
             let traits = traits::get_minion_traits(None);
@@ -631,7 +654,7 @@ impl SysMinion {
                     }
                 }
                 if skip {
-                    log::trace!("Command was dropped as it is specifically targeting different hosts");
+                    log::debug!("Command was dropped as it is specifically targeting different hosts");
                     return;
                 }
             }
@@ -646,7 +669,7 @@ impl SysMinion {
                         match traits::to_typed_query(q) {
                             Ok(tpq) => {
                                 if !traits::matches_traits(tpq, traits::get_minion_traits(None)) {
-                                    log::trace!("Command was dropped as it does not match the traits");
+                                    log::debug!("Command was dropped as it does not match the traits");
                                     return;
                                 }
                             }
@@ -672,7 +695,7 @@ impl SysMinion {
                 }
             }
             Ok(PayloadType::Undef(pld)) => {
-                log::error!("Unknown command: {pld:#?}");
+                log::error!("Rejected due to the undefined payload in the command: {pld:#?}");
             }
             Err(err) => {
                 log::error!("Error dispatching command: {err}");
@@ -682,10 +705,31 @@ impl SysMinion {
 }
 
 /// Constructs and starts an actual minion
-async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>) -> Result<(), SysinspectError> {
+async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
     let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
-    let minion = SysMinion::new(cfg, fingerprint).await?;
+    let minion = SysMinion::new(cfg, fingerprint, dpq).await?;
+
+    let m = minion.as_ptr();
+
+    let runner = m.as_ptr().dpq.clone().start_ack({
+        let m = m.clone();
+        move |_job_id, item| {
+            let m = m.clone();
+            async move {
+                match item {
+                    WorkItem::MasterCommand(cmd) => {
+                        while MODPAK_SYNC_STATE.is_syncing().await {
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                        }
+                        m.clone().dispatch(cmd).await;
+                        Ok(())
+                    }
+                }
+            }
+        }
+    });
+
     minion.as_ptr().do_proto().await?;
 
     // Messages
@@ -702,21 +746,37 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>) -> Res
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        sleep(tokio::time::Duration::from_millis(200)).await;
     }
+
+    runner.abort();
+    let _ = runner.await;
+
     Ok(())
 }
 
 pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
     let mut reconnect_rx = CONNECTION_TX.subscribe();
     let mut ra = 0;
-
+    let dpq = match DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks")) {
+        Ok(dpq) => Arc::new(dpq),
+        Err(e) => {
+            log::error!("Failed to open disk persistent queue: {e}");
+            log::error!(
+                "Is there another minion running? If not, delete the {} directory and try again.",
+                cfg.root_dir().join("pending-tasks").to_str().unwrap_or_default().bright_yellow()
+            );
+            std::process::exit(1);
+        }
+    };
+    SysInspectRunner::set_dpq(dpq.clone());
     loop {
         log::info!("Starting minion instance...");
 
         let c_cfg = cfg.clone();
         let c_fp = fp.clone();
-        let mut mhdl = tokio::spawn(async move { _minion_instance(c_cfg, c_fp).await });
+        let c_dpq = dpq.clone();
+        let mut mhdl = tokio::spawn(async move { _minion_instance(c_cfg, c_fp, c_dpq).await });
 
         tokio::select! {
             res = &mut mhdl => {
@@ -747,7 +807,7 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
 
         let interval = cfg.reconnect_interval();
         log::info!("Reconnecting in {interval} seconds...");
-        tokio::time::sleep(Duration::from_secs(interval)).await;
+        sleep(Duration::from_secs(interval)).await;
     }
 }
 

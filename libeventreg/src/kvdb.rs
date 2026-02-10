@@ -2,12 +2,12 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use fs_extra::dir::{CopyOptions, copy};
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libsysinspect::{
-    SysinspectError,
     cfg::mmconf::HistoryConfig,
-    proto::rqtypes::ProtoKey,
     util::{self},
 };
+use libsysproto::rqtypes::ProtoKey;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sled::{Db, Tree};

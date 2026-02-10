@@ -3,8 +3,9 @@ use cruet::Inflector;
 use fs_extra::dir::CopyOptions;
 use goblin::{Object, elf::header};
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::DEFAULT_MODULES_DIR;
 use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
-use libsysinspect::{SysinspectError, cfg::mmconf::DEFAULT_MODULES_DIR};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use once_cell::sync::Lazy;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
@@ -372,12 +373,40 @@ impl SysInspectModPak {
                     goblin::elf::header::EM_X86_64 => "x86_64",
                     goblin::elf::header::EM_ARM => "ARM",
                     goblin::elf::header::EM_AARCH64 => "ARM64",
-                    _ => return Err(SysinspectError::MasterGeneralError("Module is not a supported ELF architecture".to_string())),
+                    goblin::elf::header::EM_RISCV => "RISC-V",
+                    _ => return Err(SysinspectError::MasterGeneralError("Unsupported ELF arch".to_string())),
                 };
-                let osabi = Self::get_osabi_label(elf.header.e_ident[header::EI_OSABI]);
-                Ok((true, arch, osabi))
+                Ok((true, arch, Self::get_os_label(&elf)))
             }
             _ => Ok((false, "noarch", "any")),
+        }
+    }
+
+    /// Heuristic to determine the OS label of an ELF file, since EI_OSABI is often unreliable.
+    fn get_os_label(elf: &goblin::elf::Elf) -> &'static str {
+        // Check section names - BSDs put their identity here
+        for sh in &elf.section_headers {
+            if let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) {
+                if name.contains("netbsd") {
+                    return "netbsd";
+                }
+                if name.contains("freebsd") {
+                    return "freebsd";
+                }
+                if name.contains("openbsd") {
+                    return "openbsd";
+                }
+            }
+        }
+
+        // Fallback: check EI_OSABI (works for Linux, sometimes)
+        let osabi = elf.header.e_ident[goblin::elf::header::EI_OSABI];
+        match osabi {
+            goblin::elf::header::ELFOSABI_LINUX => "linux",
+            goblin::elf::header::ELFOSABI_FREEBSD => "freebsd",
+            goblin::elf::header::ELFOSABI_NETBSD => "netbsd",
+            goblin::elf::header::ELFOSABI_OPENBSD => "openbsd",
+            _ => "linux", // Default assumption
         }
     }
 
@@ -592,12 +621,25 @@ impl SysInspectModPak {
 
     /// Lists all modules in the repository.
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
-        let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
-        for (p, archset) in self.idx.all_modules(None, None) {
+        let osn = HashMap::from([
+            ("sysv", "Linux"),
+            ("any", "Any"),
+            ("linux", "Linux"),
+            ("netbsd", "NetBSD"),
+            ("freebsd", "FreeBSD"),
+            ("openbsd", "OpenBSD"),
+        ]);
+
+        let allmods = self.idx.all_modules(None, None);
+        let mut platforms = allmods.iter().map(|(p, _)| p.to_string()).collect::<Vec<_>>();
+        platforms.sort();
+
+        for p in platforms {
+            let archset = allmods.get(&p).unwrap(); // safe: iter above
             let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
-                Self::print_table(&modules, false);
+                Self::print_table(modules, false);
             }
         }
         Ok(())

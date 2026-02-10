@@ -1,21 +1,19 @@
 use clap::{ArgMatches, Command};
 use colored::Colorize;
+use libcommon::SysinspectError;
 use libmodpak::{self, mpk::ModPakMetadata};
 use libsysinspect::{
-    SysinspectError,
     cfg::{
         mmconf::{MasterConfig, MinionConfig},
         select_config_path,
     },
     inspector::SysInspectRunner,
     logger::{self, MemoryLogger, STDOUTLogger},
-    proto::query::{
-        SCHEME_COMMAND,
-        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
-    },
     reactor::handlers,
     traits::get_minion_traits,
 };
+use libsysproto::query::SCHEME_COMMAND;
+use libsysproto::query::commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC};
 use log::LevelFilter;
 use std::{
     env,

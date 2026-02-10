@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 use jsonpath_rust::JsonPath;
-use libsysinspect::SysinspectError;
+use libcommon::SysinspectError;
 use serde_json::Value;
 
 /// Select data using JSONPath RFC9535

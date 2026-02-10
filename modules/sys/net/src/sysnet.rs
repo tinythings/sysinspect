@@ -1,9 +1,9 @@
 use crate::routing;
+use libcommon::SysinspectError;
 use libmodcore::{
     response::ModResponse,
     runtime::{self, ModRequest},
 };
-use libsysinspect::SysinspectError;
 use nix::{
     ifaddrs::{InterfaceAddress, getifaddrs},
     net::if_::InterfaceFlags,
@@ -51,19 +51,21 @@ impl NetInfo {
             let mut item: HashMap<String, serde_json::Value> = HashMap::default();
 
             if let Some(addr) = iface.address
-                && let Some(family) = addr.family() {
-                    if let (AddressFamily::Inet, Some(ip)) = (family, addr.as_sockaddr_in()) {
-                        item.insert("port".to_string(), json!(ip.port()));
-                        item.insert("IPv4".to_string(), json!(ip.ip()));
-                    } else if let (AddressFamily::Inet6, Some(ip)) = (family, addr.as_sockaddr_in6()) {
-                        item.insert("port".to_string(), json!(ip.port()));
-                        item.insert("IPv6".to_string(), json!(ip.ip()));
-                        item.insert("scope".to_string(), json!(ip.scope_id()));
-                    } else if let (AddressFamily::Packet, Some(link)) = (family, addr.as_link_addr())
-                        && let Some(mac) = link.addr() {
-                            item.insert("mac".to_string(), json!(Self::format_mac(&mac).to_ascii_uppercase().to_string()));
-                        }
+                && let Some(family) = addr.family()
+            {
+                if let (AddressFamily::Inet, Some(ip)) = (family, addr.as_sockaddr_in()) {
+                    item.insert("port".to_string(), json!(ip.port()));
+                    item.insert("IPv4".to_string(), json!(ip.ip()));
+                } else if let (AddressFamily::Inet6, Some(ip)) = (family, addr.as_sockaddr_in6()) {
+                    item.insert("port".to_string(), json!(ip.port()));
+                    item.insert("IPv6".to_string(), json!(ip.ip()));
+                    item.insert("scope".to_string(), json!(ip.scope_id()));
+                } else if let (AddressFamily::Packet, Some(link)) = (family, addr.as_link_addr())
+                    && let Some(mac) = link.addr()
+                {
+                    item.insert("mac".to_string(), json!(Self::format_mac(&mac).to_ascii_uppercase().to_string()));
                 }
+            }
 
             let ifn = iface.interface_name.to_string();
             if self.itf_accepted(&ifn) && !item.is_empty() {
@@ -93,13 +95,8 @@ impl NetInfo {
 fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> Result<HashMap<String, serde_json::Value>, SysinspectError> {
     let mut data: HashMap<String, serde_json::Value> = HashMap::default();
 
-    netinfo.set_if_filter(
-        runtime::get_arg(rt, "if-list")
-            .split(",")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<String>>(),
-    );
+    netinfo
+        .set_if_filter(runtime::get_arg(rt, "if-list").split(",").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<String>>());
 
     // Include running interfaces
     if runtime::get_opt(rt, "if-up") {
@@ -121,63 +118,64 @@ fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> Result<HashMap<String, se
     }
 
     if runtime::get_opt(rt, "route-table")
-        && let Ok(rt_data) = routing::ip_route() {
-            let mut rtable: Vec<HashMap<String, String>> = Vec::default();
-            for entry in &rt_data {
-                // Skip an interface, which wasn't requested
-                if !entry.iface.is_empty() && !netinfo.itf_accepted(&entry.iface) {
-                    continue;
-                }
-                let mut rec: HashMap<String, String> = HashMap::default();
-                if let Some(gw) = entry.gw {
-                    rec.insert("gateway".to_string(), gw.to_string());
-                }
-                if let Some(src) = entry.src {
-                    rec.insert("src".to_string(), src.to_string());
-                }
-                if let Some(dst) = entry.dst {
-                    rec.insert("dst".to_string(), dst.to_string());
-                }
-                if let Some(proto) = entry.proto {
-                    rec.insert(
-                        "proto".to_string(),
-                        match proto {
-                            neli::consts::rtnl::Rtprot::Unspec => "unspecified",
-                            neli::consts::rtnl::Rtprot::Redirect => "redirect",
-                            neli::consts::rtnl::Rtprot::Kernel => "kernel",
-                            neli::consts::rtnl::Rtprot::Boot => "boot",
-                            neli::consts::rtnl::Rtprot::Static => "static",
-                            _ => "",
-                        }
-                        .to_string(),
-                    );
-                }
-                if let Some(scope) = entry.scope {
-                    rec.insert(
-                        "scope".to_string(),
-                        match scope {
-                            neli::consts::rtnl::RtScope::Universe => "universe",
-                            neli::consts::rtnl::RtScope::Site => "site",
-                            neli::consts::rtnl::RtScope::Link => "link",
-                            neli::consts::rtnl::RtScope::Host => "host",
-                            neli::consts::rtnl::RtScope::Nowhere => "nowhere",
-                            _ => "",
-                        }
-                        .to_string(),
-                    );
-                }
-                if !entry.iface.is_empty() {
-                    rec.insert("if".to_string(), entry.iface.to_owned());
-                }
-                rec.insert("mask".to_string(), entry.dst_len.to_string());
-
-                rtable.push(rec);
+        && let Ok(rt_data) = routing::ip_route()
+    {
+        let mut rtable: Vec<HashMap<String, String>> = Vec::default();
+        for entry in &rt_data {
+            // Skip an interface, which wasn't requested
+            if !entry.iface.is_empty() && !netinfo.itf_accepted(&entry.iface) {
+                continue;
             }
-
-            if !rtable.is_empty() {
-                data.insert("route-table".to_string(), json!(rtable));
+            let mut rec: HashMap<String, String> = HashMap::default();
+            if let Some(gw) = entry.gw {
+                rec.insert("gateway".to_string(), gw.to_string());
             }
+            if let Some(src) = entry.src {
+                rec.insert("src".to_string(), src.to_string());
+            }
+            if let Some(dst) = entry.dst {
+                rec.insert("dst".to_string(), dst.to_string());
+            }
+            if let Some(proto) = entry.proto {
+                rec.insert(
+                    "proto".to_string(),
+                    match proto {
+                        neli::consts::rtnl::Rtprot::Unspec => "unspecified",
+                        neli::consts::rtnl::Rtprot::Redirect => "redirect",
+                        neli::consts::rtnl::Rtprot::Kernel => "kernel",
+                        neli::consts::rtnl::Rtprot::Boot => "boot",
+                        neli::consts::rtnl::Rtprot::Static => "static",
+                        _ => "",
+                    }
+                    .to_string(),
+                );
+            }
+            if let Some(scope) = entry.scope {
+                rec.insert(
+                    "scope".to_string(),
+                    match scope {
+                        neli::consts::rtnl::RtScope::Universe => "universe",
+                        neli::consts::rtnl::RtScope::Site => "site",
+                        neli::consts::rtnl::RtScope::Link => "link",
+                        neli::consts::rtnl::RtScope::Host => "host",
+                        neli::consts::rtnl::RtScope::Nowhere => "nowhere",
+                        _ => "",
+                    }
+                    .to_string(),
+                );
+            }
+            if !entry.iface.is_empty() {
+                rec.insert("if".to_string(), entry.iface.to_owned());
+            }
+            rec.insert("mask".to_string(), entry.dst_len.to_string());
+
+            rtable.push(rec);
         }
+
+        if !rtable.is_empty() {
+            data.insert("route-table".to_string(), json!(rtable));
+        }
+    }
 
     Ok(data)
 }

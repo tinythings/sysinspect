@@ -1,5 +1,5 @@
-Outcome Logger
-==============
+**Outcome Logger**: Logging Constraints Outcomes
+================================================
 
 .. note::
 

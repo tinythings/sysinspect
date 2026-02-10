@@ -2,7 +2,8 @@
 Filedata manager
  */
 
-use libsysinspect::{SysinspectError, mdescr::mspec::MODEL_FILE_EXT, util::iofs::scan_files_sha256};
+use libcommon::SysinspectError;
+use libsysinspect::{mdescr::mspec::MODEL_FILE_EXT, util::iofs::scan_files_sha256};
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug, Default, Clone)]

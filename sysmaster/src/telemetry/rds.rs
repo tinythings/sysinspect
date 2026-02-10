@@ -1,8 +1,8 @@
 use crate::registry::rec::MinionRecord;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libeventreg::kvdb::EventData;
 use libsysinspect::{
-    SysinspectError,
     cfg::mmconf::MinionConfig,
     mdescr::{mspec, mspecdef::ModelSpec, telemetry::TelemetrySpec},
 };
@@ -284,9 +284,10 @@ impl FunctionReducer {
                     if mrec.matches_selectors(selector.select()) {
                         for (dskey, jpath) in selector.dataspec() {
                             if let Ok(matches) = select(&jpath, &json!(rdata.get_response()))
-                                && !matches.is_empty() {
-                                    mdata.entry(dskey.clone()).or_default().push(matches[0].clone());
-                                }
+                                && !matches.is_empty()
+                            {
+                                mdata.entry(dskey.clone()).or_default().push(matches[0].clone());
+                            }
                         }
                     }
                 }

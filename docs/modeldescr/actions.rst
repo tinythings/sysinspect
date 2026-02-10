@@ -166,8 +166,11 @@ Below is the description of configuration sections:
 
     ``context|ctx [map]`` (if defined)
 
-        Context variable definitions for **documentation** purposes, when they are required by a model description.
-        They are defined as key/value pairs, where key is the variable name and value is its description.
+        If context is defined as key/value pairs, then this data can be *explained* via API.
+        So the context variable definitions for **documentation** purposes when API is used, to understand
+        what each key/value means, when they are required by a model description.
+
+        Context is defined as key/value pairs, where key is the variable name and value is its description.
         Example:
 
         .. code-block:: yaml+jinja
@@ -185,11 +188,27 @@ Below is the description of configuration sections:
               another: "context(bar)"
               {% endif %}
 
-        Surely, ``context`` does not have to be defined, but then API will not reflect and introspect
-        the whole model properly, because SysInspect will first render and then examine the model. As it is seen
-        in the example above, context variables are used in Jinja2 templating. In this case ``{% if %}`` clause
-        will just cut out a chunk of Model description, rendering impossible to reflect state arguments to the
-        end user.
+        The ``context`` section is optional, but it is highly recommended to use it, if there are any context
+        variables used in the model description.
+
+        The reason is that the template engine will first evaluate, rendering the model description, and only
+        then API will be able to reflect the whole model properly.
+
+        That said, if ``context`` wasn't defined, then API will not reflect and introspect the whole model properly, because
+        SysInspect will first render and then examine the model. As it is seen in the example above, context variables
+        are used in Jinja2 templating. In this case ``{% if %}`` clause will just cut out a chunk of Model description,
+        rendering impossible to reflect state arguments to the end user.
+
+        In other words, if no context variables were passed, then in case ``context`` section is also not defined, the
+        example above will be rendered in the form:
+
+        .. code-block:: yaml
+
+            args:
+
+        So the API will show on SwaggerUI or introspection info just that, effectively leaving you completely clueless
+        about what arguments are expected by the module, and what they mean. However, if ``context`` is defined, then the
+        API will be able to reflect the whole model description properly, showing all arguments and their meaning.
 
     ``conditions|conds: [map]`` (optional)
 

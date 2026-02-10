@@ -1,5 +1,5 @@
-use crate::SysinspectError;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 

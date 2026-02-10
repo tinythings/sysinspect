@@ -1,8 +1,8 @@
 use anyhow::Context;
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libmodcore::modinit::{ModArgument, ModInterface, ModOption};
-use libsysinspect::SysinspectError;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};

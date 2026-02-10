@@ -1,10 +1,8 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
-use libsysinspect::{
-    SysinspectError,
-    rsa::keys::{
-        RsaKey::{Private, Public},
-        decrypt, encrypt, key_from_file, key_to_file, keygen,
-    },
+use libcommon::SysinspectError;
+use libsysinspect::rsa::keys::{
+    RsaKey::{Private, Public},
+    decrypt, encrypt, key_from_file, key_to_file, keygen,
 };
 use serde_json::{Value, json};
 use sodiumoxide::crypto::secretbox::{self, Key, Nonce, gen_nonce};

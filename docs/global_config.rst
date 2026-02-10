@@ -479,6 +479,16 @@ and contains the following directives:
     ``/usr/share/sysinspect``. On most embedded systems those root filesystem is usually read-only,
     this location can be changed. This directory contains ``lib`` and ``modules`` subdirectories.
 
+``path.tmp``
+################
+
+    Type: **string**
+
+    The location of temporary directory, which is by default is at the location
+    ``/var/tmp/sysinspect``. On most embedded systems those root filesystem is usually read-only,
+    this location can be changed. This directory is used to store temporary files, such as downloaded modules,
+    temporary data etc.
+
 ``master.ip``
 #############
 

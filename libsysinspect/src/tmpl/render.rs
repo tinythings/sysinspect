@@ -1,6 +1,6 @@
-use crate::SysinspectError;
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use serde_json::Value;
 use std::error::Error;
 use tera::{Context, Tera};
@@ -34,9 +34,10 @@ impl ModelTplRender {
         let mut bogus = Vec::new();
         for (i, s) in keys.iter().enumerate() {
             if let Some(next_s) = keys.get(i + 1)
-                && next_s.starts_with(s) {
-                    bogus.push(s.clone());
-                }
+                && next_s.starts_with(s)
+            {
+                bogus.push(s.clone());
+            }
         }
         bogus
     }

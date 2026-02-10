@@ -3,7 +3,7 @@ pub mod iofs;
 pub mod sys;
 pub mod tty;
 
-use crate::SysinspectError;
+use libcommon::SysinspectError;
 use std::{fs, io, path::PathBuf};
 use uuid::Uuid;
 

@@ -1,5 +1,5 @@
-Pipe Script
-===========
+**Pipe Script**: Sending Action Output to External Scripts
+==========================================================
 
 .. note::
 

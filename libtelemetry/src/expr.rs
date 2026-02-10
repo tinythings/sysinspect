@@ -1,6 +1,6 @@
 use byte_unit::Byte;
 use globset::Glob;
-use libsysinspect::SysinspectError;
+use libcommon::SysinspectError;
 use regex::Regex;
 use serde_json::Value;
 
@@ -96,9 +96,9 @@ impl ExpressionParser {
         .map_err(|e| SysinspectError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
 
         let caps = re.captures(input).ok_or_else(|| {
-            SysinspectError::from(Box::new(std::io::Error::other(
-                format!("invalid expression: {input:?}"),
-            )) as Box<dyn std::error::Error + Send + Sync>)
+            SysinspectError::from(
+                Box::new(std::io::Error::other(format!("invalid expression: {input:?}"))) as Box<dyn std::error::Error + Send + Sync>
+            )
         })?;
 
         Ok((

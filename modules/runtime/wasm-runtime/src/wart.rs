@@ -1,6 +1,6 @@
 use futures::executor;
+use libcommon::SysinspectError;
 use libmodcore::{response::ModResponse, rtspec::RuntimeSpec, runtime::ModRequest};
-use libsysinspect::SysinspectError;
 use serde_json::Value;
 use wasmruntime::cfg::WasmConfig;
 

@@ -1,5 +1,5 @@
+use libcommon::SysinspectError;
 use libsysinspect::{
-    SysinspectError,
     cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB, MasterConfig},
     rsa::keys::{
         RsaKey::{Private, Public},

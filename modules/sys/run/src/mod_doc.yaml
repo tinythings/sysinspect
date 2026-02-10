@@ -32,6 +32,11 @@ arguments:
     required: false
     description: "Set the locale for this command (default: LC_CTYPE=C)"
 
+  - name: strip
+    type: bool
+    required: false
+    description: "Strip newlines from the end of the output (default: true)"
+
 examples:
   - description: "Module usage example"
     code: |

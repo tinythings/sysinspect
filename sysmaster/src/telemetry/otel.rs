@@ -1,11 +1,9 @@
 use crate::{registry::rec::MinionRecord, telemetry::map::FunctionMapper};
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libeventreg::kvdb::EventData;
-use libsysinspect::{
-    SysinspectError,
-    mdescr::telemetry::{DataExportType, EventSelector, StaticDataDestination},
-    proto::rqtypes::ProtoKey,
-};
+use libsysinspect::mdescr::telemetry::{DataExportType, EventSelector, StaticDataDestination};
+use libsysproto::rqtypes::ProtoKey;
 use libtelemetry::{
     otel_log_json,
     query::{cast_data, interpolate_data, load_data},

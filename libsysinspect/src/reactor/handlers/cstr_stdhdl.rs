@@ -20,9 +20,10 @@ impl ConstraintHandler {
     fn get_prefix(&self) -> String {
         let mut prefix = "".to_string();
         if let Some(config) = self.config()
-            && let Some(p) = config.as_string("prefix") {
-                prefix = format!("{} - ", p.cyan());
-            }
+            && let Some(p) = config.as_string("prefix")
+        {
+            prefix = format!("{} - ", p.cyan());
+        }
 
         prefix
     }
@@ -52,7 +53,7 @@ impl EventHandler for ConstraintHandler {
         let prefix = self.get_prefix();
 
         if evt.constraints.is_info() {
-            log::info!("{}{} config {}", prefix, evt.aid(), "state applied".bright_white().bold());
+            log::info!("{}{} - config {}", prefix, evt.aid().bright_cyan(), "state applied".bright_white().bold());
             return;
         } else if !evt.constraints.has_errors() {
             let mut sfx = String::from("");
@@ -60,7 +61,7 @@ impl EventHandler for ConstraintHandler {
                 sfx = format!(", config {}", "state applied".bright_white().bold());
             }
 
-            log::info!("{}{} assertions {}{}", prefix, evt.aid(), "passed".bright_green().bold(), sfx);
+            log::info!("{}{} - assertions {}{}", prefix, evt.aid().bright_cyan(), "passed".bright_green().bold(), sfx);
             return;
         }
 

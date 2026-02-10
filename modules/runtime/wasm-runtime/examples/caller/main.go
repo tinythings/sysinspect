@@ -28,7 +28,7 @@ func readHeader() (Header, error) {
 
 func doc() map[string]any {
 	return map[string]any{
-		"name": "caller", "version": "0.1.0", "author": "Gru",
+		"name": "caller", "version": "0.1.0", "author": "Bo Maryniuk",
 		"description": "Executes `uname -a` via host syscall and returns stdout.",
 		"arguments":   []any{}, "options": []any{},
 		"examples": []any{
@@ -60,14 +60,14 @@ func main() {
 	}
 
 	out, err := api.Command("/usr/bin/uname", "-a").Output()
-	api.Log(api.Info, "Executed: \"uname -a\", output length: %d", len(out))
+	api.Log(api.Info, "Called: \"uname -a\", output length: %d", len(out))
 	if err != nil {
 		_ = enc.Encode(map[string]any{"error": err.Error()})
 		return
 	}
+
+	// Output structure
 	_ = enc.Encode(map[string]any{"output": out})
 
-	api.Log(api.Error, "This is an error log example")
-	api.Log(api.Warn, "This is a warning log example")
 	api.Log(api.Info, "Finished successfully")
 }

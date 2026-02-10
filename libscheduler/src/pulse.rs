@@ -2,12 +2,8 @@
 Events scheduler is a cronjob-like service.
  */
 
-use libsysinspect::{
-    SysinspectError,
-    cfg::mmconf::{
-        CFG_TASK_INTERVAL_DAYS, CFG_TASK_INTERVAL_HOURS, CFG_TASK_INTERVAL_MINUTES, CFG_TASK_INTERVAL_SECONDS, TaskConfig,
-    },
-};
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::{CFG_TASK_INTERVAL_DAYS, CFG_TASK_INTERVAL_HOURS, CFG_TASK_INTERVAL_MINUTES, CFG_TASK_INTERVAL_SECONDS, TaskConfig};
 use tokio::sync::broadcast::{Receiver, channel};
 use tokio_task_scheduler::{Scheduler, Task, TaskBuilder};
 
@@ -62,11 +58,7 @@ impl EventsScheduler {
     }
 
     pub async fn add(&mut self, event: EventTask) -> Result<(), SysinspectError> {
-        self.scheduler
-            .add_task(event.task.clone())
-            .await
-            .map(|_| ())
-            .map_err(|e| SysinspectError::MasterGeneralError(e.to_string()))
+        self.scheduler.add_task(event.task.clone()).await.map(|_| ()).map_err(|e| SysinspectError::MasterGeneralError(e.to_string()))
     }
 
     pub async fn remove(&mut self, id: &str) -> Result<(), SysinspectError> {

@@ -4,7 +4,7 @@ Config reader
 
 pub mod mmconf;
 
-use crate::SysinspectError;
+use libcommon::SysinspectError;
 use mmconf::MinionConfig;
 use nix::unistd::Uid;
 use once_cell::sync::OnceCell;
@@ -18,14 +18,15 @@ pub const APP_HOME: &str = "/etc/sysinspect";
 pub fn select_config_path(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
     // Override path from options
     if let Some(ovrp) = p
-        && !ovrp.is_empty() {
-            let ovrp = PathBuf::from(ovrp);
-            if ovrp.exists() {
-                return Ok(ovrp);
-            }
-
-            log::warn!("Preferred config at {} does not exist, falling back", ovrp.to_str().unwrap_or_default());
+        && !ovrp.is_empty()
+    {
+        let ovrp = PathBuf::from(ovrp);
+        if ovrp.exists() {
+            return Ok(ovrp);
         }
+
+        log::warn!("Preferred config at {} does not exist, falling back", ovrp.to_str().unwrap_or_default());
+    }
 
     // Current
     let cfp: PathBuf = env::current_dir()?.canonicalize()?.join(APP_CONF);

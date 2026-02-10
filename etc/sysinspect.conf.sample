@@ -14,6 +14,45 @@ config:
     fileserver.bind.ip: 0.0.0.0
     fileserver.bind.port: 4201
 
+    # Virtual minions cluster example
+    cluster:
+      # Virtual minion description.
+      - id: 123
+        hostname: fustercluck
+
+        # Static traits for the virtual minion
+        traits:
+          foo: "bar"
+
+        # This is what it consists of.
+        # All these items in "nodes" list
+        # are added with "AND" operand (not "OR"!).
+        nodes:
+          # A specific minion
+          - id: deadbeef12312312312312
+            hostname: deadbeef
+
+          # Another specific minion
+          - id: 345345345345345345345345
+            hostname: someotherhost
+
+          # Or you can say all hosts with these traits
+          - traits:
+              system.os: linux
+              system.mem: "> 8Gb"
+
+      # Another virtual minion
+      - id: 234  # The ID can be literally anything. This one is fully valid.
+        hostname: custerflock
+        traits:
+          name: "toto"
+
+        nodes:
+          - id: 456456456456456456
+            hostname: foobar
+
+
+    # UI history configuration
     history:
       rotate: true # default false
       limit: 10 # Maximum number of history entries to keep in the database
@@ -73,11 +112,23 @@ config:
     log.errors: /tmp/sysinspect.err.log
     pidfile: /tmp/sysinspect.pid
 
+    # API configuration
+    api.devmode: false
+    api.enabled: true
+
   # Configuration that is present only on a minion node
   minion:
     # Root directory where minion keeps all data.
     # Default: /etc/sysinspect — same as for master
-    master.ip: 192.168.2.31
+    root: /etc/sysinspect
+
+    # Root directory where minion keeps all data.
+    # Default: /etc/sysinspect — same as for master
+    master.ip: 192.168.2.31  # Whatever your master runs on
     master.port: 4200
     master.reconnect.freq: 0 # Infinite
     master.reconnect.interval: "1-5" # Random interval between 1 and 5 seconds
+
+    # You can disable log forwarding from modules, setting this to "false".
+    # Default is "true" and you should not disable it. :-)
+    log.forward: true

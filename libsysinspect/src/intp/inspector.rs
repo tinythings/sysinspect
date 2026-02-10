@@ -8,7 +8,6 @@ use super::{
     relations::Relation,
 };
 use crate::{
-    SysinspectError,
     cfg::mmconf::DEFAULT_MODULES_SHARELIB,
     intp::functions,
     mdescr::{
@@ -19,6 +18,7 @@ use crate::{
 };
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use once_cell::sync::OnceCell;
 use serde_yaml::{Value, to_value};
 use std::{collections::HashSet, path::PathBuf};
@@ -103,6 +103,12 @@ impl SysInspector {
                 return Err(SysinspectError::ModelDSLError(format!("Directive '{directive}' is not defined")));
             }
 
+            // skip if no directive
+            if v_obj.is_none() {
+                log::debug!("Optional directive '{}' is not defined in the model spec, skipping", directive);
+                continue;
+            }
+
             let mut amt = 0;
             if let Some(obj) = v_obj.unwrap().as_mapping() {
                 for (obj_id, obj_data) in obj {
@@ -151,6 +157,8 @@ impl SysInspector {
                 if directive == DSL_IDX_EVENTS_CFG {
                     self.config.set_events(v_obj.unwrap())?;
                 }
+            } else {
+                log::debug!("Directive '{}' is expected to be a mapping, but it's not. Skipping.", directive);
             }
 
             log::debug!("Loaded {amt} instances of {directive}");

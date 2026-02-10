@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 libsysinspect = { path = "../../../libsysinspect" }
 libmodcore = { path = "../../../libmodcore" }
+libcommon = { path = "../../../libcommon" }
 # wasmruntime = { path = "../../../../wasmruntime" }
 wasmruntime = {git = "https://github.com/isbm/wasmruntime.git"}
 tokio = { version = "1.47.1", features = ["full"] }

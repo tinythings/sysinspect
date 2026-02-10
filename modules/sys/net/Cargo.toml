@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 libsysinspect = { path = "../../../libsysinspect" }
 libmodcore = { path = "../../../libmodcore" }
+libcommon = { path = "../../../libcommon" }
 neli = { version = "0.6.5", features = ["async", "netfilter", "tokio"] }
 nix = { version = "0.29.0", features = ["net"] }
 serde = { version = "1.0.228", features = ["derive"] }

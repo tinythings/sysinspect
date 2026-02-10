@@ -11,25 +11,25 @@ use crate::{
 };
 use colored::Colorize;
 use indexmap::IndexMap;
+use libcommon::SysinspectError;
 use libeventreg::{
     ipcs::DbIPCService,
     kvdb::{EventMinion, EventsRegistry},
 };
 use libsysinspect::{
-    SysinspectError,
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
-    proto::{
-        self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
-        errcodes::ProtoErrorCode,
-        payload::{ModStatePayload, PingData},
-        query::{
-            SCHEME_COMMAND,
-            commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
-        },
-        rqtypes::{ProtoKey, ProtoValue, RequestType},
-    },
     util::{self, iofs::scan_files_sha256},
+};
+use libsysproto::{
+    self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
+    errcodes::ProtoErrorCode,
+    payload::{ModStatePayload, PingData},
+    query::{
+        SCHEME_COMMAND,
+        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
+    },
+    rqtypes::{ProtoKey, ProtoValue, RequestType},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -65,6 +65,7 @@ pub struct SysMaster {
     session: Arc<Mutex<session::SessionKeeper>>,
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
+    conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
 }
 
 impl SysMaster {
@@ -87,6 +88,7 @@ impl SysMaster {
             taskreg,
             ptr: None,
             vmcluster,
+            conn_to_mid: HashMap::new(),
         })
     }
 
@@ -103,7 +105,7 @@ impl SysMaster {
 
     /// Parse minion request
     fn to_request(&self, data: &str) -> Option<MinionMessage> {
-        match serde_json::from_str::<proto::MinionMessage>(data) {
+        match serde_json::from_str::<MinionMessage>(data) {
             Ok(request) => {
                 return Some(request);
             }
@@ -276,7 +278,7 @@ impl SysMaster {
             }
 
             let mut payload = String::from("");
-            if tgt.scheme().eq(proto::query::SCHEME_COMMAND) {
+            if tgt.scheme().eq(SCHEME_COMMAND) {
                 payload = query.to_owned();
             }
 
@@ -367,9 +369,26 @@ impl SysMaster {
         let bcast = master.lock().await.broadcast();
         tokio::spawn(async move {
             loop {
-                if let Some((msg, minion_addr)) = rx.recv().await {
-                    let msg = String::from_utf8_lossy(&msg).to_string();
+                if let Some((raw, minion_addr)) = rx.recv().await {
+                    // Minion disconnects here
+                    if raw.is_empty() {
+                        let c_master = Arc::clone(&master);
+                        tokio::spawn(async move {
+                            let mut guard = c_master.lock().await;
+
+                            if let Some(mid) = guard.conn_to_mid.remove(&minion_addr) {
+                                log::info!("Minion connection {} dropped; clearing session for {}", minion_addr, mid);
+                                guard.get_session().lock().await.remove(&mid);
+                            } else {
+                                log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
+                            }
+                        });
+                        continue;
+                    }
+
+                    let msg = String::from_utf8_lossy(&raw).to_string();
                     log::debug!("Minion response: {minion_addr}: {msg}");
+
                     if let Some(req) = master.lock().await.to_request(&msg) {
                         match req.req_type() {
                             RequestType::Add => {
@@ -416,6 +435,7 @@ impl SysMaster {
                                         _ = c_bcast.send(guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap());
                                     } else {
                                         log::info!("{c_id} connected successfully");
+                                        guard.conn_to_mid.insert(minion_addr.clone(), c_id.clone());
                                         guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
                                         _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
                                         log::info!("Syncing traits with minion at {c_id}");
@@ -469,6 +489,7 @@ impl SysMaster {
                                 log::info!("Minion {} disconnects", req.id());
                                 tokio::spawn(async move {
                                     let mut guard = c_master.lock().await;
+                                    guard.conn_to_mid.remove(&minion_addr);
                                     guard.get_session().lock().await.remove(req.id());
                                     let m = guard.msg_bye_ack(req.id().to_string(), req.payload().to_string());
                                     _ = c_bcast.send(m.sendable().unwrap());
@@ -782,7 +803,7 @@ impl SysMaster {
                     Ok((socket, _)) = listener.accept() => {
                         let mut bcast_sub = bcast.subscribe();
                         let client_tx = tx.clone();
-                        let local_addr = socket.local_addr().unwrap();
+                        let peer_addr = socket.peer_addr().unwrap();
                         let (reader, writer) = socket.into_split();
                         let c_master = Arc::clone(&master);
                         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
@@ -790,11 +811,11 @@ impl SysMaster {
                         // Task to send messages to the client
                         tokio::spawn(async move {
                             let mut writer = writer;
-                            log::info!("Minion {local_addr} connected. Ready to send messages.");
+                            log::info!("Minion {peer_addr} connected. Ready to send messages.");
 
                             loop {
                                 if let Ok(msg) = bcast_sub.recv().await {
-                                    log::trace!("Sending message to minion at {} length of {}", local_addr, msg.len());
+                                    log::trace!("Sending message to minion at {} length of {}", peer_addr, msg.len());
                                     let mut guard = c_master.lock().await;
                                     if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
                                         || writer.write_all(&msg).await.is_err()
@@ -806,10 +827,9 @@ impl SysMaster {
                                         break;
                                     }
 
-                                    if guard.to_drop.contains(&local_addr.to_string()) {
-                                        guard.to_drop.remove(&local_addr.to_string());
-                                        log::info!("Dropping minion: {}", &local_addr.to_string());
-                                        log::info!("");
+                                    if guard.to_drop.contains(&peer_addr.to_string()) {
+                                        guard.to_drop.remove(&peer_addr.to_string());
+                                        log::info!("Dropping minion: {}", &peer_addr.to_string());
                                         if let Err(err) = writer.shutdown().await {
                                             log::error!("Error shutting down outgoing: {err}");
                                         }
@@ -834,16 +854,18 @@ impl SysMaster {
 
                                 let mut len_buf = [0u8; 4];
                                 if reader.read_exact(&mut len_buf).await.is_err() {
+                                    let _ = client_tx.send((Vec::new(), peer_addr.to_string())).await;
                                     return;
                                 }
 
                                 let msg_len = u32::from_be_bytes(len_buf) as usize;
                                 let mut msg = vec![0u8; msg_len];
                                 if reader.read_exact(&mut msg).await.is_err() {
+                                    let _ = client_tx.send((Vec::new(), peer_addr.to_string())).await;
                                     return;
                                 }
 
-                                if client_tx.send((msg, local_addr.to_string())).await.is_err() {
+                                if client_tx.send((msg, peer_addr.to_string())).await.is_err() {
                                     break;
                                 }
 

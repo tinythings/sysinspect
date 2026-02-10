@@ -2,10 +2,8 @@
 RSA keys manager
  */
 
-use libsysinspect::{
-    cfg::mmconf::{CFG_MINION_RSA_PRV, CFG_MINION_RSA_PUB},
-    SysinspectError,
-};
+use libcommon::SysinspectError;
+use libsysinspect::cfg::mmconf::{CFG_MINION_RSA_PRV, CFG_MINION_RSA_PUB};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use std::{fs, path::PathBuf};
 
