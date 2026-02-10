@@ -1,3 +1,10 @@
+use crate::{
+    intp::{
+        actproc::response::ActionResponse,
+        conf::{EventConfig, EventConfigOption},
+    },
+    reactor::handlers::evthandler::EventHandler,
+};
 use colored::Colorize;
 use indexmap::IndexMap;
 use jsonpath_rust::JsonPath;
@@ -6,14 +13,6 @@ use libsysproto::{MasterMessage, MinionTarget};
 use serde::Deserialize;
 use serde_json::json;
 use serde_yaml::Value;
-
-use crate::{
-    intp::{
-        actproc::response::ActionResponse,
-        conf::{EventConfig, EventConfigOption},
-    },
-    reactor::handlers::evthandler::EventHandler,
-};
 #[derive(Debug, Deserialize, Default)]
 struct Call {
     query: String,
@@ -84,6 +83,10 @@ impl PipelineHandler {
         }
     }
 
+    fn is_verbose(&self) -> bool {
+        self.config().unwrap_or_default().get("verbose").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
     fn eval_context(&self, evt: &ActionResponse, call: &mut Call) {
         let data = evt.response.data().unwrap_or(json!({}));
 
@@ -112,7 +115,9 @@ impl PipelineHandler {
         for (k, v) in updates {
             let logv = Self::scalar2s(&v);
             call.context.insert(k.clone(), v);
-            log::debug!("[{}] Setting context variable {} to {}", PipelineHandler::id().bright_blue(), k.bright_green(), logv.bright_blue());
+            if self.is_verbose() {
+                log::info!("[{}] Setting context variable {} to {}", PipelineHandler::id().bright_blue(), k.bright_green(), logv.bright_blue());
+            }
         }
     }
 }
@@ -133,7 +138,10 @@ impl EventHandler for PipelineHandler {
     }
 
     fn handle(&self, evt: &ActionResponse) {
-        log::info!("[{}] handler received event {}", PipelineHandler::id().bright_blue(), evt.eid());
+        if self.is_verbose() {
+            log::info!("[{}] handler received event {}", PipelineHandler::id().bright_blue(), evt.eid());
+        }
+
         let Some(dpq) = crate::inspector::SysInspectRunner::dpq() else {
             log::error!("[{}]: DPQ not set", PipelineHandler::id().bright_blue());
             return;
@@ -141,12 +149,14 @@ impl EventHandler for PipelineHandler {
 
         // Skip events that don't belong
         if !evt.match_eid(&self.eid) {
-            log::info!(
-                "[{}] Event {} doesn't match handler {}",
-                PipelineHandler::id().bright_blue(),
-                format!("{}/{}/{}/{}", evt.aid(), evt.eid(), evt.sid(), evt.response.retcode()).bright_yellow(),
-                self.eid.bright_yellow()
-            );
+            if self.is_verbose() {
+                log::info!(
+                    "[{}] Event {} doesn't match handler {}",
+                    PipelineHandler::id().bright_blue(),
+                    format!("{}/{}/{}/{}", evt.aid(), evt.eid(), evt.sid(), evt.response.retcode()).bright_yellow(),
+                    self.eid.bright_yellow()
+                );
+            }
             return;
         }
 
@@ -166,7 +176,9 @@ impl EventHandler for PipelineHandler {
                 return;
             }
 
-            log::info!("[{}] added call to {}", PipelineHandler::id().bright_blue(), call.query.bright_yellow());
+            if self.is_verbose() {
+                log::info!("[{}] added call to {}", PipelineHandler::id().bright_blue(), call.query.bright_yellow());
+            }
         }
     }
 
