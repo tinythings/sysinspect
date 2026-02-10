@@ -276,6 +276,11 @@ impl SysMinion {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
+                                let scheme = msg.target().scheme().to_string();
+                                if scheme.starts_with(SCHEME_COMMAND) {
+                                    self.as_ptr().call_internal_command(&scheme).await;
+                                    continue;
+                                }
                                 if let Err(e) = self.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
                                     log::error!("Failed to enqueue master command: {e}");
                                 } else {
@@ -578,6 +583,7 @@ impl SysMinion {
             CLUSTER_SHUTDOWN => {
                 log::info!("Requesting minion shutdown from a master");
                 self.as_ptr().send_bye().await;
+                std::process::exit(0);
             }
             CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
