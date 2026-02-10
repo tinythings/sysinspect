@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_DIR;
 use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
+use libsysinspect::util::iofs::get_file_sha256;
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use once_cell::sync::Lazy;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
@@ -90,28 +91,28 @@ impl SysInspectModPakMinion {
 
         let fcs = path.with_extension(REPO_MOD_SHA256_EXT);
         if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_SHALLOW) {
-            log::debug!("Shallow sync: {}", subpath.to_string().bright_yellow());
+            log::debug!("Shallow check: {}", subpath.to_string().bright_yellow());
             return Ok((path.exists(), None));
         }
 
         // Shallow-check if the checksum file exists and matches the expected checksum
         if fcs.exists() && self.cfg.autosync().eq(CFG_AUTOSYNC_FAST) {
-            log::debug!("Fast sync: {}", subpath.to_string().bright_yellow());
+            log::debug!("Fast check: {}", subpath.to_string().bright_yellow());
             let buff = fs::read_to_string(fcs)?;
             return Ok((buff.trim() == checksum, Some(buff)));
         }
 
-        log::debug!("Full sync: {}", subpath.to_string().bright_yellow());
-        let fcs = libsysinspect::util::iofs::get_file_sha256(path.to_path_buf())?;
+        log::debug!("Full check: {}", subpath.to_string().bright_yellow());
+        let fcs = get_file_sha256(path.to_path_buf())?;
         Ok((fcs.eq(checksum), Some(fcs)))
     }
 
     /// Syncs the module repository with the fileserver.
     pub async fn sync(&self) -> Result<(), SysinspectError> {
         match self.cfg.autosync().as_str() {
-            v if v == CFG_AUTOSYNC_SHALLOW => log::info!("Shallow data sync with {}", self.cfg.fileserver()),
-            v if v == CFG_AUTOSYNC_FAST => log::info!("Fast data sync with {}", self.cfg.fileserver()),
-            _ => log::info!("Full data sync with {}", self.cfg.fileserver()),
+            v if v == CFG_AUTOSYNC_SHALLOW => log::info!("Shallow data check with {}", self.cfg.fileserver()),
+            v if v == CFG_AUTOSYNC_FAST => log::info!("Fast data check with {}", self.cfg.fileserver()),
+            _ => log::info!("Full data check with {}", self.cfg.fileserver()),
         }
 
         MODPAK_SYNC_STATE.set_syncing(true).await;
@@ -459,7 +460,7 @@ impl SysInspectModPak {
         }
         log::debug!("Copying module to {}", self.root.join(&subpath).display().to_string().bright_yellow());
         std::fs::copy(meta.get_path(), self.root.join(&subpath))?;
-        let checksum = libsysinspect::util::iofs::get_file_sha256(self.root.join(&subpath))?;
+        let checksum = get_file_sha256(self.root.join(&subpath))?;
 
         // Quite ugly amount of args :-(
         self.idx
