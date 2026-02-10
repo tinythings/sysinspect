@@ -110,9 +110,9 @@ impl SysInspectModPakMinion {
     /// Syncs the module repository with the fileserver.
     pub async fn sync(&self) -> Result<(), SysinspectError> {
         match self.cfg.autosync().as_str() {
-            v if v == CFG_AUTOSYNC_SHALLOW => log::info!("Shallow data sync with {}", self.cfg.fileserver()),
-            v if v == CFG_AUTOSYNC_FAST => log::info!("Fast data sync with {}", self.cfg.fileserver()),
-            _ => log::info!("Full data sync with {}", self.cfg.fileserver()),
+            v if v == CFG_AUTOSYNC_SHALLOW => log::info!("Shallow data check with {}", self.cfg.fileserver()),
+            v if v == CFG_AUTOSYNC_FAST => log::info!("Fast data check with {}", self.cfg.fileserver()),
+            _ => log::info!("Full data check with {}", self.cfg.fileserver()),
         }
 
         MODPAK_SYNC_STATE.set_syncing(true).await;
