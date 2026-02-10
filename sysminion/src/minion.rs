@@ -49,6 +49,7 @@ use std::{
     fs,
     path::PathBuf,
     sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
     vec,
 };
@@ -76,6 +77,7 @@ pub struct SysMinion {
 
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
+    connected: AtomicBool,
 }
 
 impl SysMinion {
@@ -97,6 +99,7 @@ impl SysMinion {
             ping_timeout: Duration::from_secs(10),
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
+            connected: AtomicBool::new(false),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -218,6 +221,17 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Set the minion connected flag to true or false, which indicates whether the minion is currently connected to the master or not.
+    /// This is used to bounce self from already connected state. If the connected flag is set to false, then the Minion quits.
+    fn set_connected(&self, connected: bool) {
+        self.connected.store(connected, Ordering::Relaxed);
+    }
+
+    /// Check if the minion connected flag is currently set to true, which indicates that the minion is currently connected to the master.
+    fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
+
     pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
         tokio::spawn(async move {
             loop {
@@ -288,7 +302,7 @@ impl SysMinion {
                                 }
                             }
                             ProtoErrorCode::AlreadyConnected => {
-                                if MINION_SID.eq(msg.payload()) {
+                                if !self.is_connected() {
                                     log::error!("Another minion from this machine is already connected");
                                     std::process::exit(1);
                                 }
@@ -303,6 +317,9 @@ impl SysMinion {
                             && let Err(err) = self.as_ptr().send_traits().await
                         {
                             log::error!("Unable to send traits: {err}");
+                        } else {
+                            log::info!("Connected");
+                            self.as_ptr().set_connected(true);
                         }
                     }
                     RequestType::AgentUnknown => {
