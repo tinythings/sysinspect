@@ -621,12 +621,25 @@ impl SysInspectModPak {
 
     /// Lists all modules in the repository.
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
-        let osn = HashMap::from([("sysv", "Linux"), ("any", "Any")]);
-        for (p, archset) in self.idx.all_modules(None, None) {
+        let osn = HashMap::from([
+            ("sysv", "Linux"),
+            ("any", "Any"),
+            ("linux", "Linux"),
+            ("netbsd", "NetBSD"),
+            ("freebsd", "FreeBSD"),
+            ("openbsd", "OpenBSD"),
+        ]);
+
+        let allmods = self.idx.all_modules(None, None);
+        let mut platforms = allmods.iter().map(|(p, _)| p.to_string()).collect::<Vec<_>>();
+        platforms.sort();
+
+        for p in platforms {
+            let archset = allmods.get(&p).unwrap(); // safe: iter above
             let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
-                Self::print_table(&modules, false);
+                Self::print_table(modules, false);
             }
         }
         Ok(())
