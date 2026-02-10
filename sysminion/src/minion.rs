@@ -741,7 +741,17 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
 pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
     let mut reconnect_rx = CONNECTION_TX.subscribe();
     let mut ra = 0;
-    let dpq = Arc::new(DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks")).expect("Failed to open DPQ"));
+    let dpq = match DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks")) {
+        Ok(dpq) => Arc::new(dpq),
+        Err(e) => {
+            log::error!("Failed to open disk persistent queue: {e}");
+            log::error!(
+                "Is there another minion running? If not, delete the {} directory and try again.",
+                cfg.root_dir().join("pending-tasks").to_str().unwrap_or_default().bright_yellow()
+            );
+            std::process::exit(1);
+        }
+    };
     SysInspectRunner::set_dpq(dpq.clone());
     loop {
         log::info!("Starting minion instance...");
