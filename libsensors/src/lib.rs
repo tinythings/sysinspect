@@ -40,15 +40,21 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
     let mut interval: Option<IntervalRange> = None;
     let mut sensors: IndexMap<String, SensorConf> = IndexMap::new();
 
-    for d in WalkDir::new(p).into_iter().filter_map(Result::ok).filter(|e| e.file_type().is_file()) {
-        if d.path().extension().and_then(|e| e.to_str()) != Some("cfg") {
-            continue;
-        }
+    let mut chunks: Vec<_> = WalkDir::new(p)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("cfg"))
+        .map(|e| e.into_path())
+        .collect();
 
-        let w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(d.path())?) {
+    chunks.sort();
+
+    for path in chunks {
+        let w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(&path)?) {
             Ok(p) => p,
             Err(err) => {
-                log::warn!("Skipping invalid DSL file {}: {}", d.path().display(), err);
+                log::warn!("Skipping invalid DSL file {}: {}", path.display(), err);
                 continue;
             }
         };
@@ -60,12 +66,12 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
         if interval.is_none() {
             interval = spec.interval().cloned();
         } else if spec.interval().is_some() {
-            log::warn!("Interval already defined. Ignoring interval in {}", d.path().display());
+            log::warn!("Interval already defined. Ignoring interval in {}", path.display());
         }
 
         for (k, v) in spec.items() {
             if sensors.contains_key(k) {
-                log::warn!("Duplicate sensor '{}' in {} ignored (first wins)", k, d.path().display());
+                log::warn!("Duplicate sensor '{}' in {} ignored (first wins)", k, path.display());
                 continue;
             }
             sensors.insert(k.clone(), v.clone());
