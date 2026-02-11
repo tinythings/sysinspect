@@ -1,3 +1,4 @@
+pub mod sensors;
 pub mod sspec;
 
 use crate::sspec::{IntervalRange, SensorConf, SensorSpec};
