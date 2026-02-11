@@ -44,6 +44,9 @@ pub static DEFAULT_TMP: &str = "/var/tmp/sysinspect";
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for modules
 pub static DEFAULT_MODULES_DIR: &str = "modules";
 
+/// Directory within the `DEFAULT_MODULES_SHARELIB` for sensors
+pub static DEFAULT_SENSORS_DIR: &str = "sensors";
+
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for python libraries
 pub static DEFAULT_MODULES_LIB_DIR: &str = "lib";
 
