@@ -15,4 +15,5 @@ libcommon = { version = "0.1.0", path = "../libcommon" }
 log = "0.4.29"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
+tempfile = "3.25.0"
 walkdir = "2.5.0"
