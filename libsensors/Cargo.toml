@@ -3,10 +3,16 @@ name = "libsensors"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "libsensors"
+path = "src/lib.rs"
+
 [dependencies]
 anyhow = "1.0.101"
 filescream = {git = "https://github.com/tinythings/filescream.git", branch = "master"}
 indexmap = { version = "2.13.0", features = ["serde"] }
 libcommon = { version = "0.1.0", path = "../libcommon" }
-serde = "1.0.228"
+log = "0.4.29"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
+walkdir = "2.5.0"

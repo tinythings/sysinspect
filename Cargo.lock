@@ -3475,8 +3475,10 @@ dependencies = [
  "filescream",
  "indexmap 2.13.0",
  "libcommon",
+ "log",
  "serde",
  "serde_yaml",
+ "walkdir",
 ]
 
 [[package]]

@@ -19,6 +19,10 @@ pub struct SensorSpec {
 }
 
 impl SensorSpec {
+    pub fn new(interval: Option<IntervalRange>, items: IndexMap<String, SensorConf>) -> Self {
+        SensorSpec { interval, items }
+    }
+
     /// Returns a reference to the optional interval range.
     ///
     /// # Returns
