@@ -1,4 +1,5 @@
 pub mod sensors;
+pub mod service;
 pub mod sspec;
 
 use crate::sspec::{IntervalRange, SensorConf, SensorSpec};
@@ -38,6 +39,8 @@ struct Wrapper {
 /// println!("{:#?}", spec);
 /// ```
 pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
+    log::info!("Loading sensor specifications from {}", p.display());
+
     let mut interval: Option<IntervalRange> = None;
     let mut sensors: IndexMap<String, SensorConf> = IndexMap::new();
 
