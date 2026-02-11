@@ -1,8 +1,8 @@
 use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::{
-    CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT, MinionConfig,
-    SysInspectConfig,
+    CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SENSORS_DIR, DEFAULT_SYSINSPECT_ROOT,
+    MinionConfig, SysInspectConfig,
 };
 use std::{
     fs::{self, File},
@@ -117,6 +117,7 @@ impl MinionSetup {
             self.get_db(),
             self.get_shared_subdir(DEFAULT_MODULES_DIR),
             self.get_shared_subdir(DEFAULT_MODULES_LIB_DIR),
+            self.get_shared_subdir(DEFAULT_SENSORS_DIR),
         ];
 
         for d in dirs {
