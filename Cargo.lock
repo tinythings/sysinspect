@@ -3472,13 +3472,18 @@ name = "libsensors"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "dashmap",
  "filescream",
  "indexmap 2.13.0",
+ "lazy_static",
  "libcommon",
  "log",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tempfile",
+ "tokio",
  "walkdir",
 ]
 
