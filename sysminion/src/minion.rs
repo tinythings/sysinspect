@@ -78,6 +78,8 @@ pub struct SysMinion {
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
     connected: AtomicBool,
+
+    minion_id: String,
 }
 
 impl SysMinion {
@@ -100,6 +102,7 @@ impl SysMinion {
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
             connected: AtomicBool::new(false),
+            minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -177,8 +180,8 @@ impl SysMinion {
     }
 
     /// Get current minion Id
-    fn get_minion_id(&self) -> String {
-        dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID))
+    fn get_minion_id(&self) -> &str {
+        &self.minion_id
     }
 
     /// Talk-back to the master
@@ -313,13 +316,20 @@ impl SysMinion {
                         }
                     }
                     RequestType::Traits => {
-                        if self.as_ptr().get_minion_id().eq(msg.target().id())
-                            && let Err(err) = self.as_ptr().send_traits().await
-                        {
-                            log::error!("Unable to send traits: {err}");
-                        } else {
-                            log::info!("Connected");
-                            self.as_ptr().set_connected(true);
+                        if self.get_minion_id() != msg.target().id() {
+                            log::debug!("Traits request for {}, not me; dropping", msg.target().id());
+                            continue;
+                        }
+
+                        match self.as_ptr().send_traits().await {
+                            Ok(_) => {
+                                log::info!("Connected");
+                                self.set_connected(true);
+                            }
+                            Err(err) => {
+                                log::error!("Unable to send traits: {err}");
+                                // don’t mark connected
+                            }
                         }
                     }
                     RequestType::AgentUnknown => {
@@ -400,7 +410,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -437,14 +447,14 @@ impl SysMinion {
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
         log::debug!("Callback: {ar:#?}");
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar)).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?).await;
         Ok(())
     }
 
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
         Ok(())
     }
 
@@ -718,7 +728,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
             let m = m.clone();
             async move {
                 match item {
-                    WorkItem::MasterCommand(cmd) => {
+                    WorkItem::MasterCommand(cmd) | WorkItem::EventCommand(cmd) => {
                         while MODPAK_SYNC_STATE.is_syncing().await {
                             tokio::time::sleep(Duration::from_millis(200)).await;
                         }
