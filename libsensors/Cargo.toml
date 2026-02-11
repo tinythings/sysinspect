@@ -1,0 +1,12 @@
+[package]
+name = "libsensors"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.101"
+filescream = {git = "https://github.com/tinythings/filescream.git", branch = "master"}
+indexmap = { version = "2.13.0", features = ["serde"] }
+libcommon = { version = "0.1.0", path = "../libcommon" }
+serde = "1.0.228"
+serde_yaml = "0.9.34"
