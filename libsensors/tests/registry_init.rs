@@ -17,8 +17,9 @@ sensors:
       path: /tmp
 "#;
 
-        let spec = SensorSpec::from_str(y).unwrap();
-        let (sid, cfg) = spec.items().iter().next().unwrap();
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let (sid, cfg) = items.iter().next().unwrap();
 
         let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
         assert!(s.is_some(), "fsnotify must be registered");
@@ -34,8 +35,9 @@ sensors:
     listener: does-not-exist
 "#;
 
-        let spec = SensorSpec::from_str(y).unwrap();
-        let (sid, cfg) = spec.items().iter().next().unwrap();
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let (sid, cfg) = items.iter().next().unwrap();
 
         let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
         assert!(s.is_none(), "unknown listener must return None");

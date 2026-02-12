@@ -14,7 +14,7 @@ sensors:
     args: { path: /etc }
 "#;
 
-        let spec = SensorSpec::from_str(y).unwrap();
+        let mut spec = SensorSpec::from_str(y).unwrap();
         assert!(spec.items().contains_key("a"));
         assert!(spec.items().contains_key("b"));
     }

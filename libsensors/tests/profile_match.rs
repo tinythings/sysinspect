@@ -10,8 +10,9 @@ sensors:
     listener: file
 "#;
 
-        let spec = SensorSpec::from_str(y).unwrap();
-        let c = spec.items().get("a").unwrap();
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let c = items.get("a").unwrap();
 
         let profiles = vec!["default".to_string()];
         assert!(c.matches_profile(&profiles));
@@ -29,8 +30,9 @@ sensors:
     profile: [BrownStinkyBanana]
 "#;
 
-        let spec = SensorSpec::from_str(y).unwrap();
-        let c = spec.items().get("a").unwrap();
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let c = items.get("a").unwrap();
 
         let profiles = vec!["brownstinkybanana".to_string()];
         assert!(c.matches_profile(&profiles));

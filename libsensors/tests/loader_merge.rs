@@ -1,7 +1,6 @@
 mod loader_merge_test {
     use libsensors::load;
-    use std::fs;
-    use std::path::Path;
+    use std::{fs, path::Path};
     use tempfile::TempDir;
 
     fn write(p: &Path, name: &str, content: &str) {
@@ -44,18 +43,18 @@ sensors:
 "#,
         );
 
-        // noise files
         write(root, "nope.txt", "sensors: { }");
         write(root, "bad.cfg", "this: is: not: valid: yaml: [");
 
-        let spec = load(root).unwrap();
+        let mut spec = load(root).unwrap();
 
-        // interval taken from first valid file with interval
-        let ir = spec.interval().unwrap();
+        // interval range from first file
+        let ir = spec.interval_range().unwrap();
         assert_eq!(ir.min, 3);
         assert_eq!(ir.max, 10);
+        assert_eq!(ir.unit, "seconds");
 
-        // keys sorted alphabetically: alpha, beta, zebra
+        // keys sorted alphabetically
         let keys: Vec<String> = spec.items().keys().cloned().collect();
         assert_eq!(keys, vec!["alpha".to_string(), "beta".to_string(), "zebra".to_string()]);
     }
@@ -68,7 +67,6 @@ sensors:
         fs::create_dir_all(root.join("x")).unwrap();
         fs::create_dir_all(root.join("y")).unwrap();
 
-        // first file defines interval + sensor "dup"
         write(
             root.join("x").as_path(),
             "1.cfg",
@@ -84,7 +82,6 @@ sensors:
 "#,
         );
 
-        // second file tries to redefine interval + dup
         write(
             root.join("y").as_path(),
             "2.cfg",
@@ -100,16 +97,16 @@ sensors:
 "#,
         );
 
-        let spec = load(root).unwrap();
+        let mut spec = load(root).unwrap();
 
         // first interval wins
-        let ir = spec.interval().unwrap();
+        let ir = spec.interval_range().unwrap();
         assert_eq!(ir.min, 1);
         assert_eq!(ir.max, 2);
         assert_eq!(ir.unit, "seconds");
 
-        // first sensor wins (listener stays "file")
-        let dup = spec.items().get("dup").unwrap();
+        // first sensor wins
+        let dup = spec.items().get("dup").cloned().unwrap();
         assert_eq!(dup.listener(), "file");
     }
 
@@ -128,8 +125,8 @@ not_sensors:
 "#,
         );
 
-        let spec = load(root).unwrap();
+        let mut spec = load(root).unwrap();
         assert_eq!(spec.items().len(), 0);
-        assert!(spec.interval().is_none());
+        assert!(spec.interval_range().is_none());
     }
 }

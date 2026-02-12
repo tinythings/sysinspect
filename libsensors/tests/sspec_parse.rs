@@ -10,7 +10,7 @@ sensors:
     listener: file
 "#;
 
-        let spec = SensorSpec::from_str(y).unwrap();
+        let mut spec = SensorSpec::from_str(y).unwrap();
         let items = spec.items();
         assert_eq!(items.len(), 1);
 
@@ -22,7 +22,7 @@ sensors:
     }
 
     #[test]
-    fn test_parse_interval() {
+    fn test_parse_interval_range() {
         let y = r#"
 sensors:
   interval:
@@ -35,7 +35,10 @@ sensors:
 "#;
 
         let spec = SensorSpec::from_str(y).unwrap();
-        let ir = spec.interval().unwrap();
+
+        let ir = spec.interval_range().unwrap();
+        let ivl = spec.interval();
+        println!("interval range: {:?}", ivl);
         assert_eq!(ir.min, 3);
         assert_eq!(ir.max, 10);
         assert_eq!(ir.unit, "seconds");
@@ -57,20 +60,19 @@ sensors:
     event: ssh-conf/file/changed/0
 "#;
 
-        let spec = SensorSpec::from_str(y).unwrap();
-        let c = spec.items().get("ssh-conf").unwrap();
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let c = items.get("ssh-conf").unwrap();
 
         assert_eq!(c.listener(), "file");
         assert_eq!(c.description().unwrap(), "Watches SSH config");
         assert_eq!(c.opts(), &vec!["changed".to_string(), "deleted".to_string()]);
         assert_eq!(c.event().unwrap(), "ssh-conf/file/changed/0");
 
-        // profile() currently returns normalized Vec<String>
         let p = c.profile();
         assert!(p.contains(&"default".to_string()));
         assert!(p.contains(&"system".to_string()));
 
-        // args is YAML value, just sanity check it exists
         let args = c.args();
         assert!(args.is_mapping());
     }
