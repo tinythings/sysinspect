@@ -6,8 +6,7 @@ use crate::sspec::{IntervalRange, SensorConf, SensorSpec};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use serde::Deserialize;
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 use walkdir::WalkDir;
 
 #[derive(Deserialize)]
@@ -15,29 +14,6 @@ struct Wrapper {
     sensors: Option<SensorSpec>,
 }
 
-/// Loads sensor specifications from configuration files in the given directory.
-/// The function searches for `.cfg` files, parses them as YAML, and merges their
-/// contents into a single `SensorSpec` instance. The first defined interval and
-/// sensor configurations take precedence in case of duplicates.
-///
-/// Merge policy: first wins for both interval and sensor items.
-///
-/// # Arguments
-/// * `path` - A reference to the directory path containing sensor configuration files.
-///
-/// # Returns
-/// A `Result` containing the merged `SensorSpec` if successful, or a `SysinspectError` if an error occurs during file reading or parsing.
-///
-/// # Errors
-/// * `SysinspectError` - If there is an error reading files or parsing YAML content.
-///
-/// # Example
-/// ```
-/// use std::path::Path;
-/// use libsensors::load;
-/// let spec = load(Path::new("/path/to/sensor/configs")).expect("Failed to load sensor specifications");
-/// println!("{:#?}", spec);
-/// ```
 pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
     log::info!("Loading sensor specifications from {}", p.display());
 
@@ -63,18 +39,20 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
             }
         };
 
-        let Some(spec) = w.sensors else {
+        let Some(mut spec) = w.sensors else {
             continue;
         };
 
+        // first interval wins
         if interval.is_none() {
-            interval = spec.interval().cloned();
-        } else if spec.interval().is_some() {
+            interval = spec.interval_range().cloned();
+        } else if spec.interval_range().is_some() {
             log::warn!("Interval already defined. Ignoring interval in {}", path.display());
         }
 
+        // first sensor wins
         for (k, v) in spec.items() {
-            if sensors.contains_key(k) {
+            if sensors.contains_key(&k) {
                 log::warn!("Duplicate sensor '{}' in {} ignored (first wins)", k, path.display());
                 continue;
             }
@@ -82,7 +60,7 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
         }
     }
 
-    // Sort all sensors alphabetically
+    // Sort sensors alphabetically
     let mut sorted: Vec<_> = sensors.into_iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
 

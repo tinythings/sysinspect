@@ -15,10 +15,10 @@ impl SensorService {
     }
 
     /// Start all sensors in the service spec, returning a list of JoinHandles for the running tasks.
-    pub fn start(&self) -> Vec<JoinHandle<()>> {
+    pub fn start(&mut self) -> Vec<JoinHandle<()>> {
         let mut handles = Vec::new();
 
-        for (sid, cfg) in self.spec.items().iter() {
+        for (sid, cfg) in self.spec.items() {
             log::info!("Starting sensor '{}' with listener '{}'", sid, cfg.listener());
             let Some(sensor) = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone()) else {
                 log::warn!("Unknown sensor listener '{}' for '{}'", cfg.listener(), sid);

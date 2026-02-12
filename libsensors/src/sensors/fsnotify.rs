@@ -46,7 +46,10 @@ impl Sensor for FsNotifySensor {
             return;
         };
 
-        let pulse = Duration::from_secs(Self::arg_u64(&self.cfg, "interval").unwrap_or(3));
+        let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
+
+        log::info!("fsnotify '{}' watching '{}' with pulse {:?} and opts {:?}", self.sid, path, pulse, self.cfg.opts());
+
         let mut fs = FileScream::new(Some(FileScreamConfig::default().pulse(pulse)));
         fs.watch(&path);
 

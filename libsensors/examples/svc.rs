@@ -5,7 +5,7 @@ use std::path::Path;
 async fn main() {
     env_logger::init();
     let spec = load(Path::new(".")).unwrap();
-    let svc = SensorService::new(spec);
+    let mut svc = SensorService::new(spec);
 
     let _handles = svc.start();
 
