@@ -19,11 +19,13 @@ impl SensorService {
         let mut handles = Vec::new();
 
         for (sid, cfg) in self.spec.items() {
-            log::info!("Starting sensor '{}' with listener '{}'", sid, cfg.listener());
+            log::debug!("Starting sensor '{}' with listener '{}'", sid, cfg.listener());
             let Some(sensor) = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone()) else {
-                log::warn!("Unknown sensor listener '{}' for '{}'", cfg.listener(), sid);
+                log::error!("Unknown sensor listener '{}' for '{}'", cfg.listener(), sid);
                 continue;
             };
+
+            log::info!("Initialized sensor '{}/{}'", sid, cfg.listener());
 
             let sid = sid.to_string();
 
