@@ -14,6 +14,7 @@ use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
 use libmodpak::MODPAK_SYNC_STATE;
+use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
     cfg::{
@@ -27,7 +28,10 @@ use libsysinspect::{
         inspector::SysInspector,
     },
     mdescr::mspecdef::ModelSpec,
-    reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
+    reactor::{
+        evtproc::EventProcessor,
+        fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
+    },
     rsa,
     traits::{self},
     util::{self, dataconv},
@@ -139,6 +143,12 @@ impl SysMinion {
             fs::create_dir_all(self.cfg.functions_dir())?;
         }
 
+        // Place for sensors config
+        if !self.cfg.sensors_dir().exists() {
+            log::debug!("Creating directory for the sensors config at {}", self.cfg.sensors_dir().as_os_str().to_str().unwrap_or_default());
+            fs::create_dir_all(self.cfg.sensors_dir())?;
+        }
+
         let mut out: Vec<String> = vec![];
         for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
@@ -233,6 +243,43 @@ impl SysMinion {
     /// Check if the minion connected flag is currently set to true, which indicates that the minion is currently connected to the master.
     fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
+    }
+
+    /// Start sensors based on the configuration, and pump their events to the reactor.
+    /// This is a separate async task that runs in parallel with the main loop, and is responsible
+    /// for keeping the sensors running and their events flowing to the reactor.
+    pub async fn do_sensors(self: Arc<Self>) -> Result<(), SysinspectError> {
+        tokio::spawn(async move {
+            let spec = match libsensors::load(self.cfg.sensors_dir().as_path()) {
+                Ok(spec) => spec,
+                Err(e) => {
+                    log::error!("Failed to load sensors spec: {e}");
+                    return;
+                }
+            };
+
+            libsysinspect::reactor::handlers::registry::init_handlers();
+            let mut events = EventProcessor::new();
+            if let Some(cfg) = spec.events_config() {
+                events = events.set_config(Arc::new(cfg.clone()), None);
+            }
+            let events = Arc::new(Mutex::new(events));
+            let events_pump = events.clone();
+            tokio::spawn(async move {
+                loop {
+                    {
+                        let mut ep = events_pump.lock().await;
+                        ep.process(true).await;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+            });
+
+            let mut service = SensorService::new(spec);
+            service.set_event_processor(events.clone());
+            service.start();
+        });
+        Ok(())
     }
 
     pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
@@ -757,6 +804,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
 
     minion.as_ptr().do_ping_update(state.clone()).await?;
     minion.as_ptr().do_stats_update().await?;
+    minion.as_ptr().do_sensors().await?;
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {

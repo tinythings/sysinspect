@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
+use libsysinspect::intp::conf::EventsConfig;
 use serde::Deserialize;
 use serde_yaml::Value as YamlValue;
 use std::{
@@ -86,11 +87,14 @@ pub struct SensorSpec {
 
     #[serde(skip)]
     updated: bool, // Marker that items were updated with the interval
+
+    #[serde(skip)]
+    events: Option<EventsConfig>, // EventConfig placeholder, added later
 }
 
 impl SensorSpec {
     pub fn new(interval: Option<IntervalRange>, items: IndexMap<String, SensorConf>) -> Self {
-        SensorSpec { interval, items, updated: false }
+        SensorSpec { interval, items, updated: false, events: None }
     }
 
     /// For loader merge (first wins).
@@ -150,8 +154,21 @@ impl SensorSpec {
         self.items.clone()
     }
 
-    pub fn get(&self, name: &str) -> Option<&SensorConf> {
+    /// Get a sensor settings configuration by its name
+    pub fn sensor_config(&self, name: &str) -> Option<&SensorConf> {
         self.items.get(name)
+    }
+
+    /// Get the entire events configuration, if defined. This is added later by the loader.
+    pub fn events_config(&self) -> Option<&EventsConfig> {
+        self.events.as_ref()
+    }
+
+    pub fn set_events_yaml(&mut self, ev: serde_yaml::Value) -> Result<(), SysinspectError> {
+        let mut cfg = EventsConfig::default();
+        cfg.set_events(&ev)?;
+        self.events = Some(cfg);
+        Ok(())
     }
 }
 
@@ -219,7 +236,17 @@ impl FromStr for SensorSpec {
         #[derive(Deserialize)]
         struct Wrapper {
             sensors: SensorSpec,
+            #[serde(default)]
+            events: Option<YamlValue>,
         }
-        Ok(serde_yaml::from_str::<Wrapper>(s)?.sensors)
+        let w = serde_yaml::from_str::<Wrapper>(s)?;
+        let mut spec = w.sensors;
+        if let Some(ev) = w.events {
+            let mut cfg = EventsConfig::default();
+            cfg.set_events(&ev)?;
+            spec.events = Some(cfg);
+        }
+
+        Ok(spec)
     }
 }

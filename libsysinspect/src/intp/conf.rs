@@ -79,16 +79,16 @@ impl EventConfig {
 
 /// The entire config
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct Config {
+pub struct EventsConfig {
     modules: Option<PathBuf>,
 
     // EventId to config, added later
     events: Option<IndexMap<String, EventConfig>>,
 }
 
-impl Config {
+impl EventsConfig {
     pub fn new(obj: &Value) -> Result<Self, SysinspectError> {
-        if let Ok(instance) = serde_yaml::from_value::<Config>(obj.to_owned()) {
+        if let Ok(instance) = serde_yaml::from_value::<EventsConfig>(obj.to_owned()) {
             return Ok(instance);
         }
 
@@ -130,7 +130,7 @@ impl Config {
     }
 
     /// Set events config
-    pub(crate) fn set_events(&mut self, obj: &Value) -> Result<(), SysinspectError> {
+    pub fn set_events(&mut self, obj: &Value) -> Result<(), SysinspectError> {
         if let Ok(cfg) = serde_yaml::from_value::<IndexMap<String, EventConfig>>(obj.to_owned()) {
             self.events = Some(cfg);
         } else {

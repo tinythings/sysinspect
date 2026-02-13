@@ -492,6 +492,11 @@ impl MinionConfig {
         self.root_dir().join(CFG_TRAITS_ROOT)
     }
 
+    /// Get root directory for sensors config
+    pub fn sensors_dir(&self) -> PathBuf {
+        self.root_dir().join(DEFAULT_SENSORS_DIR)
+    }
+
     /// Return machine Id path
     pub fn machine_id_path(&self) -> PathBuf {
         if let Some(mid) = self.machine_id.clone() {

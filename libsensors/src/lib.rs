@@ -12,6 +12,8 @@ use walkdir::WalkDir;
 #[derive(Deserialize)]
 struct Wrapper {
     sensors: Option<SensorSpec>,
+    #[serde(default)]
+    events: Option<serde_yaml::Value>,
 }
 
 pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
@@ -19,6 +21,7 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
 
     let mut interval: Option<IntervalRange> = None;
     let mut sensors: IndexMap<String, SensorConf> = IndexMap::new();
+    let mut events: Option<serde_yaml::Value> = None;
 
     let mut chunks: Vec<_> = WalkDir::new(p)
         .into_iter()
@@ -31,6 +34,7 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
     chunks.sort();
 
     for path in chunks {
+        log::debug!("Loading sensors chunk: {}", path.display());
         let w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(&path)?) {
             Ok(p) => p,
             Err(err) => {
@@ -58,6 +62,13 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
             }
             sensors.insert(k.clone(), v.clone());
         }
+
+        // first events block wins (same rule as interval)
+        if events.is_none() {
+            events = w.events.clone();
+        } else if w.events.is_some() {
+            log::warn!("Events already defined. Ignoring events in {}", path.display());
+        }
     }
 
     // Sort sensors alphabetically
@@ -69,5 +80,11 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
         sensors.insert(k, v);
     }
 
-    Ok(SensorSpec::new(interval, sensors))
+    let mut out = SensorSpec::new(interval, sensors);
+
+    if let Some(ev) = events {
+        out.set_events_yaml(ev)?; // we’ll add this setter in sspec.rs
+    }
+
+    Ok(out)
 }
