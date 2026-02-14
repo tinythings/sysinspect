@@ -739,11 +739,17 @@ pub struct MasterConfig {
 
     // Exported models path root on the fileserver
     #[serde(rename = "fileserver.models.root")]
-    fsr_models_root: String,
+    fsr_models_root: Option<String>,
+
+    #[serde(rename = "fileserver.sensors.root")]
+    fsr_sensors_root: Option<String>,
 
     // Exported models on the fileserver
     #[serde(rename = "fileserver.models")]
     fsr_models: Vec<String>,
+
+    #[serde(rename = "fileserver.sensors")]
+    fsr_sensors: Option<Vec<String>>,
 
     #[serde(rename = "api.enabled")]
     api_enabled: Option<bool>,
@@ -924,15 +930,36 @@ impl MasterConfig {
         &self.fsr_models
     }
 
+    /// Get a list of exported sensors from the fileserver
+    pub fn fileserver_sensors(&self) -> Vec<String> {
+        self.fsr_sensors.clone().unwrap_or_default()
+    }
+
     /// Get fileserver root
     pub fn fileserver_root(&self) -> PathBuf {
         self.root_dir().join(CFG_FILESERVER_ROOT)
     }
 
     /// Get models root on the fileserver
-    pub fn fileserver_mdl_root(&self, alone: bool) -> PathBuf {
-        let mr = PathBuf::from(&self.fsr_models_root.strip_prefix("/").unwrap_or_default());
-        if alone { mr } else { self.fileserver_root().join(mr) }
+    pub fn fileserver_mdl_root(&self, uri_only: bool) -> PathBuf {
+        if uri_only {
+            if let Some(models_root) = &self.fsr_models_root {
+                return PathBuf::from(models_root.strip_prefix("/").unwrap_or_default());
+            } else {
+                return PathBuf::from(CFG_MODELS_ROOT);
+            }
+        }
+
+        self.fileserver_root()
+            .join(PathBuf::from(self.fsr_models_root.clone().unwrap_or(CFG_MODELS_ROOT.to_string()).strip_prefix("/").unwrap_or_default()))
+    }
+
+    pub fn fileserver_sensors_root(&self) -> PathBuf {
+        if let Some(sensors_root) = &self.fsr_sensors_root {
+            self.fileserver_root().join(PathBuf::from(sensors_root.strip_prefix("/").unwrap_or_default()))
+        } else {
+            self.fileserver_root().join(CFG_SENSORS_ROOT)
+        }
     }
 
     /// Get default sysinspect root. For master it is always /etc/sysinspect

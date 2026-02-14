@@ -41,7 +41,7 @@ impl MasterMessage {
     /// Creates a command message with a new cycle ID. This is used by the pipeline handler to create a master
     /// message with the URI specified in the event configuration.
     pub fn command() -> MasterMessage {
-        MasterMessage::new(RequestType::Command, json!({"files": {}, "sid": "", "models_root": "", "uri": ""}))
+        MasterMessage::new(RequestType::Command, json!({"files": {}, "sid": "", "models_root": "", "sensors_root":"", "uri": ""}))
     }
 
     /// Add a target.

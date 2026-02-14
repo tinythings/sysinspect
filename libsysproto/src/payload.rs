@@ -35,6 +35,10 @@ pub struct ModStatePayload {
     // It will be substracted from each file path when saving
     models_root: String,
 
+    // Root where sensors starts. It corresponds to "fileserver.sensors.root" conf of Master.
+    // It will be substracted from each file path when saving
+    sensors_root: String,
+
     // session Id
     sid: String,
 
@@ -65,6 +69,12 @@ impl ModStatePayload {
         self
     }
 
+    /// Set sensors root
+    pub fn set_sensors_root(mut self, sr: &str) -> Self {
+        self.sensors_root = sr.to_string();
+        self
+    }
+
     /// Get list of files to download
     pub fn files(&self) -> &IndexMap<String, String> {
         &self.files
@@ -83,6 +93,11 @@ impl ModStatePayload {
     /// Get root of models
     pub fn models_root(&self) -> &str {
         &self.models_root
+    }
+
+    /// Get root of sensors
+    pub fn sensors_root(&self) -> &str {
+        &self.sensors_root
     }
 }
 

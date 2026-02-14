@@ -302,6 +302,24 @@ impl SysMaster {
         None
     }
 
+    fn msg_sensors_files(&mut self) -> MasterMessage {
+        let mut out: IndexMap<String, String> = IndexMap::default();
+        for es in self.cfg.fileserver_sensors() {
+            for (n, cs) in scan_files_sha256(self.cfg.fileserver_sensors_root().join(&es), None) {
+                out.insert(format!("/{}/{es}/{n}", self.cfg.fileserver_sensors_root().file_name().unwrap().to_str().unwrap()), cs);
+            }
+        }
+
+        MasterMessage::new(
+            RequestType::SensorsSyncResponse,
+            json!(
+                ModStatePayload::new(String::from(""))
+                    .add_files(out)
+                    .set_sensors_root(self.cfg.fileserver_sensors_root().file_name().unwrap_or_default().to_str().unwrap_or_default())
+            ),
+        )
+    }
+
     /// Request minion to sync its traits
     fn msg_request_traits(&mut self, mid: String, sid: String) -> MasterMessage {
         let mut m = MasterMessage::new(RequestType::Traits, json!(sid));
@@ -413,9 +431,11 @@ impl SysMaster {
                                     _ = c_bcast.send(guard.msg_registered(req.id().to_string(), resp_msg).sendable().unwrap());
                                 });
                             }
+
                             RequestType::Response => {
                                 log::info!("Response");
                             }
+
                             RequestType::Ehlo => {
                                 log::info!("EHLO from {}", req.id());
 
@@ -602,6 +622,15 @@ impl SysMaster {
                                         }
                                         otel.log(&mrec, DataExportType::Model);
                                     }
+                                });
+                            }
+
+                            RequestType::SensorsSyncRequest => {
+                                let c_master = Arc::clone(&master);
+                                let c_bcast = bcast.clone();
+                                tokio::spawn(async move {
+                                    let mut guard = c_master.lock().await;
+                                    _ = c_bcast.send(guard.msg_sensors_files().sendable().unwrap());
                                 });
                             }
 

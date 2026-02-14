@@ -120,4 +120,10 @@ pub enum RequestType {
     /// Model notice. This is called at the end of the model cycle
     #[serde(rename = "mvt")]
     ModelEvent,
+
+    #[serde(rename = "ssr")]
+    SensorsSyncRequest,
+
+    #[serde(rename = "ssp")]
+    SensorsSyncResponse,
 }

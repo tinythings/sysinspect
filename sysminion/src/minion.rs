@@ -1,6 +1,6 @@
 use crate::{
     callbacks::{ActionResponseCallback, ModelResponseCallback},
-    filedata::MinionFiledata,
+    filedata::{MinionFiledata, SensorsFiledata},
     proto::{
         self,
         msg::{CONNECTION_TX, ExitState},
@@ -248,7 +248,31 @@ impl SysMinion {
     /// Start sensors based on the configuration, and pump their events to the reactor.
     /// This is a separate async task that runs in parallel with the main loop, and is responsible
     /// for keeping the sensors running and their events flowing to the reactor.
-    pub async fn do_sensors(self: Arc<Self>) -> Result<(), SysinspectError> {
+    pub async fn do_sensors(self: Arc<Self>, sensors: SensorsFiledata) -> Result<(), SysinspectError> {
+        // download
+        for f in sensors.files().keys() {
+            log::info!("Sensor file '{}' with checksum {} needs to be downloaded or updated.", f, sensors.files().get(f).unwrap_or(&"".to_string()));
+            match self.as_ptr().download_file(f).await {
+                Ok(content) => {
+                    // Save the file to the sensors directory
+                    let pth = self.cfg.sensors_dir().join(sensors.unprefix_path(f.trim_start_matches('/')));
+                    if let Some(parent) = pth.parent() {
+                        if !parent.exists()
+                            && let Err(e) = fs::create_dir_all(parent) {
+                                log::error!("Failed to create directories for '{}': {e}", pth.display());
+                                continue;
+                            }
+                        if let Err(e) = fs::write(&pth, content) {
+                            log::error!("Failed to write sensor file '{}': {e}", pth.display());
+                        }
+                    }
+                }
+                Err(e) => log::error!("Failed to download sensor file '{}': {e}", f),
+            };
+        }
+
+        // verify existing files and warn about mismatches
+
         tokio::spawn(async move {
             let spec = match libsensors::load(self.cfg.sensors_dir().as_path()) {
                 Ok(spec) => spec,
@@ -443,10 +467,23 @@ impl SysMinion {
                             }
                         }
                     }
+
                     RequestType::ByeAck => {
                         log::info!("Master confirmed shutdown, terminating");
                         std::process::exit(0);
                     }
+
+                    RequestType::SensorsSyncResponse => {
+                        log::info!("Received sensors sync response from master");
+                        self.as_ptr()
+                            .do_sensors(SensorsFiledata::from_payload(msg.payload().clone(), self.cfg.sensors_dir()).unwrap_or_else(|e| {
+                                log::error!("Failed to parse sensors payload: {e}");
+                                SensorsFiledata::default()
+                            }))
+                            .await
+                            .unwrap_or_else(|e| log::error!("Failed to start sensors: {e}"));
+                    }
+
                     _ => {
                         log::error!("Unknown request type");
                     }
@@ -502,6 +539,12 @@ impl SysMinion {
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
         self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
+        Ok(())
+    }
+
+    pub async fn send_sensors_sync(self: Arc<Self>) -> Result<(), SysinspectError> {
+        log::info!("Sending sensors sync callback for cycle");
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({})).sendable()?).await;
         Ok(())
     }
 
@@ -802,9 +845,11 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
         }
     }
 
+    // Send sensors sync request
+    minion.as_ptr().send_sensors_sync().await?;
+
     minion.as_ptr().do_ping_update(state.clone()).await?;
     minion.as_ptr().do_stats_update().await?;
-    minion.as_ptr().do_sensors().await?;
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
