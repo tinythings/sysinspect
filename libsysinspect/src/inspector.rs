@@ -12,6 +12,7 @@ use libcommon::SysinspectError;
 use libdpq::DiskPersistentQueue;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
 static DPQ_HANDLE: OnceCell<Arc<DiskPersistentQueue>> = OnceCell::new();
@@ -42,6 +43,9 @@ pub struct SysInspectRunner {
 
     // Called after all actions at the end
     model_callbacks: Vec<Box<dyn EventProcessorCallback>>,
+
+    // Event processor for handling action responses and emitting events to the telemetry system
+    evtproc: Option<Arc<Mutex<EventProcessor>>>,
 }
 
 impl SysInspectRunner {
@@ -149,12 +153,17 @@ impl SysInspectRunner {
                 match SysInspector::new(spec.clone(), Some(Self::minion_cfg().sharelib_dir().clone()), self.context.clone().unwrap_or_default()) {
                     Ok(isp) => {
                         // Setup event processor
-                        let mut evtproc = EventProcessor::new().set_config(isp.cfg(), spec.telemetry());
-                        for c in std::mem::take(&mut self.action_callbacks) {
-                            evtproc.add_action_callback(c);
-                        }
-                        for c in std::mem::take(&mut self.model_callbacks) {
-                            evtproc.add_model_callback(c);
+                        self.evtproc = Some(Arc::new(Mutex::new(EventProcessor::new().set_config(Arc::new(isp.cfg().clone()), spec.telemetry()))));
+                        let evtproc = self.evtproc.as_ref().unwrap().clone();
+
+                        {
+                            let mut guard = evtproc.lock().await;
+                            for c in std::mem::take(&mut self.action_callbacks) {
+                                guard.add_action_callback(c);
+                            }
+                            for c in std::mem::take(&mut self.model_callbacks) {
+                                guard.add_model_callback(c);
+                            }
                         }
 
                         let actions = if !self.cb_labels.is_empty() {
@@ -176,7 +185,7 @@ impl SysInspectRunner {
                                                         let response = response.unwrap_or(ActionResponse::default());
                                                         self.update_cstr_eval(&response);
                                                         log::trace!("Action response for '{}': {:#?}", ac.id(), response);
-                                                        evtproc.receiver().register(response.eid().to_owned(), response);
+                                                        evtproc.lock().await.receiver().register(response.eid().to_owned(), response);
                                                     }
                                                     Err(err) => {
                                                         log::error!("{err}")
@@ -198,7 +207,7 @@ impl SysInspectRunner {
                             }
                         }
                         log::debug!("Starting event processor cycle");
-                        evtproc.process().await;
+                        evtproc.lock().await.process(false).await;
                         log::debug!("Event processing cycle finished");
                     }
                     Err(err) => log::error!("{err}"),

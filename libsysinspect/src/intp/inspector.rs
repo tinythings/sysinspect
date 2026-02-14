@@ -1,7 +1,7 @@
 use super::{
     actions::Action,
     checkbook::CheckbookSection,
-    conf::Config,
+    conf::EventsConfig,
     constraints::Constraint,
     entities::Entity,
     functions::{ClaimNamespace, ModArgFunction, StaticNamespace},
@@ -52,7 +52,7 @@ pub struct SysInspector {
     actions: IndexMap<String, Action>,
     constraints: IndexMap<String, Constraint>,
     checkbook: Vec<CheckbookSection>,
-    config: Config,
+    config: EventsConfig,
     spec: ModelSpec,
     context: IndexMap<String, serde_json::Value>,
     schemaonly: bool,
@@ -81,7 +81,7 @@ impl SysInspector {
             actions: IndexMap::new(),
             constraints: IndexMap::new(),
             checkbook: Vec::default(),
-            config: Config::default(),
+            config: EventsConfig::default(),
             spec,
             context: IndexMap::new(),
             schemaonly: true,
@@ -151,7 +151,7 @@ impl SysInspector {
 
                 // Load config
                 if directive == DSL_IDX_CFG {
-                    self.config = Config::new(v_obj.unwrap())?;
+                    self.config = EventsConfig::new(v_obj.unwrap())?;
                 }
 
                 if directive == DSL_IDX_EVENTS_CFG {
@@ -247,7 +247,7 @@ impl SysInspector {
     }
 
     /// Return config reference
-    pub fn cfg(&self) -> &Config {
+    pub fn cfg(&self) -> &EventsConfig {
         &self.config
     }
 

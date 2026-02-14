@@ -13,6 +13,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WorkItem::MasterCommand(msg) => {
                     println!("JOB {job_id}: got MasterMessage: {msg:#?}");
                 }
+                WorkItem::EventCommand(msg) => {
+                    println!("JOB {job_id}: got EventMessage: {msg:#?}");
+                }
             }
 
             if let Err(e) = q3.ack(job_id) {

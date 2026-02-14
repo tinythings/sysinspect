@@ -14,6 +14,7 @@ use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
 use libmodpak::MODPAK_SYNC_STATE;
+use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
     cfg::{
@@ -27,7 +28,10 @@ use libsysinspect::{
         inspector::SysInspector,
     },
     mdescr::mspecdef::ModelSpec,
-    reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
+    reactor::{
+        evtproc::EventProcessor,
+        fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
+    },
     rsa,
     traits::{self},
     util::{self, dataconv},
@@ -78,6 +82,8 @@ pub struct SysMinion {
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
     connected: AtomicBool,
+
+    minion_id: String,
 }
 
 impl SysMinion {
@@ -100,6 +106,7 @@ impl SysMinion {
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
             connected: AtomicBool::new(false),
+            minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -134,6 +141,12 @@ impl SysMinion {
         if !self.cfg.functions_dir().exists() {
             log::debug!("Creating directory for the custom trait functions at {}", self.cfg.functions_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.functions_dir())?;
+        }
+
+        // Place for sensors config
+        if !self.cfg.sensors_dir().exists() {
+            log::debug!("Creating directory for the sensors config at {}", self.cfg.sensors_dir().as_os_str().to_str().unwrap_or_default());
+            fs::create_dir_all(self.cfg.sensors_dir())?;
         }
 
         let mut out: Vec<String> = vec![];
@@ -177,8 +190,8 @@ impl SysMinion {
     }
 
     /// Get current minion Id
-    fn get_minion_id(&self) -> String {
-        dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID))
+    fn get_minion_id(&self) -> &str {
+        &self.minion_id
     }
 
     /// Talk-back to the master
@@ -230,6 +243,43 @@ impl SysMinion {
     /// Check if the minion connected flag is currently set to true, which indicates that the minion is currently connected to the master.
     fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
+    }
+
+    /// Start sensors based on the configuration, and pump their events to the reactor.
+    /// This is a separate async task that runs in parallel with the main loop, and is responsible
+    /// for keeping the sensors running and their events flowing to the reactor.
+    pub async fn do_sensors(self: Arc<Self>) -> Result<(), SysinspectError> {
+        tokio::spawn(async move {
+            let spec = match libsensors::load(self.cfg.sensors_dir().as_path()) {
+                Ok(spec) => spec,
+                Err(e) => {
+                    log::error!("Failed to load sensors spec: {e}");
+                    return;
+                }
+            };
+
+            libsysinspect::reactor::handlers::registry::init_handlers();
+            let mut events = EventProcessor::new();
+            if let Some(cfg) = spec.events_config() {
+                events = events.set_config(Arc::new(cfg.clone()), None);
+            }
+            let events = Arc::new(Mutex::new(events));
+            let events_pump = events.clone();
+            tokio::spawn(async move {
+                loop {
+                    {
+                        let mut ep = events_pump.lock().await;
+                        ep.process(true).await;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+            });
+
+            let mut service = SensorService::new(spec);
+            service.set_event_processor(events.clone());
+            service.start();
+        });
+        Ok(())
     }
 
     pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
@@ -313,13 +363,20 @@ impl SysMinion {
                         }
                     }
                     RequestType::Traits => {
-                        if self.as_ptr().get_minion_id().eq(msg.target().id())
-                            && let Err(err) = self.as_ptr().send_traits().await
-                        {
-                            log::error!("Unable to send traits: {err}");
-                        } else {
-                            log::info!("Connected");
-                            self.as_ptr().set_connected(true);
+                        if self.get_minion_id() != msg.target().id() {
+                            log::debug!("Traits request for {}, not me; dropping", msg.target().id());
+                            continue;
+                        }
+
+                        match self.as_ptr().send_traits().await {
+                            Ok(_) => {
+                                log::info!("Connected");
+                                self.set_connected(true);
+                            }
+                            Err(err) => {
+                                log::error!("Unable to send traits: {err}");
+                                // don’t mark connected
+                            }
                         }
                     }
                     RequestType::AgentUnknown => {
@@ -400,7 +457,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -437,14 +494,14 @@ impl SysMinion {
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
         log::debug!("Callback: {ar:#?}");
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar)).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?).await;
         Ok(())
     }
 
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
         Ok(())
     }
 
@@ -718,7 +775,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
             let m = m.clone();
             async move {
                 match item {
-                    WorkItem::MasterCommand(cmd) => {
+                    WorkItem::MasterCommand(cmd) | WorkItem::EventCommand(cmd) => {
                         while MODPAK_SYNC_STATE.is_syncing().await {
                             tokio::time::sleep(Duration::from_millis(200)).await;
                         }
@@ -747,6 +804,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
 
     minion.as_ptr().do_ping_update(state.clone()).await?;
     minion.as_ptr().do_stats_update().await?;
+    minion.as_ptr().do_sensors().await?;
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {

@@ -14,13 +14,26 @@ pub struct Receiver {
 
 impl Receiver {
     /// Add an action.
-    /// Requires:
-    ///   `eid` - Entity Id
-    ///   `response` - ActionResponse object
+    /// NOTE: the order of responses is not guaranteed, if async is used.
+    ///
+    /// Parameters:
+    /// - `eid`: Entity Id, which is a string identifier of the entity that produced the response. It can be used to group responses by their source.
+    /// - `response`: The actual response object, which contains the data produced by the action. It can be of any type that implements the `ActionResponse` trait.
+    ///
+    /// Returns: None. This method modifies the internal state of the `Receiver` by adding the response to the list of responses associated with the given Entity Id.
     pub fn register(&mut self, eid: String, response: ActionResponse) {
         // XXX: And process here as well!
         log::debug!("Registered action response: {response:#?}");
         self.actions.entry(eid).or_default().push(response);
+    }
+
+    /// Drain all action responses (consumes stored ones).
+    pub fn drain_all(&mut self) -> Vec<ActionResponse> {
+        let mut out = Vec::new();
+        for (_, mut v) in self.actions.drain(..) {
+            out.append(&mut v);
+        }
+        out
     }
 
     /// Get an action response by Entity Id

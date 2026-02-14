@@ -8,8 +8,7 @@ use tokio::sync::mpsc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkItem {
     MasterCommand(MasterMessage),
-    // Next:
-    // Kick(KickRequest),
+    EventCommand(MasterMessage),
 }
 
 /// Disk-backed persistent queue for background job processing.

@@ -213,6 +213,35 @@ impl ActionResponse {
         Self { eid, aid, sid, response, constraints, cid: "".to_string(), timestamp: Utc::now(), telemetry: vec![] }
     }
 
+    /// Build an ActionResponse from sensor JSON event payload.
+    /// ```
+    /// {
+    ///   "eid": "tmp-watch/fsnotify/created/0",
+    ///   "sensor": "...",
+    ///   "listener": "...",
+    ///   "data": {...}
+    /// }
+    /// ```
+    pub fn from_sensor(v: serde_json::Value) -> Self {
+        let mut ar = ActionResponse::default();
+        let eid_str = v.get("eid").and_then(|x| x.as_str()).unwrap_or("$/$/$/0").to_string();
+
+        // match_eid expects: <aid>/<eid>/<sid>/<retcode>
+        let parts: Vec<&str> = eid_str.split('/').collect();
+        if parts.len() == 4 {
+            ar.aid = parts[0].to_string();
+            ar.eid = parts[1].to_string();
+            ar.sid = parts[2].to_string();
+            ar.response.retcode = parts[3].parse::<i32>().unwrap_or(0);
+        } else {
+            // fallback
+            ar.eid = eid_str.clone();
+        }
+
+        ar.response.set_data(v);
+        ar
+    }
+
     /// Return an Entity Id to which this action was bound to
     pub fn eid(&self) -> &str {
         &self.eid

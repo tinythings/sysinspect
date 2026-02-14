@@ -85,6 +85,9 @@ pub static CFG_TRAITS_ROOT: &str = "traits";
 // Trait custom functions within the CFG_FILESERVER_ROOT
 pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 
+/// Directory within the `DEFAULT_MODULES_SHARELIB` for sensors
+pub static CFG_SENSORS_ROOT: &str = "sensors";
+
 // Key names
 // ---------
 pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
@@ -487,6 +490,11 @@ impl MinionConfig {
     /// Get root directory for drop-in traits
     pub fn traits_dir(&self) -> PathBuf {
         self.root_dir().join(CFG_TRAITS_ROOT)
+    }
+
+    /// Get root directory for sensors config
+    pub fn sensors_dir(&self) -> PathBuf {
+        self.root_dir().join(CFG_SENSORS_ROOT)
     }
 
     /// Return machine Id path
