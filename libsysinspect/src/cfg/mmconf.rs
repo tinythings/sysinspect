@@ -44,9 +44,6 @@ pub static DEFAULT_TMP: &str = "/var/tmp/sysinspect";
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for modules
 pub static DEFAULT_MODULES_DIR: &str = "modules";
 
-/// Directory within the `DEFAULT_MODULES_SHARELIB` for sensors
-pub static DEFAULT_SENSORS_DIR: &str = "sensors";
-
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for python libraries
 pub static DEFAULT_MODULES_LIB_DIR: &str = "lib";
 
@@ -87,6 +84,9 @@ pub static CFG_TRAITS_ROOT: &str = "traits";
 
 // Trait custom functions within the CFG_FILESERVER_ROOT
 pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
+
+/// Directory within the `DEFAULT_MODULES_SHARELIB` for sensors
+pub static CFG_SENSORS_ROOT: &str = "sensors";
 
 // Key names
 // ---------
@@ -494,7 +494,7 @@ impl MinionConfig {
 
     /// Get root directory for sensors config
     pub fn sensors_dir(&self) -> PathBuf {
-        self.root_dir().join(DEFAULT_SENSORS_DIR)
+        self.root_dir().join(CFG_SENSORS_ROOT)
     }
 
     /// Return machine Id path
