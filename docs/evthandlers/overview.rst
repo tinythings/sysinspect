@@ -1,4 +1,4 @@
-Event Handlers
+Event Routing
 ==============
 
 .. note::
