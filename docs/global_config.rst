@@ -201,14 +201,29 @@ Below are directives for the configuration of the File Server service:
 
     Type: **string**
 
-    Relative path where are the master models kept.
+    Relative path where are the master models kept. Default: ``/models``.
 
 ``fileserver.models``
 ######################
 
     Type: **list**
 
-    List of subdirectories within ``fileserver.models.root``, exporting models. If a model is not
+    List of subdirectories within ``fileserver.models``, exporting models. If a model is not
+    in the list, it will not be available for the minions.
+
+``fileserver.sensors.root``
+###########################
+
+    Type: **string**
+
+    Relative path where are the master sensors kept. Default: ``/sensors``.
+
+``fileserver.sensors``
+######################
+
+    Type: **list**
+
+    List of subdirectories within ``fileserver.sensors``, exporting sensors. If a sensor is not
     in the list, it will not be available for the minions.
 
 ``api.enabled``
