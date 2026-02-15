@@ -272,8 +272,8 @@ impl SysMaster {
 
             let mut out: IndexMap<String, String> = IndexMap::default();
             for em in self.cfg.fileserver_models() {
-                for (n, cs) in scan_files_sha256(self.cfg.fileserver_mdl_root(false).join(em), Some(MODEL_FILE_EXT)) {
-                    out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_mdl_root(false).file_name().unwrap().to_str().unwrap()), cs);
+                for (n, cs) in scan_files_sha256(self.cfg.fileserver_models_root(false).join(em), Some(MODEL_FILE_EXT)) {
+                    out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_models_root(false).file_name().unwrap().to_str().unwrap()), cs);
                 }
             }
 
@@ -288,7 +288,7 @@ impl SysMaster {
                     ModStatePayload::new(payload)
                         .set_uri(querypath.to_string())
                         .add_files(out)
-                        .set_models_root(self.cfg.fileserver_mdl_root(true).to_str().unwrap_or_default())
+                        .set_models_root(self.cfg.fileserver_models_root(true).to_str().unwrap_or_default())
                 ), // TODO: SID part
             );
             msg.set_target(tgt);
