@@ -258,10 +258,11 @@ impl SysMinion {
                     let pth = self.cfg.sensors_dir().join(sensors.unprefix_path(f.trim_start_matches('/')));
                     if let Some(parent) = pth.parent() {
                         if !parent.exists()
-                            && let Err(e) = fs::create_dir_all(parent) {
-                                log::error!("Failed to create directories for '{}': {e}", pth.display());
-                                continue;
-                            }
+                            && let Err(e) = fs::create_dir_all(parent)
+                        {
+                            log::error!("Failed to create directories for '{}': {e}", pth.display());
+                            continue;
+                        }
                         if let Err(e) = fs::write(&pth, content) {
                             log::error!("Failed to write sensor file '{}': {e}", pth.display());
                         }
