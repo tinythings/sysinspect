@@ -20,12 +20,14 @@ impl SensorService {
     }
 
     /// Start all sensors in the service spec, returning a list of JoinHandles for the running tasks.
+    /// Start all sensors in the service spec, returning a list of JoinHandles for the running tasks.
     pub fn start(&mut self) -> Vec<JoinHandle<()>> {
         let reactor = self.reactor.clone();
         let mut handles = Vec::new();
 
         for (sid, cfg) in self.spec.items() {
             log::debug!("Starting sensor '{}' with listener '{}'", sid, cfg.listener());
+
             let Some(sensor) = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone()) else {
                 log::error!("Unknown sensor listener '{}' for '{}'", cfg.listener(), sid);
                 continue;
@@ -34,8 +36,8 @@ impl SensorService {
             log::info!("Initialized sensor '{}'", format!("{}/{}", sid, cfg.listener()).bright_yellow());
 
             let sid = sid.to_string();
-
             let reactor = reactor.clone();
+
             let emit = move |ev: JsonValue| {
                 log::debug!("Registering event from sensor to reactor: {ev}");
 
@@ -44,7 +46,7 @@ impl SensorService {
                     return;
                 };
 
-                let eid = sid.clone();
+                let eid = ev.get("eid").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_else(|| sid.clone());
                 tokio::spawn(async move {
                     let response = ActionResponse::from_sensor(ev);
                     reactor.lock().await.receiver().register(eid, response);
