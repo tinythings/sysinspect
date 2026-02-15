@@ -941,22 +941,22 @@ impl MasterConfig {
     }
 
     /// Get models root on the fileserver
-    pub fn fileserver_mdl_root(&self, uri_only: bool) -> PathBuf {
+    pub fn fileserver_models_root(&self, uri_only: bool) -> PathBuf {
         if uri_only {
             if let Some(models_root) = &self.fsr_models_root {
-                return PathBuf::from(models_root.strip_prefix("/").unwrap_or_default());
+                return PathBuf::from(models_root.trim_start_matches('/'));
             } else {
                 return PathBuf::from(CFG_MODELS_ROOT);
             }
         }
 
-        self.fileserver_root()
-            .join(PathBuf::from(self.fsr_models_root.clone().unwrap_or(CFG_MODELS_ROOT.to_string()).strip_prefix("/").unwrap_or_default()))
+        self.fileserver_root().join(PathBuf::from(self.fsr_models_root.clone().unwrap_or(CFG_MODELS_ROOT.to_string()).trim_start_matches('/')))
     }
 
+    /// Get sensors root on the fileserver
     pub fn fileserver_sensors_root(&self) -> PathBuf {
         if let Some(sensors_root) = &self.fsr_sensors_root {
-            self.fileserver_root().join(PathBuf::from(sensors_root.strip_prefix("/").unwrap_or_default()))
+            self.fileserver_root().join(PathBuf::from(sensors_root.trim_start_matches('/')))
         } else {
             self.fileserver_root().join(CFG_SENSORS_ROOT)
         }
