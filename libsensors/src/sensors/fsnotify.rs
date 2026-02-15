@@ -68,9 +68,9 @@ impl Sensor for FsNotifySensor {
 
         let cb = Callback::new(mask).on(|ev| async move {
             match ev {
-                FileScreamEvent::Created { path } => Some(json!({"kind":"created","path":path.to_string_lossy()})),
-                FileScreamEvent::Changed { path } => Some(json!({"kind":"changed","path":path.to_string_lossy()})),
-                FileScreamEvent::Removed { path } => Some(json!({"kind":"deleted","path":path.to_string_lossy()})),
+                FileScreamEvent::Created { path } => Some(json!({"action":"created","file":path.to_string_lossy()})),
+                FileScreamEvent::Changed { path } => Some(json!({"action":"changed","file":path.to_string_lossy()})),
+                FileScreamEvent::Removed { path } => Some(json!({"action":"deleted","file":path.to_string_lossy()})),
             }
         });
         fs.add_callback(cb);
@@ -83,8 +83,9 @@ impl Sensor for FsNotifySensor {
 
         // Forward results
         while let Some(r) = rx.recv().await {
-            let kind = r.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let eid = format!("{}/{}/{}/0", self.sid, FsNotifySensor::id(), kind);
+            let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let file = r.get("file").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let eid = format!("{}|{}|{}@{}|{}", self.sid, FsNotifySensor::id(), action, file, 0);
 
             (emit)(json!({
                 "eid": eid,
