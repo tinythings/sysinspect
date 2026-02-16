@@ -33,7 +33,7 @@ Options
 -------
 
 ``program``
-^^^^^^^^^^
+^^^^^^^^^^^^
 
     This is the full command line for the script or program you want to run. The handler will send the action's output
     to this program through STDIN. For example:
@@ -78,7 +78,7 @@ Here is an example of how to set up the pipescript handler in your configuration
 
     events:
       # Only react to successful actions (return code 0)
-      $/$/$/0:
+      $|$|$|0:
 
         handlers:
           pipescript

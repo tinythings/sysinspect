@@ -36,7 +36,7 @@ Example
 
     events:
       # Capture all events
-      $/$/$/$:
+      $|$|$|$:
 
         handlers:
           outcome-logger
