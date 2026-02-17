@@ -72,7 +72,6 @@ impl IntervalRange {
     /// ```
     pub fn pick(&self) -> u64 {
         let (min, max) = self.range();
-        fastrand::seed(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64);
         fastrand::u64(min..=max)
     }
 }
