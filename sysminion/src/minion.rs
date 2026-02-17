@@ -13,7 +13,7 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
-use libmodpak::MODPAK_SYNC_STATE;
+use libmodpak::{MODPAK_SYNC_STATE, SysInspectModPakMinion};
 use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
@@ -57,10 +57,13 @@ use std::{
     time::{Duration, Instant},
     vec,
 };
-use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncReadExt, time::sleep};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
+use tokio::{
+    net::{TcpStream, tcp::OwnedReadHalf},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
 /// Session Id of the minion
@@ -84,6 +87,9 @@ pub struct SysMinion {
     connected: AtomicBool,
 
     minion_id: String,
+
+    sensors_task: Mutex<Option<JoinHandle<()>>>,
+    sensors_pump: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl SysMinion {
@@ -107,6 +113,8 @@ impl SysMinion {
             dpq,
             connected: AtomicBool::new(false),
             minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            sensors_task: Mutex::new(None),
+            sensors_pump: Mutex::new(None),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -156,6 +164,19 @@ impl SysMinion {
         log::debug!("Minion traits:\n{}", out.join("\n"));
 
         Ok(())
+    }
+
+    /// Stop sensors by aborting their tasks. This is used when the master
+    /// disconnects or becomes unresponsive, to stop the sensors and prepare for reconnection.
+    async fn stop_sensors(&self) {
+        if let Some(h) = self.sensors_pump.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+        if let Some(h) = self.sensors_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
     }
 
     /// Display minion info
@@ -252,16 +273,17 @@ impl SysMinion {
         // download
         for f in sensors.files().keys() {
             log::info!("Sensor file '{}' with checksum {} needs to be downloaded or updated.", f, sensors.files().get(f).unwrap_or(&"".to_string()));
+
             match self.as_ptr().download_file(f).await {
                 Ok(content) => {
-                    // Save the file to the sensors directory
                     let pth = self.cfg.sensors_dir().join(sensors.unprefix_path(f.trim_start_matches('/')));
+
                     if let Some(parent) = pth.parent() {
-                        if !parent.exists()
-                            && let Err(e) = fs::create_dir_all(parent)
-                        {
-                            log::error!("Failed to create directories for '{}': {e}", pth.display());
-                            continue;
+                        if !parent.exists() {
+                            if let Err(e) = fs::create_dir_all(parent) {
+                                log::error!("Failed to create directories for '{}': {e}", pth.display());
+                                continue;
+                            }
                         }
                         if let Err(e) = fs::write(&pth, content) {
                             log::error!("Failed to write sensor file '{}': {e}", pth.display());
@@ -269,41 +291,54 @@ impl SysMinion {
                     }
                 }
                 Err(e) => log::error!("Failed to download sensor file '{}': {e}", f),
-            };
+            }
         }
 
-        // verify existing files and warn about mismatches
+        self.stop_sensors().await;
+        log::info!("Restarting sensors service");
 
-        tokio::spawn(async move {
-            let spec = match libsensors::load(self.cfg.sensors_dir().as_path()) {
-                Ok(spec) => spec,
-                Err(e) => {
-                    log::error!("Failed to load sensors spec: {e}");
-                    return;
-                }
-            };
-
-            libsysinspect::reactor::handlers::registry::init_handlers();
-            let mut events = EventProcessor::new();
-            if let Some(cfg) = spec.events_config() {
-                events = events.set_config(Arc::new(cfg.clone()), None);
+        // Load spec before spawning anything
+        let spec = match libsensors::load(self.cfg.sensors_dir().as_path()) {
+            Ok(spec) => spec,
+            Err(e) => {
+                log::error!("Failed to load sensors spec: {e}");
+                return Ok(());
             }
-            let events = Arc::new(Mutex::new(events));
-            let events_pump = events.clone();
-            tokio::spawn(async move {
-                loop {
-                    {
-                        let mut ep = events_pump.lock().await;
-                        ep.process(true).await;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                }
-            });
+        };
 
-            let mut service = SensorService::new(spec);
-            service.set_event_processor(events.clone());
-            service.start();
+        libsysinspect::reactor::handlers::registry::init_handlers();
+
+        let mut events = EventProcessor::new();
+        if let Some(cfg) = spec.events_config() {
+            events = events.set_config(Arc::new(cfg.clone()), None);
+        }
+
+        let events = Arc::new(Mutex::new(events));
+
+        // Spawn pump and store handle immediately
+        let events_pump = events.clone();
+        let pump_handle = tokio::spawn(async move {
+            loop {
+                {
+                    let mut ep = events_pump.lock().await;
+                    ep.process(true).await;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
         });
+        *self.sensors_pump.lock().await = Some(pump_handle);
+
+        // Spawn service task and store it
+        let sensors_task = tokio::spawn({
+            let events = events.clone();
+            async move {
+                let mut service = SensorService::new(spec);
+                service.set_event_processor(events);
+                service.start();
+            }
+        });
+        *self.sensors_task.lock().await = Some(sensors_task);
+
         Ok(())
     }
 
@@ -715,9 +750,10 @@ impl SysMinion {
             }
             CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
-                if let Err(e) = libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
+                if let Err(e) = SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
                     log::error!("Failed to sync minion with master: {e}");
                 }
+                let _ = self.as_ptr().send_sensors_sync().await;
             }
             _ => {
                 log::warn!("Unknown command: {cmd}");
@@ -808,7 +844,7 @@ impl SysMinion {
 /// Constructs and starts an actual minion
 async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
-    let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
+    let modpak = SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
 
     let m = minion.as_ptr();
@@ -856,7 +892,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
         sleep(tokio::time::Duration::from_millis(200)).await;
     }
-
+    minion.as_ptr().stop_sensors().await;
     runner.abort();
     let _ = runner.await;
 
