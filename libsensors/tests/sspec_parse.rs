@@ -18,7 +18,7 @@ sensors:
         assert_eq!(c.listener(), "file");
         assert!(c.description().is_none());
         assert!(c.opts().is_empty());
-        assert!(c.event().is_none());
+        assert!(c.tag().is_none());
     }
 
     #[test]
@@ -57,7 +57,7 @@ sensors:
       path: /etc/ssh/ssh_config
       interval: 5
       unit: second
-    event: ssh-conf/file/changed/0
+    tag: stuff
 "#;
 
         let mut spec = SensorSpec::from_str(y).unwrap();
@@ -67,7 +67,7 @@ sensors:
         assert_eq!(c.listener(), "file");
         assert_eq!(c.description().unwrap(), "Watches SSH config");
         assert_eq!(c.opts(), &vec!["changed".to_string(), "deleted".to_string()]);
-        assert_eq!(c.event().unwrap(), "ssh-conf/file/changed/0");
+        assert_eq!(c.tag().unwrap(), "stuff");
 
         let p = c.profile();
         assert!(p.contains(&"default".to_string()));

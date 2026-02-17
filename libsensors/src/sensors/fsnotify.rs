@@ -85,7 +85,9 @@ impl Sensor for FsNotifySensor {
         while let Some(r) = rx.recv().await {
             let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
             let file = r.get("file").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let eid = format!("{}|{}|{}@{}|{}", self.sid, FsNotifySensor::id(), action, file, 0);
+
+            let lstid = format!("{}{}{}", FsNotifySensor::id(), if self.cfg.tag().is_none() { "" } else { "@" }, self.cfg.tag().unwrap_or(""));
+            let eid = format!("{}|{}|{}@{}|{}", self.sid, lstid, action, file, 0);
 
             (emit)(json!({
                 "eid": eid,

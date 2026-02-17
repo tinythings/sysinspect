@@ -189,41 +189,59 @@ pub struct SensorConf {
     args: YamlValue,
 
     #[serde(default)]
-    event: Option<String>,
+    tag: Option<String>,
 
     #[serde(default)]
     interval: Option<Duration>,
 }
 
 impl SensorConf {
+    /// Returns the profile list, defaulting to `["default"]` if not specified.
+    ///
+    /// All profile names are converted to lowercase for consistent comparison.
     pub fn profile(&self) -> Vec<String> {
         self.profile.clone().unwrap_or_else(|| vec!["default".to_string()]).into_iter().map(|p| p.to_lowercase()).collect()
     }
 
+    /// Checks if any of this sensor's profiles match any in the provided list (case-insensitive).
+    ///
+    /// # Arguments
+    ///
+    /// * `profiles` - A slice of profile names to match against
+    ///
+    /// # Returns
+    ///
+    /// `true` if there is at least one matching profile, `false` otherwise.
     pub fn matches_profile(&self, profiles: &[String]) -> bool {
         self.profile().iter().any(|tag| profiles.iter().any(|m| m.eq_ignore_ascii_case(tag)))
     }
 
+    /// Returns the sensor's description, if defined.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
 
+    /// Returns the listener name for this sensor configuration.
     pub fn listener(&self) -> &str {
         &self.listener
     }
 
+    /// Returns the command-line options for this sensor.
     pub fn opts(&self) -> &[String] {
         &self.opts
     }
 
+    /// Returns the YAML arguments for this sensor.
     pub fn args(&self) -> &YamlValue {
         &self.args
     }
 
-    pub fn event(&self) -> Option<&str> {
-        self.event.as_deref()
+    /// Returns the tag associated with this sensor, if defined.
+    pub fn tag(&self) -> Option<&str> {
+        self.tag.as_deref()
     }
 
+    /// Returns the interval duration for this sensor, if defined.
     pub fn interval(&self) -> Option<Duration> {
         self.interval
     }
