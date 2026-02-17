@@ -90,6 +90,9 @@ pub struct SysMinion {
 
     sensors_task: Mutex<Option<JoinHandle<()>>>,
     sensors_pump: Mutex<Option<JoinHandle<()>>>,
+    ping_task: Mutex<Option<JoinHandle<()>>>,
+    proto_task: Mutex<Option<JoinHandle<()>>>,
+    stats_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl SysMinion {
@@ -115,6 +118,9 @@ impl SysMinion {
             minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
             sensors_task: Mutex::new(None),
             sensors_pump: Mutex::new(None),
+            ping_task: Mutex::new(None),
+            proto_task: Mutex::new(None),
+            stats_task: Mutex::new(None),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -174,6 +180,21 @@ impl SysMinion {
             let _ = h.await;
         }
         if let Some(h) = self.sensors_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+    }
+
+    async fn stop_background(&self) {
+        if let Some(h) = self.ping_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+        if let Some(h) = self.proto_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+        if let Some(h) = self.stats_task.lock().await.take() {
             h.abort();
             let _ = h.await;
         }
@@ -241,17 +262,22 @@ impl SysMinion {
     /// That should kick Minion to start reconnecting.
     pub async fn do_ping_update(self: Arc<Self>, state: Arc<ExitState>) -> Result<(), SysinspectError> {
         let reconnect_sender = CONNECTION_TX.clone();
-        tokio::spawn(async move {
-            loop {
-                sleep(tokio::time::Duration::from_secs(1)).await;
-                if self.as_ptr().last_ping.lock().await.elapsed() > self.as_ptr().ping_timeout {
-                    log::warn!("Master seems unresponsive, triggering reconnect.");
-                    let _ = reconnect_sender.send(());
-                    state.exit.store(true, std::sync::atomic::Ordering::Relaxed);
-                    break;
+        let h = tokio::spawn({
+            let this = self.clone();
+            async move {
+                loop {
+                    sleep(Duration::from_secs(1)).await;
+                    if this.last_ping.lock().await.elapsed() > this.ping_timeout {
+                        log::warn!("Master seems unresponsive, triggering reconnect.");
+                        let _ = reconnect_sender.send(());
+                        state.exit.store(true, Ordering::Relaxed);
+                        break;
+                    }
                 }
             }
         });
+
+        *self.ping_task.lock().await = Some(h);
         Ok(())
     }
 
@@ -279,12 +305,11 @@ impl SysMinion {
                     let pth = self.cfg.sensors_dir().join(sensors.unprefix_path(f.trim_start_matches('/')));
 
                     if let Some(parent) = pth.parent() {
-                        if !parent.exists() {
-                            if let Err(e) = fs::create_dir_all(parent) {
+                        if !parent.exists()
+                            && let Err(e) = fs::create_dir_all(parent) {
                                 log::error!("Failed to create directories for '{}': {e}", pth.display());
                                 continue;
                             }
-                        }
                         if let Err(e) = fs::write(&pth, content) {
                             log::error!("Failed to write sensor file '{}': {e}", pth.display());
                         }
@@ -343,32 +368,38 @@ impl SysMinion {
     }
 
     pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
-        tokio::spawn(async move {
+        let this = self.clone();
+        let handle = tokio::spawn(async move {
             loop {
-                sleep(tokio::time::Duration::from_secs(5)).await;
-                let this = self.as_ptr();
+                sleep(Duration::from_secs(5)).await;
                 let mut ptc = this.pt_counter.lock().await;
                 ptc.update_stats();
             }
         });
+
+        *self.stats_task.lock().await = Some(handle);
         Ok(())
     }
 
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
         let rstm = Arc::clone(&self.rstm);
+        let this = self.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 let mut buff = [0u8; 4];
                 if let Err(e) = rstm.lock().await.read_exact(&mut buff).await {
-                    log::trace!("Unknown message length from the master: {e}");
+                    log::warn!("Proto read failed (len): {e}; triggering reconnect");
+                    let _ = CONNECTION_TX.send(());
                     break;
                 }
-                let msg_len = u32::from_be_bytes(buff) as usize;
 
+                let msg_len = u32::from_be_bytes(buff) as usize;
                 let mut msg = vec![0u8; msg_len];
+
                 if let Err(e) = rstm.lock().await.read_exact(&mut msg).await {
-                    log::error!("Invalid message from the master: {e}");
+                    log::warn!("Proto read failed (msg): {e}; triggering reconnect");
+                    let _ = CONNECTION_TX.send(());
                     break;
                 }
 
@@ -383,97 +414,105 @@ impl SysMinion {
                 log::trace!("Received Master message: {msg:#?}");
 
                 match msg.req_type() {
-                    RequestType::Add => {
-                        log::debug!("Master accepts registration");
-                    }
+                    RequestType::Add => log::debug!("Master accepts registration"),
 
                     RequestType::Reconnect => {
-                        log::debug!("Master requires reconnection");
-                        log::info!("{}", msg.payload());
-                        std::process::exit(0);
+                        log::warn!("Master requires reconnection: {}", msg.payload());
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
 
                     RequestType::Remove => {
                         log::debug!("Master asks to unregister");
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
+
                     RequestType::Command => {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
                                 let scheme = msg.target().scheme().to_string();
+
                                 if scheme.starts_with(SCHEME_COMMAND) {
-                                    self.as_ptr().call_internal_command(&scheme).await;
+                                    this.as_ptr().call_internal_command(&scheme).await;
                                     continue;
                                 }
-                                if let Err(e) = self.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+
+                                if let Err(e) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
                                     log::error!("Failed to enqueue master command: {e}");
                                 } else {
                                     log::info!("Scheduled master command: {}", msg.target().scheme());
                                 }
                             }
+
                             ProtoErrorCode::AlreadyConnected => {
-                                if !self.is_connected() {
+                                if !this.is_connected() {
                                     log::error!("Another minion from this machine is already connected");
-                                    std::process::exit(1);
+                                    let _ = CONNECTION_TX.send(());
+                                    break;
                                 }
                             }
-                            ret => {
-                                log::debug!("Return code {ret:?} not yet implemented");
-                            }
+
+                            ret => log::debug!("Return code {ret:?} not yet implemented"),
                         }
                     }
+
                     RequestType::Traits => {
-                        if self.get_minion_id() != msg.target().id() {
+                        if this.get_minion_id() != msg.target().id() {
                             log::debug!("Traits request for {}, not me; dropping", msg.target().id());
                             continue;
                         }
 
-                        match self.as_ptr().send_traits().await {
+                        match this.as_ptr().send_traits().await {
                             Ok(_) => {
                                 log::info!("Connected");
-                                self.set_connected(true);
+                                this.set_connected(true);
                             }
-                            Err(err) => {
-                                log::error!("Unable to send traits: {err}");
-                                // don’t mark connected
-                            }
+                            Err(err) => log::error!("Unable to send traits: {err}"),
                         }
                     }
+
                     RequestType::AgentUnknown => {
-                        let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
+                        let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned());
                         let (_, pbk) = match rsa::keys::from_pem(None, Some(&pbk_pem)) {
                             Ok(val) => val,
                             Err(e) => {
                                 log::error!("Failed to parse PEM: {e}");
-                                std::process::exit(1);
+                                let _ = CONNECTION_TX.send(());
+                                break;
                             }
                         };
+
                         let pbk = match pbk {
                             Some(key) => key,
                             None => {
                                 log::error!("No public key found in PEM");
-                                std::process::exit(1);
+                                let _ = CONNECTION_TX.send(());
+                                break;
                             }
                         };
+
                         let fpt = match rsa::keys::get_fingerprint(&pbk) {
                             Ok(fp) => fp,
                             Err(e) => {
                                 log::error!("Failed to get fingerprint: {e}");
-                                std::process::exit(1);
+                                let _ = CONNECTION_TX.send(());
+                                break;
                             }
                         };
 
                         log::error!("Minion is not registered");
                         log::info!("Master fingerprint: {fpt}");
-                        std::process::exit(1);
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
+
                     RequestType::Ping => {
                         let p = msg.payload();
-
                         match serde_json::from_value::<ProtoValue>(p.clone()) {
                             Ok(ProtoValue::PingTypeGeneral) => {
                                 let (loadavg, is_done, doneids, io_bps, cpu_usage) = {
-                                    let this = self.as_ptr();
                                     let mut ptc = this.pt_counter.lock().await;
                                     let (l, d, i, io, cpu) =
                                         (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done(), ptc.get_io_bps(), ptc.get_cpu_usage());
@@ -490,42 +529,44 @@ impl SysMinion {
                                     "cpu": cpu_usage,
                                 });
 
-                                self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
-                                self.update_ping().await;
+                                this.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
+                                this.update_ping().await;
                             }
+
                             Ok(ProtoValue::PingTypeDiscovery) => {
-                                // XXX: On Discovery ping, we also send our traits and all the info for cluster
                                 log::debug!("Received discovery ping from master");
-                                self.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
+                                this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
+                                this.update_ping().await;
                             }
-                            Err(e) => {
-                                log::warn!("Invalid ping payload `{}`: {}", p, e);
-                            }
+
+                            Err(e) => log::warn!("Invalid ping payload `{}`: {}", p, e),
                         }
                     }
 
                     RequestType::ByeAck => {
-                        log::info!("Master confirmed shutdown, terminating");
-                        std::process::exit(0);
+                        log::info!("Master confirmed shutdown");
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
 
                     RequestType::SensorsSyncResponse => {
                         log::info!("Received sensors sync response from master");
-                        self.as_ptr()
-                            .do_sensors(SensorsFiledata::from_payload(msg.payload().clone(), self.cfg.sensors_dir()).unwrap_or_else(|e| {
-                                log::error!("Failed to parse sensors payload: {e}");
-                                SensorsFiledata::default()
-                            }))
-                            .await
-                            .unwrap_or_else(|e| log::error!("Failed to start sensors: {e}"));
+                        let sensors = SensorsFiledata::from_payload(msg.payload().clone(), this.cfg.sensors_dir()).unwrap_or_else(|e| {
+                            log::error!("Failed to parse sensors payload: {e}");
+                            SensorsFiledata::default()
+                        });
+
+                        if let Err(e) = this.as_ptr().do_sensors(sensors).await {
+                            log::error!("Failed to start sensors: {e}");
+                        }
                     }
 
-                    _ => {
-                        log::error!("Unknown request type");
-                    }
+                    _ => log::error!("Unknown request type"),
                 }
             }
         });
+
+        *self.proto_task.lock().await = Some(handle);
         Ok(())
     }
 
@@ -892,7 +933,10 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
         sleep(tokio::time::Duration::from_millis(200)).await;
     }
+
     minion.as_ptr().stop_sensors().await;
+    minion.as_ptr().stop_background().await;
+
     runner.abort();
     let _ = runner.await;
 
