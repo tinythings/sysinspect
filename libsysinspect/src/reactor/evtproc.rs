@@ -76,7 +76,6 @@ impl EventProcessor {
     }
 
     /// Process all handlers
-    /// Process all handlers
     pub async fn process(&mut self, drain: bool) {
         let batch = if drain { self.receiver.drain_all() } else { self.receiver.get_all() };
         let last = batch.last().cloned();

@@ -20,7 +20,6 @@ impl SensorService {
     }
 
     /// Start all sensors in the service spec, returning a list of JoinHandles for the running tasks.
-    /// Start all sensors in the service spec, returning a list of JoinHandles for the running tasks.
     pub fn start(&mut self) -> Vec<JoinHandle<()>> {
         let reactor = self.reactor.clone();
         let mut handles = Vec::new();
