@@ -35,6 +35,7 @@ welcome—see the section on contributing for how to get involved.
    moddev/overview
    moddescr/overview
    evthandlers/overview
+   eventsensors/overview
    uix/ui
    apidoc/overview
 

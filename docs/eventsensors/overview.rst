@@ -86,7 +86,7 @@ sensors listen for events and emit notifications:
         event: <event ID to emit on trigger, optional>
 
 ``profile``
-^^^^^^^^^
+^^^^^^^^^^^
 
     **Optional**
 
@@ -141,3 +141,13 @@ sensors listen for events and emit notifications:
     However, in some corner cases it might be necessary to define (override) the event ID with a specific static value.
 
     Highly **not recommended** to use on a regular basis. But the feature is here if needed.
+
+Available Sensors
+=================
+
+Here are the available sensors:
+
+.. toctree::
+  :maxdepth: 1
+
+  fsnotify
