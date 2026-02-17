@@ -312,7 +312,6 @@ impl ActionResponse {
         p_eid.len() == 4
             && (self.aid().eq(p_eid[0]) || p_eid[0] == "$")
             && (self.eid().eq(p_eid[1]) || p_eid[1] == "$")
-            //&& (self.sid().eq(p_eid[2]) || p_eid[2] == "$")
             && Self::sid_matches(self.sid(), p_eid[2])
             && ((p_eid[3] == "$") || (p_eid[3].eq("E") && self.response.retcode() > 0) || p_eid[3].eq(&self.response.retcode().to_string()))
     }
