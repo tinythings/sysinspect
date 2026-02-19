@@ -130,7 +130,7 @@ pub async fn model_descr_handler(master: Data<MasterInterfaceType>, query: Query
         return Ok(HttpResponse::NotFound().json(ModelResponseError { error: format!("Model '{}' not found", mid) }));
     }
 
-    let root = cfg.fileserver_mdl_root(false);
+    let root = cfg.fileserver_models_root(false);
 
     match mspec::load(Arc::new(MinionConfig::default()), &format!("{}/{}", root.to_str().unwrap_or_default(), mid), None, None) {
         Err(e) => {

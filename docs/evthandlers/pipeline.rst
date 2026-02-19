@@ -34,7 +34,7 @@ How It Works
 When an action finishes, SysInspect emits an event that contains the action result (return code, stdout/stderr, and
 any structured ``data`` the action produced). The *pipeline* handler listens for events that match your event filter.
 
-Most pipelines are wired to successful runs only, by using the ``.../0`` return-code filter (``0`` = success). With that
+Most pipelines are wired to successful runs only, by using the ``...|0`` return-code filter (``0`` = success). With that
 setup, a failed action (non-zero return code) simply will not match the filter, so the pipeline won't run for it. You'll
 still see the failure in logs, and you can add a separate event filter if you also want to react to failures.
 
@@ -140,7 +140,7 @@ So instead of hard-coding ``data:500``, you map it from the event like ``data: $
 
     events:
       # Only react to successful actions (return code 0)
-      $/$/$/0:
+      $|$|$|0:
 
         handlers:
           - pipeline

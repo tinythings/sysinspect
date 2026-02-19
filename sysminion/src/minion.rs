@@ -1,6 +1,6 @@
 use crate::{
     callbacks::{ActionResponseCallback, ModelResponseCallback},
-    filedata::MinionFiledata,
+    filedata::{MinionFiledata, SensorsFiledata},
     proto::{
         self,
         msg::{CONNECTION_TX, ExitState},
@@ -13,7 +13,8 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
-use libmodpak::MODPAK_SYNC_STATE;
+use libmodpak::{MODPAK_SYNC_STATE, SysInspectModPakMinion};
+use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
     cfg::{
@@ -27,7 +28,10 @@ use libsysinspect::{
         inspector::SysInspector,
     },
     mdescr::mspecdef::ModelSpec,
-    reactor::fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
+    reactor::{
+        evtproc::EventProcessor,
+        fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
+    },
     rsa,
     traits::{self},
     util::{self, dataconv},
@@ -53,10 +57,13 @@ use std::{
     time::{Duration, Instant},
     vec,
 };
-use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncReadExt, time::sleep};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
+use tokio::{
+    net::{TcpStream, tcp::OwnedReadHalf},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
 /// Session Id of the minion
@@ -78,6 +85,14 @@ pub struct SysMinion {
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
     connected: AtomicBool,
+
+    minion_id: String,
+
+    sensors_task: Mutex<Option<JoinHandle<()>>>,
+    sensors_pump: Mutex<Option<JoinHandle<()>>>,
+    ping_task: Mutex<Option<JoinHandle<()>>>,
+    proto_task: Mutex<Option<JoinHandle<()>>>,
+    stats_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl SysMinion {
@@ -100,6 +115,12 @@ impl SysMinion {
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
             connected: AtomicBool::new(false),
+            minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            sensors_task: Mutex::new(None),
+            sensors_pump: Mutex::new(None),
+            ping_task: Mutex::new(None),
+            proto_task: Mutex::new(None),
+            stats_task: Mutex::new(None),
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -136,6 +157,12 @@ impl SysMinion {
             fs::create_dir_all(self.cfg.functions_dir())?;
         }
 
+        // Place for sensors config
+        if !self.cfg.sensors_dir().exists() {
+            log::debug!("Creating directory for the sensors config at {}", self.cfg.sensors_dir().as_os_str().to_str().unwrap_or_default());
+            fs::create_dir_all(self.cfg.sensors_dir())?;
+        }
+
         let mut out: Vec<String> = vec![];
         for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
@@ -143,6 +170,34 @@ impl SysMinion {
         log::debug!("Minion traits:\n{}", out.join("\n"));
 
         Ok(())
+    }
+
+    /// Stop sensors by aborting their tasks. This is used when the master
+    /// disconnects or becomes unresponsive, to stop the sensors and prepare for reconnection.
+    async fn stop_sensors(&self) {
+        if let Some(h) = self.sensors_pump.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+        if let Some(h) = self.sensors_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+    }
+
+    async fn stop_background(&self) {
+        if let Some(h) = self.ping_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+        if let Some(h) = self.proto_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
+        if let Some(h) = self.stats_task.lock().await.take() {
+            h.abort();
+            let _ = h.await;
+        }
     }
 
     /// Display minion info
@@ -177,8 +232,8 @@ impl SysMinion {
     }
 
     /// Get current minion Id
-    fn get_minion_id(&self) -> String {
-        dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID))
+    fn get_minion_id(&self) -> &str {
+        &self.minion_id
     }
 
     /// Talk-back to the master
@@ -207,17 +262,22 @@ impl SysMinion {
     /// That should kick Minion to start reconnecting.
     pub async fn do_ping_update(self: Arc<Self>, state: Arc<ExitState>) -> Result<(), SysinspectError> {
         let reconnect_sender = CONNECTION_TX.clone();
-        tokio::spawn(async move {
-            loop {
-                sleep(tokio::time::Duration::from_secs(1)).await;
-                if self.as_ptr().last_ping.lock().await.elapsed() > self.as_ptr().ping_timeout {
-                    log::warn!("Master seems unresponsive, triggering reconnect.");
-                    let _ = reconnect_sender.send(());
-                    state.exit.store(true, std::sync::atomic::Ordering::Relaxed);
-                    break;
+        let h = tokio::spawn({
+            let this = self.clone();
+            async move {
+                loop {
+                    sleep(Duration::from_secs(1)).await;
+                    if this.last_ping.lock().await.elapsed() > this.ping_timeout {
+                        log::warn!("Master seems unresponsive, triggering reconnect.");
+                        let _ = reconnect_sender.send(());
+                        state.exit.store(true, Ordering::Relaxed);
+                        break;
+                    }
                 }
             }
         });
+
+        *self.ping_task.lock().await = Some(h);
         Ok(())
     }
 
@@ -232,33 +292,114 @@ impl SysMinion {
         self.connected.load(Ordering::Relaxed)
     }
 
-    pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
-        tokio::spawn(async move {
+    /// Start sensors based on the configuration, and pump their events to the reactor.
+    /// This is a separate async task that runs in parallel with the main loop, and is responsible
+    /// for keeping the sensors running and their events flowing to the reactor.
+    pub async fn do_sensors(self: Arc<Self>, sensors: SensorsFiledata) -> Result<(), SysinspectError> {
+        // download
+        for f in sensors.files().keys() {
+            log::info!("Sensor file '{}' with checksum {} needs to be downloaded or updated.", f, sensors.files().get(f).unwrap_or(&"".to_string()));
+
+            match self.as_ptr().download_file(f).await {
+                Ok(content) => {
+                    let pth = self.cfg.sensors_dir().join(sensors.unprefix_path(f.trim_start_matches('/')));
+
+                    if let Some(parent) = pth.parent() {
+                        if !parent.exists()
+                            && let Err(e) = fs::create_dir_all(parent) {
+                                log::error!("Failed to create directories for '{}': {e}", pth.display());
+                                continue;
+                            }
+                        if let Err(e) = fs::write(&pth, content) {
+                            log::error!("Failed to write sensor file '{}': {e}", pth.display());
+                        }
+                    }
+                }
+                Err(e) => log::error!("Failed to download sensor file '{}': {e}", f),
+            }
+        }
+
+        self.stop_sensors().await;
+        log::info!("Restarting sensors service");
+
+        // Load spec before spawning anything
+        let spec = match libsensors::load(self.cfg.sensors_dir().as_path()) {
+            Ok(spec) => spec,
+            Err(e) => {
+                log::error!("Failed to load sensors spec: {e}");
+                return Ok(());
+            }
+        };
+
+        libsysinspect::reactor::handlers::registry::init_handlers();
+
+        let mut events = EventProcessor::new();
+        if let Some(cfg) = spec.events_config() {
+            events = events.set_config(Arc::new(cfg.clone()), None);
+        }
+
+        let events = Arc::new(Mutex::new(events));
+
+        // Spawn pump and store handle immediately
+        let events_pump = events.clone();
+        let pump_handle = tokio::spawn(async move {
             loop {
-                sleep(tokio::time::Duration::from_secs(5)).await;
-                let this = self.as_ptr();
+                {
+                    let mut ep = events_pump.lock().await;
+                    ep.process(true).await;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
+        *self.sensors_pump.lock().await = Some(pump_handle);
+
+        // Spawn service task and store it
+        let sensors_task = tokio::spawn({
+            let events = events.clone();
+            async move {
+                let mut service = SensorService::new(spec);
+                service.set_event_processor(events);
+                service.start();
+            }
+        });
+        *self.sensors_task.lock().await = Some(sensors_task);
+
+        Ok(())
+    }
+
+    pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
+        let this = self.clone();
+        let handle = tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(5)).await;
                 let mut ptc = this.pt_counter.lock().await;
                 ptc.update_stats();
             }
         });
+
+        *self.stats_task.lock().await = Some(handle);
         Ok(())
     }
 
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
         let rstm = Arc::clone(&self.rstm);
+        let this = self.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 let mut buff = [0u8; 4];
                 if let Err(e) = rstm.lock().await.read_exact(&mut buff).await {
-                    log::trace!("Unknown message length from the master: {e}");
+                    log::warn!("Proto read failed (len): {e}; triggering reconnect");
+                    let _ = CONNECTION_TX.send(());
                     break;
                 }
-                let msg_len = u32::from_be_bytes(buff) as usize;
 
+                let msg_len = u32::from_be_bytes(buff) as usize;
                 let mut msg = vec![0u8; msg_len];
+
                 if let Err(e) = rstm.lock().await.read_exact(&mut msg).await {
-                    log::error!("Invalid message from the master: {e}");
+                    log::warn!("Proto read failed (msg): {e}; triggering reconnect");
+                    let _ = CONNECTION_TX.send(());
                     break;
                 }
 
@@ -273,90 +414,105 @@ impl SysMinion {
                 log::trace!("Received Master message: {msg:#?}");
 
                 match msg.req_type() {
-                    RequestType::Add => {
-                        log::debug!("Master accepts registration");
-                    }
+                    RequestType::Add => log::debug!("Master accepts registration"),
 
                     RequestType::Reconnect => {
-                        log::debug!("Master requires reconnection");
-                        log::info!("{}", msg.payload());
-                        std::process::exit(0);
+                        log::warn!("Master requires reconnection: {}", msg.payload());
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
 
                     RequestType::Remove => {
                         log::debug!("Master asks to unregister");
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
+
                     RequestType::Command => {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
                                 let scheme = msg.target().scheme().to_string();
+
                                 if scheme.starts_with(SCHEME_COMMAND) {
-                                    self.as_ptr().call_internal_command(&scheme).await;
+                                    this.as_ptr().call_internal_command(&scheme).await;
                                     continue;
                                 }
-                                if let Err(e) = self.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+
+                                if let Err(e) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
                                     log::error!("Failed to enqueue master command: {e}");
                                 } else {
                                     log::info!("Scheduled master command: {}", msg.target().scheme());
                                 }
                             }
+
                             ProtoErrorCode::AlreadyConnected => {
-                                if !self.is_connected() {
+                                if !this.is_connected() {
                                     log::error!("Another minion from this machine is already connected");
-                                    std::process::exit(1);
+                                    let _ = CONNECTION_TX.send(());
+                                    break;
                                 }
                             }
-                            ret => {
-                                log::debug!("Return code {ret:?} not yet implemented");
-                            }
+
+                            ret => log::debug!("Return code {ret:?} not yet implemented"),
                         }
                     }
+
                     RequestType::Traits => {
-                        if self.as_ptr().get_minion_id().eq(msg.target().id())
-                            && let Err(err) = self.as_ptr().send_traits().await
-                        {
-                            log::error!("Unable to send traits: {err}");
-                        } else {
-                            log::info!("Connected");
-                            self.as_ptr().set_connected(true);
+                        if this.get_minion_id() != msg.target().id() {
+                            log::debug!("Traits request for {}, not me; dropping", msg.target().id());
+                            continue;
+                        }
+
+                        match this.as_ptr().send_traits().await {
+                            Ok(_) => {
+                                log::info!("Connected");
+                                this.set_connected(true);
+                            }
+                            Err(err) => log::error!("Unable to send traits: {err}"),
                         }
                     }
+
                     RequestType::AgentUnknown => {
-                        let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned()); // Expected PEM RSA pub key
+                        let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned());
                         let (_, pbk) = match rsa::keys::from_pem(None, Some(&pbk_pem)) {
                             Ok(val) => val,
                             Err(e) => {
                                 log::error!("Failed to parse PEM: {e}");
-                                std::process::exit(1);
+                                let _ = CONNECTION_TX.send(());
+                                break;
                             }
                         };
+
                         let pbk = match pbk {
                             Some(key) => key,
                             None => {
                                 log::error!("No public key found in PEM");
-                                std::process::exit(1);
+                                let _ = CONNECTION_TX.send(());
+                                break;
                             }
                         };
+
                         let fpt = match rsa::keys::get_fingerprint(&pbk) {
                             Ok(fp) => fp,
                             Err(e) => {
                                 log::error!("Failed to get fingerprint: {e}");
-                                std::process::exit(1);
+                                let _ = CONNECTION_TX.send(());
+                                break;
                             }
                         };
 
                         log::error!("Minion is not registered");
                         log::info!("Master fingerprint: {fpt}");
-                        std::process::exit(1);
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
+
                     RequestType::Ping => {
                         let p = msg.payload();
-
                         match serde_json::from_value::<ProtoValue>(p.clone()) {
                             Ok(ProtoValue::PingTypeGeneral) => {
                                 let (loadavg, is_done, doneids, io_bps, cpu_usage) = {
-                                    let this = self.as_ptr();
                                     let mut ptc = this.pt_counter.lock().await;
                                     let (l, d, i, io, cpu) =
                                         (ptc.get_loadaverage(), ptc.is_done(), ptc.get_done(), ptc.get_io_bps(), ptc.get_cpu_usage());
@@ -373,34 +529,49 @@ impl SysMinion {
                                     "cpu": cpu_usage,
                                 });
 
-                                self.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
-                                self.update_ping().await;
+                                this.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
+                                this.update_ping().await;
                             }
+
                             Ok(ProtoValue::PingTypeDiscovery) => {
-                                // XXX: On Discovery ping, we also send our traits and all the info for cluster
                                 log::debug!("Received discovery ping from master");
-                                self.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
+                                this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
+                                this.update_ping().await;
                             }
-                            Err(e) => {
-                                log::warn!("Invalid ping payload `{}`: {}", p, e);
-                            }
+
+                            Err(e) => log::warn!("Invalid ping payload `{}`: {}", p, e),
                         }
                     }
+
                     RequestType::ByeAck => {
-                        log::info!("Master confirmed shutdown, terminating");
-                        std::process::exit(0);
+                        log::info!("Master confirmed shutdown");
+                        let _ = CONNECTION_TX.send(());
+                        break;
                     }
-                    _ => {
-                        log::error!("Unknown request type");
+
+                    RequestType::SensorsSyncResponse => {
+                        log::info!("Received sensors sync response from master");
+                        let sensors = SensorsFiledata::from_payload(msg.payload().clone(), this.cfg.sensors_dir()).unwrap_or_else(|e| {
+                            log::error!("Failed to parse sensors payload: {e}");
+                            SensorsFiledata::default()
+                        });
+
+                        if let Err(e) = this.as_ptr().do_sensors(sensors).await {
+                            log::error!("Failed to start sensors: {e}");
+                        }
                     }
+
+                    _ => log::error!("Unknown request type"),
                 }
             }
         });
+
+        *self.proto_task.lock().await = Some(handle);
         Ok(())
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -437,14 +608,20 @@ impl SysMinion {
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
         log::debug!("Callback: {ar:#?}");
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::Event, json!(ar)).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?).await;
         Ok(())
     }
 
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
+        Ok(())
+    }
+
+    pub async fn send_sensors_sync(self: Arc<Self>) -> Result<(), SysinspectError> {
+        log::info!("Sending sensors sync callback for cycle");
+        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({})).sendable()?).await;
         Ok(())
     }
 
@@ -614,9 +791,10 @@ impl SysMinion {
             }
             CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
-                if let Err(e) = libmodpak::SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
+                if let Err(e) = SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
                     log::error!("Failed to sync minion with master: {e}");
                 }
+                let _ = self.as_ptr().send_sensors_sync().await;
             }
             _ => {
                 log::warn!("Unknown command: {cmd}");
@@ -707,7 +885,7 @@ impl SysMinion {
 /// Constructs and starts an actual minion
 async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
-    let modpak = libmodpak::SysInspectModPakMinion::new(cfg.clone());
+    let modpak = SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
 
     let m = minion.as_ptr();
@@ -718,7 +896,7 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
             let m = m.clone();
             async move {
                 match item {
-                    WorkItem::MasterCommand(cmd) => {
+                    WorkItem::MasterCommand(cmd) | WorkItem::EventCommand(cmd) => {
                         while MODPAK_SYNC_STATE.is_syncing().await {
                             tokio::time::sleep(Duration::from_millis(200)).await;
                         }
@@ -745,6 +923,9 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
         }
     }
 
+    // Send sensors sync request
+    minion.as_ptr().send_sensors_sync().await?;
+
     minion.as_ptr().do_ping_update(state.clone()).await?;
     minion.as_ptr().do_stats_update().await?;
 
@@ -752,6 +933,9 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
         sleep(tokio::time::Duration::from_millis(200)).await;
     }
+
+    minion.as_ptr().stop_sensors().await;
+    minion.as_ptr().stop_background().await;
 
     runner.abort();
     let _ = runner.await;

@@ -46,7 +46,7 @@ Example
 
     events:
       # Capture all events
-      $/$/$/$:
+      $|$|$|$:
 
         handlers:
           console-logger

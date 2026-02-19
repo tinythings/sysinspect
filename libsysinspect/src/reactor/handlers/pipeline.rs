@@ -73,6 +73,34 @@ impl PipelineHandler {
         }
     }
 
+    /// This is a little tokenizer: tokens start with "$." and then continue until whitespace or quote
+    fn get_jsonpath_tokens(s: &str) -> Vec<String> {
+        let bytes = s.as_bytes();
+        let mut i = 0usize;
+        let mut out = Vec::new();
+
+        while i + 1 < bytes.len() {
+            if bytes[i] == b'$' && bytes[i + 1] == b'.' {
+                let start = i;
+                i += 2;
+                while i < bytes.len() {
+                    let c = bytes[i] as char;
+                    if c.is_whitespace() || c == '"' || c == '\'' {
+                        break;
+                    }
+                    i += 1;
+                }
+                out.push(s[start..i].to_string());
+            } else {
+                i += 1;
+            }
+        }
+
+        // dedup while preserving order
+        let mut seen = std::collections::HashSet::new();
+        out.into_iter().filter(|t| seen.insert(t.clone())).collect()
+    }
+
     fn scalar2s(v: &Value) -> String {
         match v {
             Value::String(s) => s.trim_end().to_string(),
@@ -87,27 +115,55 @@ impl PipelineHandler {
         self.config().unwrap_or_default().get("verbose").and_then(|v| v.as_bool()).unwrap_or(false)
     }
 
+    fn is_pure_jsonpath(s: &str) -> bool {
+        let t = s.trim();
+        t.starts_with("$.") && !t.contains(char::is_whitespace) && !t.contains('"') && !t.contains('\'')
+    }
+
     fn eval_context(&self, evt: &ActionResponse, call: &mut Call) {
         let data = evt.response.data().unwrap_or(json!({}));
-
         let updates: Vec<(String, Value)> = call
             .context
             .iter()
             .map(|(k, v_yaml)| {
-                // 1) YAML scalar → clean string JSONPath
-                let path = Self::scalar2s(v_yaml);
+                // 1) scalar to clean string JSONPath
+                let raw = Self::scalar2s(v_yaml);
 
-                // 2) Run JSONPath
-                let out = match data.query(&path) {
-                    Ok(h) if !h.is_empty() => match &h[0] {
-                        serde_json::Value::String(s) => Value::String(s.clone()),
-                        serde_json::Value::Number(n) => Value::Number(serde_yaml::Number::from(n.as_f64().unwrap_or(0.0))),
-                        serde_json::Value::Bool(b) => Value::Bool(*b),
-                        _ => Value::Null,
-                    },
-                    _ => Value::Null,
+                // 2) Resolve value:
+                //    - if it's exactly a JSONPath (starts with "$.") => query and return scalar
+                //    - if it contains JSONPath tokens inside a string => interpolate into a string
+                //    - otherwise => literal string
+                let out = if Self::is_pure_jsonpath(&raw) {
+                    match data.query(&raw) {
+                        Ok(h) if !h.is_empty() => match &h[0] {
+                            serde_json::Value::String(s) => Value::String(s.clone()),
+                            serde_json::Value::Number(n) => Value::Number(serde_yaml::Number::from(n.as_f64().unwrap_or(0.0))),
+                            serde_json::Value::Bool(b) => Value::Bool(*b),
+                            _ => Value::String(raw.clone()), // not a scalar -> keep literal
+                        },
+                        _ => Value::String(raw.clone()), // invalid path or no hits -> keep literal
+                    }
+                } else if raw.contains("$.") {
+                    // interpolate: replace each "$.<token>" with its first scalar result
+                    // If jsonpath is wrong, it won't interpolate and will just return the original string as is.
+                    let mut out_s = raw.clone();
+                    for tok in Self::get_jsonpath_tokens(&raw) {
+                        if let Ok(h) = data.query(&tok)
+                            && let Some(val) = h.first() {
+                                let repl = match val {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    serde_json::Value::Number(n) => n.to_string(),
+                                    serde_json::Value::Bool(b) => b.to_string(),
+                                    serde_json::Value::Null => "".to_string(),
+                                    _ => "".to_string(),
+                                };
+                                out_s = out_s.replace(&tok, &repl);
+                            }
+                    }
+                    Value::String(out_s)
+                } else {
+                    Value::String(raw.clone())
                 };
-
                 (k.clone(), out)
             })
             .collect();
@@ -153,7 +209,7 @@ impl EventHandler for PipelineHandler {
                 log::info!(
                     "[{}] Event {} doesn't match handler {}",
                     PipelineHandler::id().bright_blue(),
-                    format!("{}/{}/{}/{}", evt.aid(), evt.eid(), evt.sid(), evt.response.retcode()).bright_yellow(),
+                    format!("{}|{}|{}|{}", evt.aid(), evt.eid(), evt.sid(), evt.response.retcode()).bright_yellow(),
                     self.eid.bright_yellow()
                 );
             }

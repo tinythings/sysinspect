@@ -129,6 +129,11 @@ pub struct ActionModResponse {
 }
 
 impl ActionModResponse {
+    /// Create new with return code
+    pub fn with_retcode(retcode: i32) -> Self {
+        Self { retcode, warning: None, message: String::new(), data: None }
+    }
+
     /// Get a return code
     pub fn retcode(&self) -> i32 {
         self.retcode
@@ -213,6 +218,35 @@ impl ActionResponse {
         Self { eid, aid, sid, response, constraints, cid: "".to_string(), timestamp: Utc::now(), telemetry: vec![] }
     }
 
+    /// Build an ActionResponse from sensor JSON event payload.
+    /// ```
+    /// {
+    ///   "eid": "tmp-watch/fsnotify/created/0",
+    ///   "sensor": "...",
+    ///   "listener": "...",
+    ///   "data": {...}
+    /// }
+    /// ```
+    pub fn from_sensor(v: serde_json::Value) -> Self {
+        let mut ar = ActionResponse::default();
+        let eid_str = v.get("eid").and_then(|x| x.as_str()).unwrap_or("$|$|$|$").to_string();
+
+        // match_eid expects: <aid>/<eid>/<sid>/<retcode>
+        let parts: Vec<&str> = eid_str.split('|').collect();
+        if parts.len() == 4 {
+            ar.aid = parts[0].to_string();
+            ar.eid = parts[1].to_string();
+            ar.sid = parts[2].to_string();
+            ar.response.retcode = 0;
+        } else {
+            // fallback
+            ar.eid = eid_str.clone();
+        }
+
+        ar.response.set_data(v);
+        ar
+    }
+
     /// Return an Entity Id to which this action was bound to
     pub fn eid(&self) -> &str {
         &self.eid
@@ -255,6 +289,15 @@ impl ActionResponse {
     ///   - `0..255`  - specific code
     ///   - `E`       - error only (non-0)
     ///
+    /// Rules:
+    /// 1. no @ — exact match (current behavior)
+    /// 2. @ splits into kind@detailpattern
+    /// 3. $ inside detailpattern means * (glob)
+    ///
+    /// Example:
+    /// - kind@$ means “kind@anything”
+    /// - also allow plain
+    ///
     pub fn match_eid(&self, evt_id: &str) -> bool {
         // If explicitly specified and already matching
         for expr in self.constraints.expressions() {
@@ -265,12 +308,61 @@ impl ActionResponse {
             }
         }
 
-        let p_eid = evt_id.split('/').map(|s| s.trim()).collect::<Vec<&str>>();
+        let p_eid = evt_id.split('|').map(|s| s.trim()).collect::<Vec<&str>>();
         p_eid.len() == 4
             && (self.aid().eq(p_eid[0]) || p_eid[0] == "$")
             && (self.eid().eq(p_eid[1]) || p_eid[1] == "$")
-            && (self.sid().eq(p_eid[2]) || p_eid[2] == "$")
+            && Self::sid_matches(self.sid(), p_eid[2])
             && ((p_eid[3] == "$") || (p_eid[3].eq("E") && self.response.retcode() > 0) || p_eid[3].eq(&self.response.retcode().to_string()))
+    }
+
+    pub fn sid_matches(value: &str, pattern: &str) -> bool {
+        let pat = pattern.trim();
+        if pat == "$" {
+            return true;
+        }
+
+        // old behavior: exact
+        let Some((pkind, pdetail)) = pat.split_once('@') else {
+            return value == pat;
+        };
+
+        // event value must also have '@' if pattern uses it
+        let Some((vkind, vdetail)) = value.split_once('@') else {
+            return false;
+        };
+
+        if vkind != pkind {
+            return false;
+        }
+
+        // "kind@$" => any detail
+        if pdetail == "$" {
+            return true;
+        }
+
+        Self::glob_match(pdetail, vdetail)
+    }
+
+    pub fn glob_match(pat: &str, text: &str) -> bool {
+        // very small glob: only '$' means ".*"
+        // escape everything else, then replace \$ with .*
+        let mut re = String::from("^");
+        for ch in pat.chars() {
+            match ch {
+                '$' => re.push_str(".*"),
+                // escape regex meta (but NOT '$' because it's handled above)
+                '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '|' | '\\' => {
+                    re.push('\\');
+                    re.push(ch);
+                }
+                _ => re.push(ch),
+            }
+        }
+
+        re.push('$');
+
+        regex::Regex::new(&re).map(|r| r.is_match(text)).unwrap_or(false)
     }
 
     /// Set telemetry configuration for data processing

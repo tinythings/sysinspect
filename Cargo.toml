@@ -48,7 +48,8 @@ members = [
     "sysclient",
     "libdpq",
     "libsysproto",
-    "libcommon"]
+    "libcommon",
+    "libsensors"]
 
 [profile.release]
 strip = true

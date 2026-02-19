@@ -1,21 +1,23 @@
+use std::sync::Arc;
 
 use super::{callback::EventProcessorCallback, handlers::evthandler::EventHandler, receiver::Receiver};
 use crate::{
-    intp::conf::Config,
+    intp::conf::EventsConfig,
     mdescr::telemetry::TelemetrySpec,
     reactor::handlers::{self},
 };
 
-pub struct EventProcessor<'a> {
+#[derive(Debug)]
+pub struct EventProcessor {
     receiver: Receiver,
-    cfg: Option<&'a Config>,
+    cfg: Option<Arc<EventsConfig>>,
     handlers: Vec<Box<dyn EventHandler>>,
     action_callbacks: Vec<Box<dyn EventProcessorCallback>>,
     model_callbacks: Vec<Box<dyn EventProcessorCallback>>,
     telemetry_cfg: Option<TelemetrySpec>,
 }
 
-impl<'a> EventProcessor<'a> {
+impl EventProcessor {
     pub fn new() -> Self {
         EventProcessor {
             receiver: Receiver::default(),
@@ -35,7 +37,7 @@ impl<'a> EventProcessor<'a> {
 
         self.telemetry_cfg = telemetry_config;
 
-        let cfg = self.cfg.unwrap();
+        let cfg = self.cfg.as_ref().unwrap();
         for evt_id in cfg.get_event_ids() {
             let evt_cfg = cfg.get_event(&evt_id).unwrap();
             for handler_id in evt_cfg.get_bound_handlers() {
@@ -68,26 +70,26 @@ impl<'a> EventProcessor<'a> {
     }
 
     /// Set the configuration of a model
-    pub fn set_config(mut self, cfg: &'a Config, tcfg: Option<TelemetrySpec>) -> Self {
+    pub fn set_config(mut self, cfg: Arc<EventsConfig>, tcfg: Option<TelemetrySpec>) -> Self {
         self.cfg = Some(cfg);
         self.setup(tcfg)
     }
 
     /// Process all handlers
-    pub async fn process(&mut self) {
-        for ar in self.receiver.get_all() {
-            // For each action handle events
+    pub async fn process(&mut self, drain: bool) {
+        let batch = if drain { self.receiver.drain_all() } else { self.receiver.get_all() };
+        let last = batch.last().cloned();
+
+        for ar in batch {
             for h in &self.handlers {
                 h.handle(&ar);
             }
-            // Each action response sent via callback
             for ac in &mut self.action_callbacks {
                 _ = ac.on_action_response(ar.clone()).await;
             }
         }
 
-        // Call model callbacks for the last action response (it is usually only passes the minion reference)
-        if let Some(ar) = self.receiver.get_last() {
+        if let Some(ar) = last {
             for cb in &mut self.model_callbacks {
                 _ = cb.on_action_response(ar.clone()).await;
             }
@@ -95,7 +97,7 @@ impl<'a> EventProcessor<'a> {
     }
 }
 
-impl Default for EventProcessor<'_> {
+impl Default for EventProcessor {
     fn default() -> Self {
         Self::new()
     }

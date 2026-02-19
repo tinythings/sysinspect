@@ -25,7 +25,13 @@ static VERSION: &str = "0.4.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| SysinspectError::DynError(Box::new(e)))?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .max_blocking_threads(4)
+        .enable_all()
+        .build()
+        .map_err(|e| SysinspectError::DynError(Box::new(e)))?;
+
     runtime.block_on(async {
         loop {
             let c_cfg = cfg.clone();
