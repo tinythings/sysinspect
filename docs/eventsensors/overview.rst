@@ -145,7 +145,7 @@ sensors listen for events and emit notifications:
 Available Sensors
 =================
 
-Here are the available sensors:
+Here are the available sensors. This list is not exhaustive and may be updated as new sensors are added:
 
 .. toctree::
   :maxdepth: 1
