@@ -26,6 +26,7 @@ struct ModParams {
 fn call(cmd: &str, params: ModParams) -> ModResponse {
     let mut resp = runtime::new_call_response();
     resp.set_retcode(1);
+    resp.set_message("N/A");
 
     let argv = shlex::split(cmd).unwrap_or_default();
     if argv.is_empty() {
