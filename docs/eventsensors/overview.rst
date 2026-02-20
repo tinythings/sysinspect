@@ -151,3 +151,4 @@ Here are the available sensors. This list is not exhaustive and may be updated a
   :maxdepth: 1
 
   fsnotify
+  procnotify

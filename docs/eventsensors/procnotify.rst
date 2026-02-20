@@ -1,27 +1,34 @@
 ``procnotify``: React to File System Events
 =================================================
 
-The ``procnotify`` sensor uses the procnotify library to monitor file system events on specified paths.
-It can detect events such as file creation, deletion, and more.
-This sensor is useful for monitoring specific files and directories for changes.
+The ``procnotify`` sensor is watching for OS process events, such as process creation and termination.
+This sensor is portable across Unix-like systems and can be used to monitor specific processes for
+security, performance, or operational reasons.
 
 Synopsis
 --------
 
 Sensor configuration as follows:
 
-.. code-block::
+.. code-block:: text
 
     <id>:
         [profile]:
           - <id>
+
         description: <description>
         listener: procnotify
+        tag: <event name> # optional, default is procnotify
+
         opts:
             - <process event> # created | terminated | etc.
+
         args:
-            path: <path>
-        tag: <event name> # optional, default is procnotify
+            process:
+                - <process name>
+                - <process name>
+
+            emit-on-start: true|false # optional, default false
 
 ``profile``
 ^^^^^^^^^^^
@@ -57,7 +64,8 @@ Sensor configuration as follows:
     Arguments specific to the listener. For the ``procnotify`` sensor, the following argument is required:
 
     - ``process``: list of names of the processes to monitor.
-    - ``emit-on-start``: Optional argument to specify whether to emit an event immediately upon starting the sensor if the process is already present. Default is false.
+    - ``emit-on-start``: Optional argument to specify whether to emit an event immediately upon starting
+      the sensor if the process is already present. Default is false.
 
      Example:
 
@@ -84,7 +92,7 @@ Sensor configuration as follows:
 
     .. code-block:: text
 
-        some-id|procnotify@my-tag|created@bash|0
+        some-id|procnotify@my-tag|appeared@bash|0
 
 Example
 -------
@@ -99,7 +107,8 @@ Here is an example of how to use the ``procnotify`` sensor to monitor a process 
         opts:
             - appeared
         args:
-            process: bash
+            process:
+                - bash
 
         # If defined, an extra tag will be added to the event name:
         # ssh_config_change|procnotify@my-tag|appeared@bash|0
