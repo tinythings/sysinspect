@@ -56,7 +56,7 @@ Sensor configuration as follows:
 ^^^^^^^^^^
     Arguments specific to the listener. For the ``procnotify`` sensor, the following argument is required:
 
-    - ``process``: The name of the process to monitor.
+    - ``process``: list of names of the processes to monitor.
     - ``emit-on-start``: Optional argument to specify whether to emit an event immediately upon starting the sensor if the process is already present. Default is false.
 
      Example:
@@ -64,7 +64,9 @@ Sensor configuration as follows:
     .. code-block:: yaml
 
         args:
-            process: bash
+            process:
+                - bash
+                - sshd
             start_emit: true
 
 ``tag``
