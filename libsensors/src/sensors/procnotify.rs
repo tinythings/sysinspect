@@ -116,7 +116,7 @@ impl Sensor for ProcessSensor {
             return;
         };
 
-        let start_emit = Self::arg_str(&self.cfg, "start_emit").map(|s| s.to_lowercase()) == Some("true".to_string());
+        let start_emit = Self::arg_str(&self.cfg, "emit-on-start").map(|s| s.to_lowercase()) == Some("true".to_string());
         let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
 
         log::info!("[{}] '{}' watching '{}' with pulse {:?}", ProcessSensor::id().bright_magenta(), self.sid, process, pulse,);
