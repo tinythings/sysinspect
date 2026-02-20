@@ -1,4 +1,6 @@
 pub mod fsnotify;
+#[cfg(test)]
+mod proc_ut;
 pub mod procnotify;
 pub mod sensor;
 
