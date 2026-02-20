@@ -75,7 +75,7 @@ Sensor configuration as follows:
             process:
                 - bash
                 - sshd
-            start_emit: true
+            emit-on-start: true
 
 ``tag``
 ^^^^^^^^^^
