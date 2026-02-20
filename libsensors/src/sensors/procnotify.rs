@@ -32,6 +32,14 @@ impl ProcessSensor {
         cfg.args().get(key).and_then(|v| v.as_i64()).map(|i| i as u64)
     }
 
+    fn arg_str_array(cfg: &SensorConf, key: &str) -> Option<Vec<String>> {
+        cfg.args()
+            .get(key)?
+            .as_sequence()
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string()).collect::<Vec<_>>())
+            .filter(|v| !v.is_empty())
+    }
+
     pub(crate) fn build_mask(&self) -> EventMask {
         let mut mask = EventMask::empty();
         if self.cfg.opts().is_empty() {
@@ -107,25 +115,25 @@ impl Sensor for ProcessSensor {
 
     /// Run the sensor.
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
-        let Some(process) = Self::arg_str(&self.cfg, "process") else {
-            log::warn!("[{}] '{}' missing args.process; not starting", ProcessSensor::id().bright_magenta(), self.sid);
-            return;
-        };
-        if process.trim().is_empty() {
-            log::warn!("[{}] '{}' empty args.process; not starting", ProcessSensor::id().bright_magenta(), self.sid);
+        let Some(processes) = Self::arg_str_array(&self.cfg, "process") else {
+            log::warn!(
+                "[{}] '{}' missing/invalid args.process (expected array of strings); not starting",
+                ProcessSensor::id().bright_magenta(),
+                self.sid
+            );
             return;
         };
 
         let start_emit = Self::arg_str(&self.cfg, "emit-on-start").map(|s| s.to_lowercase()) == Some("true".to_string());
         let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
 
-        log::info!("[{}] '{}' watching '{}' with pulse {:?}", ProcessSensor::id().bright_magenta(), self.sid, process, pulse,);
-
         let mut dog = ProcDog::new(Some(ProcDogConfig::default().interval(pulse).emit_on_start(start_emit)));
         Self::set_backend(&mut dog);
 
-        dog.watch(&process);
-
+        for p in &processes {
+            dog.watch(p);
+            log::info!("[{}] '{}' watching '{}' with pulse {:?}", ProcessSensor::id().bright_magenta(), self.sid, p, pulse,);
+        }
         let mask = self.build_mask();
 
         let cb = Callback::new(mask).on(|ev| async move { Some(Self::event_to_json(ev)) });
@@ -138,7 +146,7 @@ impl Sensor for ProcessSensor {
 
         while let Some(r) = rx.recv().await {
             let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or(&process);
+            let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or("unknown");
             let eid = self.make_eid(action, pname);
 
             (emit)(json!({
