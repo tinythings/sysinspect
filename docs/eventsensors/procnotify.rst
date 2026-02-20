@@ -46,14 +46,26 @@ Sensor configuration as follows:
 
     A list of process events to monitor. Possible values include:
 
-    - ``appeared``: Triggered when a process is created.
-    - ``disappeared``: Triggered when a process is terminated.
+    - ``appeared``: Triggered when a process is created
+    - ``disappeared``: Triggered when a process is terminated
+    - ``missing``: Triggered when a process that was not detected at all
+
+     If not specified, the sensor will monitor all events (i.e., both appearance and disappearance).
 
 ``args``
 ^^^^^^^^^^
     Arguments specific to the listener. For the ``procnotify`` sensor, the following argument is required:
 
     - ``process``: The name of the process to monitor.
+    - ``emit-on-start``: Optional argument to specify whether to emit an event immediately upon starting the sensor if the process is already present. Default is false.
+
+     Example:
+
+    .. code-block:: yaml
+
+        args:
+            process: bash
+            start_emit: true
 
 ``tag``
 ^^^^^^^^^^
