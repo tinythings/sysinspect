@@ -30,6 +30,62 @@ impl ProcessSensor {
     fn arg_u64(cfg: &SensorConf, key: &str) -> Option<u64> {
         cfg.args().get(key).and_then(|v| v.as_i64()).map(|i| i as u64)
     }
+
+    pub(crate) fn build_mask(&self) -> EventMask {
+        let mut mask = EventMask::empty();
+        if self.cfg.opts().is_empty() {
+            mask |= EventMask::APPEARED | EventMask::DISAPPEARED;
+        } else {
+            for o in self.cfg.opts() {
+                match o.as_str() {
+                    "appeared" => mask |= EventMask::APPEARED,
+                    "disappeared" => mask |= EventMask::DISAPPEARED,
+                    _ => log::warn!("procnotify '{}' unknown opt '{}'", self.sid, o),
+                }
+            }
+        }
+        mask
+    }
+
+    pub(crate) fn event_to_json(ev: ProcDogEvent) -> serde_json::Value {
+        match ev {
+            ProcDogEvent::Appeared { name, pid } => json!({
+                "action": "appeared",
+                "process": name,
+                "pid": pid,
+            }),
+            ProcDogEvent::Disappeared { name, pid } => json!({
+                "action": "disappeared",
+                "process": name,
+                "pid": pid,
+            }),
+            #[allow(unreachable_patterns)]
+            other => json!({
+                "action": "unknown",
+                "event": format!("{:?}", other),
+            }),
+        }
+    }
+
+    fn listener_id_with_tag(&self) -> String {
+        format!("{}{}{}", ProcessSensor::id(), if self.cfg.tag().is_none() { "" } else { "@" }, self.cfg.tag().unwrap_or(""))
+    }
+
+    pub fn make_eid(&self, action: &str, pname: &str) -> String {
+        let lstid = self.listener_id_with_tag();
+        format!("{}|{}|{}@{}|{}", self.sid, lstid, action, pname, 0)
+    }
+
+    fn set_backend(dog: &mut ProcDog) {
+        #[cfg(target_os = "linux")]
+        dog.set_backend(procdog::backends::linuxps::LinuxPsBackend);
+
+        #[cfg(target_os = "netbsd")]
+        dog.set_backend(procdog::backends::netbsd_sysctl::NetBsdSysctlBackend);
+
+        #[cfg(all(not(target_os = "linux"), not(target_os = "netbsd")))]
+        dog.set_backend(procdog::backends::stps::PsBackend);
+    }
 }
 
 #[async_trait]
@@ -58,54 +114,13 @@ impl Sensor for ProcessSensor {
         log::info!("procnotify '{}' watching '{}' with pulse {:?} and opts {:?}", self.sid, process, pulse, self.cfg.opts());
 
         let mut dog = ProcDog::new(Some(ProcDogConfig::default().interval(pulse)));
-
-        // Choose backends
-        #[cfg(target_os = "linux")]
-        dog.set_backend(procdog::backends::linuxps::LinuxPsBackend);
-
-        #[cfg(target_os = "netbsd")]
-        dog.set_backend(procdog::backends::netbsd_sysctl::NetBsdSysctlBackend);
-
-        #[cfg(all(not(target_os = "linux"), not(target_os = "netbsd")))]
-        dog.set_backend(procdog::backends::stps::PsBackend);
+        Self::set_backend(&mut dog);
 
         dog.watch(&process);
 
-        let mut mask = EventMask::empty();
-        if self.cfg.opts().is_empty() {
-            mask |= EventMask::APPEARED | EventMask::DISAPPEARED;
-        } else {
-            for o in self.cfg.opts() {
-                match o.as_str() {
-                    "appeared" => mask |= EventMask::APPEARED,
-                    "disappeared" => mask |= EventMask::DISAPPEARED,
-                    _ => log::warn!("procnotify '{}' unknown opt '{}'", self.sid, o),
-                }
-            }
-        }
+        let mask = self.build_mask();
 
-        let cb = Callback::new(mask).on(|ev| async move {
-            match ev {
-                ProcDogEvent::Appeared { name, pid } => Some(json!({
-                    "action": "appeared",
-                    "process": name,
-                    "pid": pid,
-                })),
-                ProcDogEvent::Disappeared { name, pid } => Some(json!({
-                    "action": "disappeared",
-                    "process": name,
-                    "pid": pid,
-                })),
-
-                // For later...
-                #[allow(unreachable_patterns)]
-                other => Some(json!({
-                    "action": "unknown",
-                    "event": format!("{:?}", other),
-                })),
-            }
-        });
-
+        let cb = Callback::new(mask).on(|ev| async move { Some(Self::event_to_json(ev)) });
         dog.add_callback(cb);
 
         let (tx, mut rx) = mpsc::channel::<serde_json::Value>(0xfff);
@@ -116,8 +131,7 @@ impl Sensor for ProcessSensor {
         while let Some(r) = rx.recv().await {
             let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
             let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or(&process);
-            let lstid = format!("{}{}{}", ProcessSensor::id(), if self.cfg.tag().is_none() { "" } else { "@" }, self.cfg.tag().unwrap_or(""));
-            let eid = format!("{}|{}|{}@{}|{}", self.sid, lstid, action, pname, 0);
+            let eid = self.make_eid(action, pname);
 
             (emit)(json!({
                 "eid": eid,
