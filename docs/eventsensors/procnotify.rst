@@ -55,7 +55,7 @@ Sensor configuration as follows:
 
     - ``appeared``: Triggered when a process is created
     - ``disappeared``: Triggered when a process is terminated
-    - ``missing``: Triggered when a process that was not detected at all
+    - ``missing``: Triggered when a process was not detected at all
 
      If not specified, the sensor will monitor all events (i.e., both appearance and disappearance).
 
