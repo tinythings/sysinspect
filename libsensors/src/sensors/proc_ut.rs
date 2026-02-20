@@ -5,14 +5,14 @@ mod tests {
     use crate::sensors::sensor::Sensor;
     use crate::sspec::SensorConf;
     use procdog::events::{EventMask, ProcDogEvent};
-    use serde_json::json;
+    use serde_json::{from_value, json};
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
 
     fn mk_cfg(process: Option<&str>, opts: &[&str], tag: Option<&str>) -> SensorConf {
-        serde_json::from_value(serde_json::json!({
+        from_value(json!({
             "listener": "procnotify",
             "tag": tag,
             "opts": opts,
@@ -39,6 +39,37 @@ mod tests {
         assert_eq!(v["action"], "disappeared");
         assert_eq!(v["process"], "sleep");
         assert_eq!(v["pid"], 42);
+    }
+
+    #[test]
+    fn event_to_json_missing() {
+        let v = ProcessSensor::event_to_json(ProcDogEvent::Missing { name: "sleep".into() });
+
+        assert_eq!(v["action"], "missing");
+        assert_eq!(v["process"], "sleep");
+        assert!(v.get("pid").is_none());
+    }
+
+    #[test]
+    fn build_mask_with_missing_opt() {
+        let s = ProcessSensor::new("SID".into(), mk_cfg(Some("sleep"), &["missing"], None));
+
+        let m = s.build_mask();
+
+        assert!(m.contains(EventMask::MISSING));
+        assert!(!m.contains(EventMask::APPEARED));
+        assert!(!m.contains(EventMask::DISAPPEARED));
+    }
+
+    #[test]
+    fn build_mask_combined_opts() {
+        let s = ProcessSensor::new("SID".into(), mk_cfg(Some("sleep"), &["appeared", "missing"], None));
+
+        let m = s.build_mask();
+
+        assert!(m.contains(EventMask::APPEARED));
+        assert!(m.contains(EventMask::MISSING));
+        assert!(!m.contains(EventMask::DISAPPEARED));
     }
 
     #[test]
