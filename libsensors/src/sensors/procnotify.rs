@@ -3,6 +3,7 @@ use crate::{
     sspec::SensorConf,
 };
 use async_trait::async_trait;
+use colored::Colorize;
 use procdog::{
     ProcDog, ProcDogConfig,
     events::{Callback, EventMask, ProcDogEvent},
@@ -40,6 +41,7 @@ impl ProcessSensor {
                 match o.as_str() {
                     "appeared" => mask |= EventMask::APPEARED,
                     "disappeared" => mask |= EventMask::DISAPPEARED,
+                    "missing" => mask |= EventMask::MISSING,
                     _ => log::warn!("procnotify '{}' unknown opt '{}'", self.sid, o),
                 }
             }
@@ -58,6 +60,10 @@ impl ProcessSensor {
                 "action": "disappeared",
                 "process": name,
                 "pid": pid,
+            }),
+            ProcDogEvent::Missing { name } => json!({
+                "action": "missing",
+                "process": name,
             }),
             #[allow(unreachable_patterns)]
             other => json!({
@@ -102,18 +108,20 @@ impl Sensor for ProcessSensor {
     /// Run the sensor.
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
         let Some(process) = Self::arg_str(&self.cfg, "process") else {
-            log::warn!("procnotify '{}' missing args.process; not starting", self.sid);
+            log::warn!("[{}] '{}' missing args.process; not starting", ProcessSensor::id().bright_magenta(), self.sid);
             return;
         };
         if process.trim().is_empty() {
-            log::warn!("procnotify '{}' empty args.process; not starting", self.sid);
+            log::warn!("[{}] '{}' empty args.process; not starting", ProcessSensor::id().bright_magenta(), self.sid);
             return;
         };
 
+        let start_emit = Self::arg_str(&self.cfg, "start_emit").map(|s| s.to_lowercase()) == Some("true".to_string());
         let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
-        log::info!("procnotify '{}' watching '{}' with pulse {:?} and opts {:?}", self.sid, process, pulse, self.cfg.opts());
 
-        let mut dog = ProcDog::new(Some(ProcDogConfig::default().interval(pulse)));
+        log::info!("[{}] '{}' watching '{}' with pulse {:?}", ProcessSensor::id().bright_magenta(), self.sid, process, pulse,);
+
+        let mut dog = ProcDog::new(Some(ProcDogConfig::default().interval(pulse).emit_on_start(start_emit)));
         Self::set_backend(&mut dog);
 
         dog.watch(&process);
