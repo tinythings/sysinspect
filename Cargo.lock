@@ -3323,13 +3323,16 @@ name = "libcommon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "colored",
  "jsonpath-rust",
+ "log",
  "serde",
  "serde_json",
  "serde_yaml",
  "sled",
  "tera",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
