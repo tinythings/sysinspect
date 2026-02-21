@@ -1,4 +1,5 @@
 use crate::{
+    argparse::SensorArgs,
     sensors::sensor::{Sensor, SensorEvent},
     sspec::SensorConf,
 };
@@ -24,22 +25,6 @@ impl fmt::Debug for ProcessSensor {
 }
 
 impl ProcessSensor {
-    fn arg_str(cfg: &SensorConf, key: &str) -> Option<String> {
-        cfg.args().get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
-    }
-
-    fn arg_u64(cfg: &SensorConf, key: &str) -> Option<u64> {
-        cfg.args().get(key).and_then(|v| v.as_i64()).map(|i| i as u64)
-    }
-
-    fn arg_str_array(cfg: &SensorConf, key: &str) -> Option<Vec<String>> {
-        cfg.args()
-            .get(key)?
-            .as_sequence()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string()).collect::<Vec<_>>())
-            .filter(|v| !v.is_empty())
-    }
-
     pub(crate) fn build_mask(&self) -> EventMask {
         let mut mask = EventMask::empty();
         if self.cfg.opts().is_empty() {
@@ -115,7 +100,7 @@ impl Sensor for ProcessSensor {
 
     /// Run the sensor.
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
-        let Some(processes) = Self::arg_str_array(&self.cfg, "process") else {
+        let Some(processes) = self.cfg.arg_str_array("process") else {
             log::warn!(
                 "[{}] '{}' missing/invalid args.process (expected array of strings); not starting",
                 ProcessSensor::id().bright_magenta(),
@@ -124,8 +109,9 @@ impl Sensor for ProcessSensor {
             return;
         };
 
-        let start_emit = Self::arg_str(&self.cfg, "emit-on-start").map(|s| s.to_lowercase()) == Some("true".to_string());
+        let start_emit = self.cfg.arg_bool("emit-on-start").unwrap_or(false);
         let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
+        let locked = self.cfg.arg_bool("locked").unwrap_or(false);
 
         let mut dog = ProcDog::new(Some(ProcDogConfig::default().interval(pulse).emit_on_start(start_emit)));
         Self::set_backend(&mut dog);
@@ -148,6 +134,11 @@ impl Sensor for ProcessSensor {
             let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
             let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or("unknown");
             let eid = self.make_eid(action, pname);
+
+            if locked
+                && !libcommon::eidhub::get_eidhub().add(&Self::id(), &eid).await {
+                    continue;
+                }
 
             (emit)(json!({
                 "eid": eid,
