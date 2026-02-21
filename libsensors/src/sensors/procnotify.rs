@@ -1,0 +1,160 @@
+use crate::{
+    sensors::sensor::{Sensor, SensorEvent},
+    sspec::SensorConf,
+};
+use async_trait::async_trait;
+use colored::Colorize;
+use procdog::{
+    ProcDog, ProcDogConfig,
+    events::{Callback, EventMask, ProcDogEvent},
+};
+use serde_json::json;
+use std::{fmt, time::Duration};
+use tokio::sync::mpsc;
+
+pub struct ProcessSensor {
+    sid: String,
+    cfg: SensorConf,
+}
+
+impl fmt::Debug for ProcessSensor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProcessSensor").field("sid", &self.sid).field("listener", &self.cfg.listener()).finish()
+    }
+}
+
+impl ProcessSensor {
+    fn arg_str(cfg: &SensorConf, key: &str) -> Option<String> {
+        cfg.args().get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+    }
+
+    fn arg_u64(cfg: &SensorConf, key: &str) -> Option<u64> {
+        cfg.args().get(key).and_then(|v| v.as_i64()).map(|i| i as u64)
+    }
+
+    fn arg_str_array(cfg: &SensorConf, key: &str) -> Option<Vec<String>> {
+        cfg.args()
+            .get(key)?
+            .as_sequence()
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string()).collect::<Vec<_>>())
+            .filter(|v| !v.is_empty())
+    }
+
+    pub(crate) fn build_mask(&self) -> EventMask {
+        let mut mask = EventMask::empty();
+        if self.cfg.opts().is_empty() {
+            mask |= EventMask::APPEARED | EventMask::DISAPPEARED;
+        } else {
+            for o in self.cfg.opts() {
+                match o.as_str() {
+                    "appeared" => mask |= EventMask::APPEARED,
+                    "disappeared" => mask |= EventMask::DISAPPEARED,
+                    "missing" => mask |= EventMask::MISSING,
+                    _ => log::warn!("procnotify '{}' unknown opt '{}'", self.sid, o),
+                }
+            }
+        }
+        mask
+    }
+
+    pub(crate) fn event_to_json(ev: ProcDogEvent) -> serde_json::Value {
+        match ev {
+            ProcDogEvent::Appeared { name, pid } => json!({
+                "action": "appeared",
+                "process": name,
+                "pid": pid,
+            }),
+            ProcDogEvent::Disappeared { name, pid } => json!({
+                "action": "disappeared",
+                "process": name,
+                "pid": pid,
+            }),
+            ProcDogEvent::Missing { name } => json!({
+                "action": "missing",
+                "process": name,
+            }),
+            #[allow(unreachable_patterns)]
+            other => json!({
+                "action": "unknown",
+                "event": format!("{:?}", other),
+            }),
+        }
+    }
+
+    fn listener_id_with_tag(&self) -> String {
+        format!("{}{}{}", ProcessSensor::id(), if self.cfg.tag().is_none() { "" } else { "@" }, self.cfg.tag().unwrap_or(""))
+    }
+
+    pub fn make_eid(&self, action: &str, pname: &str) -> String {
+        let lstid = self.listener_id_with_tag();
+        format!("{}|{}|{}@{}|{}", self.sid, lstid, action, pname, 0)
+    }
+
+    fn set_backend(dog: &mut ProcDog) {
+        #[cfg(target_os = "linux")]
+        dog.set_backend(procdog::backends::linuxps::LinuxPsBackend);
+
+        #[cfg(target_os = "netbsd")]
+        dog.set_backend(procdog::backends::netbsd_sysctl::NetBsdSysctlBackend);
+
+        #[cfg(all(not(target_os = "linux"), not(target_os = "netbsd")))]
+        dog.set_backend(procdog::backends::stps::PsBackend);
+    }
+}
+
+#[async_trait]
+impl Sensor for ProcessSensor {
+    fn new(id: String, cfg: SensorConf) -> Self {
+        Self { sid: id, cfg }
+    }
+
+    /// Return the listener name.
+    fn id() -> String {
+        "procnotify".to_string()
+    }
+
+    /// Run the sensor.
+    async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
+        let Some(processes) = Self::arg_str_array(&self.cfg, "process") else {
+            log::warn!(
+                "[{}] '{}' missing/invalid args.process (expected array of strings); not starting",
+                ProcessSensor::id().bright_magenta(),
+                self.sid
+            );
+            return;
+        };
+
+        let start_emit = Self::arg_str(&self.cfg, "emit-on-start").map(|s| s.to_lowercase()) == Some("true".to_string());
+        let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
+
+        let mut dog = ProcDog::new(Some(ProcDogConfig::default().interval(pulse).emit_on_start(start_emit)));
+        Self::set_backend(&mut dog);
+
+        for p in &processes {
+            dog.watch(p);
+            log::info!("[{}] '{}' watching '{}' with pulse {:?}", ProcessSensor::id().bright_magenta(), self.sid, p, pulse,);
+        }
+        let mask = self.build_mask();
+
+        let cb = Callback::new(mask).on(|ev| async move { Some(Self::event_to_json(ev)) });
+        dog.add_callback(cb);
+
+        let (tx, mut rx) = mpsc::channel::<serde_json::Value>(0xfff);
+        dog.set_callback_channel(tx);
+
+        tokio::spawn(dog.run());
+
+        while let Some(r) = rx.recv().await {
+            let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let eid = self.make_eid(action, pname);
+
+            (emit)(json!({
+                "eid": eid,
+                "sensor": self.sid,
+                "listener": ProcessSensor::id(),
+                "data": r,
+            }));
+        }
+    }
+}

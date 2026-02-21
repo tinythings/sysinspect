@@ -1,4 +1,7 @@
 pub mod fsnotify;
+#[cfg(test)]
+mod proc_ut;
+pub mod procnotify;
 pub mod sensor;
 
 use crate::{sensors::sensor::Sensor, sspec::SensorConf};
@@ -22,4 +25,5 @@ pub fn init_registry() {
     }
 
     REGISTRY.insert(fsnotify::FsNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(fsnotify::FsNotifySensor::new(sid, cfg)));
+    REGISTRY.insert(procnotify::ProcessSensor::id(), |sid: String, cfg: SensorConf| Box::new(procnotify::ProcessSensor::new(sid, cfg)));
 }

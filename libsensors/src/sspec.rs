@@ -171,7 +171,7 @@ impl SensorSpec {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct SensorConf {
     #[serde(default)]
     profile: Option<Vec<String>>,
