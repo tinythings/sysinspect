@@ -79,8 +79,8 @@ pub struct SysMinion {
 
     filedata: Mutex<MinionFiledata>,
 
-    last_ping: Mutex<Instant>,
-    ping_timeout: Duration,
+    pub(crate) last_ping: Mutex<Instant>,
+    pub(crate) ping_timeout: Duration,
 
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
@@ -88,11 +88,11 @@ pub struct SysMinion {
 
     minion_id: String,
 
-    sensors_task: Mutex<Option<JoinHandle<()>>>,
-    sensors_pump: Mutex<Option<JoinHandle<()>>>,
-    ping_task: Mutex<Option<JoinHandle<()>>>,
-    proto_task: Mutex<Option<JoinHandle<()>>>,
-    stats_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) sensors_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) sensors_pump: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) ping_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) proto_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) stats_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl SysMinion {
@@ -174,7 +174,7 @@ impl SysMinion {
 
     /// Stop sensors by aborting their tasks. This is used when the master
     /// disconnects or becomes unresponsive, to stop the sensors and prepare for reconnection.
-    async fn stop_sensors(&self) {
+    pub(crate) async fn stop_sensors(&self) {
         if let Some(h) = self.sensors_pump.lock().await.take() {
             h.abort();
             let _ = h.await;
@@ -185,7 +185,7 @@ impl SysMinion {
         }
     }
 
-    async fn stop_background(&self) {
+    pub(crate) async fn stop_background(&self) {
         if let Some(h) = self.ping_task.lock().await.take() {
             h.abort();
             let _ = h.await;
@@ -222,7 +222,7 @@ impl SysMinion {
         println!("{}:\n\n{}", "Minion information".bright_green().bold(), fmt.format());
     }
 
-    async fn update_ping(&self) {
+    pub(crate) async fn update_ping(&self) {
         let mut last_ping = self.last_ping.lock().await;
         *last_ping = Instant::now();
     }
@@ -237,7 +237,7 @@ impl SysMinion {
     }
 
     /// Talk-back to the master
-    async fn request(&self, msg: Vec<u8>) {
+    pub(crate) async fn request(&self, msg: Vec<u8>) {
         let mut stm = self.wstm.lock().await;
 
         if let Err(e) = stm.write_all(&(msg.len() as u32).to_be_bytes()).await {
@@ -267,6 +267,13 @@ impl SysMinion {
             async move {
                 loop {
                     sleep(Duration::from_secs(1)).await;
+
+                    // Do not reconnect mid-sync.
+                    if MODPAK_SYNC_STATE.is_syncing().await {
+                        this.update_ping().await; // keep watchdog calm
+                        continue;
+                    }
+
                     if this.last_ping.lock().await.elapsed() > this.ping_timeout {
                         log::warn!("Master seems unresponsive, triggering reconnect.");
                         let _ = reconnect_sender.send(());
@@ -306,10 +313,11 @@ impl SysMinion {
 
                     if let Some(parent) = pth.parent() {
                         if !parent.exists()
-                            && let Err(e) = fs::create_dir_all(parent) {
-                                log::error!("Failed to create directories for '{}': {e}", pth.display());
-                                continue;
-                            }
+                            && let Err(e) = fs::create_dir_all(parent)
+                        {
+                            log::error!("Failed to create directories for '{}': {e}", pth.display());
+                            continue;
+                        }
                         if let Err(e) = fs::write(&pth, content) {
                             log::error!("Failed to write sensor file '{}': {e}", pth.display());
                         }
@@ -619,9 +627,11 @@ impl SysMinion {
         Ok(())
     }
 
-    pub async fn send_sensors_sync(self: Arc<Self>) -> Result<(), SysinspectError> {
+    pub(crate) async fn send_sensors_sync(self: Arc<Self>) -> Result<(), SysinspectError> {
         log::info!("Sending sensors sync callback for cycle");
-        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({})).sendable()?).await;
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({}));
+        r.set_sid(MINION_SID.to_string());
+        self.request(r.sendable()?).await;
         Ok(())
     }
 
@@ -880,13 +890,29 @@ impl SysMinion {
             }
         }
     }
+
+    #[cfg(test)]
+    pub fn set_ping_timeout(&mut self, d: Duration) {
+        self.ping_timeout = d;
+    }
 }
 
 /// Constructs and starts an actual minion
-async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
+pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
     let modpak = SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
+
+    // On reconnect do not rely on outer abort, exit clean
+    {
+        let state = state.clone();
+        let mut rx = CONNECTION_TX.subscribe();
+        tokio::spawn(async move {
+            // one signal is enough
+            let _ = rx.recv().await;
+            state.exit.store(true, Ordering::Relaxed);
+        });
+    }
 
     let m = minion.as_ptr();
 
@@ -976,7 +1002,6 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             }
             _ = reconnect_rx.recv() => {
                 log::warn!("Reconnect signal received; aborting current minion instance.");
-                mhdl.abort();
                 let _ = mhdl.await;
             }
         }

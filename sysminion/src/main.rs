@@ -6,6 +6,9 @@ mod proto;
 mod ptcounter;
 mod rsa;
 
+#[cfg(test)]
+mod minion_ut;
+
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
