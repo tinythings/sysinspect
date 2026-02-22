@@ -2,6 +2,7 @@ use super::sensor::{Sensor, SensorEvent};
 use crate::argparse::SensorArgs;
 use crate::sspec::SensorConf;
 use async_trait::async_trait;
+use colored::Colorize;
 use filescream::events::{Callback, EventMask, FileScreamEvent};
 use filescream::{FileScream, FileScreamConfig};
 use serde_json::json;
@@ -33,13 +34,13 @@ impl Sensor for FsNotifySensor {
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
         // required args
         let Some(path) = self.cfg.arg_str("path") else {
-            log::warn!("fsnotify '{}' missing args.path; not starting", self.sid);
+            log::warn!("[{}] '{}' missing args.path; not starting", Self::id().bright_magenta(), self.sid);
             return;
         };
 
         let locked = self.cfg.arg_bool("locked").unwrap_or(false);
         let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
-        log::info!("fsnotify '{}' watching '{}' with pulse {:?} and opts {:?}", self.sid, path, pulse, self.cfg.opts());
+        log::info!("[{}] '{}' watching '{}' with pulse {:?} and opts {:?}", Self::id().bright_magenta(), self.sid, path, pulse, self.cfg.opts());
 
         let mut fs = FileScream::new(Some(FileScreamConfig::default().pulse(pulse)));
         fs.watch(&path);
@@ -81,10 +82,9 @@ impl Sensor for FsNotifySensor {
             let lstid = format!("{}{}{}", FsNotifySensor::id(), if self.cfg.tag().is_none() { "" } else { "@" }, self.cfg.tag().unwrap_or(""));
             let eid = format!("{}|{}|{}@{}|{}", self.sid, lstid, action, file, 0);
 
-            if locked
-                && !libcommon::eidhub::get_eidhub().add(&Self::id(), &eid).await {
-                    continue; // don't emit if EID still locked
-                }
+            if locked && !libcommon::eidhub::get_eidhub().add(&Self::id(), &eid).await {
+                continue; // don't emit if EID still locked
+            }
             (emit)(json!({
                 "eid": eid,
                 "sensor": self.sid,
