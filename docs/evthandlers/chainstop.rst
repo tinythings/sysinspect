@@ -138,3 +138,80 @@ Options
         :caption: Enable verbose logging
 
         verbose: true
+
+
+Example Case
+-------------
+
+In this example, we are watching a file in ``/tmp`` directory for changes. When the file is modified,
+an event is emitted. The event reactor reacts to that event and calls a script handler, e.g. "pipescript",
+which runs a script that modifies that file, causing an infinite loop:
+
+.. code-block:: yaml
+    :caption: Infinite loop example
+
+    sensors:
+        cirquit-break:
+            profile:
+                - default
+            description: How to shoot yourself into the foot (or not)
+            listener: fsnotify
+            opts:
+                - changed
+            args:
+                path: /tmp/loop/
+
+    events:
+        cirquit-break|fsnotify|changed@/tmp/loop/foo.txt|0:
+            handlers:
+                - pipescript
+
+            pipescript:
+                program: /tmp/loop.sh
+                quiet: false
+                format: json
+
+In this case, if any file inside `/tmp/loop/` is changed, the sensor will emit an event.
+The event reactor will react to that event and call the `pipescript` handler, which runs
+a script that modifies some file in that directory. Since the sensor is emitting always
+precise path that changed, we capture ``foo.txt`` file.
+
+The **correct** script ``/tmp/loop.sh`` should look something like this:
+
+.. code-block:: bash
+    :caption: Example of idempotent script
+
+    #!/bin/bash
+
+    OUTPUT="/tmp/loop/foo.txt"
+    LINE="This text must be in the file."
+
+    # If file does not exist, create it with the line and exit
+    if [ ! -f "$OUTPUT" ]; then
+        echo "$LINE" > "$OUTPUT"
+        echo "File created with the special line."
+
+    # If file exists, check if the line is missing
+    elif ! grep -qx "$LINE" "$OUTPUT"; then
+        echo "$LINE" >> "$OUTPUT"
+        echo "Line appended to existing file."
+
+    # Otherwise, do nothing
+    else
+        echo "Line already exists. No changes made."
+    fi
+
+This script ensures that the desired line is present in the file without modifying it unnecessarily.
+If the line is already there, it does nothing, preventing the infinite loop scenario.
+
+But change this script to something like this:
+
+.. code-block:: bash
+    :caption: Non-idempotent script example
+
+    #!/bin/bash
+
+    echo "This line is added every time the script runs." >> /tmp/loop/foo.txt
+
+...and run out of disk space within ``/tmp`` in no time. This is the kind of scenario where you might want to use
+the **chainstop** handler to break the loop.
