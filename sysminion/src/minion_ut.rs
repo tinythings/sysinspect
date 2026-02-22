@@ -94,4 +94,51 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn reconnect_does_not_leave_zombie_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Fake master: accept first, drop it, then accept second.
+        let accept2 = tokio::spawn(async move {
+            // 1st connect
+            let (sock1, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            drop(sock1); // force EOF -> reconnect
+
+            // 2nd connect must happen
+            let (_sock2, _) = listener.accept().await.unwrap();
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        cfg.set_reconnect_freq(0);
+        cfg.set_reconnect_interval("1");
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+
+        // Run one instance, it should exit on EOF because do_proto sends reconnect.
+        let h1 = tokio::spawn({
+            let cfg = cfg.clone();
+            let dpq = dpq.clone();
+            async move { _minion_instance(cfg, None, dpq).await }
+        });
+
+        // Wait for first to end
+        let _ = timeout(Duration::from_secs(3), h1).await.expect("first instance did not exit");
+
+        // Run second instance; must be able to connect (fake master is waiting)
+        let h2 = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+
+        // We don't need it to finish; just prove it connected by allowing accept2 to finish.
+        timeout(Duration::from_secs(3), accept2).await.expect("second connect never happened").unwrap();
+
+        // cleanup
+        h2.abort();
+        let _ = h2.await;
+    }
 }
