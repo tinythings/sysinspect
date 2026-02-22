@@ -7187,6 +7187,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sysinfo 0.34.2",
+ "tempfile",
  "tokio",
  "uuid",
 ]

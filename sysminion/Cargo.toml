@@ -45,3 +45,4 @@ libc = "0.2.180"
 async-trait = "0.1.89"
 futures = "0.3.31"
 procfs = { version = "0.18.0", features = ["serde"] }
+tempfile = "3.25.0"
