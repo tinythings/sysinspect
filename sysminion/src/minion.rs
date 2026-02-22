@@ -888,6 +888,17 @@ async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: A
     let modpak = SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
 
+    // On reconnect do not rely on outer abort, exit clean
+    {
+        let state = state.clone();
+        let mut rx = CONNECTION_TX.subscribe();
+        tokio::spawn(async move {
+            // one signal is enough
+            let _ = rx.recv().await;
+            state.exit.store(true, Ordering::Relaxed);
+        });
+    }
+
     let m = minion.as_ptr();
 
     let runner = m.as_ptr().dpq.clone().start_ack({
@@ -976,7 +987,6 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             }
             _ = reconnect_rx.recv() => {
                 log::warn!("Reconnect signal received; aborting current minion instance.");
-                mhdl.abort();
                 let _ = mhdl.await;
             }
         }
