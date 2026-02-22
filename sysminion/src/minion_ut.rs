@@ -212,15 +212,11 @@ mod tests {
         minion.as_ptr().send_ehlo().await.unwrap();
 
         let msg = server.await.unwrap();
-        let s = String::from_utf8_lossy(&msg);
+        let v: serde_json::Value = serde_json::from_slice(&msg).unwrap();
 
-        // "JSON-ish" sanity (your proto is JSON payloads wrapped in framing)
-        assert!(s.contains("{"), "ehlo payload not json-ish: {s}");
-        assert!(s.contains(&MINION_SID.to_string()), "ehlo payload missing sid {}: {s}", *MINION_SID);
-
-        // If your encoding uses strings, this will pass.
-        // If you encode req_type as a number, replace this with whatever marker is present.
-        assert!(s.contains("\"r\":\"ehlo\""), "ehlo payload doesn't look like an Ehlo message: {s}");
+        assert_eq!(v["r"], "ehlo");
+        assert_eq!(v["sid"], MINION_SID.to_string());
+        assert!(v["d"].is_object());
     }
 
     #[tokio::test]
@@ -255,9 +251,10 @@ mod tests {
         minion.as_ptr().send_traits().await.unwrap();
 
         let msg = server.await.unwrap();
-        let s = String::from_utf8_lossy(&msg);
+        let v: serde_json::Value = serde_json::from_slice(&msg).unwrap();
 
-        assert!(s.contains(&MINION_SID.to_string()), "traits missing sid: {s}");
-        assert!(s.contains("\"r\":\"tr\""), "traits message doesn't look right: {s}");
+        assert_eq!(v["r"], "tr");
+        assert_eq!(v["sid"], MINION_SID.to_string());
+        assert!(v["d"].is_object());
     }
 }
