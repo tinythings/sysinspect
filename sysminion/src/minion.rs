@@ -267,6 +267,13 @@ impl SysMinion {
             async move {
                 loop {
                     sleep(Duration::from_secs(1)).await;
+
+                    // Do not reconnect mid-sync.
+                    if MODPAK_SYNC_STATE.is_syncing().await {
+                        this.update_ping().await; // keep watchdog calm
+                        continue;
+                    }
+
                     if this.last_ping.lock().await.elapsed() > this.ping_timeout {
                         log::warn!("Master seems unresponsive, triggering reconnect.");
                         let _ = reconnect_sender.send(());
@@ -306,10 +313,11 @@ impl SysMinion {
 
                     if let Some(parent) = pth.parent() {
                         if !parent.exists()
-                            && let Err(e) = fs::create_dir_all(parent) {
-                                log::error!("Failed to create directories for '{}': {e}", pth.display());
-                                continue;
-                            }
+                            && let Err(e) = fs::create_dir_all(parent)
+                        {
+                            log::error!("Failed to create directories for '{}': {e}", pth.display());
+                            continue;
+                        }
                         if let Err(e) = fs::write(&pth, content) {
                             log::error!("Failed to write sensor file '{}': {e}", pth.display());
                         }
