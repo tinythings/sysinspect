@@ -88,11 +88,11 @@ pub struct SysMinion {
 
     minion_id: String,
 
-    sensors_task: Mutex<Option<JoinHandle<()>>>,
-    sensors_pump: Mutex<Option<JoinHandle<()>>>,
-    ping_task: Mutex<Option<JoinHandle<()>>>,
-    proto_task: Mutex<Option<JoinHandle<()>>>,
-    stats_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) sensors_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) sensors_pump: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) ping_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) proto_task: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) stats_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl SysMinion {
@@ -174,7 +174,7 @@ impl SysMinion {
 
     /// Stop sensors by aborting their tasks. This is used when the master
     /// disconnects or becomes unresponsive, to stop the sensors and prepare for reconnection.
-    async fn stop_sensors(&self) {
+    pub(crate) async fn stop_sensors(&self) {
         if let Some(h) = self.sensors_pump.lock().await.take() {
             h.abort();
             let _ = h.await;
@@ -185,7 +185,7 @@ impl SysMinion {
         }
     }
 
-    async fn stop_background(&self) {
+    pub(crate) async fn stop_background(&self) {
         if let Some(h) = self.ping_task.lock().await.take() {
             h.abort();
             let _ = h.await;
@@ -627,9 +627,11 @@ impl SysMinion {
         Ok(())
     }
 
-    pub async fn send_sensors_sync(self: Arc<Self>) -> Result<(), SysinspectError> {
+    pub(crate) async fn send_sensors_sync(self: Arc<Self>) -> Result<(), SysinspectError> {
         log::info!("Sending sensors sync callback for cycle");
-        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({})).sendable()?).await;
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({}));
+        r.set_sid(MINION_SID.to_string());
+        self.request(r.sendable()?).await;
         Ok(())
     }
 
