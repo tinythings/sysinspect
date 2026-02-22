@@ -66,13 +66,13 @@ fn merged_events_yaml(p: &Path) -> Result<serde_yaml::Value, SysinspectError> {
     Ok(serde_yaml::Value::Mapping(events_map))
 }
 
-fn merge_sensors(dst: &mut IndexMap<String, SensorConf>, src: &mut SensorSpec, path: &Path) {
-    for (k, v) in src.items() {
-        if dst.contains_key(&k) {
+fn merge_sensors(dst: &mut IndexMap<String, SensorConf>, src: &SensorSpec, path: &Path) {
+    for (k, v) in src.items_raw() {
+        if dst.contains_key(k) {
             log::warn!("Duplicate sensor '{}' in {} ignored (first wins)", k, path.display());
             continue;
         }
-        dst.insert(k, v);
+        dst.insert(k.clone(), v.clone());
     }
 }
 
@@ -130,7 +130,7 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
         }
 
         log::debug!("Loading sensors chunk: {}", path.display());
-        let mut w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(&path)?) {
+        let w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(&path)?) {
             Ok(v) => v,
             Err(err) => {
                 log::warn!("Skipping invalid DSL file {}: {}", path.display(), err);
@@ -139,7 +139,7 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
         };
 
         // sensors + interval
-        if let Some(spec) = w.sensors.as_mut() {
+        if let Some(spec) = w.sensors.as_ref() {
             let this_interval = spec.interval_range().cloned();
 
             // interval rule:
@@ -178,6 +178,8 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
     if !events_map.is_empty() {
         out.set_events_yaml(serde_yaml::Value::Mapping(events_map))?;
     }
+
+    let _ = out.items(); // apply global interval to missing per-sensor intervals
 
     Ok(out)
 }

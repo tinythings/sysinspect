@@ -96,6 +96,10 @@ impl SensorSpec {
         SensorSpec { interval, items, updated: false, events: None }
     }
 
+    pub fn items_raw(&self) -> &IndexMap<String, SensorConf> {
+        &self.items
+    }
+
     /// For loader merge (first wins).
     pub fn interval_range(&self) -> Option<&IntervalRange> {
         self.interval.as_ref()
