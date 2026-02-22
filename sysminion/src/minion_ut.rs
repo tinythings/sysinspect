@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::minion::{_minion_instance, MINION_SID, SysMinion};
-    use crate::proto::msg::CONNECTION_TX;
+    use crate::proto::msg::{CONNECTION_TX, ExitState};
     use libdpq::DiskPersistentQueue;
     use libsysinspect::cfg::mmconf::MinionConfig;
     use std::sync::Arc;
@@ -359,5 +359,87 @@ mod tests {
 
         assert!(minion.sensors_pump.lock().await.is_none());
         assert!(minion.sensors_task.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn ping_watchdog_triggers_reconnect_after_timeout() {
+        use tokio::time::timeout;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
+        minion.set_ping_timeout(Duration::from_millis(300));
+
+        let minion = Arc::new(minion);
+        let mut rx = CONNECTION_TX.subscribe();
+        minion.as_ptr().do_ping_update(Arc::new(ExitState::new())).await.unwrap();
+
+        let res = timeout(Duration::from_secs(2), rx.recv()).await;
+        assert!(res.is_ok(), "watchdog did not trigger reconnect");
+    }
+
+    #[tokio::test]
+    async fn update_ping_resets_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
+        minion.set_ping_timeout(Duration::from_millis(300));
+
+        let minion = Arc::new(minion);
+        minion.update_ping().await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        minion.update_ping().await;
+
+        let elapsed = minion.last_ping.lock().await.elapsed();
+        assert!(elapsed < Duration::from_millis(200));
+    }
+
+    #[tokio::test]
+    async fn request_handles_closed_socket_gracefully() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            drop(sock); // close immediately
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        // Should not panic
+        minion.request(b"abc".to_vec()).await;
     }
 }

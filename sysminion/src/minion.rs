@@ -79,8 +79,8 @@ pub struct SysMinion {
 
     filedata: Mutex<MinionFiledata>,
 
-    last_ping: Mutex<Instant>,
-    ping_timeout: Duration,
+    pub(crate) last_ping: Mutex<Instant>,
+    pub(crate) ping_timeout: Duration,
 
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
@@ -222,7 +222,7 @@ impl SysMinion {
         println!("{}:\n\n{}", "Minion information".bright_green().bold(), fmt.format());
     }
 
-    async fn update_ping(&self) {
+    pub(crate) async fn update_ping(&self) {
         let mut last_ping = self.last_ping.lock().await;
         *last_ping = Instant::now();
     }
@@ -889,6 +889,11 @@ impl SysMinion {
                 log::error!("Error dispatching command: {err}");
             }
         }
+    }
+
+    #[cfg(test)]
+    pub fn set_ping_timeout(&mut self, d: Duration) {
+        self.ping_timeout = d;
     }
 }
 
