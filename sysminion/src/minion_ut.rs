@@ -77,7 +77,21 @@ mod tests {
         let mut rx = CONNECTION_TX.subscribe();
         minion.as_ptr().do_proto().await.unwrap();
 
+        // let proto loop actually start
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
         let got = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
         assert!(got.is_ok(), "expected reconnect signal on EOF");
+        match got {
+            Ok(Ok(_)) => {
+                // correct: reconnect signal received
+            }
+            Ok(Err(e)) => {
+                panic!("channel closed unexpectedly: {e}");
+            }
+            Err(_) => {
+                panic!("expected reconnect signal on EOF but timed out");
+            }
+        }
     }
 }
