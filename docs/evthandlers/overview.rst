@@ -47,3 +47,4 @@ Here are the available event handlers:
   outcome_logger
   pipescript
   pipeline
+  chainstop

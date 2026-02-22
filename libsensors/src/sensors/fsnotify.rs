@@ -1,6 +1,8 @@
 use super::sensor::{Sensor, SensorEvent};
+use crate::argparse::SensorArgs;
 use crate::sspec::SensorConf;
 use async_trait::async_trait;
+use colored::Colorize;
 use filescream::events::{Callback, EventMask, FileScreamEvent};
 use filescream::{FileScream, FileScreamConfig};
 use serde_json::json;
@@ -19,16 +21,6 @@ impl fmt::Debug for FsNotifySensor {
     }
 }
 
-impl FsNotifySensor {
-    fn arg_str(cfg: &SensorConf, key: &str) -> Option<String> {
-        cfg.args().get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
-    }
-
-    fn arg_u64(cfg: &SensorConf, key: &str) -> Option<u64> {
-        cfg.args().get(key).and_then(|v| v.as_i64()).map(|i| i as u64)
-    }
-}
-
 #[async_trait]
 impl Sensor for FsNotifySensor {
     fn new(id: String, cfg: SensorConf) -> Self {
@@ -41,30 +33,32 @@ impl Sensor for FsNotifySensor {
 
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
         // required args
-        let Some(path) = Self::arg_str(&self.cfg, "path") else {
-            log::warn!("fsnotify '{}' missing args.path; not starting", self.sid);
+        let Some(path) = self.cfg.arg_str("path") else {
+            log::warn!("[{}] '{}' missing args.path; not starting", Self::id().bright_magenta(), self.sid);
             return;
         };
 
+        let locked = self.cfg.arg_bool("locked").unwrap_or(false);
         let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(3));
-        log::info!("fsnotify '{}' watching '{}' with pulse {:?} and opts {:?}", self.sid, path, pulse, self.cfg.opts());
+        log::info!("[{}] '{}' watching '{}' with pulse {:?} and opts {:?}", Self::id().bright_magenta(), self.sid, path, pulse, self.cfg.opts());
 
         let mut fs = FileScream::new(Some(FileScreamConfig::default().pulse(pulse)));
         fs.watch(&path);
 
         // EventMask
         let mut mask = EventMask::empty();
-        for o in self.cfg.opts() {
-            match o.as_str() {
-                "created" => mask |= EventMask::CREATED,
-                "changed" => mask |= EventMask::CHANGED,
-                "deleted" => mask |= EventMask::REMOVED,
-                _ => {
-                    log::warn!("fsnotify '{}' unknown opt '{}'", self.sid, o);
+        if self.cfg.opts().is_empty() {
+            mask |= EventMask::CREATED | EventMask::CHANGED | EventMask::REMOVED;
+        } else {
+            for o in self.cfg.opts() {
+                match o.as_str() {
+                    "created" => mask |= EventMask::CREATED,
+                    "changed" => mask |= EventMask::CHANGED,
+                    "deleted" => mask |= EventMask::REMOVED,
+                    _ => log::warn!("fsnotify '{}' unknown opt '{}'", self.sid, o),
                 }
             }
         }
-
         let cb = Callback::new(mask).on(|ev| async move {
             match ev {
                 FileScreamEvent::Created { path } => Some(json!({"action":"created","file":path.to_string_lossy()})),
@@ -88,6 +82,9 @@ impl Sensor for FsNotifySensor {
             let lstid = format!("{}{}{}", FsNotifySensor::id(), if self.cfg.tag().is_none() { "" } else { "@" }, self.cfg.tag().unwrap_or(""));
             let eid = format!("{}|{}|{}@{}|{}", self.sid, lstid, action, file, 0);
 
+            if locked && !libcommon::eidhub::get_eidhub().add(&Self::id(), &eid).await {
+                continue; // don't emit if EID still locked
+            }
             (emit)(json!({
                 "eid": eid,
                 "sensor": self.sid,

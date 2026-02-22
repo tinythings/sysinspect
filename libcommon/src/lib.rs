@@ -1,3 +1,4 @@
+pub mod eidhub;
 use jsonpath_rust::parser::errors::JsonPathError;
 use std::{error::Error, ffi::NulError, io};
 use thiserror::Error;
