@@ -257,4 +257,107 @@ mod tests {
         assert_eq!(v["sid"], MINION_SID.to_string());
         assert!(v["d"].is_object());
     }
+
+    #[tokio::test]
+    async fn send_sensors_sync_emits_expected_r_code() {
+        use tokio::io::AsyncReadExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut lenb = [0u8; 4];
+            sock.read_exact(&mut lenb).await.unwrap();
+            let n = u32::from_be_bytes(lenb) as usize;
+            let mut msg = vec![0u8; n];
+            sock.read_exact(&mut msg).await.unwrap();
+            msg
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        minion.as_ptr().send_sensors_sync().await.unwrap();
+
+        let msg = server.await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&msg).unwrap();
+        eprintln!("sensors_sync msg = {}", v); // one-time debug
+
+        assert_eq!(v["r"], "ssr");
+
+        // sid might be missing for this message; assert it’s at least present OR intentionally absent
+        assert!(v.get("sid").is_some(), "sensors sync message missing sid field: {v}");
+    }
+
+    #[tokio::test]
+    async fn stop_background_aborts_and_clears_handles() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        // inject dummy tasks
+        let h1 = tokio::spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        let h2 = tokio::spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        let h3 = tokio::spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+
+        *minion.ping_task.lock().await = Some(h1);
+        *minion.proto_task.lock().await = Some(h2);
+        *minion.stats_task.lock().await = Some(h3);
+
+        minion.stop_background().await;
+
+        assert!(minion.ping_task.lock().await.is_none());
+        assert!(minion.proto_task.lock().await.is_none());
+        assert!(minion.stats_task.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn stop_sensors_aborts_and_clears_handles() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        let h1 = tokio::spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        let h2 = tokio::spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+
+        *minion.sensors_pump.lock().await = Some(h1);
+        *minion.sensors_task.lock().await = Some(h2);
+
+        minion.stop_sensors().await;
+
+        assert!(minion.sensors_pump.lock().await.is_none());
+        assert!(minion.sensors_task.lock().await.is_none());
+    }
 }
