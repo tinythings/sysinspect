@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::minion::{_minion_instance, SysMinion};
+    use crate::minion::{_minion_instance, MINION_SID, SysMinion};
     use crate::proto::msg::CONNECTION_TX;
     use libdpq::DiskPersistentQueue;
     use libsysinspect::cfg::mmconf::MinionConfig;
@@ -144,7 +144,6 @@ mod tests {
 
     #[tokio::test]
     async fn request_writes_len_prefix_and_payload() {
-        use super::*;
         use tokio::io::AsyncReadExt;
         use tokio::net::TcpListener;
 
@@ -179,5 +178,86 @@ mod tests {
         let (n, msg) = server.await.unwrap();
         assert_eq!(n, payload.len());
         assert_eq!(msg, payload);
+    }
+
+    #[tokio::test]
+    async fn send_ehlo_includes_sid_and_is_jsonish() {
+        use tokio::io::AsyncReadExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+
+            let mut lenb = [0u8; 4];
+            sock.read_exact(&mut lenb).await.unwrap();
+            let n = u32::from_be_bytes(lenb) as usize;
+
+            let mut msg = vec![0u8; n];
+            sock.read_exact(&mut msg).await.unwrap();
+            msg
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        minion.as_ptr().send_ehlo().await.unwrap();
+
+        let msg = server.await.unwrap();
+        let s = String::from_utf8_lossy(&msg);
+
+        // "JSON-ish" sanity (your proto is JSON payloads wrapped in framing)
+        assert!(s.contains("{"), "ehlo payload not json-ish: {s}");
+        assert!(s.contains(&MINION_SID.to_string()), "ehlo payload missing sid {}: {s}", *MINION_SID);
+
+        // If your encoding uses strings, this will pass.
+        // If you encode req_type as a number, replace this with whatever marker is present.
+        assert!(s.contains("\"r\":\"ehlo\""), "ehlo payload doesn't look like an Ehlo message: {s}");
+    }
+
+    #[tokio::test]
+    async fn send_traits_writes_a_message_over_wire() {
+        use tokio::io::AsyncReadExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+
+            let mut lenb = [0u8; 4];
+            sock.read_exact(&mut lenb).await.unwrap();
+            let n = u32::from_be_bytes(lenb) as usize;
+
+            let mut msg = vec![0u8; n];
+            sock.read_exact(&mut msg).await.unwrap();
+            msg
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        minion.as_ptr().send_traits().await.unwrap();
+
+        let msg = server.await.unwrap();
+        let s = String::from_utf8_lossy(&msg);
+
+        assert!(s.contains(&MINION_SID.to_string()), "traits missing sid: {s}");
+        assert!(s.contains("\"r\":\"tr\""), "traits message doesn't look right: {s}");
     }
 }
