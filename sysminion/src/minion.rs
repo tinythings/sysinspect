@@ -237,7 +237,7 @@ impl SysMinion {
     }
 
     /// Talk-back to the master
-    async fn request(&self, msg: Vec<u8>) {
+    pub(crate) async fn request(&self, msg: Vec<u8>) {
         let mut stm = self.wstm.lock().await;
 
         if let Err(e) = stm.write_all(&(msg.len() as u32).to_be_bytes()).await {
