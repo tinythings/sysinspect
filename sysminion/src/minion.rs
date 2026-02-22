@@ -891,7 +891,7 @@ impl SysMinion {
 }
 
 /// Constructs and starts an actual minion
-async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
+pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
     let modpak = SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
