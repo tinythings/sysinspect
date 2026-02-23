@@ -1,17 +1,13 @@
 use std::{io, time::Duration};
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct DataStorageConfig {
     expiration: Option<Duration>,
     max_item_size: Option<u64>,
     max_overall_size: Option<u64>,
 }
 
-impl Default for DataStorageConfig {
-    fn default() -> Self {
-        Self { expiration: None, max_item_size: None, max_overall_size: None }
-    }
-}
 
 impl DataStorageConfig {
     pub fn new() -> Self {
