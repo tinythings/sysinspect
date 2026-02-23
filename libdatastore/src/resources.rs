@@ -38,16 +38,17 @@ impl DataStorage {
         let src = src.as_ref();
         let md = fs::metadata(src)?;
 
-        let unix_mode = (md.mode() & 0o7777) as u32;
+        let unix_mode = md.mode() & 0o7777;
         if !md.is_file() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "src is not a file"));
         }
 
         let size = md.len();
         if let Some(max) = self.cfg.get_max_item_size()
-            && size > max {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("item too big: {size} > {max} bytes")));
-            }
+            && size > max
+        {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("item too big: {size} > {max} bytes")));
+        }
 
         // Ensure overall limit BEFORE writing (best-effort).
         if let Some(max_total) = self.cfg.get_max_overall_size() {
@@ -172,10 +173,11 @@ impl DataStorage {
         for meta_path in meta_tree(&self.root)? {
             if let Ok(bytes) = fs::read(&meta_path)
                 && let Ok(meta) = serde_json::from_slice::<DataItemMeta>(&bytes)
-                    && let Some(exp) = meta.expires_unix
-                        && exp <= now {
-                            self.del(&meta.sha256)?;
-                        }
+                && let Some(exp) = meta.expires_unix
+                && exp <= now
+            {
+                self.del(&meta.sha256)?;
+            }
         }
         Ok(())
     }
