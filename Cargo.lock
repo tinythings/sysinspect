@@ -3680,6 +3680,7 @@ dependencies = [
  "hex",
  "indexmap 2.13.0",
  "libcommon",
+ "libdatastore",
  "libsysinspect",
  "log",
  "once_cell",

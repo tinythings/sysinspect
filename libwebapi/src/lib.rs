@@ -2,6 +2,7 @@ use crate::api::ApiVersions;
 use actix_web::{App, HttpServer, web};
 use colored::Colorize;
 use libcommon::SysinspectError;
+use libdatastore::resources::DataStorage;
 use libsysinspect::cfg::mmconf::MasterConfig;
 use std::{sync::Arc, thread};
 use tokio::sync::Mutex;
@@ -13,14 +14,13 @@ pub mod sessions;
 
 #[async_trait::async_trait]
 pub trait MasterInterface: Send + Sync {
-    /// Returns a reference to the master configuration.
     async fn cfg(&self) -> &MasterConfig;
-
-    /// Query minions
     async fn query(&mut self, query: String) -> Result<(), SysinspectError>;
+    async fn datastore(&self) -> Arc<Mutex<DataStorage>>;
 }
 
 pub type MasterInterfaceType = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
+
 pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<(), SysinspectError> {
     if !cfg.api_enabled() {
         log::warn!("Web API is {} in the configuration.", "disabled".bright_yellow().bold());

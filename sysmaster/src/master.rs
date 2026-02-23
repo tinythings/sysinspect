@@ -34,6 +34,7 @@ use libsysproto::{
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
+use std::time::Duration as StdDuration;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -81,7 +82,7 @@ impl SysMaster {
         let vmcluster = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg), Arc::clone(&SHARED_SESSION), Arc::clone(&taskreg));
 
         let ds_cfg = DataStorageConfig::new()
-            .expiration(Duration::from_secs(cfg.datastore_max_age()))
+            .expiration(StdDuration::from_secs(cfg.datastore_max_age()))
             .max_overall_size(cfg.datastore_max_size())
             .max_item_size(cfg.datastore_item_max_size());
         let ds_path = cfg.datastore_path();
@@ -143,8 +144,14 @@ impl SysMaster {
         &self.cfg
     }
 
+    /// Get broadcast sender for master messages
     pub fn broadcast(&self) -> broadcast::Sender<Vec<u8>> {
         self.broadcast.clone()
+    }
+
+    /// Get datastore
+    pub fn datastore(&self) -> Arc<Mutex<DataStorage>> {
+        Arc::clone(&self.datastore)
     }
 
     pub async fn listener(&self) -> Result<TcpListener, SysinspectError> {
