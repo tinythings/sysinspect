@@ -44,11 +44,10 @@ impl DataStorage {
         }
 
         let size = md.len();
-        if let Some(max) = self.cfg.get_max_item_size() {
-            if size > max {
+        if let Some(max) = self.cfg.get_max_item_size()
+            && size > max {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("item too big: {size} > {max} bytes")));
             }
-        }
 
         // Ensure overall limit BEFORE writing (best-effort).
         if let Some(max_total) = self.cfg.get_max_overall_size() {
@@ -171,15 +170,12 @@ impl DataStorage {
     fn expire(&self) -> io::Result<()> {
         let now = unix_now();
         for meta_path in meta_tree(&self.root)? {
-            if let Ok(bytes) = fs::read(&meta_path) {
-                if let Ok(meta) = serde_json::from_slice::<DataItemMeta>(&bytes) {
-                    if let Some(exp) = meta.expires_unix {
-                        if exp <= now {
+            if let Ok(bytes) = fs::read(&meta_path)
+                && let Ok(meta) = serde_json::from_slice::<DataItemMeta>(&bytes)
+                    && let Some(exp) = meta.expires_unix
+                        && exp <= now {
                             self.del(&meta.sha256)?;
                         }
-                    }
-                }
-            }
         }
         Ok(())
     }
