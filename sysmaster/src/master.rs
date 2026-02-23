@@ -12,6 +12,7 @@ use crate::{
 use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
+use libdatastore::{cfg::DataStorageConfig, resources::DataStorage};
 use libeventreg::{
     ipcs::DbIPCService,
     kvdb::{EventMinion, EventsRegistry},
@@ -66,6 +67,7 @@ pub struct SysMaster {
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
+    datastore: Arc<Mutex<DataStorage>>,
 }
 
 impl SysMaster {
@@ -77,6 +79,13 @@ impl SysMaster {
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
         let vmcluster = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg), Arc::clone(&SHARED_SESSION), Arc::clone(&taskreg));
+
+        let ds_cfg = DataStorageConfig::new()
+            .expiration(Duration::from_secs(cfg.datastore_max_age()))
+            .max_overall_size(cfg.datastore_max_size())
+            .max_item_size(cfg.datastore_item_max_size());
+        let ds_path = cfg.datastore_path();
+
         Ok(SysMaster {
             cfg,
             broadcast: tx,
@@ -89,6 +98,7 @@ impl SysMaster {
             ptr: None,
             vmcluster,
             conn_to_mid: HashMap::new(),
+            datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
     }
 
