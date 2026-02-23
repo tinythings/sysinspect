@@ -3324,8 +3324,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "colored",
+ "humantime",
+ "humantime-serde",
  "jsonpath-rust",
  "log",
+ "parse-size",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3599,6 +3602,7 @@ dependencies = [
  "log",
  "nix 0.29.0",
  "once_cell",
+ "parse-size",
  "pem",
  "pest",
  "pest_derive",
@@ -4624,6 +4628,12 @@ dependencies = [
  "smallvec",
  "windows-link",
 ]
+
+[[package]]
+name = "parse-size"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "487f2ccd1e17ce8c1bfab3a65c89525af41cfad4c8659021a1e9a2aacd73b89b"
 
 [[package]]
 name = "parse-zoneinfo"
