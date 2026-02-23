@@ -1,4 +1,6 @@
 pub mod eidhub;
+pub mod humaninput;
+
 use jsonpath_rust::parser::errors::JsonPathError;
 use std::{error::Error, ffi::NulError, io};
 use thiserror::Error;
