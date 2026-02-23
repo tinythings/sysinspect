@@ -3336,6 +3336,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "libdatastore"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "colored",
+ "log",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "libdpq"
 version = "0.1.0"
 dependencies = [
