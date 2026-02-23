@@ -1,10 +1,18 @@
 use libdatastore::{cfg::DataStorageConfig, resources::DataStorage};
-use std::env;
+use std::{env, time::Duration};
+
+const GIB: u64 = 1024 * 1024 * 1024;
 
 fn main() -> anyhow::Result<()> {
-    let cfg = DataStorageConfig::new().expiration("3 days")?.max_item_size("1 gb")?.max_overall_size("20 gb")?;
+    let cfg = DataStorageConfig::new().expiration(Duration::from_secs(3 * 24 * 60 * 60)).max_item_size(GIB).max_overall_size(20 * GIB);
 
     let storage = DataStorage::new(cfg, "/tmp/store")?;
-    let _same = storage.meta(&storage.add(env::current_exe()?.to_str().unwrap())?.sha256)?;
+
+    let exe = env::current_exe()?;
+    let exe_str = exe.to_str().ok_or_else(|| anyhow::anyhow!("current_exe() path is not valid UTF-8: {:?}", exe))?;
+
+    let item = storage.add(exe_str)?;
+    let _meta = storage.meta(&item.sha256)?;
+
     Ok(())
 }
