@@ -49,7 +49,7 @@ members = [
     "libdpq",
     "libsysproto",
     "libcommon",
-    "libsensors"]
+    "libsensors", "libdatastore"]
 
 [profile.release]
 strip = true

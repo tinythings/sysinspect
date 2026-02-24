@@ -86,7 +86,16 @@ fn main() -> Result<(), SysinspectError> {
             }
         };
     }
-    let cfg = MasterConfig::new(cfp)?;
+    let cfg = match MasterConfig::new(cfp) {
+        Ok(cfg) => {
+            log::info!("Config loaded successfully");
+            cfg
+        }
+        Err(err) => {
+            log::error!("Error loading config: {err}");
+            std::process::exit(1);
+        }
+    };
 
     // Mode
     if params.get_flag("start") {

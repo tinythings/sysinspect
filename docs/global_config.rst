@@ -446,6 +446,63 @@ Example configuration for the Sysinspect Master:
               - my_model
               - my_other_model
 
+``datastore.path``
+###################
+    Type: **string**
+
+    Path to the datastore directory, where all data from minions is stored.
+    This is a directory, which is used to store all artifacts from/for minions,
+    for data exchange. This can be anything: a package, a binary, a text file etc.
+
+    Default value is ``/var/lib/sysinspect/datastore``.
+
+``datastore.max-size``
+######################
+
+    Type: **string**
+
+    Maximum size of the datastore directory. This is a string in format ``<SIZE><UNIT>``, where
+    SIZE is a number and UNIT is one of the following:
+
+    - B (bytes)
+    - KB (kilobytes)
+    - MB (megabytes)
+    - GB (gigabytes)
+    - TB (terabytes)
+
+    Default value is ``10GB``.
+
+``datastore.max-age``
+#####################
+
+    Type: **string**
+
+    Maximum age of the data in the datastore directory. This is a string in format ``<AGE><UNIT>``, where
+    AGE is a number and UNIT is one of the following:
+
+    - s (seconds)
+    - m (minutes)
+    - h (hours)
+    - d (days)
+
+    Default value is ``30d``.
+
+
+``datastore.item-max-size``
+###########################
+
+    Type: **string**
+
+    Maximum size of a single item in the datastore directory. This is a string in format ``<SIZE><UNIT>``, where
+    SIZE is a number and UNIT is one of the following:
+
+    - B (bytes)
+    - KB (kilobytes)
+    - MB (megabytes)
+    - GB (gigabytes)
+    - TB (terabytes)
+
+    Default value is ``100MB``.
 
 Minion
 ^^^^^^

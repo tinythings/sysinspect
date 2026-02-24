@@ -65,6 +65,17 @@ pub static DEFAULT_MINION_LOG_STD: &str = "sysminion.standard.log";
 /// Default filename for the minion failures log
 pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
 
+pub static DEFAULT_DATASTORE_ROOT: &str = "/var/lib/sysinspect/datastore";
+
+// 10GB
+pub static DEFAULT_DATASTORE_MAX_SIZE: u64 = 0xa * 0x400 * 0x400 * 0x400;
+
+// 30d
+pub static DEFAULT_DATASTORE_MAX_AGE: u64 = 30 * 24 * 60 * 60;
+
+// 100MB
+pub static DEFAULT_DATASTORE_ITEM_MAX_SIZE: u64 = 0x64 * 0x400 * 0x400;
+
 // All directories are relative to the sysinspect root
 // ---------------------------------------------------
 pub static CFG_MINION_KEYS: &str = "minion-keys";
@@ -807,6 +818,22 @@ pub struct MasterConfig {
 
     // Clustered minions configuration
     cluster: Option<Vec<ClusteredMinion>>,
+
+    // Datastore configuration for storing artifacts, usually files
+    #[serde(rename = "datastore.path")]
+    datastore_path: Option<String>,
+
+    // Max total size of the datastore in bytes. Default: unlimited
+    #[serde(rename = "datastore.max-size", default, deserialize_with = "libcommon::humaninput::h2bytes")]
+    datastore_max_size: Option<u64>,
+
+    // Max age of items in the datastore. Default: unlimited
+    #[serde(rename = "datastore.max-age", default, with = "humantime_serde::option")]
+    datastore_max_age: Option<Duration>,
+
+    // Max size of a single item in the datastore in bytes. Default: unlimited
+    #[serde(rename = "datastore.item-max-size", default, deserialize_with = "libcommon::humaninput::h2bytes")]
+    datastore_item_max_size: Option<u64>,
 }
 
 impl MasterConfig {
@@ -1011,12 +1038,12 @@ impl MasterConfig {
 
     /// Return the path of the telemetry location
     pub fn telemetry_location(&self) -> PathBuf {
-        PathBuf::from(self.telemetry_location.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_DB.to_string()))
+        self.telemetry_location.as_deref().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_MASTER_TELEMETRY_DB))
     }
 
     /// Return the path of the telemetry communication socket location
     pub fn telemetry_socket(&self) -> PathBuf {
-        PathBuf::from(self.telemetry_socket.clone().unwrap_or(DEFAULT_MASTER_TELEMETRY_SCK.to_string()))
+        self.telemetry_socket.as_deref().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_MASTER_TELEMETRY_SCK))
     }
 
     /// Return the path of the telemetry communication socket location
@@ -1032,6 +1059,26 @@ impl MasterConfig {
     /// Get clustered minions configuration
     pub fn cluster(&self) -> Vec<ClusteredMinion> {
         self.cluster.clone().unwrap_or_default()
+    }
+
+    /// Get datastore path
+    pub fn datastore_path(&self) -> PathBuf {
+        self.datastore_path.as_deref().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_DATASTORE_ROOT))
+    }
+
+    /// Get datastore max size in bytes
+    pub fn datastore_max_size(&self) -> u64 {
+        self.datastore_max_size.unwrap_or(DEFAULT_DATASTORE_MAX_SIZE)
+    }
+
+    /// Get datastore max age in seconds
+    pub fn datastore_max_age(&self) -> u64 {
+        self.datastore_max_age.unwrap_or_else(|| Duration::from_secs(DEFAULT_DATASTORE_MAX_AGE)).as_secs()
+    }
+
+    /// Get datastore max item size in bytes
+    pub fn datastore_item_max_size(&self) -> u64 {
+        self.datastore_item_max_size.unwrap_or(DEFAULT_DATASTORE_ITEM_MAX_SIZE)
     }
 }
 
