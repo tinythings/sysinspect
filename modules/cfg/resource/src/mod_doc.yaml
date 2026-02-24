@@ -1,0 +1,60 @@
+name: "cfg.resource"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Plugin for resource management and availability.
+
+# Options, flags, switches
+options:
+  - name: push
+    type: bool
+    description: "Push (upload) the resource to the storage."
+    required: true
+
+  - name: pull
+    type: bool
+    description: "Pull (download) the resource from the storage."
+    required: true
+
+  - name: force
+    type: bool
+    required: false
+    description: "Overwrite the resource if it is already installed (default: false)"
+
+  - name: verbose
+    type: bool
+    required: false
+    description: "Give more detailed logs during the process (default: false)"
+
+# Keyword arguments
+arguments:
+  - name: src
+    type: string
+    required: true
+    description: "Path of the resource artifact. Works as an ID for the resource."
+
+  - name: dst
+    type: string
+    required: false
+    description: "Destination path for the resource artifact. If not set, the [Y::]src[N] path will be used as the destination."
+
+  - name: mode
+    type: string
+    required: false
+    description: "Unix mode for the resource artifact (e.g., '0644'). If not set, the file original permissions will be applied."
+
+examples:
+  - description: "Module usage example"
+    code: |
+      "arguments": {
+        "src": "/etc/ssh/ssh_config",
+      }
+
+# Description of additional data format
+returns:
+
+manpage: |
+  This module allows managing resources by pushing (uploading) or pulling
+  (downloading) them to/from a storage, served by the [Y::]Sysmaster[N].
+  The resource is identified by its source path, and an optional destination
+  path can be specified.
