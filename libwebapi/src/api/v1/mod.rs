@@ -3,7 +3,10 @@ use crate::api::v1::{
     minions::{QueryError, QueryPayloadRequest, QueryRequest, QueryResponse, query_handler, query_handler_dev},
     model::{ModelNameResponse, model_descr_handler, model_names_handler},
     pkeys::{MasterKeyError, MasterKeyResponse, PubKeyError, PubKeyRequest, PubKeyResponse, masterkey_handler, pushkey_handler},
-    store::{StoreMetaResponse, store_blob_handler, store_meta_handler, store_upload_handler},
+    store::{
+        StoreListQuery, StoreMetaResponse, StoreResolveQuery, store_blob_handler, store_list_handler, store_meta_handler, store_resolve_handler,
+        store_upload_handler,
+    },
     system::{AuthInnerRequest, AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
 use actix_web::Scope;
@@ -60,6 +63,8 @@ impl super::ApiVersion for V1 {
             .service(masterkey_handler)
             .service(model_names_handler)
             .service(model_descr_handler)
+            .service(store_resolve_handler)
+            .service(store_list_handler)
             .service(store_meta_handler)
             .service(store_blob_handler)
             .service(store_upload_handler);
@@ -97,10 +102,12 @@ impl super::ApiVersion for V1 {
     crate::api::v1::store::store_meta_handler,
     crate::api::v1::store::store_blob_handler,
     crate::api::v1::store::store_upload_handler,
+    crate::api::v1::store::store_resolve_handler,
+    crate::api::v1::store::store_list_handler,
 ),
           components(schemas(QueryRequest, QueryResponse, QueryError, QueryPayloadRequest,
                              PubKeyRequest, PubKeyResponse, PubKeyError, MasterKeyResponse, MasterKeyError,
                              HealthInfo, HealthResponse, AuthRequest, AuthResponse, AuthInnerRequest,
-                             ModelNameResponse, StoreMetaResponse)),
+                             ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDoc;
