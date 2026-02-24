@@ -1,5 +1,10 @@
+use crate::resources::DataItemMeta;
+use libc::{AT_FDCWD, timespec, utimensat};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::ffi::CString;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fs,
     io::{self, Read, Write},
@@ -95,4 +100,32 @@ pub(crate) fn data_tree(root: &Path) -> io::Result<Vec<PathBuf>> {
         }
     }
     Ok(out)
+}
+
+/// Applies the file mode and timestamps from the metadata to the specified file path.
+///
+/// Example usage:
+/// ```
+/// let meta = ds.meta(&sha)?.unwrap();
+/// fs::copy(ds.uri(&sha), "/your/bin")?;
+/// ds.set_file_attrs(&meta, "/your/bin")?;
+/// ```
+
+pub fn set_file_attrs(meta: &DataItemMeta, dst: impl AsRef<Path>) -> io::Result<()> {
+    let dst = dst.as_ref();
+    fs::set_permissions(dst, fs::Permissions::from_mode(meta.fmode & 0o7777))?;
+
+    unsafe {
+        if utimensat(
+            AT_FDCWD,
+            CString::new(dst.as_os_str().as_bytes())?.as_ptr(),
+            [timespec { tv_sec: meta.created_unix as i64, tv_nsec: 0 }, timespec { tv_sec: meta.created_unix as i64, tv_nsec: 0 }].as_ptr(),
+            0,
+        ) != 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+
+    Ok(())
 }
