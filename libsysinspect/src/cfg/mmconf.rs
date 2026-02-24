@@ -824,7 +824,7 @@ pub struct MasterConfig {
     datastore_path: Option<String>,
 
     // Max total size of the datastore in bytes. Default: unlimited
-    #[serde(rename = "datastore.max-size", deserialize_with = "libcommon::humaninput::h2bytes")]
+    #[serde(rename = "datastore.max-size", default, deserialize_with = "libcommon::humaninput::h2bytes")]
     datastore_max_size: Option<u64>,
 
     // Max age of items in the datastore. Default: unlimited
@@ -832,7 +832,7 @@ pub struct MasterConfig {
     datastore_max_age: Option<Duration>,
 
     // Max size of a single item in the datastore in bytes. Default: unlimited
-    #[serde(rename = "datastore.item-max-size", deserialize_with = "libcommon::humaninput::h2bytes")]
+    #[serde(rename = "datastore.item-max-size", default, deserialize_with = "libcommon::humaninput::h2bytes")]
     datastore_item_max_size: Option<u64>,
 }
 
