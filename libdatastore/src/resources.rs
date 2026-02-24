@@ -29,6 +29,7 @@ pub struct DataItemMeta {
 impl DataStorage {
     pub fn new(cfg: DataStorageConfig, root: impl AsRef<Path>) -> io::Result<Self> {
         let root = root.as_ref().to_path_buf();
+        log::info!("Initializing datastore at {:?} with config: {:?}", root, cfg);
         fs::create_dir_all(&root)?;
         Ok(Self { cfg, root })
     }
