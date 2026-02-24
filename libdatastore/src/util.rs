@@ -110,7 +110,6 @@ pub(crate) fn data_tree(root: &Path) -> io::Result<Vec<PathBuf>> {
 /// fs::copy(ds.uri(&sha), "/your/bin")?;
 /// ds.set_file_attrs(&meta, "/your/bin")?;
 /// ```
-
 pub fn set_file_attrs(meta: &DataItemMeta, dst: impl AsRef<Path>) -> io::Result<()> {
     let dst = dst.as_ref();
     fs::set_permissions(dst, fs::Permissions::from_mode(meta.fmode & 0o7777))?;

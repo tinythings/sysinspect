@@ -1,6 +1,6 @@
 use crate::MasterInterfaceType;
 use actix_files::NamedFile;
-use actix_web::{HttpRequest, Result as ActixResult};
+use actix_web::Result as ActixResult;
 use actix_web::{HttpResponse, Responder, get, post, web};
 use futures_util::StreamExt;
 use serde::Serialize;
