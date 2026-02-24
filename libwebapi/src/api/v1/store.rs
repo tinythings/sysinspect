@@ -1,6 +1,6 @@
 use crate::MasterInterfaceType;
 use actix_files::NamedFile;
-use actix_web::Result as ActixResult;
+use actix_web::{HttpRequest, Result as ActixResult};
 use actix_web::{HttpResponse, Responder, get, post, web};
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -13,6 +13,7 @@ pub struct StoreMetaResponse {
     pub fmode: u32,
     pub created_unix: u64,
     pub expires_unix: Option<u64>,
+    pub fname: Option<String>,
 }
 
 #[utoipa::path(
@@ -44,6 +45,7 @@ pub async fn store_meta_handler(master: web::Data<MasterInterfaceType>, sha256: 
             fmode: meta.fmode,
             created_unix: meta.created_unix,
             expires_unix: meta.expires_unix,
+            fname: meta.fname,
         }),
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
@@ -96,14 +98,15 @@ pub async fn store_blob_handler(master: web::Data<MasterInterfaceType>, sha256: 
     )
 )]
 #[post("/store")]
-pub async fn store_upload_handler(master: web::Data<MasterInterfaceType>, mut payload: web::Payload) -> impl actix_web::Responder {
-    // grab datastore handle, drop master lock
+pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data<MasterInterfaceType>, mut payload: web::Payload) -> impl Responder {
+    // full path goes into fname (as you demanded)
+    let origin = req.headers().get("X-Filename").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+
     let ds = {
         let m = master.lock().await;
         m.datastore().await
     };
 
-    // stream upload into a temp file (no buffering)
     let tmp = match tempfile::NamedTempFile::new() {
         Ok(f) => f,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
@@ -115,16 +118,11 @@ pub async fn store_upload_handler(master: web::Data<MasterInterfaceType>, mut pa
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
 
-    let mut written: u64 = 0;
-
     while let Some(chunk) = payload.next().await {
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
         };
-
-        written = written.saturating_add(chunk.len() as u64);
-
         if let Err(e) = f.write_all(&chunk).await {
             return HttpResponse::InternalServerError().body(e.to_string());
         }
@@ -133,11 +131,10 @@ pub async fn store_upload_handler(master: web::Data<MasterInterfaceType>, mut pa
     if let Err(e) = f.flush().await {
         return HttpResponse::InternalServerError().body(e.to_string());
     }
+    drop(f);
 
-    drop(f); // close before ds.add reads it
-
-    // storing
-    let meta = {
+    // store
+    let mut meta = {
         let ds = ds.lock().await;
         match ds.add(&tmp_path) {
             Ok(m) => m,
@@ -150,6 +147,31 @@ pub async fn store_upload_handler(master: web::Data<MasterInterfaceType>, mut pa
         }
     };
 
+    // overwrite fname with full path + persist to meta sidecar
+    if let Some(origin) = origin {
+        if origin.contains('\0') {
+            return HttpResponse::BadRequest().body("invalid X-Filename");
+        }
+
+        meta.fname = Some(origin);
+
+        // compute sidecar path: <shard>/<sha>.meta.json
+        let meta_path = {
+            let ds = ds.lock().await;
+            let data_path = ds.uri(&meta.sha256);
+            data_path.parent().unwrap().join(format!("{}.meta.json", meta.sha256))
+        };
+
+        // atomic rewrite
+        let tmp_meta = meta_path.with_extension("meta.json.tmp");
+        if let Err(e) = std::fs::write(&tmp_meta, serde_json::to_vec(&meta).unwrap()) {
+            return HttpResponse::InternalServerError().body(e.to_string());
+        }
+        if let Err(e) = std::fs::rename(&tmp_meta, &meta_path) {
+            return HttpResponse::InternalServerError().body(e.to_string());
+        }
+    }
+
     drop(tmp);
 
     HttpResponse::Ok().json(StoreMetaResponse {
@@ -158,5 +180,6 @@ pub async fn store_upload_handler(master: web::Data<MasterInterfaceType>, mut pa
         fmode: meta.fmode,
         created_unix: meta.created_unix,
         expires_unix: meta.expires_unix,
+        fname: meta.fname,
     })
 }
