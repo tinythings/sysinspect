@@ -4,7 +4,7 @@ use clap::Parser;
 use libmodcore::{
     init_mod_doc,
     manrndr::print_mod_manual,
-    modcli::ModuleCli,
+    modcli::RuntimeModuleCli,
     modinit::ModInterface,
     response::ModResponse,
     rtspec::RuntimeParams,
@@ -41,7 +41,7 @@ fn list_lua_modules(scripts_dir: &Path) -> Vec<String> {
 }
 
 /// Get module documentation from Lua runtime
-fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeError> {
+fn module_doc_help(cli: &RuntimeModuleCli, modname: &str) -> Result<Value, LuaRuntimeError> {
     let rt = match LuaRuntime::new(PathBuf::from(cli.get_sharelib()), false) {
         Ok(rt) => rt,
         Err(err) => {
@@ -54,7 +54,7 @@ fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, LuaRuntimeEr
 }
 
 /// Run the Lua runtime with the provided request.
-fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
+fn call_runtime(cli: &RuntimeModuleCli, rq: &ModRequest) -> ModResponse {
     let mut resp = ModResponse::new_cm();
 
     // Get sharelib path from passed config or override from CLI or default
@@ -126,7 +126,7 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
 /// Main entry point
 fn main() {
     let mod_doc = init_mod_doc!(ModInterface);
-    let cli = ModuleCli::parse();
+    let cli = RuntimeModuleCli::parse();
 
     // CLI calls from the terminal directly
     if cli.is_manual() {
