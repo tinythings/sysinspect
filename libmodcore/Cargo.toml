@@ -17,3 +17,6 @@ libcommon = { path = "../libcommon" }
 clap = { version = "4.5.53", features = ["derive"] }
 strum = "0.27.2"
 strum_macros = "0.27.2"
+lo = "0.0.1"
+log = "0.4.29"
+chrono = "0.4.44"

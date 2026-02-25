@@ -13,8 +13,11 @@ async-trait = "0.1.89"
 dashmap = "6.1.0"
 env_logger = "0.11.9"
 fastrand = "2.3.0"
-filescream = {git = "https://github.com/tinythings/filescream.git", branch = "master"}
-procdog = {git = "https://github.com/tinythings/procdog.git", branch = "master"}
+omnitrace-core = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
+filescream = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
+xmount = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
+procdog = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
+netpacket = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
 indexmap = { version = "2.13.0", features = ["serde"] }
 lazy_static = "1.5.0"
 log = "0.4.29"
@@ -27,3 +30,4 @@ walkdir = "2.5.0"
 libsysinspect = { path = "../libsysinspect"}
 libcommon = { path = "../libcommon" }
 colored = "3.1.1"
+humantime = "2.3.0"

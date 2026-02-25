@@ -47,6 +47,33 @@ pub struct ModuleCli {
     /// Show this runtime module operational manual
     #[arg(short = 'm', long = "man", alias = "manual")]
     man: bool,
+}
+
+/// CLI definition implementation
+impl ModuleCli {
+    /// Is manual requested
+    /// # Returns
+    /// `true` if manual requested
+    /// `false` otherwise
+    pub fn is_manual(&self) -> bool {
+        self.man
+    }
+}
+
+#[derive(Parser, Debug)]
+#[command(
+    name = env!("CARGO_PKG_NAME"),
+    version = env!("CARGO_PKG_VERSION"),
+    about = env!("CARGO_PKG_DESCRIPTION"),
+    color = clap::ColorChoice::Always,
+    styles = monokai_style(),
+    override_usage = format!("{} [OPTIONS] < <STDIN>", env!("CARGO_PKG_NAME"))
+)]
+/// CLI definition
+pub struct RuntimeModuleCli {
+    /// Show this runtime module operational manual
+    #[arg(short = 'm', long = "man", alias = "manual")]
+    man: bool,
 
     /// List available runtime modules
     #[arg(short = 'l', long = "list-modules", alias = "list-plugins")]
@@ -62,7 +89,7 @@ pub struct ModuleCli {
 }
 
 /// CLI definition implementation
-impl ModuleCli {
+impl RuntimeModuleCli {
     /// Get sharelib path
     /// # Returns
     /// Sharelib path

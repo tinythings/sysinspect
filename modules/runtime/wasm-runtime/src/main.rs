@@ -5,7 +5,7 @@ use colored::Colorize;
 use libmodcore::{
     init_mod_doc,
     manrndr::print_mod_manual,
-    modcli::ModuleCli,
+    modcli::RuntimeModuleCli,
     modinit::ModInterface,
     response::ModResponse,
     runtime::{ModRequest, get_call_args, send_call_response},
@@ -38,7 +38,7 @@ fn list_wasm_modules(wasm_dir: &Path) {
 }
 
 /// Run the Wasm runtime with the provided request.
-fn call_runtime(_cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
+fn call_runtime(_cli: &RuntimeModuleCli, rq: &ModRequest) -> ModResponse {
     let mut r = ModResponse::new_cm();
     let rt = match wart::WasmRuntime::new(rq) {
         Err(err) => {
@@ -54,7 +54,7 @@ fn call_runtime(_cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
 
 fn main() {
     let mod_doc = init_mod_doc!(ModInterface);
-    let cli = ModuleCli::parse();
+    let cli = RuntimeModuleCli::parse();
 
     // CLI calls from the terminal directly
     if cli.is_manual() {

@@ -1,4 +1,5 @@
 pub mod argparse;
+pub mod bridge;
 pub mod sensors;
 pub mod service;
 pub mod sspec;

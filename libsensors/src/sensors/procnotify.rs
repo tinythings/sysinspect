@@ -5,10 +5,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use colored::Colorize;
-use procdog::{
-    ProcDog, ProcDogConfig,
-    events::{Callback, EventMask, ProcDogEvent},
-};
+use omnitrace_core::callbacks::Callback;
+use procdog::events::{ProcDogEvent, ProcDogMask};
+use procdog::{ProcDog, ProcDogConfig};
 use serde_json::json;
 use std::{fmt, time::Duration};
 use tokio::sync::mpsc;
@@ -25,16 +24,16 @@ impl fmt::Debug for ProcessSensor {
 }
 
 impl ProcessSensor {
-    pub(crate) fn build_mask(&self) -> EventMask {
-        let mut mask = EventMask::empty();
+    pub(crate) fn build_mask(&self) -> ProcDogMask {
+        let mut mask = ProcDogMask::empty();
         if self.cfg.opts().is_empty() {
-            mask |= EventMask::APPEARED | EventMask::DISAPPEARED;
+            mask |= ProcDogMask::APPEARED | ProcDogMask::DISAPPEARED;
         } else {
             for o in self.cfg.opts() {
                 match o.as_str() {
-                    "appeared" => mask |= EventMask::APPEARED,
-                    "disappeared" => mask |= EventMask::DISAPPEARED,
-                    "missing" => mask |= EventMask::MISSING,
+                    "appeared" => mask |= ProcDogMask::APPEARED,
+                    "disappeared" => mask |= ProcDogMask::DISAPPEARED,
+                    "missing" => mask |= ProcDogMask::MISSING,
                     _ => log::warn!("procnotify '{}' unknown opt '{}'", self.sid, o),
                 }
             }
@@ -42,6 +41,7 @@ impl ProcessSensor {
         mask
     }
 
+    #[cfg(test)]
     pub(crate) fn event_to_json(ev: ProcDogEvent) -> serde_json::Value {
         match ev {
             ProcDogEvent::Appeared { name, pid } => json!({
@@ -118,34 +118,66 @@ impl Sensor for ProcessSensor {
 
         for p in &processes {
             dog.watch(p);
-            log::info!("[{}] '{}' watching '{}' with pulse {:?}", ProcessSensor::id().bright_magenta(), self.sid, p, pulse,);
+            log::info!("[{}] '{}' watching '{}' with pulse {:?}", ProcessSensor::id().bright_magenta(), self.sid, p, pulse);
         }
+
         let mask = self.build_mask();
 
-        let cb = Callback::new(mask).on(|ev| async move { Some(Self::event_to_json(ev)) });
-        dog.add_callback(cb);
-
+        // results channel (callback returns JSON envelope)
         let (tx, mut rx) = mpsc::channel::<serde_json::Value>(0xfff);
-        dog.set_callback_channel(tx);
 
-        tokio::spawn(dog.run());
+        let lstid = self.listener_id_with_tag();
 
-        while let Some(r) = rx.recv().await {
-            let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let eid = self.make_eid(action, pname);
+        // hub
+        let mut hub = omnitrace_core::callbacks::CallbackHub::<procdog::events::ProcDogEvent>::new();
+        hub.set_result_channel(tx);
+        hub.add(BridgeCb { mask: mask.bits(), sid: self.sid.clone(), lstid, locked });
+        let hub = std::sync::Arc::new(hub);
 
-            if locked
-                && !libcommon::eidhub::get_eidhub().add(&Self::id(), &eid).await {
-                    continue;
-                }
+        let (ctx, _handle) = omnitrace_core::sensor::SensorCtx::new(hub);
 
-            (emit)(json!({
-                "eid": eid,
-                "sensor": self.sid,
-                "listener": ProcessSensor::id(),
-                "data": r,
-            }));
+        // run sensor + forward callback results
+        tokio::spawn(dog.run(ctx));
+
+        while let Some(v) = rx.recv().await {
+            (emit)(v);
         }
+    }
+}
+
+struct BridgeCb {
+    mask: u64,
+    sid: String,
+    lstid: String,
+    locked: bool,
+}
+
+#[async_trait::async_trait]
+impl Callback<ProcDogEvent> for BridgeCb {
+    fn mask(&self) -> u64 {
+        self.mask
+    }
+
+    async fn call(&self, ev: &ProcDogEvent) -> Option<serde_json::Value> {
+        let r = match ev {
+            ProcDogEvent::Appeared { name, pid } => json!({"action":"appeared","process":name,"pid":pid}),
+            ProcDogEvent::Disappeared { name, pid } => json!({"action":"disappeared","process":name,"pid":pid}),
+            ProcDogEvent::Missing { name } => json!({"action":"missing","process":name}),
+        };
+
+        let action = r.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let eid = format!("{}|{}|{}@{}|{}", self.sid, self.lstid, action, pname, 0);
+
+        if self.locked && !libcommon::eidhub::get_eidhub().add("procnotify", &eid).await {
+            return None;
+        }
+
+        Some(json!({
+            "eid": eid,
+            "sensor": self.sid,
+            "listener": "procnotify",
+            "data": r,
+        }))
     }
 }

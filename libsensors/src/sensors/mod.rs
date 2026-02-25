@@ -1,8 +1,11 @@
 pub mod fsnotify;
-#[cfg(test)]
-mod proc_ut;
+pub mod mountnotify;
+pub mod netnotify;
 pub mod procnotify;
 pub mod sensor;
+
+#[cfg(test)]
+mod proc_ut;
 
 use crate::{sensors::sensor::Sensor, sspec::SensorConf};
 use dashmap::DashMap;
@@ -26,4 +29,6 @@ pub fn init_registry() {
 
     REGISTRY.insert(fsnotify::FsNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(fsnotify::FsNotifySensor::new(sid, cfg)));
     REGISTRY.insert(procnotify::ProcessSensor::id(), |sid: String, cfg: SensorConf| Box::new(procnotify::ProcessSensor::new(sid, cfg)));
+    REGISTRY.insert(mountnotify::MountSensor::id(), |sid: String, cfg: SensorConf| Box::new(mountnotify::MountSensor::new(sid, cfg)));
+    REGISTRY.insert(netnotify::NetNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(netnotify::NetNotifySensor::new(sid, cfg)));
 }
