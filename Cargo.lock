@@ -1129,7 +1129,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1965,7 +1965,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2033,7 +2033,7 @@ dependencies = [
 [[package]]
 name = "filescream"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#54a1c970b5888f16f0df3735e52167a761d8701d"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#97d014256f00cff638b5b2b89ee8a092d1506aa4"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -2747,7 +2747,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3104,7 +3104,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3263,7 +3263,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8cfc352a66ba903c23239ef51e809508b6fc2b0f90e3476ac7a9ff47e863ae95"
 dependencies = [
  "scopeguard",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3551,11 +3551,13 @@ dependencies = [
  "env_logger",
  "fastrand",
  "filescream",
+ "humantime",
  "indexmap 2.13.0",
  "lazy_static",
  "libcommon",
  "libsysinspect",
  "log",
+ "netpacket",
  "omnitrace-core",
  "procdog",
  "serde",
@@ -4213,6 +4215,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "netpacket"
+version = "0.1.0"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#97d014256f00cff638b5b2b89ee8a092d1506aa4"
+dependencies = [
+ "async-trait",
+ "bitflags 2.11.0",
+ "glob",
+ "libc",
+ "log",
+ "omnitrace-core",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "nibble_vec"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4272,7 +4290,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4419,7 +4437,7 @@ dependencies = [
 [[package]]
 name = "omnitrace-core"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#54a1c970b5888f16f0df3735e52167a761d8701d"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#97d014256f00cff638b5b2b89ee8a092d1506aa4"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -5135,7 +5153,7 @@ dependencies = [
 [[package]]
 name = "procdog"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#54a1c970b5888f16f0df3735e52167a761d8701d"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#97d014256f00cff638b5b2b89ee8a092d1506aa4"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -5334,7 +5352,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5372,9 +5390,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6119,7 +6137,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6196,7 +6214,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7477,7 +7495,7 @@ dependencies = [
  "getrandom 0.4.1",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9205,7 +9223,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9860,7 +9878,7 @@ checksum = "b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a"
 [[package]]
 name = "xmount"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#54a1c970b5888f16f0df3735e52167a761d8701d"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#97d014256f00cff638b5b2b89ee8a092d1506aa4"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
