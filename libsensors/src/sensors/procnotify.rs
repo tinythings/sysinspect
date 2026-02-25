@@ -41,6 +41,7 @@ impl ProcessSensor {
         mask
     }
 
+    #[cfg(test)]
     pub(crate) fn event_to_json(ev: ProcDogEvent) -> serde_json::Value {
         match ev {
             ProcDogEvent::Appeared { name, pid } => json!({
