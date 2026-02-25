@@ -1,9 +1,8 @@
+use crate::bridge::reactor_emitter;
 use crate::sensors;
 use crate::sspec::SensorSpec;
 use colored::Colorize;
-use libsysinspect::intp::actproc::response::ActionResponse;
 use libsysinspect::reactor::evtproc::EventProcessor;
-use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -37,21 +36,7 @@ impl SensorService {
             let sid = sid.to_string();
             let reactor = reactor.clone();
 
-            let emit = move |ev: JsonValue| {
-                log::debug!("Registering event from sensor to reactor: {ev}");
-
-                let Some(reactor) = reactor.clone() else {
-                    log::warn!("No reactor attached for sensor '{}': {}", sid, ev);
-                    return;
-                };
-
-                let eid = ev.get("eid").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_else(|| sid.clone());
-                tokio::spawn(async move {
-                    let response = ActionResponse::from_sensor(ev);
-                    reactor.lock().await.receiver().register(eid, response);
-                });
-            };
-
+            let emit = reactor_emitter(sid.clone(), reactor.clone());
             handles.push(tokio::spawn(async move {
                 sensor.run(&emit).await;
             }));
