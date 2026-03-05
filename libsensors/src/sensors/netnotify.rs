@@ -63,6 +63,7 @@ impl Sensor for NetNotifySensor {
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
         let pulse = self.cfg.interval().unwrap_or_else(|| Duration::from_secs(1));
         let locked = self.cfg.arg_bool("locked").unwrap_or(false);
+        let sni_iface = self.cfg.arg_str("sni-interface").or_else(|| self.cfg.arg_str("sni_interface"));
 
         let patterns = self.cfg.arg_str_array("patterns").unwrap_or_default();
         let ignores = self.cfg.arg_str_array("ignore").unwrap_or_default();
@@ -79,17 +80,25 @@ impl Sensor for NetNotifySensor {
         let dns_ttl = self.cfg.arg_duration("dns-ttl").unwrap_or_else(|| Duration::from_secs(60));
 
         log::info!(
-            "[{}] '{}' pulse {:?} dns={} ttl={:?} patterns={:?} ignore={:?}",
+            "[{}] '{}' pulse {:?} dns={} ttl={:?} sni-iface={:?} patterns={:?} ignore={:?}",
             Self::id().bright_magenta(),
             self.sid,
             pulse,
             dns_on,
             dns_ttl,
+            sni_iface,
             patterns,
             ignores
         );
 
-        let mut sensor = NetNotify::new(Some(NetNotifyConfig::default().pulse(pulse))).dns(dns_on).dns_ttl(dns_ttl);
+        let mut nn_cfg = NetNotifyConfig::default().pulse(pulse);
+        if let Some(iface) = sni_iface
+            && !iface.trim().is_empty()
+        {
+            nn_cfg = nn_cfg.sni_interface(iface);
+        }
+
+        let mut sensor = NetNotify::new(Some(nn_cfg)).dns(dns_on).dns_ttl(dns_ttl);
 
         for p in &patterns {
             sensor.add(p);
