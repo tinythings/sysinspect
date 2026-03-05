@@ -1,4 +1,4 @@
-``procnotify``: React to File System Events
+``procnotify``: React to Process Events
 =================================================
 
 The ``procnotify`` sensor is watching for OS process events, such as process creation and termination.
@@ -21,7 +21,7 @@ Sensor configuration as follows:
         tag: <event name> # optional, default is procnotify
 
         opts:
-            - <process event> # created | terminated | etc.
+            - <process event> # appeared | disappeared | missing
 
         args:
             process:
@@ -29,6 +29,7 @@ Sensor configuration as follows:
                 - <process name>
 
             emit-on-start: true|false # optional, default false
+            locked: true|false # optional, default false (emit once until handler unlocks)
 
 ``profile``
 ^^^^^^^^^^^
@@ -57,7 +58,7 @@ Sensor configuration as follows:
     - ``disappeared``: Triggered when a process is terminated
     - ``missing``: Triggered when a process was not detected at all
 
-     If not specified, the sensor will monitor all events (i.e., both appearance and disappearance).
+     If not specified, the sensor will monitor ``appeared`` and ``disappeared``.
 
 ``args``
 ^^^^^^^^^^
@@ -66,6 +67,8 @@ Sensor configuration as follows:
     - ``process``: list of names of the processes to monitor.
     - ``emit-on-start``: Optional argument to specify whether to emit an event immediately upon starting
       the sensor if the process is already present. Default is false.
+    - ``locked`` (optional): if ``true``, the same event is sent only once and then muted.
+      It will be sent again only after your event handler explicitly releases/unlocks it.
 
      Example:
 
@@ -113,4 +116,3 @@ Here is an example of how to use the ``procnotify`` sensor to monitor a process 
         # If defined, an extra tag will be added to the event name:
         # ssh_config_change|procnotify@my-tag|appeared@bash|0
         tag: my-tag
-

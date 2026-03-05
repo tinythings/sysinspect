@@ -21,6 +21,7 @@ Sensor configuration as follows:
             - <file event> # created | changed | deleted
         args:
             path: <path>
+            locked: true|false # optional, default false (emit once until handler unlocks)
         tag: <event name> # optional, default is fsnotify
 
 ``profile``
@@ -50,11 +51,15 @@ Sensor configuration as follows:
     - ``changed``: Triggered when a file is modified.
     - ``deleted``: Triggered when a file is deleted.
 
+    If omitted, all three are monitored.
+
 ``args``
 ^^^^^^^^^^
     Arguments specific to the listener. For the ``fsnotify`` sensor, the following argument is required:
 
     - ``path``: The path to the file or directory to monitor.
+    - ``locked`` (optional): if ``true``, the same event is sent only once and then muted.
+      It will be sent again only after your event handler explicitly releases/unlocks it.
 
 ``tag``
 ^^^^^^^^^^
@@ -91,4 +96,3 @@ Here is an example of how to use the ``fsnotify`` sensor to monitor a directory 
         # If defined, an extra tag will be added to the event name:
         # ssh_config_change|fsnotify@my-tag|changed@/etc/ssh/sshd_config|0
         tag: my-tag
-
