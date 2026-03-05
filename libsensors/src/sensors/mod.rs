@@ -4,6 +4,7 @@ pub mod netnotify;
 pub mod procnotify;
 pub mod sensor;
 
+mod net_ut;
 #[cfg(test)]
 mod proc_ut;
 

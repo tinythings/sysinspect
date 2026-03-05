@@ -28,7 +28,7 @@ impl NetNotifySensor {
         format!("{}{}{}", Self::id(), if self.cfg.tag().is_none() { "" } else { "@" }, self.cfg.tag().unwrap_or(""))
     }
 
-    fn build_mask(&self) -> NetNotifyMask {
+    pub(crate) fn build_mask(&self) -> NetNotifyMask {
         let mut mask = NetNotifyMask::empty();
         if self.cfg.opts().is_empty() {
             mask |= NetNotifyMask::OPENED | NetNotifyMask::CLOSED;
@@ -45,7 +45,7 @@ impl NetNotifySensor {
     }
 
     // rule: if pattern has letters or glob -> enable reverse DNS
-    fn pattern_needs_dns(p: &str) -> bool {
+    pub(crate) fn pattern_needs_dns(p: &str) -> bool {
         p.contains('*') || p.chars().any(|c| c.is_ascii_alphabetic())
     }
 }
