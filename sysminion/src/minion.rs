@@ -900,20 +900,18 @@ impl SysMinion {
 /// Constructs and starts an actual minion
 pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
-    let modpak = SysInspectModPakMinion::new(cfg.clone());
-    let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
-
-    // On reconnect do not rely on outer abort, exit clean
+    // Subscribe BEFORE any await (TcpStream::connect happens in SysMinion::new)
     {
         let state = state.clone();
         let mut rx = CONNECTION_TX.subscribe();
         tokio::spawn(async move {
-            // one signal is enough
             let _ = rx.recv().await;
             state.exit.store(true, Ordering::Relaxed);
         });
     }
 
+    let modpak = SysInspectModPakMinion::new(cfg.clone());
+    let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
     let m = minion.as_ptr();
 
     let runner = m.as_ptr().dpq.clone().start_ack({
