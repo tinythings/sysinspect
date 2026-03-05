@@ -420,6 +420,9 @@ impl SysMinion {
                 };
 
                 log::trace!("Received Master message: {msg:#?}");
+                // Any successfully decoded inbound frame proves the master link is alive.
+                // Keep watchdog independent from outbound write pressure.
+                this.update_ping().await;
 
                 match msg.req_type() {
                     RequestType::Add => log::debug!("Master accepts registration"),
@@ -538,13 +541,11 @@ impl SysMinion {
                                 });
 
                                 this.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
-                                this.update_ping().await;
                             }
 
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 log::debug!("Received discovery ping from master");
                                 this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
-                                this.update_ping().await;
                             }
 
                             Err(e) => log::warn!("Invalid ping payload `{}`: {}", p, e),
