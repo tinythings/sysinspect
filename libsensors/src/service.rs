@@ -38,7 +38,25 @@ impl SensorService {
 
             let emit = reactor_emitter(sid.clone(), reactor.clone());
             handles.push(tokio::spawn(async move {
-                sensor.run(&emit).await;
+                let sid_for_log = sid.clone();
+                let run_res = tokio::task::spawn_blocking(move || {
+                    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                        Ok(rt) => rt,
+                        Err(e) => {
+                            log::error!("Failed to create runtime for sensor '{}': {e}", sid_for_log);
+                            return;
+                        }
+                    };
+
+                    rt.block_on(async move {
+                        sensor.run(&emit).await;
+                    });
+                })
+                .await;
+
+                if let Err(e) = run_res {
+                    log::error!("Sensor '{}' task panicked or was cancelled: {e}", sid);
+                }
             }));
         }
 
