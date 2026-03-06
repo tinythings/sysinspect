@@ -9,12 +9,12 @@ options:
   - name: push
     type: bool
     description: "Push (upload) the resource to the storage."
-    required: true
+    required: false
 
   - name: pull
     type: bool
     description: "Pull (download) the resource from the storage."
-    required: true
+    required: false
 
   - name: force
     type: bool
@@ -31,12 +31,17 @@ arguments:
   - name: src
     type: string
     required: true
-    description: "Path of the resource artifact. Works as an ID for the resource."
+    description: "Logical resource id in datastore (for example /somehost/etc/ssh_config)."
+
+  - name: file
+    type: string
+    required: false
+    description: "Local filesystem path. For pull: destination file path. For push: source file path."
 
   - name: dst
     type: string
     required: false
-    description: "Destination path for the resource artifact. If not set, the [Y::]src[N] path will be used as the destination."
+    description: "Alias for [Y::]file[N]. If neither [Y::]file[N] nor [Y::]dst[N] is set, [Y::]src[N] is used as local path."
 
   - name: mode
     type: string
@@ -44,10 +49,24 @@ arguments:
     description: "Unix mode for the resource artifact (e.g., '0644'). If not set, the file original permissions will be applied."
 
 examples:
-  - description: "Module usage example"
+  - description: "Pull resource from datastore"
     code: |
-      "arguments": {
-        "src": "/etc/ssh/ssh_config",
+      {
+        "opts": ["pull"],
+        "arguments": {
+          "src": "/somehost/etc/ssh_config",
+          "file": "/etc/ssh/ssh_config"
+        }
+      }
+
+  - description: "Push local file to datastore"
+    code: |
+      {
+        "opts": ["push"],
+        "arguments": {
+          "src": "/somehost/etc/ssh_config",
+          "file": "/etc/ssh/ssh_config"
+        }
       }
 
 # Description of additional data format
