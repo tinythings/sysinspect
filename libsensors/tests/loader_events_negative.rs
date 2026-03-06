@@ -48,6 +48,12 @@ sensors:
 
         write(
             root.join("a").as_path(),
+            "sensors.cfg",
+            "sensors: {}\n",
+        );
+
+        write(
+            root.join("a").as_path(),
             "a.cfg",
             r#"
 sensors:
