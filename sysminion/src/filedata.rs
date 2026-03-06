@@ -96,9 +96,7 @@ impl SensorsFiledata {
             if rp == rr {
                 return None;
             }
-            let Some(rest) = rp.strip_prefix(rr) else {
-                return None;
-            };
+            let rest = rp.strip_prefix(rr)?;
             if !rest.starts_with('/') {
                 return None;
             }
