@@ -3523,7 +3523,6 @@ dependencies = [
  "indexmap 2.13.0",
  "libcommon",
  "libsysinspect",
- "lo",
  "log",
  "regex",
  "serde",
@@ -3828,12 +3827,6 @@ name = "litemap"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
-
-[[package]]
-name = "lo"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35a010e03e6517e33f55f5fb5a49bf1cd367d54053648ea6fbf6f15aa68e0c62"
 
 [[package]]
 name = "local-channel"
