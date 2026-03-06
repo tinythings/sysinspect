@@ -49,6 +49,7 @@ Below is a list of available control modules and their documentation:
    sys_run
    sys_ssrun
    fs_file
+   cfg_resource
 
 Runtime Modules
 ----------------
