@@ -342,7 +342,11 @@ impl SysMinion {
 
             match self.as_ptr().download_file(f).await {
                 Ok(content) => {
-                    let pth = self.cfg.sensors_dir().join(sensors.unprefix_path(f.trim_start_matches('/')));
+                    let Some(rel) = sensors.local_rel_path(f) else {
+                        log::warn!("Skipping unsafe sensor path from master payload while writing file: '{}'", f);
+                        continue;
+                    };
+                    let pth = self.cfg.sensors_dir().join(rel);
 
                     if let Some(parent) = pth.parent() {
                         if !parent.exists()
@@ -973,8 +977,17 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                 sync_res = modpak.sync() => {
                     sync_res?;
                 }
-                _ = reconnect_rx.recv() => {
-                    state.exit.store(true, Ordering::Relaxed);
+                sig = reconnect_rx.recv() => {
+                    match sig {
+                        Ok(_) => state.exit.store(true, Ordering::Relaxed),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            log::debug!("Ignoring lagged reconnect notifications during startup sync: {n}");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            log::warn!("Reconnect channel closed during startup sync; exiting minion instance.");
+                            state.exit.store(true, Ordering::Relaxed);
+                        }
+                    }
                 }
             }
         } else {
@@ -991,8 +1004,17 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
         tokio::select! {
-            _ = reconnect_rx.recv() => {
-                state.exit.store(true, Ordering::Relaxed);
+            sig = reconnect_rx.recv() => {
+                match sig {
+                    Ok(_) => state.exit.store(true, Ordering::Relaxed),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        log::debug!("Ignoring lagged reconnect notifications in main loop: {n}");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        log::warn!("Reconnect channel closed in main loop; exiting minion instance.");
+                        state.exit.store(true, Ordering::Relaxed);
+                    }
+                }
             }
             _ = sleep(tokio::time::Duration::from_millis(200)) => {}
         }
@@ -1038,9 +1060,20 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
                     Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
                 }
             }
-            _ = reconnect_rx.recv() => {
-                log::warn!("Reconnect signal received; aborting current minion instance.");
-                let _ = mhdl.await;
+            sig = reconnect_rx.recv() => {
+                match sig {
+                    Ok(_) => {
+                        log::warn!("Reconnect signal received; aborting current minion instance.");
+                        let _ = mhdl.await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        log::debug!("Ignoring lagged reconnect notifications in supervisor loop: {n}");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        log::warn!("Reconnect channel closed in supervisor loop; waiting for minion instance task.");
+                        let _ = mhdl.await;
+                    }
+                }
             }
         }
 
