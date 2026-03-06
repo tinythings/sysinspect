@@ -32,7 +32,7 @@ The following syntax is used to configure events definition:
     :caption: Confguration Syntax
 
     events:
-        <action id>/<bound entity>/<state>/<return code>:
+        <action id>|<bound entity>|<state>|<return code>:
             # List of attached handlers and their order
             handlers:
                 - <list>
@@ -50,7 +50,7 @@ The following syntax is used to configure events definition:
 ``<event id>``
 ^^^^^^^^^^^^^^
 
-    An event Id is a path-like composite of three other Ids, such as:
+    An event Id is a positional string of four sections, such as:
 
     1. **Action Id**, which causes the event
     2. **Bound Entity Id**, which binds the action to the entity
@@ -59,7 +59,7 @@ The following syntax is used to configure events definition:
     .. code-block:: text
         :caption: Even Id Format
 
-        <action id>/<bound entity id>/<state>/<return code>
+        <action id>|<bound entity id>|<state>|<return code>
 
     The *event Id* is holding the rest of the behaviour for this event. Return code has the
     following syntax:

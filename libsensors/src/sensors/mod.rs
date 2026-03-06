@@ -1,8 +1,18 @@
 pub mod fsnotify;
-#[cfg(test)]
-mod proc_ut;
+pub mod ifacenotify;
+pub mod mountnotify;
+pub mod netnotify;
 pub mod procnotify;
 pub mod sensor;
+pub mod socknotify;
+
+#[cfg(test)]
+mod ifacenotify_ut;
+mod net_ut;
+#[cfg(test)]
+mod proc_ut;
+#[cfg(test)]
+mod socknotify_ut;
 
 use crate::{sensors::sensor::Sensor, sspec::SensorConf};
 use dashmap::DashMap;
@@ -26,4 +36,8 @@ pub fn init_registry() {
 
     REGISTRY.insert(fsnotify::FsNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(fsnotify::FsNotifySensor::new(sid, cfg)));
     REGISTRY.insert(procnotify::ProcessSensor::id(), |sid: String, cfg: SensorConf| Box::new(procnotify::ProcessSensor::new(sid, cfg)));
+    REGISTRY.insert(mountnotify::MountSensor::id(), |sid: String, cfg: SensorConf| Box::new(mountnotify::MountSensor::new(sid, cfg)));
+    REGISTRY.insert(netnotify::NetNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(netnotify::NetNotifySensor::new(sid, cfg)));
+    REGISTRY.insert(ifacenotify::IfaceSensor::id(), |sid: String, cfg: SensorConf| Box::new(ifacenotify::IfaceSensor::new(sid, cfg)));
+    REGISTRY.insert(socknotify::SockTraySensor::id(), |sid: String, cfg: SensorConf| Box::new(socknotify::SockTraySensor::new(sid, cfg)));
 }

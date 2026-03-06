@@ -52,4 +52,40 @@ sensors:
         assert_eq!(n1, n2);
         assert!(n1 >= 1);
     }
+
+    #[test]
+    fn test_registry_has_ifacenotify_after_init() {
+        sensors::init_registry();
+
+        let y = r#"
+sensors:
+  netif:
+    listener: ifacenotify
+"#;
+
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let (sid, cfg) = items.iter().next().unwrap();
+
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        assert!(s.is_some(), "ifacenotify must be registered");
+    }
+
+    #[test]
+    fn test_registry_has_socknotify_after_init() {
+        sensors::init_registry();
+
+        let y = r#"
+sensors:
+  sockets:
+    listener: socknotify
+"#;
+
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let (sid, cfg) = items.iter().next().unwrap();
+
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        assert!(s.is_some(), "socknotify must be registered");
+    }
 }

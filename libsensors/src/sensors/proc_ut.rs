@@ -4,7 +4,7 @@ mod tests {
     use super::*;
     use crate::sensors::sensor::Sensor;
     use crate::sspec::SensorConf;
-    use procdog::events::{EventMask, ProcDogEvent};
+    use procdog::events::{ProcDogEvent, ProcDogMask};
     use serde_json::{from_value, json};
     use std::sync::{
         Arc,
@@ -56,9 +56,9 @@ mod tests {
 
         let m = s.build_mask();
 
-        assert!(m.contains(EventMask::MISSING));
-        assert!(!m.contains(EventMask::APPEARED));
-        assert!(!m.contains(EventMask::DISAPPEARED));
+        assert!(m.contains(ProcDogMask::MISSING));
+        assert!(!m.contains(ProcDogMask::APPEARED));
+        assert!(!m.contains(ProcDogMask::DISAPPEARED));
     }
 
     #[test]
@@ -67,9 +67,9 @@ mod tests {
 
         let m = s.build_mask();
 
-        assert!(m.contains(EventMask::APPEARED));
-        assert!(m.contains(EventMask::MISSING));
-        assert!(!m.contains(EventMask::DISAPPEARED));
+        assert!(m.contains(ProcDogMask::APPEARED));
+        assert!(m.contains(ProcDogMask::MISSING));
+        assert!(!m.contains(ProcDogMask::DISAPPEARED));
     }
 
     #[test]
@@ -77,8 +77,8 @@ mod tests {
         let s = ProcessSensor::new("SID".into(), mk_cfg(Some("sleep"), &[], None));
         let m = s.build_mask();
 
-        assert!(m.contains(EventMask::APPEARED));
-        assert!(m.contains(EventMask::DISAPPEARED));
+        assert!(m.contains(ProcDogMask::APPEARED));
+        assert!(m.contains(ProcDogMask::DISAPPEARED));
     }
 
     #[test]
@@ -86,8 +86,8 @@ mod tests {
         let s = ProcessSensor::new("SID".into(), mk_cfg(Some("sleep"), &["appeared"], None));
         let m = s.build_mask();
 
-        assert!(m.contains(EventMask::APPEARED));
-        assert!(!m.contains(EventMask::DISAPPEARED));
+        assert!(m.contains(ProcDogMask::APPEARED));
+        assert!(!m.contains(ProcDogMask::DISAPPEARED));
     }
 
     #[test]

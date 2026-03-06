@@ -5,6 +5,7 @@ pub trait SensorArgs {
     fn arg_u64(&self, key: &str) -> Option<u64>;
     fn arg_bool(&self, key: &str) -> Option<bool>;
     fn arg_str_array(&self, key: &str) -> Option<Vec<String>>;
+    fn arg_duration(&self, key: &str) -> Option<std::time::Duration>;
 }
 
 impl SensorArgs for SensorConf {
@@ -26,5 +27,9 @@ impl SensorArgs for SensorConf {
             .as_sequence()
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string()).collect::<Vec<_>>())
             .filter(|v| !v.is_empty())
+    }
+
+    fn arg_duration(&self, key: &str) -> Option<std::time::Duration> {
+        self.args().get(key).and_then(|v| v.as_str()).and_then(|s| humantime::parse_duration(s).ok())
     }
 }

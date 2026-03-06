@@ -51,7 +51,7 @@ use serde_json::json;
 use serde_yaml::Value as YamlValue;
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
@@ -96,6 +96,26 @@ pub struct SysMinion {
 }
 
 impl SysMinion {
+    fn cleanup_empty_sensor_dirs(root: &Path, dir: &Path) {
+        let Ok(rd) = fs::read_dir(dir) else {
+            return;
+        };
+
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                Self::cleanup_empty_sensor_dirs(root, &p);
+            }
+        }
+
+        if dir != root
+            && fs::read_dir(dir).map(|mut i| i.next().is_none()).unwrap_or(false)
+            && let Err(e) = fs::remove_dir(dir)
+        {
+            log::debug!("Unable to remove empty sensors dir '{}': {e}", dir.display());
+        }
+    }
+
     pub async fn new(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<Arc<SysMinion>, SysinspectError> {
         log::debug!("Configuration: {cfg:#?}");
         log::debug!("Trying to connect at {}", cfg.master());
@@ -303,13 +323,30 @@ impl SysMinion {
     /// This is a separate async task that runs in parallel with the main loop, and is responsible
     /// for keeping the sensors running and their events flowing to the reactor.
     pub async fn do_sensors(self: Arc<Self>, sensors: SensorsFiledata) -> Result<(), SysinspectError> {
+        // prune stale local files
+        let sroot = self.cfg.sensors_dir();
+        for rel in sensors.stale_paths() {
+            let pth = sroot.join(rel);
+            if pth.is_file() {
+                match fs::remove_file(&pth) {
+                    Ok(_) => log::info!("Removed stale sensor file {}", format!("\"{}\"", pth.display()).yellow()),
+                    Err(e) => log::error!("Failed to remove stale sensor file '{}': {e}", pth.display()),
+                }
+            }
+        }
+        Self::cleanup_empty_sensor_dirs(&sroot, &sroot);
+
         // download
         for f in sensors.files().keys() {
             log::info!("Sensor file '{}' with checksum {} needs to be downloaded or updated.", f, sensors.files().get(f).unwrap_or(&"".to_string()));
 
             match self.as_ptr().download_file(f).await {
                 Ok(content) => {
-                    let pth = self.cfg.sensors_dir().join(sensors.unprefix_path(f.trim_start_matches('/')));
+                    let Some(rel) = sensors.local_rel_path(f) else {
+                        log::warn!("Skipping unsafe sensor path from master payload while writing file: '{}'", f);
+                        continue;
+                    };
+                    let pth = self.cfg.sensors_dir().join(rel);
 
                     if let Some(parent) = pth.parent() {
                         if !parent.exists()
@@ -420,6 +457,9 @@ impl SysMinion {
                 };
 
                 log::trace!("Received Master message: {msg:#?}");
+                // Any successfully decoded inbound frame proves the master link is alive.
+                // Keep watchdog independent from outbound write pressure.
+                this.update_ping().await;
 
                 match msg.req_type() {
                     RequestType::Add => log::debug!("Master accepts registration"),
@@ -538,13 +578,11 @@ impl SysMinion {
                                 });
 
                                 this.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
-                                this.update_ping().await;
                             }
 
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 log::debug!("Received discovery ping from master");
                                 this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
-                                this.update_ping().await;
                             }
 
                             Err(e) => log::warn!("Invalid ping payload `{}`: {}", p, e),
@@ -900,20 +938,12 @@ impl SysMinion {
 /// Constructs and starts an actual minion
 pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
+    // Subscribe BEFORE any await (TcpStream::connect happens in SysMinion::new)
+    // and keep this receiver for the entire instance lifetime.
+    let mut reconnect_rx = CONNECTION_TX.subscribe();
+
     let modpak = SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
-
-    // On reconnect do not rely on outer abort, exit clean
-    {
-        let state = state.clone();
-        let mut rx = CONNECTION_TX.subscribe();
-        tokio::spawn(async move {
-            // one signal is enough
-            let _ = rx.recv().await;
-            state.exit.store(true, Ordering::Relaxed);
-        });
-    }
-
     let m = minion.as_ptr();
 
     let runner = m.as_ptr().dpq.clone().start_ack({
@@ -943,7 +973,23 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         // ehlo
         minion.as_ptr().send_ehlo().await?;
         if cfg.autosync_startup() {
-            modpak.sync().await?;
+            tokio::select! {
+                sync_res = modpak.sync() => {
+                    sync_res?;
+                }
+                sig = reconnect_rx.recv() => {
+                    match sig {
+                        Ok(_) => state.exit.store(true, Ordering::Relaxed),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            log::debug!("Ignoring lagged reconnect notifications during startup sync: {n}");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            log::warn!("Reconnect channel closed during startup sync; exiting minion instance.");
+                            state.exit.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
         } else {
             log::warn!("Module auto-sync {} is disabled. Call cluster sync to force modules sync.", "on startup".bright_yellow());
         }
@@ -957,7 +1003,21 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
-        sleep(tokio::time::Duration::from_millis(200)).await;
+        tokio::select! {
+            sig = reconnect_rx.recv() => {
+                match sig {
+                    Ok(_) => state.exit.store(true, Ordering::Relaxed),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        log::debug!("Ignoring lagged reconnect notifications in main loop: {n}");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        log::warn!("Reconnect channel closed in main loop; exiting minion instance.");
+                        state.exit.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
+            _ = sleep(tokio::time::Duration::from_millis(200)) => {}
+        }
     }
 
     minion.as_ptr().stop_sensors().await;
@@ -1000,9 +1060,20 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
                     Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
                 }
             }
-            _ = reconnect_rx.recv() => {
-                log::warn!("Reconnect signal received; aborting current minion instance.");
-                let _ = mhdl.await;
+            sig = reconnect_rx.recv() => {
+                match sig {
+                    Ok(_) => {
+                        log::warn!("Reconnect signal received; aborting current minion instance.");
+                        let _ = mhdl.await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        log::debug!("Ignoring lagged reconnect notifications in supervisor loop: {n}");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        log::warn!("Reconnect channel closed in supervisor loop; waiting for minion instance task.");
+                        let _ = mhdl.await;
+                    }
+                }
             }
         }
 

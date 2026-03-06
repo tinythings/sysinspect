@@ -1,0 +1,18 @@
+cfg.resource TODO
+=================
+
+1. Add authenticated datastore API access from minion config
+- Extend minion config schema with explicit resource/API auth fields.
+- Use module runtime config injection (not model args) to build auth headers.
+
+2. Add API transport settings to minion config
+- Add explicit keys for API scheme and API port on minion side.
+- Keep defaults for backward compatibility where possible.
+
+3. Add end-to-end tests for protected datastore access
+- Positive path: valid token can push/pull.
+- Negative path: missing/invalid token is rejected.
+
+4. Document production security setup
+- Required minion config keys.
+- Token rotation and migration notes.

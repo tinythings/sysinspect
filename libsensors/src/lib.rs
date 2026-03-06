@@ -1,4 +1,5 @@
 pub mod argparse;
+pub mod bridge;
 pub mod sensors;
 pub mod service;
 pub mod sspec;
@@ -7,10 +8,12 @@ pub mod sspec;
 mod lib_ut;
 
 use crate::sspec::{IntervalRange, SensorConf, SensorSpec};
+use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use serde::Deserialize;
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -24,31 +27,95 @@ struct Wrapper {
     events: Option<serde_yaml::Value>,
 }
 
-fn merged_events_yaml(p: &Path) -> Result<serde_yaml::Value, SysinspectError> {
-    let root_cfg: PathBuf = p.join("sensors.cfg");
-    let mut events_map: serde_yaml::Mapping = serde_yaml::Mapping::new();
+fn path_depth(p: &Path) -> usize {
+    p.components().count()
+}
 
-    let mut chunks: Vec<PathBuf> = WalkDir::new(p)
+fn list_cfg_files(p: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = WalkDir::new(p)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("cfg"))
         .map(|e| e.into_path())
         .collect();
+    files.sort();
+    files
+}
 
-    chunks.sort();
+/// Collect cfg chunks in deterministic order with scope roots.
+///
+/// Scope root is a directory that contains `sensors.cfg`.
+/// Rules:
+/// - sibling scopes are allowed
+/// - nested `sensors.cfg` is ignored (warn)
+/// - each scope loads `sensors.cfg` first, then all other `*.cfg` recursively
+/// - files outside any scope are ignored when at least one scope exists (warn)
+fn collect_chunks(p: &Path) -> Vec<PathBuf> {
+    let all = list_cfg_files(p);
+    let mut idxs: Vec<PathBuf> = all
+        .iter()
+        .filter(|x| x.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg"))
+        .cloned()
+        .collect();
 
-    // root sensors.cfg first (if exists)
-    if root_cfg.exists() {
-        chunks.retain(|x| x != &root_cfg);
-        chunks.insert(0, root_cfg.clone());
+    // Strict mode: no sensors.cfg index => no chunks are loaded.
+    if idxs.is_empty() {
+        log::warn!(
+            "No {} index found under {}. No sensor chunks will be loaded.",
+            "\"sensors.cfg\"".yellow(),
+            format!("\"{}\"", p.display()).yellow()
+        );
+        return vec![];
     }
 
-    for path in chunks {
-        // ignore nested sensors.cfg
-        if path.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg") && path != root_cfg {
+    idxs.sort_by(|a, b| path_depth(a).cmp(&path_depth(b)).then(a.cmp(b)));
+
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for idx in idxs {
+        let dir = idx.parent().unwrap_or(p).to_path_buf();
+        if let Some(parent_root) = roots.iter().find(|r| dir.starts_with(r.as_path())) {
+            log::warn!("Ignoring nested sensors.cfg at {} (scope root is {})", idx.display(), parent_root.display());
             continue;
         }
+        roots.push(dir);
+    }
+    roots.sort();
+
+    let mut chunks = Vec::<PathBuf>::new();
+    let mut included = HashSet::<PathBuf>::new();
+
+    for root in &roots {
+        let idx = root.join("sensors.cfg");
+        if idx.exists() {
+            chunks.push(idx.clone());
+            included.insert(idx);
+        }
+
+        let mut sub = list_cfg_files(root);
+        sub.retain(|f| f.file_name().and_then(|s| s.to_str()) != Some("sensors.cfg"));
+        for f in sub {
+            if included.insert(f.clone()) {
+                chunks.push(f);
+            }
+        }
+    }
+
+    for f in &all {
+        if f.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg") {
+            continue;
+        }
+        if !included.contains(f) {
+            log::warn!("Ignoring cfg outside any sensors scope (missing sibling sensors.cfg): {}", f.display());
+        }
+    }
+
+    chunks
+}
+
+fn merged_events_yaml(p: &Path) -> Result<serde_yaml::Value, SysinspectError> {
+    let mut events_map: serde_yaml::Mapping = serde_yaml::Mapping::new();
+    for path in collect_chunks(p) {
 
         let mut w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(&path)?) {
             Ok(v) => v,
@@ -94,41 +161,11 @@ fn merge_events(dst: &mut serde_yaml::Mapping, src: serde_yaml::Value, path: &Pa
 pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
     log::info!("Loading sensor specifications from {}", p.display());
 
-    let root_cfg: PathBuf = p.join("sensors.cfg");
-
     let mut interval: Option<IntervalRange> = None;
     let mut sensors: IndexMap<String, SensorConf> = IndexMap::new();
     let mut events_map: serde_yaml::Mapping = serde_yaml::Mapping::new();
 
-    let mut chunks: Vec<PathBuf> = WalkDir::new(p)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("cfg"))
-        .map(|e| e.into_path())
-        .collect();
-
-    chunks.sort();
-
-    // Enforce: only $ROOT/sensors/sensors.cfg is allowed as sensors.cfg
-    for path in &chunks {
-        if path.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg") && path != &root_cfg {
-            log::warn!("Ignoring nested sensors.cfg at {} (only {} is allowed)", path.display(), root_cfg.display());
-        }
-    }
-
-    // Process root sensors.cfg first (if it exists)
-    if root_cfg.exists() {
-        chunks.retain(|x| x != &root_cfg);
-        chunks.insert(0, root_cfg.clone());
-    }
-
-    for path in chunks {
-        // skip forbidden nested sensors.cfg
-        if path.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg") && path != root_cfg {
-            continue;
-        }
-
+    for path in collect_chunks(p) {
         log::debug!("Loading sensors chunk: {}", path.display());
         let w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(&path)?) {
             Ok(v) => v,
@@ -142,14 +179,8 @@ pub fn load(p: &Path) -> Result<SensorSpec, SysinspectError> {
         if let Some(spec) = w.sensors.as_ref() {
             let this_interval = spec.interval_range().cloned();
 
-            // interval rule:
-            // - if interval defined in root sensors.cfg => it wins, ignore all others
-            // - otherwise first interval wins
-            if path == root_cfg {
-                if this_interval.is_some() {
-                    interval = this_interval;
-                }
-            } else if interval.is_none() {
+            // interval rule: first defined wins, all others are ignored.
+            if interval.is_none() {
                 interval = this_interval;
             } else if this_interval.is_some() {
                 log::warn!("Interval already defined. Ignoring interval in {}", path.display());
