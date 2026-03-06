@@ -8,6 +8,7 @@ pub mod sspec;
 mod lib_ut;
 
 use crate::sspec::{IntervalRange, SensorConf, SensorSpec};
+use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use serde::Deserialize;
@@ -60,7 +61,11 @@ fn collect_chunks(p: &Path) -> Vec<PathBuf> {
 
     // Strict mode: no sensors.cfg index => no chunks are loaded.
     if idxs.is_empty() {
-        log::warn!("No sensors.cfg index found under {}. No sensor chunks will be loaded.", p.display());
+        log::warn!(
+            "No {} index found under {}. No sensor chunks will be loaded.",
+            "\"sensors.cfg\"".yellow(),
+            format!("\"{}\"", p.display()).yellow()
+        );
         return vec![];
     }
 

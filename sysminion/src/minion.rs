@@ -329,7 +329,7 @@ impl SysMinion {
             let pth = sroot.join(rel);
             if pth.is_file() {
                 match fs::remove_file(&pth) {
-                    Ok(_) => log::info!("Removed stale sensor file '{}'", pth.display()),
+                    Ok(_) => log::info!("Removed stale sensor file {}", format!("\"{}\"", pth.display()).yellow()),
                     Err(e) => log::error!("Failed to remove stale sensor file '{}': {e}", pth.display()),
                 }
             }
