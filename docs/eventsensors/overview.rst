@@ -154,3 +154,5 @@ Here are the available sensors. This list is not exhaustive and may be updated a
   procnotify
   mountnotify
   netnotify
+  ifacenotify
+  socknotify
