@@ -3711,6 +3711,7 @@ dependencies = [
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "sysinfo 0.34.2",
+ "tempfile",
  "tera",
  "textwrap",
  "thiserror 2.0.18",
