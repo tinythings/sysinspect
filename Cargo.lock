@@ -1129,7 +1129,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1965,7 +1965,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2033,7 +2033,7 @@ dependencies = [
 [[package]]
 name = "filescream"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#049449f18c1e6039d18d06d94751dcf1759f541f"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -2747,7 +2747,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -2924,6 +2924,20 @@ checksum = "69b2eeee38fef3aa9b4cc5f1beea8a2444fc00e7377cafae396de3f5c2065e24"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "iface"
+version = "0.1.0"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
+dependencies = [
+ "async-trait",
+ "bitflags 2.11.0",
+ "libc",
+ "log",
+ "omnitrace-core",
+ "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -3113,7 +3127,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3272,7 +3286,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8cfc352a66ba903c23239ef51e809508b6fc2b0f90e3476ac7a9ff47e863ae95"
 dependencies = [
  "scopeguard",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3580,6 +3594,7 @@ dependencies = [
  "fastrand",
  "filescream",
  "humantime",
+ "iface",
  "indexmap 2.13.0",
  "lazy_static",
  "libcommon",
@@ -3591,6 +3606,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "socktray",
  "tempfile",
  "tokio",
  "walkdir",
@@ -4234,7 +4250,7 @@ dependencies = [
 [[package]]
 name = "netpacket"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#049449f18c1e6039d18d06d94751dcf1759f541f"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -4314,7 +4330,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4461,7 +4477,7 @@ dependencies = [
 [[package]]
 name = "omnitrace-core"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#049449f18c1e6039d18d06d94751dcf1759f541f"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -5268,7 +5284,7 @@ dependencies = [
 [[package]]
 name = "procdog"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#049449f18c1e6039d18d06d94751dcf1759f541f"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -5467,7 +5483,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5505,9 +5521,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6258,7 +6274,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6335,7 +6351,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6359,7 +6375,7 @@ dependencies = [
 [[package]]
 name = "rustpython"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "cfg-if",
  "dirs-next",
@@ -6379,7 +6395,7 @@ dependencies = [
 [[package]]
 name = "rustpython-codegen"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "ahash 0.8.12",
  "bitflags 2.11.0",
@@ -6402,7 +6418,7 @@ dependencies = [
 [[package]]
 name = "rustpython-common"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "ascii",
  "bitflags 2.11.0",
@@ -6430,7 +6446,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "ruff_python_ast",
  "ruff_python_parser",
@@ -6444,7 +6460,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "bitflags 2.11.0",
  "itertools 0.14.0",
@@ -6458,7 +6474,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
@@ -6468,7 +6484,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive-impl"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "itertools 0.14.0",
  "maplit",
@@ -6484,7 +6500,7 @@ dependencies = [
 [[package]]
 name = "rustpython-doc"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "phf 0.13.1",
 ]
@@ -6492,7 +6508,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -6505,7 +6521,7 @@ dependencies = [
 [[package]]
 name = "rustpython-pylib"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "glob",
  "rustpython-compiler-core",
@@ -6515,7 +6531,7 @@ dependencies = [
 [[package]]
 name = "rustpython-sre_engine"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "bitflags 2.11.0",
  "num_enum",
@@ -6526,7 +6542,7 @@ dependencies = [
 [[package]]
 name = "rustpython-stdlib"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "adler32",
  "ahash 0.8.12",
@@ -6613,7 +6629,7 @@ dependencies = [
 [[package]]
 name = "rustpython-vm"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "ahash 0.8.12",
  "ascii",
@@ -6685,7 +6701,7 @@ dependencies = [
 [[package]]
 name = "rustpython-wtf8"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/RustPython.git#04cf5daccab9abc2339dc5e610032720ef11366e"
+source = "git+https://github.com/RustPython/RustPython.git#a27d812286833868b934d938d92ce2de0b4e4bda"
 dependencies = [
  "ascii",
  "bstr",
@@ -7209,6 +7225,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "socktray"
+version = "0.1.0"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
+dependencies = [
+ "async-trait",
+ "bitflags 2.11.0",
+ "cc",
+ "glob",
+ "libc",
+ "log",
+ "omnitrace-core",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "sodiumoxide"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7617,7 +7649,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8582,9 +8614,9 @@ checksum = "e2eebbbfe4093922c2b6734d7c679ebfebd704a0d7e56dfcb0d05818ce28977d"
 
 [[package]]
 name = "uuid"
-version = "1.21.0"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b672338555252d43fd2240c714dc444b8c6fb0a5c5335e65a07bba7742735ddb"
+checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
 dependencies = [
  "atomic",
  "getrandom 0.4.2",
@@ -9354,7 +9386,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9803,9 +9835,9 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winnow"
-version = "0.7.14"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
 ]
@@ -10009,7 +10041,7 @@ checksum = "b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a"
 [[package]]
 name = "xmount"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#049449f18c1e6039d18d06d94751dcf1759f541f"
+source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
