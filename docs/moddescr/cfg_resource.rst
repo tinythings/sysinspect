@@ -15,8 +15,14 @@ It can:
 - ``pull`` a file from datastore and materialise it locally
 
 The module is designed for resource workflows where models only describe
-**what** to place and **where**. Connection details and authentication are taken from Minion
-runtime configuration behind the scenes.
+**what** to place and **where**.
+
+At the moment, transport is resolved internally as:
+
+- ``http://<master.ip>:4202``
+
+where ``master.ip`` comes from Minion configuration, and ``4202`` is the current default API port.
+Authentication headers are not used yet in this module version.
 
 In simple words for day-to-day usage:
 
