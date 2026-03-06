@@ -21,7 +21,7 @@ Master
 
 4. Ensure you have sys.run and cfg.resource modules in the master repository:
 
-      sysinslect module -L
+      sysinspect module -L
 
    You should have "cfg.resource" and "sys.run" modules available.
 
