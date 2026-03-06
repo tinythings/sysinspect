@@ -33,6 +33,52 @@ up to you. They are merged together into a single configuration on the Master an
     If you accidentally define same IDs with the different configurations, the rule is "first wins" — the files are sorted
     alphabetically.
 
+How Sensor Definitions Are Merged
+----------------------------------
+
+To keep large sensor trees manageable, Sysinspect uses **scope roots**.
+A scope root is any directory that contains ``sensors.cfg``.
+
+Typical example:
+
+.. code-block:: text
+
+    /etc/sysinspect/data/sensors/
+      foo/
+        sensors.cfg
+        linux.cfg
+      bar/
+        sensors.cfg
+        network/
+          ports.cfg
+
+Merge rules are:
+
+1. **Sibling scopes are allowed**
+   ``foo/sensors.cfg`` and ``bar/sensors.cfg`` are both valid and both are loaded.
+
+2. **Nested** ``sensors.cfg`` **is not allowed inside a scope**
+   If ``foo/sensors.cfg`` exists, then ``foo/**/sensors.cfg`` is ignored with a warning.
+   This means ``foo/sensors.cfg`` makes ``foo`` one single scope, and all nested indexes under ``foo`` are ignored.
+
+3. **Split scopes must be siblings**
+   To split configuration into separate scopes, put ``sensors.cfg`` on sibling directories only, for example
+   ``foo/bar/sensors.cfg`` and ``foo/toto/sensors.cfg``.
+   In that layout, ``foo/sensors.cfg`` must not exist.
+
+4. **Order is deterministic**
+   Scopes are processed alphabetically; inside each scope:
+   - ``sensors.cfg`` is processed first
+   - then all other ``*.cfg`` files recursively, alphabetically
+
+5. **Duplicate keys use first-wins**
+   If the same sensor ID (or event key) is defined multiple times, the first one in merge order is kept,
+   later ones are ignored with a warning.
+
+6. **No index fallback**
+   If no ``sensors.cfg`` exists anywhere in the tree, Sysinspect does not load sensor chunks from that tree.
+   A warning is emitted so missing scope roots are visible in logs.
+
 
 Synopsis
 --------
