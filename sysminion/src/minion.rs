@@ -902,14 +902,8 @@ impl SysMinion {
 pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<(), SysinspectError> {
     let state = Arc::new(ExitState::new());
     // Subscribe BEFORE any await (TcpStream::connect happens in SysMinion::new)
-    {
-        let state = state.clone();
-        let mut rx = CONNECTION_TX.subscribe();
-        tokio::spawn(async move {
-            let _ = rx.recv().await;
-            state.exit.store(true, Ordering::Relaxed);
-        });
-    }
+    // and keep this receiver for the entire instance lifetime.
+    let mut reconnect_rx = CONNECTION_TX.subscribe();
 
     let modpak = SysInspectModPakMinion::new(cfg.clone());
     let minion = SysMinion::new(cfg.clone(), fingerprint, dpq).await?;
@@ -942,7 +936,14 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         // ehlo
         minion.as_ptr().send_ehlo().await?;
         if cfg.autosync_startup() {
-            modpak.sync().await?;
+            tokio::select! {
+                sync_res = modpak.sync() => {
+                    sync_res?;
+                }
+                _ = reconnect_rx.recv() => {
+                    state.exit.store(true, Ordering::Relaxed);
+                }
+            }
         } else {
             log::warn!("Module auto-sync {} is disabled. Call cluster sync to force modules sync.", "on startup".bright_yellow());
         }
@@ -956,7 +957,12 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
-        sleep(tokio::time::Duration::from_millis(200)).await;
+        tokio::select! {
+            _ = reconnect_rx.recv() => {
+                state.exit.store(true, Ordering::Relaxed);
+            }
+            _ = sleep(tokio::time::Duration::from_millis(200)) => {}
+        }
     }
 
     minion.as_ptr().stop_sensors().await;
