@@ -51,7 +51,7 @@ use serde_json::json;
 use serde_yaml::Value as YamlValue;
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
@@ -96,6 +96,26 @@ pub struct SysMinion {
 }
 
 impl SysMinion {
+    fn cleanup_empty_sensor_dirs(root: &Path, dir: &Path) {
+        let Ok(rd) = fs::read_dir(dir) else {
+            return;
+        };
+
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                Self::cleanup_empty_sensor_dirs(root, &p);
+            }
+        }
+
+        if dir != root
+            && fs::read_dir(dir).map(|mut i| i.next().is_none()).unwrap_or(false)
+            && let Err(e) = fs::remove_dir(dir)
+        {
+            log::debug!("Unable to remove empty sensors dir '{}': {e}", dir.display());
+        }
+    }
+
     pub async fn new(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<Arc<SysMinion>, SysinspectError> {
         log::debug!("Configuration: {cfg:#?}");
         log::debug!("Trying to connect at {}", cfg.master());
@@ -303,6 +323,19 @@ impl SysMinion {
     /// This is a separate async task that runs in parallel with the main loop, and is responsible
     /// for keeping the sensors running and their events flowing to the reactor.
     pub async fn do_sensors(self: Arc<Self>, sensors: SensorsFiledata) -> Result<(), SysinspectError> {
+        // prune stale local files
+        let sroot = self.cfg.sensors_dir();
+        for rel in sensors.stale_paths() {
+            let pth = sroot.join(rel);
+            if pth.is_file() {
+                match fs::remove_file(&pth) {
+                    Ok(_) => log::info!("Removed stale sensor file '{}'", pth.display()),
+                    Err(e) => log::error!("Failed to remove stale sensor file '{}': {e}", pth.display()),
+                }
+            }
+        }
+        Self::cleanup_empty_sensor_dirs(&sroot, &sroot);
+
         // download
         for f in sensors.files().keys() {
             log::info!("Sensor file '{}' with checksum {} needs to be downloaded or updated.", f, sensors.files().get(f).unwrap_or(&"".to_string()));
