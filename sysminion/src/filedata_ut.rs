@@ -67,4 +67,39 @@ mod filedata_ut {
         assert!(sfd.files().contains_key("/sensors/bar.cfg"));
         assert!(sfd.stale_paths().contains(&"foo.cfg".to_string()));
     }
+
+    #[test]
+    fn unsafe_remote_paths_are_ignored() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+
+        let payload = json!({
+            "sensors_root": "sensors",
+            "files": {
+                "/sensors/../../etc/passwd": "deadbeef",
+                "/sensors/../x.cfg": "cafebabe",
+                "/etc/shadow": "aaaa"
+            }
+        });
+
+        let sfd = SensorsFiledata::from_payload(payload, root.to_path_buf()).unwrap();
+        assert!(sfd.files().is_empty());
+    }
+
+    #[test]
+    fn all_invalid_manifest_entries_do_not_prune_existing_local_files() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        fs::write(root.join("keep.cfg"), "keep").unwrap();
+
+        let payload = json!({
+            "sensors_root": "sensors",
+            "files": {
+                "/sensors/../../evil.cfg": "deadbeef"
+            }
+        });
+
+        let sfd = SensorsFiledata::from_payload(payload, root.to_path_buf()).unwrap();
+        assert!(sfd.stale_paths().is_empty(), "stale pruning should be disabled for all-invalid manifests");
+    }
 }
