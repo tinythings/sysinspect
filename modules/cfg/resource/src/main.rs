@@ -4,6 +4,7 @@ use std::{
     io::{self, Read, Write},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use clap::Parser;
@@ -21,6 +22,9 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+
+const HTTP_CONNECT_TIMEOUT_SECS: u64 = 5;
+const HTTP_REQUEST_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Deserialize, Clone)]
 struct StoreMetaResponse {
@@ -128,8 +132,14 @@ fn mk_ctx(rq: &ModRequest) -> Result<Ctx, String> {
     if s.is_empty() {
         return Err("Argument \"src\" is required".to_string());
     }
+    let cl = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(HTTP_CONNECT_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(HTTP_REQUEST_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("Unable to initialize HTTP client: {e}"))?;
+
     Ok(Ctx {
-        cl: reqwest::blocking::Client::new(),
+        cl,
         b: api_base(rq),
         s,
         f: arg_str(rq, "file"),
