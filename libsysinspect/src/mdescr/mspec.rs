@@ -36,6 +36,25 @@ struct SpecLoader {
 }
 
 impl SpecLoader {
+    fn yaml_err_with_context(path: &Path, src: &str, err: &serde_yaml::Error) -> String {
+        let mut out = format!("Unable to parse \"{}\": {}", path.display(), err);
+        if let Some(loc) = err.location() {
+            let ln = loc.line();
+            let col = loc.column();
+            out.push_str(&format!(" (line {}, column {})", ln, col));
+
+            let lines = src.lines().collect::<Vec<_>>();
+            let mut idx = ln.saturating_sub(1).min(lines.len().saturating_sub(1));
+            while idx > 0 && lines.get(idx).map(|s| s.trim().is_empty()).unwrap_or(true) {
+                idx -= 1;
+            }
+            if let Some(line_txt) = lines.get(idx) {
+                out.push_str(&format!("\n  > {}", line_txt));
+            }
+        }
+        out
+    }
+
     // Constructor
     fn new(cfg: Arc<MinionConfig>, pth: PathBuf, traits: Option<SystemTraits>, context: Option<IndexMap<String, serde_json::Value>>) -> Self {
         let mut ext: Option<IndexMap<String, serde_json::Value>> = None;
@@ -89,15 +108,21 @@ impl SpecLoader {
     /// Setup Tera template for the given file with the built-in data variables (traits, context etc.)
     fn setup_tera_template(&mut self, fname: &str, etr: &DirEntry) -> Result<Value, SysinspectError> {
         //// Render the index file
-        let mut mtr = ModelTplRender::new(fname, &fs::read_to_string(etr.path())?);
+        let pth = etr.path().to_path_buf();
+        let raw = fs::read_to_string(&pth)?;
+        let mut mtr = ModelTplRender::new(fname, &raw);
         if let Some(traits) = self.traits.clone() {
             mtr.set_ns_values("traits", traits);
             mtr.set_values("context", self.context.clone().unwrap_or_default());
         }
 
-        match serde_yaml::from_str::<Value>(&mtr.render()?) {
+        let rendered = mtr.render().map_err(|e| {
+            SysinspectError::ModelDSLError(format!("Unable to render template \"{}\": {}", pth.display(), e))
+        })?;
+
+        match serde_yaml::from_str::<Value>(&rendered) {
             Ok(chunk) => Ok(chunk),
-            Err(err) => Err(SysinspectError::ModelDSLError(format!("Unable to parse {fname}: {err}"))),
+            Err(err) => Err(SysinspectError::ModelDSLError(Self::yaml_err_with_context(&pth, &rendered, &err))),
         }
     }
 
