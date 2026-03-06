@@ -102,6 +102,9 @@ fn collect_chunks(p: &Path) -> Vec<PathBuf> {
     }
 
     for f in &all {
+        if f.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg") {
+            continue;
+        }
         if !included.contains(f) {
             log::warn!("Ignoring cfg outside any sensors scope (missing sibling sensors.cfg): {}", f.display());
         }
