@@ -21,11 +21,6 @@ options:
     required: false
     description: "Overwrite the resource if it is already installed (default: false)"
 
-  - name: verbose
-    type: bool
-    required: false
-    description: "Give more detailed logs during the process (default: false)"
-
 # Keyword arguments
 arguments:
   - name: src
