@@ -1,7 +1,7 @@
 name: "runtime.python3"
 version: "0.1.0"
 author: "Bo Maryniuk"
-description: Python 3 runtime module based on RustPython.
+description: Python 3.14 runtime module.
 
 options:
   - name: rt.list
@@ -44,7 +44,7 @@ returns:
 
 manpage: |
   This module allows executing Python 3 scripts as modules within
-  the SysInspect framework using RustPython.
+  the SysInspect framework with Python 3.14 compatibility.
 
   Keep the following directory structure:
 
