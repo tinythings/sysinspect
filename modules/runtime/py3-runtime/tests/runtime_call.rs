@@ -23,8 +23,19 @@ fn mk_tmp_runtime_root() -> PathBuf {
 /// * `root` - Temporary runtime root path
 fn write_test_module(root: &std::path::Path) {
     let moddir = root.join("lib/runtime/python3");
-    if let Err(err) = fs::create_dir_all(moddir.join("site-packages")) {
+    let pkgdir = moddir.join("site-packages/mathx");
+    if let Err(err) = fs::create_dir_all(&pkgdir) {
         panic!("failed to create test runtime tree: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        pkgdir.join("__init__.py"),
+        r#"
+def double(v):
+    return v * 2
+"#,
+    ) {
+        panic!("failed to write test python package: {err}");
     }
 
     if let Err(err) = fs::write(
@@ -35,6 +46,58 @@ def run(req):
 "#,
     ) {
         panic!("failed to write test python module: {err}");
+    }
+
+    if let Err(err) = fs::create_dir_all(moddir.join("nested")) {
+        panic!("failed to create nested test python module directory: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        moddir.join("nested/reader.py"),
+        r#"
+def run(req):
+    log.info("nested", req["args"]["name"])
+    return {"nested": req["args"]["name"]}
+
+def doc():
+    return {
+        "name": "nested.reader",
+        "description": "Nested reader module",
+        "arguments": [],
+        "options": []
+    }
+"#,
+    ) {
+        panic!("failed to write nested test python module: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        moddir.join("importer.py"),
+        r#"
+from mathx import double
+
+doc = {
+    "name": "importer",
+    "description": "Importer module",
+    "arguments": [],
+    "options": []
+}
+
+def run(req):
+    return {"doubled": double(req["args"]["value"])}
+"#,
+    ) {
+        panic!("failed to write importer test python module: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        moddir.join("badret.py"),
+        r#"
+def run(req):
+    return set([1, 2, 3])
+"#,
+    ) {
+        panic!("failed to write bad return test python module: {err}");
     }
 }
 
@@ -73,6 +136,13 @@ fn run_runtime(payload: &Value) -> Value {
     }
 }
 
+/// Remove temporary runtime root after test execution
+/// # Arguments
+/// * `root` - Temporary runtime root path
+fn cleanup_runtime_root(root: &std::path::Path) {
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn test_python_runtime_returns_expected_json_payload() {
     let root = mk_tmp_runtime_root();
@@ -99,5 +169,139 @@ fn test_python_runtime_returns_expected_json_payload() {
         }))
     );
 
-    let _ = fs::remove_dir_all(&root);
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_returns_forwarded_logs() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": ["rt.logs"],
+        "args": { "rt.mod": "nested.reader", "name": "Germany" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(
+        out.pointer("/data/data"),
+        Some(&json!({"nested": "Germany"}))
+    );
+    let logs = out.pointer("/data/__sysinspect-module-logs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    assert_eq!(logs.len(), 1);
+    assert!(logs[0].as_str().unwrap_or_default().contains("[nested.reader] nested Germany"));
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_lists_nested_modules() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": ["rt.list"],
+        "args": {}
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(["badret", "hello", "importer", "nested.reader"])));
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_returns_module_doc_from_doc_function() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "nested.reader", "rt.man": true }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(
+        out.pointer("/data/name"),
+        Some(&json!("nested.reader"))
+    );
+    assert_eq!(
+        out.pointer("/data/description"),
+        Some(&json!("Nested reader module"))
+    );
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_imports_from_site_packages_namespace() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "importer", "value": 21 }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/data"), Some(&json!({"doubled": 42})));
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_returns_module_doc_from_doc_object() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "importer", "rt.man": true }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/name"), Some(&json!("importer")));
+    assert_eq!(out.pointer("/data/description"), Some(&json!("Importer module")));
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_reports_missing_module() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "missing.module" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(1)));
+    assert!(out.get("message").and_then(|v| v.as_str()).unwrap_or_default().contains("Failed to read Python module"));
+    assert!(out.get("message").and_then(|v| v.as_str()).unwrap_or_default().contains("missing/module.py"));
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_reports_non_json_return_value() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "badret" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(1)));
+    assert!(out.get("message").and_then(|v| v.as_str()).unwrap_or_default().contains("Unable to serialise Python value to JSON"));
+
+    cleanup_runtime_root(&root);
 }
