@@ -82,7 +82,13 @@ pub enum Py3RuntimeError {
 
     #[error("python vm error: {0}")]
     Vm(String),
-
+    
+    #[error("failed to read python file '{path}': {source}")]
+    ReadFile {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Py3RuntimeError>;
@@ -171,7 +177,13 @@ impl Py3Runtime {
                 }
             }
             JsonValue::String(s) => vm.ctx.new_str(s).into(),
-            JsonValue::Array(items) => vm.ctx.new_list(items.into_iter().filter_map(|item| Self::from_json(vm, item).ok()).collect()).into(),
+            JsonValue::Array(items) => {
+                let mut vals = Vec::new();
+                for item in items {
+                    vals.push(Self::from_json(vm, item)?);
+                }
+                vm.ctx.new_list(vals).into()
+            }
             JsonValue::Object(items) => {
                 let pyd = vm.ctx.new_dict();
                 for (k, v) in items {
@@ -205,6 +217,28 @@ impl Py3Runtime {
         match serde_json::from_str::<JsonValue>(&s) {
             Ok(v) => Ok(v),
             Err(err) => Err(Py3RuntimeError::Vm(format!("Unable to parse Python JSON output: {err}"))),
+        }
+    }
+
+    /// Resolve Python runtime module name into an absolute file path
+    /// # Arguments
+    /// * `modname` - Python module name, dotted or plain
+    /// # Returns
+    /// * `PathBuf` - Absolute module file path
+    fn module_path(&self, modname: &str) -> PathBuf {
+        self.scripts_dir.join(format!("{}.py", modname.replace('.', "/").trim_matches('/')))
+    }
+
+    /// Read Python module source code by runtime module name
+    /// # Arguments
+    /// * `modname` - Python module name, dotted or plain
+    /// # Returns
+    /// * `Result<String>` - Python source code
+    pub fn read_module_code(&self, modname: &str) -> Result<String> {
+        let path = self.module_path(modname);
+        match std::fs::read_to_string(&path) {
+            Ok(code) => Ok(code),
+            Err(err) => Err(Py3RuntimeError::ReadFile { path: path.to_string_lossy().to_string(), source: err }),
         }
     }
 
@@ -244,6 +278,30 @@ log = _SysinspectLogger()
                 let mut buff = String::new();
                 _ = vm.write_exception(&mut buff, &err);
                 Err(Py3RuntimeError::Vm(format!("Unable to run Python prelude: {}", buff.trim())))
+            }
+        }
+    }
+
+    /// Execute a Python snippet inside an existing scope
+    /// # Arguments
+    /// * `vm` - RustPython virtual machine
+    /// * `scope` - Python execution scope
+    /// * `code` - Python source code snippet
+    /// * `filename` - Virtual filename for diagnostics
+    /// # Returns
+    /// * `Result<()>` - Result of the operation
+    fn exec_scope_code(&self, vm: &VirtualMachine, scope: rustpython_vm::scope::Scope, code: &str, filename: &str) -> Result<()> {
+        let code_obj = match vm.compile(code, Exec, filename.to_string()) {
+            Ok(code) => code,
+            Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python source {filename}: {err}"))),
+        };
+
+        match vm.run_code_obj(code_obj, scope) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                let mut buff = String::new();
+                _ = vm.write_exception(&mut buff, &err);
+                Err(Py3RuntimeError::Vm(format!("Unable to run Python source {filename}: {}", buff.trim())))
             }
         }
     }
@@ -326,6 +384,29 @@ log = _SysinspectLogger()
         })
     }
 
+    /// Normalise Python runtime module documentation payload
+    /// # Arguments
+    /// * `doc` - Python documentation payload converted to JSON
+    /// # Returns
+    /// * `JsonValue` - Normalised documentation object
+    fn normalise_module_doc(mut doc: JsonValue) -> JsonValue {
+        let key = RuntimeSpec::DocumentationFunction.to_string();
+        loop {
+            let Some(obj) = doc.as_object() else {
+                break;
+            };
+            let Some(inner) = obj.get(&key) else {
+                break;
+            };
+            if obj.len() == 1 {
+                doc = inner.clone();
+                continue;
+            }
+            break;
+        }
+        doc
+    }
+
     /// Call a Python module and return runtime payload with data and logs
     /// # Arguments
     /// * `modname` - Python module name
@@ -356,20 +437,23 @@ log = _SysinspectLogger()
 
             let scope = vm.new_scope_with_builtins();
             self.exec_prelude(vm, scope.clone())?;
-            let code_obj = match vm.compile(code, Exec, "<module-doc>".to_string()) {
-                Ok(obj) => obj,
-                Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python module doc source: {err}"))),
-            };
+            self.exec_scope_code(vm, scope.clone(), code, "<module-doc>")?;
+            self.exec_scope_code(
+                vm,
+                scope.clone(),
+                r#"
+if "doc" not in globals():
+    __sysinspect_doc = {}
+elif callable(doc):
+    __sysinspect_doc = doc()
+else:
+    __sysinspect_doc = doc
+"#,
+                "<module-doc-normalise>",
+            )?;
 
-            if let Err(err) = vm.run_code_obj(code_obj, scope.clone()) {
-                let mut buff = String::new();
-                _ = vm.write_exception(&mut buff, &err);
-                return Err(Py3RuntimeError::Vm(format!("Error loading Python module documentation: {}", buff.trim())));
-            }
-
-            let docfield = RuntimeSpec::DocumentationFunction.to_string();
-            let doc = match scope.globals.get_item(&docfield, vm) {
-                Ok(doc) => Self::dumps_json(vm, doc)?,
+            let doc = match scope.globals.get_item("__sysinspect_doc", vm) {
+                Ok(doc) => Self::normalise_module_doc(Self::dumps_json(vm, doc)?),
                 Err(_) => serde_json::json!({ RuntimeSpec::DocumentationFunction.to_string(): {} }),
             };
 

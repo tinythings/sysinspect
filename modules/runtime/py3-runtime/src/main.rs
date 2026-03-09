@@ -14,25 +14,6 @@ use libmodcore::{
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// Convert runtime module name into relative Python file path
-/// # Arguments
-/// * `modname` - Runtime module name
-/// # Returns
-/// * `String` - Relative Python file path
-fn module_path(modname: &str) -> String {
-    format!("{}.py", modname.replace('.', "/").trim_matches('/'))
-}
-
-/// Read Python module source from runtime scripts directory
-/// # Arguments
-/// * `modname` - Runtime module name
-/// * `scripts_dir` - Python runtime scripts directory
-/// # Returns
-/// * `std::io::Result<String>` - Python source code
-fn read_module_code(modname: &str, scripts_dir: &Path) -> std::io::Result<String> {
-    std::fs::read_to_string(scripts_dir.join(module_path(modname)))
-}
-
 /// List available Python runtime modules
 /// # Arguments
 /// * `scripts_dir` - Python runtime scripts directory
@@ -40,19 +21,27 @@ fn read_module_code(modname: &str, scripts_dir: &Path) -> std::io::Result<String
 /// * `Vec<String>` - Available module names
 fn list_python_modules(scripts_dir: &Path) -> Vec<String> {
     let mut modules = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(scripts_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file()
-                && let Some(ext) = path.extension()
-                && ext == "py"
-                && let Some(stem) = path.file_stem()
-                && let Some(stem_str) = stem.to_str()
-            {
-                modules.push(stem_str.to_string());
+    fn visit(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    visit(root, &path, out);
+                } else if path.is_file()
+                    && let Some(ext) = path.extension()
+                    && ext == "py"
+                    && let Ok(rel) = path.strip_prefix(root)
+                {
+                    let ns = rel.to_string_lossy().trim_end_matches(".py").replace('/', ".").replace('\\', ".");
+                    if !ns.is_empty() && !ns.ends_with(".__init__") {
+                        out.push(ns);
+                    }
+                }
             }
         }
     }
+
+    visit(scripts_dir, scripts_dir, &mut modules);
     modules.sort();
     modules
 }
@@ -65,7 +54,7 @@ fn list_python_modules(scripts_dir: &Path) -> Vec<String> {
 /// * `Result<Value, Py3RuntimeError>` - Runtime module documentation
 fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, Py3RuntimeError> {
     let rt = Py3Runtime::new(PathBuf::from(cli.get_sharelib()))?;
-    rt.module_doc(&read_module_code(modname, rt.get_scripts_dir()).unwrap_or_default())
+    rt.module_doc(&rt.read_module_code(modname)?)
 }
 
 /// Run the Python runtime with the provided request
@@ -107,9 +96,35 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
         return resp;
     }
 
+    if rq.args_all().get(&RuntimeParams::ModuleManual.to_string()).and_then(|v| v.as_bool()).unwrap_or(false) {
+        match rt.module_doc(&match rt.read_module_code(&modpath) {
+            Ok(code) => code,
+            Err(err) => {
+                resp.set_message(&format!("Failed to read Python module: {err}"));
+                return resp;
+            }
+        }) {
+            Ok(data) => match resp.set_data(data) {
+                Ok(_) => {
+                    resp.set_retcode(0);
+                    resp.set_message("Got Python module documentation successfully.");
+                }
+                Err(err) => resp.set_message(&format!("Failed to set response data: {err}")),
+            },
+            Err(err) => resp.set_message(&format!("Failed to get Python module documentation: {err}")),
+        }
+        return resp;
+    }
+
     match rt.call_module(
         &modpath,
-        &read_module_code(&modpath, rt.get_scripts_dir()).unwrap_or_default(),
+        &match rt.read_module_code(&modpath) {
+            Ok(code) => code,
+            Err(err) => {
+                resp.set_message(&format!("Failed to read Python module: {err}"));
+                return resp;
+            }
+        },
         &serde_json::json!({"args": rq.args(), "config": rq.config(), "opts": rq.options(), "ext": rq.ext()}),
         rq.has_option(&format!("{}{}", RuntimeParams::RtPrefix, "logs")),
     ) {
