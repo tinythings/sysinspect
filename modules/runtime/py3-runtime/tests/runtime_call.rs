@@ -99,6 +99,41 @@ def run(req):
     ) {
         panic!("failed to write bad return test python module: {err}");
     }
+
+    if let Err(err) = fs::write(
+        moddir.join("echoreq.py"),
+        r#"
+def run(req):
+    return {
+        "args": req["args"],
+        "config_value": req["config"].get("custom.flag"),
+        "opts": req["opts"],
+        "ext": req["ext"],
+        "types": {
+            "truth": True,
+            "nothing": None,
+            "items": [1, "two", False, None],
+            "nested": {"value": 3.5},
+        },
+    }
+"#,
+    ) {
+        panic!("failed to write echo request test python module: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        moddir.join("baddoc.py"),
+        r#"
+doc = {
+    "description": "Missing required name field"
+}
+
+def run(req):
+    return {"ok": True}
+"#,
+    ) {
+        panic!("failed to write bad doc test python module: {err}");
+    }
 }
 
 /// Run `py3-runtime` binary with JSON request payload
@@ -204,7 +239,10 @@ fn test_python_runtime_lists_nested_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["badret", "hello", "importer", "nested.reader"])));
+    assert_eq!(
+        out.pointer("/data/modules"),
+        Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "nested.reader"]))
+    );
 
     cleanup_runtime_root(&root);
 }
@@ -293,6 +331,56 @@ fn test_python_runtime_reports_non_json_return_value() {
 
     assert_eq!(out.get("retcode"), Some(&json!(1)));
     assert!(out.get("message").and_then(|v| v.as_str()).unwrap_or_default().contains("Unable to serialise Python value to JSON"));
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_preserves_request_sections_and_json_types() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy(), "custom.flag": "seen" },
+        "opts": ["alpha", "beta", "rt.logs"],
+        "args": { "rt.mod": "echoreq", "name": "Germany", "enabled": true, "count": 7 },
+        "trace_id": "abc-123",
+        "payload": { "items": [1, 2, 3] }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(
+        out.pointer("/data/data"),
+        Some(&json!({
+            "args": { "name": "Germany", "enabled": true, "count": 7 },
+            "config_value": "seen",
+            "opts": ["alpha", "beta"],
+            "ext": { "trace_id": "abc-123", "payload": { "items": [1, 2, 3] } },
+            "types": {
+                "truth": true,
+                "nothing": null,
+                "items": [1, "two", false, null],
+                "nested": { "value": 3.5 }
+            }
+        }))
+    );
+
+    cleanup_runtime_root(&root);
+}
+
+#[test]
+fn test_python_runtime_rejects_invalid_module_doc() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(&root);
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "baddoc", "rt.man": true }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(1)));
+    assert!(out.get("message").and_then(|v| v.as_str()).unwrap_or_default().contains("doc.name is required"));
 
     cleanup_runtime_root(&root);
 }
