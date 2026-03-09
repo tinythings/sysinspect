@@ -1,146 +1,96 @@
-py3-runtime TODO
-================
+py3-runtime Status
+==================
 
-Goal
-----
-Build `py3-runtime` in the same spirit as `lua-runtime`, but backed by RustPython and able to execute Python 3 modules from SysInspect sharelib.
+Completed
+---------
 
-Work sequence
--------------
+1. Crate layout aligned with other runtimes
+   - standalone runtime crate under `modules/runtime/py3-runtime`
+   - `src/main.rs` for CLI/runtime plumbing
+   - `src/prt.rs` for `Py3Runtime`
+   - `src/mod_doc.yaml` for runtime CLI docs
 
-1. Align crate layout with other runtimes
-   - Keep `modules/runtime/py3-runtime` as a standalone runtime crate.
-   - Split code into small files like Lua runtime does:
-     - `src/main.rs` for CLI/request plumbing
-     - `src/prt.rs` or similar for `Py3Runtime` struct and methods
-     - `src/mod_doc.yaml` for runtime docs/options
-   - Reuse `libmodcore` runtime request/response flow exactly as `lua-runtime`.
+2. Cargo wiring
+   - RustPython dependencies added as Git dependencies
+   - no pinned revision/tag
+   - same `freeze-stdlib` feature family as existing project usage
 
-2. Wire Cargo dependencies
-   - Mirror common dependencies from `lua-runtime`.
-   - Add RustPython dependencies directly in `modules/runtime/py3-runtime/Cargo.toml`.
-   - Use Git dependencies from `https://github.com/RustPython/RustPython.git`.
-   - Do not pin revision/tag.
-   - Prefer the same feature set already used in `libsysinspect` (`freeze-stdlib`) unless runtime bootstrap needs one more feature.
+3. Runtime filesystem layout
+   - entry modules under `lib/runtime/python3`
+   - shared Python libraries under `lib/runtime/python3/site-packages`
 
-3. Define Python runtime filesystem layout
-   - Follow Lua runtime convention: runtime-owned code lives under sharelib.
-   - Decide and keep a single namespace path for Python runtime libraries and modules, analogous to:
-     - Lua: `lib/runtime/lua54/...`
-     - Wasm: `lib/runtime/wasm/...`
-   - Proposed target:
-     - modules: `lib/runtime/python3`
-     - libraries/site packages: `lib/runtime/python3/site-packages`
-   - Runtime must resolve module files from this namespace only.
+4. Runtime object and VM bootstrap
+   - `Py3Runtime` implemented
+   - Python path bootstrap isolated in runtime methods
+   - request execution kept separate from startup
 
-4. Build `Py3Runtime` object
-   - Create struct fields in the same style as Lua runtime:
-     - interpreter/vm handle
-     - scripts dir
-     - buffered logs
-     - current module name
-   - Keep methods short and attached to the struct.
-   - Avoid `unwrap()`, use `match`/`if let`.
+5. Log forwarding
+   - `log.error(...)`, `log.warn(...)`, `log.info(...)`, `log.debug(...)`
+   - log lines buffered per module call
+   - logs returned in `__sysinspect-module-logs`
 
-5. Boot RustPython VM
-   - Create runtime constructor from `sharelib_root` and runtime options.
-   - Configure import paths so Python modules can import from runtime-owned namespace.
-   - Validate how RustPython latest exposes VM/interpreter creation before implementation.
-   - Keep bootstrap isolated from module call code.
+6. Python module contract
+   - `run(req)` entrypoint
+   - request payload contains `args`, `config`, `opts`, `ext`
+   - runtime response returns `data` and optional `logs`
 
-6. Add SysInspect log forwarding
-   - Mirror Lua behaviour: scripts emit logs, runtime buffers them, Minion receives them in response payload.
-   - Expose `log.error(...)`, `log.warn(...)`, `log.info(...)`, `log.debug(...)` inside Python code.
-   - Format log lines consistently with existing runtime style:
-     - timestamp
-     - level
-     - module name
-     - message
-   - Keep per-call log buffer reset before every module execution.
+7. Value conversion
+   - JSON request converted into Python objects
+   - Python return converted back into JSON
+   - unsupported return values fail clearly
 
-7. Define Python module contract
-   - Match Lua contract conceptually:
-     - module exports a single main function (`run`)
-     - runtime passes request object with `args`, `config`, `opts`, `ext`
-   - Decide exact Python loading form:
-     - execute module file in isolated namespace
-     - fetch `run`
-     - call `run(req)`
-   - Return shape must match runtime spec:
-     - `data`
-     - `logs`
+8. Module discovery and file loading
+   - dotted names resolved as nested modules, e.g. `nested.reader`
+   - recursive module listing implemented
+   - missing module reads fail with explicit path in the message
 
-8. Implement value conversion
-   - Convert incoming JSON request into Python objects.
-   - Convert Python `run()` result back into JSON.
-   - Support at least:
-     - dict
-     - list
-     - string
-     - bool
-     - int/float
-     - null/None
-   - Fail clearly on unsupported return types.
+9. Documentation extraction
+   - module docs supported as either `doc = {...}` or `def doc(): return {...}`
+   - documentation validated through `validate_module_doc`
+   - contract documented in project docs
 
-9. Implement module discovery and file loading
-   - Add helper to list available Python runtime modules from scripts dir.
-   - Add helper to read `<module>.py`.
-   - Keep helper naming and flow close to `lua-runtime/src/main.rs`.
+10. Runtime CLI integration
+    - supports `rt.mod`
+    - supports `rt.list`
+    - supports `rt.logs`
+    - supports runtime manual requests via `rt.man`
+    - direct CLI/manual/help flow aligned with other runtimes
 
-10. Implement documentation extraction
-   - Mirror Lua runtime `module_doc()` behaviour as far as practical.
-   - Decide whether docs come from:
-     - embedded constant/object in module, or
-     - module-level YAML/JSON string, or
-     - a Python function returning doc structure
-   - Validate against `validate_module_doc`.
-   - Keep interface consistent with existing module manual flow.
+11. Examples
+    - `hello.py` for simple JSON return
+    - `reader.py` for log forwarding
+    - `caller.py` for command execution example
+    - `site-packages/mathx` for shared library import example
+    - example README added
 
-11. Add runtime CLI integration
-   - Support the same runtime options style as Lua:
-     - `rt.list`
-     - `rt.logs`
-     - runtime target module argument (`rt.mod`)
-   - If Lua has runtime-specific options worth preserving, mirror them unless Python cannot support them.
-   - Keep terminal direct-call/manual/help flow the same as other runtimes.
+12. Verification
+    - `cargo check -p py3-runtime`
+    - `cargo test -p py3-runtime`
+    - integration coverage for:
+      - normal module execution
+      - nested module listing
+      - `site-packages` imports
+      - log forwarding
+      - docs from `doc`
+      - docs from `doc()`
+      - missing module failure
+      - non-JSON return failure
 
-12. Add examples and library namespace sample
-   - Create minimal example modules under runtime examples.
-   - Include one module importing another package from Python runtime namespace.
-   - Include one module emitting logs back to SysInspect.
+13. Cleanup
+    - comments/documentation aligned with existing project style
+    - ignored per-crate release profile removed from `py3-runtime/Cargo.toml`
+    - workspace `Makefile` updated to move `py3-runtime` into `target/*/runtime/`
 
-13. Verify compile and behaviour
-   - `cargo check -p py3-runtime`
-   - Fix RustPython API drift from latest Git head.
-   - Run simple manual request examples like Lua examples do.
-   - Verify:
-     - module listing
-     - module call
-     - JSON in/out
-     - log forwarding
-     - imports from runtime library namespace
+Notes
+-----
 
-14. Final cleanup
-   - Keep functions short.
-   - Prefer direct expressions over extra temporary bindings where readable.
-   - Match naming/style already used in runtime modules.
-   - Avoid introducing broad abstractions unless duplication becomes real.
+- Release stripping/compression is inherited from the workspace root `Cargo.toml`.
+- Project documentation for the runtime lives in `docs/moddescr/runtime_py3.rst`.
+- The built-in runtime YAML manual remains focused on CLI/module help output.
 
-Likely implementation order in code
------------------------------------
-1. `Cargo.toml`
-2. `src/mod_doc.yaml`
-3. `src/prt.rs` constructor + path setup
-4. log bridge
-5. module loader + `run(req)`
-6. JSON/Python conversion helpers
-7. `src/main.rs` runtime plumbing
-8. examples
-9. compile/test/fixup
+Possible future work
+--------------------
 
-Open questions to settle while implementing
--------------------------------------------
-- Keep crate/internal type name as `Py3Runtime` or use `PythonRuntime`?
-- Exact sharelib path naming: `python3` vs `py3`. `python3` looks better for library namespace, `py3-runtime` stays crate name.
-- Best RustPython hook for exposing native Rust logging object into Python globals/modules on latest upstream.
-- Best contract for module docs without making Python modules awkward to write.
+1. Run full workspace `nextest` if broad regression coverage is desired.
+2. Add more real-world Python example modules once the runtime API settles.
+3. Revisit naming if `py3-runtime` is ever renamed to `runtime.py3` at the package level.
