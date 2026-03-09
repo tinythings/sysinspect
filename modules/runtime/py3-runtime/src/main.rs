@@ -32,7 +32,7 @@ fn list_python_modules(scripts_dir: &Path) -> Vec<String> {
                     && ext == "py"
                     && let Ok(rel) = path.strip_prefix(root)
                 {
-                    let ns = rel.to_string_lossy().trim_end_matches(".py").replace('/', ".").replace('\\', ".");
+                    let ns = rel.to_string_lossy().trim_end_matches(".py").replace(['/', '\\'], ".");
                     if !ns.is_empty() && !ns.ends_with(".__init__") {
                         out.push(ns);
                     }

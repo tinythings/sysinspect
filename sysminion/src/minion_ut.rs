@@ -8,7 +8,7 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::time::{Duration, timeout};
 
-    fn mk_cfg(master: String, fileserver: String, root: &std::path::Path) -> MinionConfig {
+    fn mk_cfg(master: String, _fileserver: String, root: &std::path::Path) -> MinionConfig {
         let mut cfg = MinionConfig::default();
         cfg.set_master_ip(master.split(':').next().unwrap_or("127.0.0.1"));
         cfg.set_master_port(master.split(':').nth(1).unwrap().parse().unwrap());
