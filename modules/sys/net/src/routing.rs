@@ -93,21 +93,20 @@ pub fn ip_route() -> Result<Vec<RtRec>, Box<dyn Error>> {
         .filter_map(|addr| if let NlPayload::Payload(p) = addr.nl_payload { Some(p) } else { None })
         .try_fold(HashMap::new(), |mut out, rtbuff: Ifaddrmsg| {
             let handle = rtbuff.rtattrs.get_attr_handle();
-            let ip_addr =
-                handle.get_attr_payload_as_with_len::<&[u8]>(Ifa::Address).ok().and_then(|mut ipdata| match ipdata.len() {
-                    0x4 => {
-                        let mut buff = [0u8; 4];
-                        ipdata.read_exact(&mut buff).ok()?;
-                        Some(IpAddr::from(Ipv4Addr::from(u32::from_ne_bytes(buff).to_be())))
-                    }
+            let ip_addr = handle.get_attr_payload_as_with_len::<&[u8]>(Ifa::Address).ok().and_then(|mut ipdata| match ipdata.len() {
+                0x4 => {
+                    let mut buff = [0u8; 4];
+                    ipdata.read_exact(&mut buff).ok()?;
+                    Some(IpAddr::from(Ipv4Addr::from(u32::from_ne_bytes(buff).to_be())))
+                }
 
-                    0x10 => {
-                        let mut buff = [0u8; 16];
-                        ipdata.read_exact(&mut buff).ok()?;
-                        Some(IpAddr::from(Ipv6Addr::from(u128::from_ne_bytes(buff).to_be())))
-                    }
-                    _ => None,
-                });
+                0x10 => {
+                    let mut buff = [0u8; 16];
+                    ipdata.read_exact(&mut buff).ok()?;
+                    Some(IpAddr::from(Ipv6Addr::from(u128::from_ne_bytes(buff).to_be())))
+                }
+                _ => None,
+            });
 
             if let (Some(addr), Some(name)) = (ip_addr, handle.get_attr_payload_as_with_len::<String>(Ifa::Label).ok()) {
                 out.insert(addr, name);

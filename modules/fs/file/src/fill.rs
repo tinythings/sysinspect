@@ -13,10 +13,7 @@ use std::{
 /// Create an empty file
 fn touch(p: PathBuf) -> Result<(), Error> {
     if p.exists() {
-        return Err(Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            format!("File {} already exists", p.to_str().unwrap_or_default()),
-        ));
+        return Err(Error::new(std::io::ErrorKind::AlreadyExists, format!("File {} already exists", p.to_str().unwrap_or_default())));
     }
 
     File::create(p)?;
@@ -27,10 +24,7 @@ fn touch(p: PathBuf) -> Result<(), Error> {
 /// Fill-in the file with the content from the fileserver
 fn download(p: PathBuf, fileserver: String, src: String) -> Result<(), Error> {
     if p.exists() {
-        return Err(Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            format!("File {} already exists", p.to_str().unwrap_or_default()),
-        ));
+        return Err(Error::new(std::io::ErrorKind::AlreadyExists, format!("File {} already exists", p.to_str().unwrap_or_default())));
     }
 
     let url = format!("{}/{}", fileserver, src.strip_prefix("/").unwrap_or_default());
@@ -86,11 +80,7 @@ pub fn do_create(rq: &ModRequest, rsp: &mut ModResponse, strict: bool) {
     let fsr_addr = format!(
         "http://{}:{}",
         rq.config().get("master.ip").unwrap_or(&ArgValue::default()).as_string().unwrap_or_default(),
-        rq.config()
-            .get("master.fileserver.port")
-            .unwrap_or(&ArgValue::default())
-            .as_int()
-            .unwrap_or(DEFAULT_FILESERVER_PORT.into())
+        rq.config().get("master.fileserver.port").unwrap_or(&ArgValue::default()).as_int().unwrap_or(DEFAULT_FILESERVER_PORT.into())
     );
 
     if rq.args().contains_key("pull") {

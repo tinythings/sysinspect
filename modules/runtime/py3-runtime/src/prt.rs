@@ -82,7 +82,7 @@ pub enum Py3RuntimeError {
 
     #[error("python vm error: {0}")]
     Vm(String),
-    
+
     #[error("failed to read python file '{path}': {source}")]
     ReadFile {
         path: String,
@@ -118,13 +118,7 @@ impl Py3Runtime {
         let rtlog_def = rtlog::module_def(&builder.ctx);
         let itp = builder.init_stdlib().add_native_module(rtlog_def).build();
 
-        Ok(Self {
-            itp,
-            scripts_dir,
-            lib_dir,
-            logs: Arc::new(Mutex::new(Vec::new())),
-            modulename: Arc::new(Mutex::new("Python module".to_string())),
-        })
+        Ok(Self { itp, scripts_dir, lib_dir, logs: Arc::new(Mutex::new(Vec::new())), modulename: Arc::new(Mutex::new("Python module".to_string())) })
     }
 
     /// Get Python runtime scripts directory

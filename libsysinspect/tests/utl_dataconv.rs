@@ -61,10 +61,7 @@ mod dataconv_test {
         let v = m.get("foo").unwrap();
         let l = dataconv::as_str_list(Some(v).cloned());
         assert_eq!(l.len(), 4, "Data length must be 4");
-        assert!(
-            l == vec!["bar".to_string(), "spam".to_string(), "baz".to_string(), "toto".to_string()],
-            "Vector must be the same"
-        );
+        assert!(l == vec!["bar".to_string(), "spam".to_string(), "baz".to_string(), "toto".to_string()], "Vector must be the same");
     }
 
     #[test]
@@ -74,10 +71,7 @@ mod dataconv_test {
         let l = dataconv::as_str_list_opt(Some(v).cloned());
         assert!(l.is_some(), "Data must contain something");
         assert_eq!(l.clone().unwrap().len(), 4, "Data length must be 4");
-        assert!(
-            l.unwrap() == vec!["bar".to_string(), "spam".to_string(), "baz".to_string(), "toto".to_string()],
-            "Vector must be the same"
-        );
+        assert!(l.unwrap() == vec!["bar".to_string(), "spam".to_string(), "baz".to_string(), "toto".to_string()], "Vector must be the same");
     }
 
     #[test]

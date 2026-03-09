@@ -149,16 +149,17 @@ impl PipelineHandler {
                     let mut out_s = raw.clone();
                     for tok in Self::get_jsonpath_tokens(&raw) {
                         if let Ok(h) = data.query(&tok)
-                            && let Some(val) = h.first() {
-                                let repl = match val {
-                                    serde_json::Value::String(s) => s.clone(),
-                                    serde_json::Value::Number(n) => n.to_string(),
-                                    serde_json::Value::Bool(b) => b.to_string(),
-                                    serde_json::Value::Null => "".to_string(),
-                                    _ => "".to_string(),
-                                };
-                                out_s = out_s.replace(&tok, &repl);
-                            }
+                            && let Some(val) = h.first()
+                        {
+                            let repl = match val {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Number(n) => n.to_string(),
+                                serde_json::Value::Bool(b) => b.to_string(),
+                                serde_json::Value::Null => "".to_string(),
+                                _ => "".to_string(),
+                            };
+                            out_s = out_s.replace(&tok, &repl);
+                        }
                     }
                     Value::String(out_s)
                 } else {

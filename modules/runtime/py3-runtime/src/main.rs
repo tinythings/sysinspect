@@ -128,21 +128,15 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
         &serde_json::json!({"args": rq.args(), "config": rq.config(), "opts": rq.options(), "ext": rq.ext()}),
         rq.has_option(&format!("{}{}", RuntimeParams::RtPrefix, "logs")),
     ) {
-        Ok(data) => {
-            match resp.set_data(data) {
-                Ok(_) => {
-                    let _ = resp.cm_set_changed(true);
-                    resp.set_retcode(0);
-                    resp.set_message("Called Python module successfully.");
-                }
-                Err(err) => resp.set_message(&format!("Failed to set response data: {err}")),
+        Ok(data) => match resp.set_data(data) {
+            Ok(_) => {
+                let _ = resp.cm_set_changed(true);
+                resp.set_retcode(0);
+                resp.set_message("Called Python module successfully.");
             }
-        }
-        Err(err) => resp.set_message(&format!(
-            "Failed to execute Python code: {}. Scripts directory: {}",
-            err,
-            rt.get_scripts_dir().display()
-        )),
+            Err(err) => resp.set_message(&format!("Failed to set response data: {err}")),
+        },
+        Err(err) => resp.set_message(&format!("Failed to execute Python code: {}. Scripts directory: {}", err, rt.get_scripts_dir().display())),
     }
 
     resp

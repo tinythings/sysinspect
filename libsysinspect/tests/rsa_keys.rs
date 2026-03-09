@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod rsa_test {
     use libsysinspect::rsa::keys::{
-        decrypt, encrypt, key_from_file, key_to_file, keygen, sign_data, to_pem, verify_sign,
-        RsaKey::{Private, Public},
         DEFAULT_KEY_SIZE,
+        RsaKey::{Private, Public},
+        decrypt, encrypt, key_from_file, key_to_file, keygen, sign_data, to_pem, verify_sign,
     };
     use std::fs;
 

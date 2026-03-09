@@ -184,10 +184,7 @@ fn test_python_runtime_returns_forwarded_logs() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(
-        out.pointer("/data/data"),
-        Some(&json!({"nested": "Germany"}))
-    );
+    assert_eq!(out.pointer("/data/data"), Some(&json!({"nested": "Germany"})));
     let logs = out.pointer("/data/__sysinspect-module-logs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     assert_eq!(logs.len(), 1);
     assert!(logs[0].as_str().unwrap_or_default().contains("[nested.reader] nested Germany"));
@@ -224,14 +221,8 @@ fn test_python_runtime_returns_module_doc_from_doc_function() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(
-        out.pointer("/data/name"),
-        Some(&json!("nested.reader"))
-    );
-    assert_eq!(
-        out.pointer("/data/description"),
-        Some(&json!("Nested reader module"))
-    );
+    assert_eq!(out.pointer("/data/name"), Some(&json!("nested.reader")));
+    assert_eq!(out.pointer("/data/description"), Some(&json!("Nested reader module")));
 
     cleanup_runtime_root(&root);
 }
