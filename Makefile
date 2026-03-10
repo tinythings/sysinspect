@@ -39,6 +39,8 @@ define move_bin
 	echo "Moving binaries in $$dir"; \
 	rm -rf $$dir/sys; \
 	mkdir -p $$dir/sys; \
+	rm -rf $$dir/net; \
+	mkdir -p $$dir/net; \
 	rm -rf $$dir/fs; \
 	mkdir -p $$dir/fs; \
 	rm -rf $$dir/runtime; \
@@ -47,6 +49,7 @@ define move_bin
 	mv $$dir/net $$dir/sys/; \
 	mv $$dir/run $$dir/sys/; \
 	mv $$dir/ssrun $$dir/sys/; \
+	mv $$dir/http $$dir/net/; \
 	mv $$dir/file $$dir/fs/; \
 	mv $$dir/lua-runtime $$dir/runtime/; \
 	mv $$dir/py3-runtime $$dir/runtime/; \
