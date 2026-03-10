@@ -5460,7 +5460,6 @@ dependencies = [
  "indexmap 2.13.0",
  "libcommon",
  "libmodcore",
- "libsysinspect",
  "log",
  "rustpython",
  "rustpython-pylib",

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-libsysinspect = { path = "../../../libsysinspect" }
 libmodcore = { path = "../../../libmodcore" }
 libcommon = { path = "../../../libcommon" }
 serde = "1.0.228"
