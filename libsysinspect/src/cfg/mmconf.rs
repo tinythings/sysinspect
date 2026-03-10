@@ -575,6 +575,11 @@ impl MinionConfig {
         self.modules_check = Some(mode.to_string());
     }
 
+    /// Enable or disable module auto-sync on startup.
+    pub fn set_autosync_startup(&mut self, enabled: bool) {
+        self.modules_autosync_startup = Some(enabled);
+    }
+
     /// Set reconnection policy to the master
     pub fn set_reconnect_freq(&mut self, freq: u32) {
         self.master_reconnect_freq = Some(freq);
