@@ -132,7 +132,7 @@ arguments:
     description: "Request timeout in seconds (default: 30)"
 
   - name: "ok-status"
-    type: "list"
+    type: "int or list"
     required: false
     description: "Additional HTTP status codes considered successful"
 
