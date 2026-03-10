@@ -17,6 +17,17 @@ mod loader_merge_test {
 
         write(
             root.join("my-crappy-sensors").as_path(),
+            "sensors.cfg",
+            "sensors: {}\n",
+        );
+        write(
+            root.join("my-better-sensors").as_path(),
+            "sensors.cfg",
+            "sensors: {}\n",
+        );
+
+        write(
+            root.join("my-crappy-sensors").as_path(),
             "a.cfg",
             r#"
 sensors:
@@ -67,6 +78,9 @@ sensors:
         fs::create_dir_all(root.join("x")).unwrap();
         fs::create_dir_all(root.join("y")).unwrap();
 
+        write(root.join("x").as_path(), "sensors.cfg", "sensors: {}\n");
+        write(root.join("y").as_path(), "sensors.cfg", "sensors: {}\n");
+
         write(
             root.join("x").as_path(),
             "1.cfg",
@@ -115,12 +129,33 @@ sensors:
         let td = TempDir::new().unwrap();
         let root = td.path();
 
+        write(root, "sensors.cfg", "sensors: {}\n");
         write(
             root,
             "x.cfg",
             r#"
 not_sensors:
   a:
+    listener: file
+"#,
+        );
+
+        let mut spec = load(root).unwrap();
+        assert_eq!(spec.items().len(), 0);
+        assert!(spec.interval_range().is_none());
+    }
+
+    #[test]
+    fn test_loader_without_any_index_loads_nothing() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+
+        write(
+            root,
+            "x.cfg",
+            r#"
+sensors:
+  x:
     listener: file
 "#,
         );

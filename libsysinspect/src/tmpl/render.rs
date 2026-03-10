@@ -121,7 +121,13 @@ impl ModelTplRender {
             return Ok(res);
         }
 
-        self.tpl.add_raw_template(&self.name, &self.src)?;
+        self.tpl.add_raw_template(&self.name, &self.src).map_err(|err| {
+            let mut cause = String::new();
+            if let Some(src) = err.source() {
+                cause = format!(" | cause: {src}");
+            }
+            SysinspectError::ModelDSLError(format!("Template compile failed for \"{}\": {}{}", self.name, err, cause))
+        })?;
 
         let r = match self.tpl.render(&self.name, &self.ctx) {
             Ok(r) => r,
@@ -130,7 +136,12 @@ impl ModelTplRender {
                 if let Some(err) = err.source() {
                     iem = err.to_string();
                 }
-                return Err(SysinspectError::ModelDSLError(format!("{err}: {iem}")));
+                return Err(SysinspectError::ModelDSLError(format!(
+                    "Template render failed for \"{}\": {}{}",
+                    self.name,
+                    err,
+                    if iem.is_empty() { "".to_string() } else { format!(" | cause: {iem}") }
+                )));
             }
         };
 

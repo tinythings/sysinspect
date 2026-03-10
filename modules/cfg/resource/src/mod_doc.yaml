@@ -1,0 +1,74 @@
+name: "cfg.resource"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Plugin for resource management and availability.
+
+# Options, flags, switches
+options:
+  - name: push
+    type: bool
+    description: "Push (upload) the resource to the storage."
+    required: false
+
+  - name: pull
+    type: bool
+    description: "Pull (download) the resource from the storage."
+    required: false
+
+  - name: force
+    type: bool
+    required: false
+    description: "Overwrite the resource if it is already installed (default: false)"
+
+# Keyword arguments
+arguments:
+  - name: src
+    type: string
+    required: true
+    description: "Logical resource id in datastore (for example /somehost/etc/ssh_config)."
+
+  - name: file
+    type: string
+    required: false
+    description: "Local filesystem path. For pull: destination file path. For push: source file path."
+
+  - name: dst
+    type: string
+    required: false
+    description: "Alias for [Y::]file[N]. If neither [Y::]file[N] nor [Y::]dst[N] is set, [Y::]src[N] is used as local path."
+
+  - name: mode
+    type: string
+    required: false
+    description: "Unix mode for the resource artifact (e.g., '0644'). If not set, the file original permissions will be applied."
+
+examples:
+  - description: "Pull resource from datastore"
+    code: |
+      {
+        "opts": ["pull"],
+        "arguments": {
+          "src": "/somehost/etc/ssh_config",
+          "file": "/etc/ssh/ssh_config"
+        }
+      }
+
+  - description: "Push local file to datastore"
+    code: |
+      {
+        "opts": ["push"],
+        "arguments": {
+          "src": "/somehost/etc/ssh_config",
+          "file": "/etc/ssh/ssh_config"
+        }
+      }
+
+# Description of additional data format
+returns:
+
+manpage: |
+  This module allows managing resources by pushing (uploading) or pulling
+  (downloading) them to/from a storage, served by the [Y::]Sysmaster[N].
+  The resource is identified by its source path, and an optional destination
+  path can be specified.

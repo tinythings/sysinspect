@@ -7,6 +7,9 @@ mod ptcounter;
 mod rsa;
 
 #[cfg(test)]
+mod filedata_ut;
+
+#[cfg(test)]
 mod minion_ut;
 
 use clap::{ArgMatches, Command};

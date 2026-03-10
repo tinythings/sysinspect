@@ -49,7 +49,9 @@ members = [
     "libdpq",
     "libsysproto",
     "libcommon",
-    "libsensors", "libdatastore"]
+    "libsensors",
+    "libdatastore",
+    "modules/cfg/resource"]
 
 [profile.release]
 strip = true

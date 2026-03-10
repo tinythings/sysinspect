@@ -73,6 +73,8 @@ pub struct SysMaster {
 
 impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
+        let _ = crate::util::log_sensors_export(&cfg, true);
+
         let (tx, _) = broadcast::channel::<Vec<u8>>(100);
         let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
         let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
@@ -320,10 +322,13 @@ impl SysMaster {
     }
 
     fn msg_sensors_files(&mut self) -> MasterMessage {
+        let sroot = self.cfg.fileserver_sensors_root();
+        let ok = crate::util::log_sensors_export(&self.cfg, false);
+
         let mut out: IndexMap<String, String> = IndexMap::default();
-        for es in self.cfg.fileserver_sensors() {
-            for (n, cs) in scan_files_sha256(self.cfg.fileserver_sensors_root().join(&es), None) {
-                out.insert(format!("/{}/{es}/{n}", self.cfg.fileserver_sensors_root().file_name().unwrap().to_str().unwrap()), cs);
+        for es in ok {
+            for (n, cs) in scan_files_sha256(sroot.join(&es), None) {
+                out.insert(format!("/{}/{es}/{n}", sroot.file_name().unwrap().to_str().unwrap()), cs);
             }
         }
 
@@ -332,7 +337,7 @@ impl SysMaster {
             json!(
                 ModStatePayload::new(String::from(""))
                     .add_files(out)
-                    .set_sensors_root(self.cfg.fileserver_sensors_root().file_name().unwrap_or_default().to_str().unwrap_or_default())
+                    .set_sensors_root(sroot.file_name().unwrap_or_default().to_str().unwrap_or_default())
             ),
         )
     }

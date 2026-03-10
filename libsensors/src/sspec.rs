@@ -37,11 +37,15 @@ impl IntervalRange {
     /// # Examples
     ///
     /// ```
+    /// use libsensors::sspec::IntervalRange;
+    ///
     /// let range = IntervalRange { min: 5, max: 10, unit: "seconds".to_string() };
     /// assert_eq!(range.range(), (5, 10));
     /// ```
     ///
     /// ```
+    /// use libsensors::sspec::IntervalRange;
+    ///
     /// let range = IntervalRange { min: 10, max: 5, unit: "seconds".to_string() };
     /// assert_eq!(range.range(), (5, 10)); // swapped
     /// ```
@@ -66,6 +70,8 @@ impl IntervalRange {
     /// # Examples
     ///
     /// ```
+    /// use libsensors::sspec::IntervalRange;
+    ///
     /// let range = IntervalRange { min: 1, max: 10, unit: "seconds".to_string() };
     /// let value = range.pick();
     /// assert!(value >= 1 && value <= 10);

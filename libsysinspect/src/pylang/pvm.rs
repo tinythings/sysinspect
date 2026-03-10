@@ -162,8 +162,10 @@ impl PyVm {
                 py_args.set_item(py_key.as_object(), py_val, vm).unwrap();
             }
 
-            let kwargs: KwArgs =
-                py_args.into_iter().map(|(k, v)| (k.downcast::<rustpython_vm::builtins::PyStr>().unwrap().as_str().to_string(), v)).collect();
+            let kwargs: KwArgs = py_args
+                .into_iter()
+                .map(|(k, v)| (k.downcast::<rustpython_vm::builtins::PyStr>().unwrap().to_string_lossy().into_owned(), v))
+                .collect();
 
             let fref = match scope.globals.get_item(PY_MAIN_FUNC, vm) {
                 Ok(fref) => fref,
@@ -192,7 +194,7 @@ impl PyVm {
             };
 
             if let Ok(py_str) = r.downcast::<rustpython_vm::builtins::PyStr>() {
-                return Ok(py_str.as_str().to_string());
+                return Ok(py_str.to_string_lossy().into_owned());
             }
 
             Err(SysinspectError::ModuleError("Python script does not returns a JSON string".to_string()))
