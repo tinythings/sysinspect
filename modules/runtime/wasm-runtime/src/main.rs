@@ -8,6 +8,7 @@ use libmodcore::{
     modcli::RuntimeModuleCli,
     modinit::ModInterface,
     response::ModResponse,
+    rtspec::RuntimeParams,
     runtime::{ModRequest, get_call_args, send_call_response},
 };
 use serde_json::Value;
@@ -40,7 +41,43 @@ fn list_wasm_modules(wasm_dir: &Path) {
 /// Run the Wasm runtime with the provided request.
 fn call_runtime(_cli: &RuntimeModuleCli, rq: &ModRequest) -> ModResponse {
     let mut r = ModResponse::new_cm();
-    let rt = match wart::WasmRuntime::new(rq) {
+
+    for opt in rq.options_all() {
+        if opt.as_string().unwrap_or_default().eq(&format!("{}{}", RuntimeParams::RtPrefix, "list")) {
+            let rt = match wart::WasmRuntime::new(rq) {
+                Err(err) => {
+                    r.set_message(&format!("Failed to initialize Wasm runtime: {err}"));
+                    r.set_retcode(4);
+                    return r;
+                }
+                Ok(rt) => rt,
+            };
+            let mut mods = match rt.get_wasm_modules() {
+                Ok(mods) => mods,
+                Err(err) => {
+                    r.set_message(&format!("Failed to get WASM modules: {err}"));
+                    r.set_retcode(3);
+                    return r;
+                }
+            };
+            mods.sort();
+            if let Err(err) = r.set_data(serde_json::json!({ "modules": mods })) {
+                r.set_message(&format!("Failed to set response data: {err}"));
+                r.set_retcode(6);
+                return r;
+            }
+            r.set_message("Listed available Wasm modules successfully.");
+            r.set_retcode(0);
+            return r;
+        }
+    }
+
+    let mut effective_rq = rq.clone();
+    if effective_rq.args_all().get(&RuntimeParams::ModuleManual.to_string()).and_then(|v| v.as_bool()).unwrap_or(false) {
+        effective_rq.add_opt("man");
+    }
+
+    let rt = match wart::WasmRuntime::new(&effective_rq) {
         Err(err) => {
             r.set_message(&format!("Failed to initialize Wasm runtime: {err}"));
             r.set_retcode(4);
