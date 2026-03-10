@@ -53,11 +53,7 @@ fn list_cfg_files(p: &Path) -> Vec<PathBuf> {
 /// - files outside any scope are ignored when at least one scope exists (warn)
 fn collect_chunks(p: &Path) -> Vec<PathBuf> {
     let all = list_cfg_files(p);
-    let mut idxs: Vec<PathBuf> = all
-        .iter()
-        .filter(|x| x.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg"))
-        .cloned()
-        .collect();
+    let mut idxs: Vec<PathBuf> = all.iter().filter(|x| x.file_name().and_then(|s| s.to_str()) == Some("sensors.cfg")).cloned().collect();
 
     // Strict mode: no sensors.cfg index => no chunks are loaded.
     if idxs.is_empty() {
@@ -116,7 +112,6 @@ fn collect_chunks(p: &Path) -> Vec<PathBuf> {
 fn merged_events_yaml(p: &Path) -> Result<serde_yaml::Value, SysinspectError> {
     let mut events_map: serde_yaml::Mapping = serde_yaml::Mapping::new();
     for path in collect_chunks(p) {
-
         let mut w: Wrapper = match serde_yaml::from_str(&fs::read_to_string(&path)?) {
             Ok(v) => v,
             Err(err) => {

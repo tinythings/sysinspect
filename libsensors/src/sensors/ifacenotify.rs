@@ -11,8 +11,8 @@ use omnitrace_core::callbacks::Callback;
 use serde_json::json;
 use std::collections::HashMap;
 use std::{fmt, time::Duration};
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 
 pub struct IfaceSensor {
     sid: String,

@@ -15,16 +15,8 @@ mod loader_merge_test {
         fs::create_dir_all(root.join("my-crappy-sensors")).unwrap();
         fs::create_dir_all(root.join("my-better-sensors/sub")).unwrap();
 
-        write(
-            root.join("my-crappy-sensors").as_path(),
-            "sensors.cfg",
-            "sensors: {}\n",
-        );
-        write(
-            root.join("my-better-sensors").as_path(),
-            "sensors.cfg",
-            "sensors: {}\n",
-        );
+        write(root.join("my-crappy-sensors").as_path(), "sensors.cfg", "sensors: {}\n");
+        write(root.join("my-better-sensors").as_path(), "sensors.cfg", "sensors: {}\n");
 
         write(
             root.join("my-crappy-sensors").as_path(),

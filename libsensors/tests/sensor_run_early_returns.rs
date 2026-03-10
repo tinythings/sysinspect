@@ -32,9 +32,12 @@ mod sensor_run_early_returns_test {
         let hits = Arc::new(AtomicUsize::new(0));
         let hits2 = hits.clone();
 
-        timeout(Duration::from_secs(1), s.run(&move |_evt| {
-            hits2.fetch_add(1, Ordering::SeqCst);
-        }))
+        timeout(
+            Duration::from_secs(1),
+            s.run(&move |_evt| {
+                hits2.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
         .await
         .unwrap();
 
@@ -47,9 +50,12 @@ mod sensor_run_early_returns_test {
         let hits = Arc::new(AtomicUsize::new(0));
         let hits2 = hits.clone();
 
-        timeout(Duration::from_secs(1), s.run(&move |_evt| {
-            hits2.fetch_add(1, Ordering::SeqCst);
-        }))
+        timeout(
+            Duration::from_secs(1),
+            s.run(&move |_evt| {
+                hits2.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
         .await
         .unwrap();
 

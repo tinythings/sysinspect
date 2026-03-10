@@ -46,11 +46,7 @@ sensors:
         let td = TempDir::new().unwrap();
         let root = td.path();
 
-        write(
-            root.join("a").as_path(),
-            "sensors.cfg",
-            "sensors: {}\n",
-        );
+        write(root.join("a").as_path(), "sensors.cfg", "sensors: {}\n");
 
         write(
             root.join("a").as_path(),

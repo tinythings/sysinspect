@@ -146,7 +146,12 @@ impl Py3Runtime {
         let rtlog_def = rtlog::module_def(&builder.ctx);
         let itp = builder.init_stdlib().add_native_module(rtlog_def).build();
 
-        Ok(Self { itp, scripts_dir, lib_dir, log_state: Arc::new(Mutex::new(PyLoggerState { logs: Vec::new(), modulename: "Python module".to_string() })) })
+        Ok(Self {
+            itp,
+            scripts_dir,
+            lib_dir,
+            log_state: Arc::new(Mutex::new(PyLoggerState { logs: Vec::new(), modulename: "Python module".to_string() })),
+        })
     }
 
     /// Get Python runtime scripts directory
@@ -174,15 +179,13 @@ impl Py3Runtime {
         for path in [&self.scripts_dir, &self.lib_dir] {
             let path_str = path.to_string_lossy().to_string();
             let contains = match vm.call_method(&syspath, "__contains__", (path_str.clone(),)) {
-                Ok(found) => found
-                    .try_to_bool(vm)
-                    .map_err(|err| Py3RuntimeError::Vm(format!("Failed to inspect sys.path for {}: {err:?}", path.display())))?,
+                Ok(found) => {
+                    found.try_to_bool(vm).map_err(|err| Py3RuntimeError::Vm(format!("Failed to inspect sys.path for {}: {err:?}", path.display())))?
+                }
                 Err(err) => return Err(Py3RuntimeError::Vm(format!("Failed to inspect sys.path for {}: {err:?}", path.display()))),
             };
 
-            if !contains
-                && let Err(err) = vm.call_method(&syspath, "append", (path_str,))
-            {
+            if !contains && let Err(err) = vm.call_method(&syspath, "append", (path_str,)) {
                 return Err(Py3RuntimeError::Vm(format!("Failed to append Python path {}: {err:?}", path.display())));
             }
         }
@@ -255,9 +258,7 @@ impl Py3Runtime {
 
     fn is_valid_module_name(modname: &str) -> bool {
         !modname.is_empty()
-            && modname
-                .split('.')
-                .all(|segment| !segment.is_empty() && segment.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_'))
+            && modname.split('.').all(|segment| !segment.is_empty() && segment.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_'))
     }
 
     /// Resolve Python runtime module name into an absolute file path

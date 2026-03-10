@@ -138,15 +138,7 @@ fn mk_ctx(rq: &ModRequest) -> Result<Ctx, String> {
         .build()
         .map_err(|e| format!("Unable to initialize HTTP client: {e}"))?;
 
-    Ok(Ctx {
-        cl,
-        b: api_base(rq),
-        s,
-        f: arg_str(rq, "file"),
-        d: arg_str(rq, "dst"),
-        m: arg_str(rq, "mode"),
-        force: rq.has_option("force"),
-    })
+    Ok(Ctx { cl, b: api_base(rq), s, f: arg_str(rq, "file"), d: arg_str(rq, "dst"), m: arg_str(rq, "mode"), force: rq.has_option("force") })
 }
 
 fn local_p(c: &Ctx) -> PathBuf {
@@ -174,12 +166,7 @@ fn do_push(c: &Ctx) -> Result<(bool, String, JsonMap), String> {
     }
 
     let b = fs::read(&p).map_err(|e| format!("Unable to read local file '{}': {e}", p.display()))?;
-    let req = c
-        .cl
-        .post(format!("{}/store", c.b))
-        .header("Content-Type", "application/octet-stream")
-        .header("X-Filename", c.s.clone())
-        .body(b);
+    let req = c.cl.post(format!("{}/store", c.b)).header("Content-Type", "application/octet-stream").header("X-Filename", c.s.clone()).body(b);
     let rsp = req.send().map_err(|e| format!("Push request failed: {e}"))?;
     if !rsp.status().is_success() {
         let st = rsp.status();
