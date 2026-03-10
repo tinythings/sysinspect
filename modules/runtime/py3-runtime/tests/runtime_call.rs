@@ -37,6 +37,16 @@ def double(v):
     }
 
     if let Err(err) = fs::write(
+        pkgdir.join("helper.py"),
+        r#"
+def triple(v):
+    return v * 3
+"#,
+    ) {
+        panic!("failed to write helper python package module: {err}");
+    }
+
+    if let Err(err) = fs::write(
         moddir.join("hello.py"),
         r#"
 def run(req):
@@ -48,6 +58,14 @@ def run(req):
 
     if let Err(err) = fs::create_dir_all(moddir.join("nested")) {
         panic!("failed to create nested test python module directory: {err}");
+    }
+
+    if let Err(err) = fs::create_dir_all(moddir.join("__pycache__")) {
+        panic!("failed to create test __pycache__ directory: {err}");
+    }
+
+    if let Err(err) = fs::write(moddir.join("__pycache__/ignored.py"), "x = 1\n") {
+        panic!("failed to write ignored __pycache__ test module: {err}");
     }
 
     if let Err(err) = fs::write(
