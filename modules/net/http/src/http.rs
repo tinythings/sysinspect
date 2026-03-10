@@ -64,7 +64,7 @@ impl RequestSpec {
             method,
             url,
             headers: Self::object_arg(rt, "headers")?,
-            query: Self::object_arg(rt, "query"),
+            query: Self::object_arg(rt, "query")?,
             body: Self::value_arg(rt, "body"),
             auth: Self::struct_arg(rt, "auth")?,
             tls: Self::struct_arg(rt, "tls")?,
