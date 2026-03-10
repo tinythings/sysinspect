@@ -1,6 +1,7 @@
 use libmodcore::{init_mod_doc, modinit::ModInterface, runtime};
 
 mod http;
+#[cfg(test)]
 mod http_ut;
 
 use http::HttpModule;
