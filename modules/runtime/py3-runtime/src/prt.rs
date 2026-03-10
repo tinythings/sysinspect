@@ -159,17 +159,28 @@ impl Py3Runtime {
     /// # Returns
     /// * `Result<()>` - Result of the operation
     fn load_pylib(&self, vm: &VirtualMachine) -> Result<()> {
+        let sysmod = match vm.import("sys", 0) {
+            Ok(m) => m,
+            Err(_) => return Err(Py3RuntimeError::Vm("Unable to import sys module".to_string())),
+        };
+        let syspath = match sysmod.get_attr("path", vm) {
+            Ok(path) => path,
+            Err(_) => return Err(Py3RuntimeError::Vm("Unable to access sys.path".to_string())),
+        };
+
         for path in [&self.scripts_dir, &self.lib_dir] {
-            if let Ok(sysmod) = vm.import("sys", 0) {
-                if let Ok(syspath) = sysmod.get_attr("path", vm) {
-                    if let Err(err) = vm.call_method(&syspath, "append", (path.to_string_lossy().to_string(),)) {
-                        return Err(Py3RuntimeError::Vm(format!("Failed to append Python path {}: {err:?}", path.display())));
-                    }
-                } else {
-                    return Err(Py3RuntimeError::Vm("Unable to access sys.path".to_string()));
-                }
-            } else {
-                return Err(Py3RuntimeError::Vm("Unable to import sys module".to_string()));
+            let path_str = path.to_string_lossy().to_string();
+            let contains = match vm.call_method(&syspath, "__contains__", (path_str.clone(),)) {
+                Ok(found) => found
+                    .try_to_bool(vm)
+                    .map_err(|err| Py3RuntimeError::Vm(format!("Failed to inspect sys.path for {}: {err:?}", path.display())))?,
+                Err(err) => return Err(Py3RuntimeError::Vm(format!("Failed to inspect sys.path for {}: {err:?}", path.display()))),
+            };
+
+            if !contains
+                && let Err(err) = vm.call_method(&syspath, "append", (path_str,))
+            {
+                return Err(Py3RuntimeError::Vm(format!("Failed to append Python path {}: {err:?}", path.display())));
             }
         }
 
