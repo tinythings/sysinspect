@@ -258,20 +258,25 @@ impl SysMinion {
 
     /// Talk-back to the master
     pub(crate) async fn request(&self, msg: Vec<u8>) {
+        fn trigger_reconnect(context: &str, err: &std::io::Error) {
+            log::warn!("{context}: {err}; triggering reconnect");
+            let _ = CONNECTION_TX.send(());
+        }
+
         let mut stm = self.wstm.lock().await;
 
         if let Err(e) = stm.write_all(&(msg.len() as u32).to_be_bytes()).await {
-            log::error!("Failed to send message length to master: {e}");
+            trigger_reconnect("Failed to send message length to master", &e);
             return;
         }
 
         if let Err(e) = stm.write_all(&msg).await {
-            log::error!("Failed to send message to master: {e}");
+            trigger_reconnect("Failed to send message to master", &e);
             return;
         }
 
         if let Err(e) = stm.flush().await {
-            log::error!("Failed to flush writer to master: {e}");
+            trigger_reconnect("Failed to flush writer to master", &e);
         } else {
             log::trace!("To master: {}", String::from_utf8_lossy(&msg));
         }
@@ -981,7 +986,8 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                     match sig {
                         Ok(_) => state.exit.store(true, Ordering::Relaxed),
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            log::debug!("Ignoring lagged reconnect notifications during startup sync: {n}");
+                            log::warn!("Missed {n} reconnect notification(s) during startup sync; exiting minion instance.");
+                            state.exit.store(true, Ordering::Relaxed);
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             log::warn!("Reconnect channel closed during startup sync; exiting minion instance.");
@@ -993,6 +999,12 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         } else {
             log::warn!("Module auto-sync {} is disabled. Call cluster sync to force modules sync.", "on startup".bright_yellow());
         }
+    }
+
+    if state.exit.load(Ordering::Relaxed) {
+        runner.abort();
+        let _ = runner.await;
+        return Ok(());
     }
 
     // Send sensors sync request
@@ -1008,7 +1020,8 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                 match sig {
                     Ok(_) => state.exit.store(true, Ordering::Relaxed),
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        log::debug!("Ignoring lagged reconnect notifications in main loop: {n}");
+                        log::warn!("Missed {n} reconnect notification(s) in main loop; exiting minion instance.");
+                        state.exit.store(true, Ordering::Relaxed);
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         log::warn!("Reconnect channel closed in main loop; exiting minion instance.");
@@ -1067,7 +1080,8 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
                         let _ = mhdl.await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        log::debug!("Ignoring lagged reconnect notifications in supervisor loop: {n}");
+                        log::warn!("Missed {n} reconnect notification(s) in supervisor loop; aborting current minion instance.");
+                        let _ = mhdl.await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         log::warn!("Reconnect channel closed in supervisor loop; waiting for minion instance task.");
