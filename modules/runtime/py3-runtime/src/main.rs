@@ -26,6 +26,12 @@ fn list_python_modules(scripts_dir: &Path) -> Vec<String> {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    let Some(name) = path.file_name().and_then(|v| v.to_str()) else {
+                        continue;
+                    };
+                    if matches!(name, "site-packages" | "__pycache__") {
+                        continue;
+                    }
                     visit(root, &path, out);
                 } else if path.is_file()
                     && let Some(ext) = path.extension()
