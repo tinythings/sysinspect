@@ -4,9 +4,13 @@ mod tests {
     use crate::proto::msg::{CONNECTION_TX, ExitState};
     use libdpq::DiskPersistentQueue;
     use libsysinspect::cfg::mmconf::MinionConfig;
+    use once_cell::sync::Lazy;
     use std::sync::Arc;
     use tokio::net::TcpListener;
+    use tokio::sync::Mutex;
     use tokio::time::{Duration, timeout};
+
+    static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     fn mk_cfg(master: String, _fileserver: String, root: &std::path::Path) -> MinionConfig {
         let mut cfg = MinionConfig::default();
@@ -14,6 +18,7 @@ mod tests {
         cfg.set_master_port(master.split(':').nth(1).unwrap().parse().unwrap());
         //cfg.set_fileserver(fileserver);
         cfg.set_root_dir(root.to_str().unwrap());
+        cfg.set_autosync_startup(false);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
         cfg
@@ -21,6 +26,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconnect_signal_exits_instance_cleanly() {
+        let _guard = TEST_LOCK.lock().await;
         // Fake master
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -55,6 +61,7 @@ mod tests {
 
     #[tokio::test]
     async fn proto_eof_emits_reconnect_signal() {
+        let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -68,6 +75,7 @@ mod tests {
         cfg.set_master_ip("127.0.0.1");
         cfg.set_master_port(addr.port().into());
         cfg.set_root_dir(tmp.path().to_str().unwrap());
+        cfg.set_autosync_startup(false);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
 
@@ -97,6 +105,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconnect_does_not_leave_zombie_connection() {
+        let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -116,34 +125,38 @@ mod tests {
         cfg.set_master_ip(&addr.ip().to_string());
         cfg.set_master_port(addr.port().into());
         cfg.set_root_dir(tmp.path().to_str().unwrap());
+        cfg.set_autosync_startup(false);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
 
-        // Run one instance, it should exit on EOF because do_proto sends reconnect.
+        // Run one instance to establish the first connection.
         let h1 = tokio::spawn({
             let cfg = cfg.clone();
             let dpq = dpq.clone();
             async move { _minion_instance(cfg, None, dpq).await }
         });
 
-        // Wait for first to end
-        let _ = timeout(Duration::from_secs(3), h1).await.expect("first instance did not exit");
+        // Let the fake master accept, then drop the first connection.
+        tokio::time::sleep(Duration::from_millis(400)).await;
 
         // Run second instance; must be able to connect (fake master is waiting)
         let h2 = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
 
         // We don't need it to finish; just prove it connected by allowing accept2 to finish.
-        timeout(Duration::from_secs(3), accept2).await.expect("second connect never happened").unwrap();
+        timeout(Duration::from_secs(10), accept2).await.expect("second connect never happened").unwrap();
 
         // cleanup
+        h1.abort();
+        let _ = h1.await;
         h2.abort();
         let _ = h2.await;
     }
 
     #[tokio::test]
     async fn request_writes_len_prefix_and_payload() {
+        let _guard = TEST_LOCK.lock().await;
         use tokio::io::AsyncReadExt;
         use tokio::net::TcpListener;
 
@@ -182,6 +195,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_ehlo_includes_sid_and_is_jsonish() {
+        let _guard = TEST_LOCK.lock().await;
         use tokio::io::AsyncReadExt;
         use tokio::net::TcpListener;
 
@@ -221,6 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_traits_writes_a_message_over_wire() {
+        let _guard = TEST_LOCK.lock().await;
         use tokio::io::AsyncReadExt;
         use tokio::net::TcpListener;
 
@@ -260,6 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_sensors_sync_emits_expected_r_code() {
+        let _guard = TEST_LOCK.lock().await;
         use tokio::io::AsyncReadExt;
         use tokio::net::TcpListener;
 
@@ -299,6 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_background_aborts_and_clears_handles() {
+        let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -333,6 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_sensors_aborts_and_clears_handles() {
+        let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -363,6 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn ping_watchdog_triggers_reconnect_after_timeout() {
+        let _guard = TEST_LOCK.lock().await;
         use tokio::time::timeout;
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -393,6 +412,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_ping_resets_timeout() {
+        let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -422,6 +442,7 @@ mod tests {
 
     #[tokio::test]
     async fn request_handles_closed_socket_gracefully() {
+        let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 

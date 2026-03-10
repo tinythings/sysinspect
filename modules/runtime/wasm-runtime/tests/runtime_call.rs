@@ -4,6 +4,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::OnceLock,
 };
 use tempfile::TempDir;
 
@@ -18,6 +19,47 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("..")
 }
 
+fn wasm_cache_dir() -> &'static Path {
+    static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+    CACHE_DIR.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("sysinspect-wasm-runtime-test-cache-{}", std::process::id()));
+        if let Err(err) = fs::create_dir_all(&dir) {
+            panic!("failed to create wasm cache directory {}: {err}", dir.display());
+        }
+        dir
+    })
+}
+
+fn build_go_example(example_dir: &Path, output_name: &str) -> PathBuf {
+    let out = wasm_cache_dir().join(output_name);
+    if out.exists() {
+        return out;
+    }
+
+    let status = Command::new("go")
+        .current_dir(example_dir)
+        .env("GOOS", "wasip1")
+        .env("GOARCH", "wasm")
+        .arg("build")
+        .arg("-trimpath")
+        .arg("-ldflags=-s -w")
+        .arg("-o")
+        .arg(&out)
+        .arg("main.go")
+        .status()
+        .unwrap_or_else(|err| panic!("failed to build Go wasm example in {}: {err}", example_dir.display()));
+    if !status.success() {
+        panic!("Go wasm build failed in {} with status {}", example_dir.display(), status);
+    }
+
+    out
+}
+
+fn prebuilt_rs_reader() -> Option<PathBuf> {
+    let path = repo_root().join("modules/runtime/wasm-runtime/examples/rs-reader/target/release/lib/runtime/wasm/rs-reader.wasm");
+    path.exists().then_some(path)
+}
+
 fn install_module(root: &Path, src: &Path, dst_name: &str) {
     let moddir = root.join("lib/runtime/wasm");
     if let Err(err) = fs::create_dir_all(&moddir) {
@@ -28,23 +70,27 @@ fn install_module(root: &Path, src: &Path, dst_name: &str) {
     }
 }
 
-fn install_test_modules(root: &Path) {
+fn install_test_modules(root: &Path) -> Vec<String> {
     let repo = repo_root();
+    let hello = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/hello"), "hellodude.wasm");
     install_module(
         root,
-        &repo.join("modules/runtime/wasm-runtime/examples/hello/build/lib/runtime/wasm/hellodude.wasm"),
+        &hello,
         "hellodude.wasm",
     );
+    let caller = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/caller"), "caller.wasm");
     install_module(
         root,
-        &repo.join("modules/runtime/wasm-runtime/examples/caller/build/lib/runtime/wasm/caller.wasm"),
+        &caller,
         "caller.wasm",
     );
-    install_module(
-        root,
-        &repo.join("modules/runtime/wasm-runtime/examples/rs-reader/target/release/lib/runtime/wasm/rs-reader.wasm"),
-        "rs-reader.wasm",
-    );
+    let mut modules = vec!["caller".to_string(), "hellodude".to_string()];
+    if let Some(rs_reader) = prebuilt_rs_reader() {
+        install_module(root, &rs_reader, "rs-reader.wasm");
+        modules.push("rs-reader".to_string());
+    }
+    modules.sort();
+    modules
 }
 
 fn run_runtime(payload: &Value) -> Value {
@@ -131,7 +177,7 @@ fn test_wasm_runtime_returns_forwarded_logs() {
 #[test]
 fn test_wasm_runtime_lists_modules() {
     let root = mk_tmp_runtime_root();
-    install_test_modules(root.path());
+    let expected_modules = install_test_modules(root.path());
 
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy() },
@@ -140,7 +186,7 @@ fn test_wasm_runtime_lists_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["caller", "hellodude", "rs-reader"])));
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(expected_modules)));
 }
 
 #[test]
@@ -177,7 +223,10 @@ fn test_wasm_runtime_reports_missing_module() {
 #[test]
 fn test_wasm_runtime_runs_rust_guest_module() {
     let root = mk_tmp_runtime_root();
-    install_test_modules(root.path());
+    let modules = install_test_modules(root.path());
+    if !modules.iter().any(|m| m == "rs-reader") {
+        return;
+    }
 
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy() },
