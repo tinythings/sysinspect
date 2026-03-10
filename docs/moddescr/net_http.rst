@@ -61,25 +61,31 @@ Arguments
 ---------
 
 ``method`` (type: string, required)
-  HTTP method. Parsed using ``reqwest::Method``.
+
+    HTTP method. Parsed using ``reqwest::Method``.
 
 ``url`` (type: string, required)
-  Target URL.
+
+    Target URL.
 
 ``headers`` (type: object)
-  Request headers as a key/value object. Values must be scalar JSON values.
+
+    Request headers as a key/value object. Values must be scalar JSON values.
 
 ``query`` (type: object)
-  Query-string parameters as a key/value object. Values must be scalar JSON
-  values.
+
+    Query-string parameters as a key/value object. Values must be scalar JSON
+    values.
 
 ``body`` (type: any)
-  Request body. Objects and arrays are sent as JSON. Strings are sent as raw
-  text. Other scalar values are converted to text.
+
+    Request body. Objects and arrays are sent as JSON. Strings are sent as raw
+    text. Other scalar values are converted to text.
 
 ``auth`` (type: object)
-  Authentication object. Supported values come directly from
-  ``modules/net/http/src/http.rs``:
+
+    Authentication object. Supported values come directly from
+    ``modules/net/http/src/http.rs``:
 
   * ``type: bearer`` with ``token``
   * ``type: basic`` with ``username`` and optional ``password``
@@ -87,7 +93,8 @@ Arguments
   * ``type: query`` with ``param`` and ``value``
 
 ``tls`` (type: object)
-  TLS settings object. Supported fields:
+
+    TLS settings object. Supported fields:
 
   * ``ca_file``
   * ``client_cert_file``
@@ -98,11 +105,13 @@ Arguments
   If ``client_cert_file`` is set, ``client_key_file`` must also be set.
 
 ``timeout`` (type: int)
-  Request timeout in seconds. Default is ``30``.
+
+    Request timeout in seconds. Default is ``30``.
 
 ``ok-status`` (type: int or list)
-  Extra HTTP status codes treated as success in addition to the normal 2xx
-  range.
+
+    Extra HTTP status codes treated as success in addition to the normal 2xx
+    range.
 
 Examples
 --------
