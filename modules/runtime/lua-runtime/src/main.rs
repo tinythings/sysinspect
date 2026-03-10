@@ -37,6 +37,7 @@ fn list_lua_modules(scripts_dir: &Path) -> Vec<String> {
         }
     }
 
+    modules.sort();
     modules
 }
 
@@ -95,6 +96,27 @@ fn call_runtime(cli: &RuntimeModuleCli, rq: &ModRequest) -> ModResponse {
         resp.set_message(&format!("No module name provided. Set '{}' argument properly.", RuntimeParams::ModuleName));
         return resp;
     }
+
+    if rq.args_all().get(&RuntimeParams::ModuleManual.to_string()).and_then(|v| v.as_bool()).unwrap_or(false) {
+        match rt.module_doc(&match read_module_code(&modpath, rt.get_scripts_dir()) {
+            Ok(code) => code,
+            Err(err) => {
+                resp.set_message(&format!("Failed to read Lua module: {err}"));
+                return resp;
+            }
+        }) {
+            Ok(data) => match resp.set_data(data) {
+                Ok(_) => {
+                    resp.set_retcode(0);
+                    resp.set_message("Got Lua module documentation successfully.");
+                }
+                Err(err) => resp.set_message(&format!("Failed to set response data: {err}")),
+            },
+            Err(err) => resp.set_message(&format!("Failed to get Lua module documentation: {err}")),
+        }
+        return resp;
+    }
+
     match rt.call_module(
         &modpath,
         &read_module_code(&modpath, rt.get_scripts_dir()).unwrap_or_default(),
