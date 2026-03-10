@@ -1,0 +1,185 @@
+name: "net.http"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Generic HTTP client module for one-shot API calls. Supports common
+  authentication modes and TLS configuration.
+
+manpage: |
+  This module sends exactly one outbound HTTP request and returns a structured
+  response object. It does not run as a listener and it does not keep any
+  persistent session state between calls.
+
+  [Y::b]Action DSL setup[N]
+
+  In the action DSL, this module is configured from the [B::]actions[N] section.
+  SysInspect action parser accepts [B::]module[N], [B::]bind[N], [B::]state[N],
+  [B::]args[N] or [B::]arguments[N], and [B::]opts[N] or [B::]options[N].
+  Since [B::]net.http[N] currently has no module options, request data is normally
+  placed only under the state [B::]args[N] block.
+
+  Example action layout:
+
+      [M::b]actions[N]:
+        [M::b]jira-search[N]:
+          [M::b]module[N]: [B::]net.http[N]
+          [M::b]bind[N]:
+            - [C::]api-target[N]
+          [M::b]state[N]:
+            [M::b]$[N]:
+              [M::b]args[N]:
+                [M::b]method[N]: [C::]GET[N]
+                [M::b]url[N]: [C::]https://jira.example.com/rest/api/2/search[N]
+                [M::b]query[N]:
+                  [M::b]jql[N]: [C::]project = OPS ORDER BY updated DESC[N]
+                [M::b]headers[N]:
+                  [M::b]Accept[N]: [C::]application/json[N]
+                [M::b]auth[N]:
+                  [M::b]type[N]: [C::]bearer[N]
+                  [M::b]token[N]: [C::]context(jira_token)[N]
+
+  Inside the module process, SysInspect serialises the action call as JSON on
+  STDIN and passes [B::]arguments[N] and [B::]options[N] fields to the runtime request
+  object. This module reads those values via [B::]libmodcore::runtime[N].
+
+  [Y::b]Request arguments[N]
+
+  Supported request arguments are:
+
+  1. [B::]method[N] for the HTTP method.
+  2. [B::]url[N] for the target URL.
+  3. [B::]headers[N] for request headers as scalar key/value pairs.
+  4. [B::]query[N] for query parameters as scalar key/value pairs.
+  5. [B::]body[N] for request body. Objects and arrays are sent as JSON,
+     strings are sent as raw text, and other scalar values are stringified.
+  6. [B::]auth[N] for authentication. Supported [B::]auth.type[N] values are
+     [B::]bearer[N], [B::]basic[N], [B::]header[N], and [B::]query[N].
+  7. [B::]tls[N] for TLS settings. Supported fields are [B::]ca_file[N],
+     [B::]client_cert_file[N], [B::]client_key_file[N],
+     [B::]insecure_skip_verify[N], and [B::]insecure_skip_hostname_verify[N].
+     If [B::]client_cert_file[N] is set, [B::]client_key_file[N] must also be set.
+  8. [B::]timeout[N] for request timeout in seconds. Default is [B::]30[N].
+  9. [B::]ok-status[N] for additional HTTP status codes treated as success.
+
+  [Y::b]Response payload[N]
+
+  The returned payload contains [B::]url[N], [B::]status[N], [B::]ok[N],
+  [B::]headers[N], and [B::]body[N]. The [B::]body[N] object contains [B::]text[N]
+  for UTF-8 payloads, [B::]json[N] if that text also parses as JSON, or
+  [B::]base64[N] for binary payloads.
+
+  Return code is [G::b]0[N] when the HTTP status is successful or listed in
+  [B::]ok-status[N]. Otherwise return code is [R::b]1[N].
+
+  This module is suitable for generic HTTPS integrations such as Jira REST,
+  internal processing APIs, and other authenticated HTTP endpoints. It is not
+  intended for transferring very large binary artefacts.
+
+options: []
+
+arguments:
+  - name: "method"
+    type: "string"
+    required: true
+    description: "HTTP method, e.g. GET, POST, PUT, DELETE"
+
+  - name: "url"
+    type: "string"
+    required: true
+    description: "Target URL"
+
+  - name: "headers"
+    type: "object"
+    required: false
+    description: "HTTP headers as a key/value object"
+
+  - name: "query"
+    type: "object"
+    required: false
+    description: "Query-string parameters as a key/value object"
+
+  - name: "body"
+    type: "any"
+    required: false
+    description: "Request body; objects/arrays are sent as JSON, scalars as raw text"
+
+  - name: "auth"
+    type: "object"
+    required: false
+    description: |
+      Authentication object.
+      Supported auth.type values:
+      - bearer: auth.token
+      - basic: auth.username, auth.password
+      - header: auth.header, auth.value
+      - query: auth.param, auth.value
+
+  - name: "tls"
+    type: "object"
+    required: false
+    description: |
+      TLS configuration object.
+      Supported fields:
+      - ca_file
+      - client_cert_file
+      - client_key_file
+      - insecure_skip_verify
+      - insecure_skip_hostname_verify
+
+  - name: "timeout"
+    type: "int"
+    required: false
+    description: "Request timeout in seconds (default: 30)"
+
+  - name: "ok-status"
+    type: "list"
+    required: false
+    description: "Additional HTTP status codes considered successful"
+
+examples:
+  - description: "Fetch JSON from an API using bearer token auth"
+    code: |
+      "arguments": {
+        "method": "GET",
+        "url": "https://jira.example.com/rest/api/2/search",
+        "query": {
+          "jql": "project = OPS ORDER BY updated DESC"
+        },
+        "auth": {
+          "type": "bearer",
+          "token": "secret-token"
+        },
+        "headers": {
+          "Accept": "application/json"
+        }
+      }
+
+  - description: "Submit JSON payload with custom CA trust"
+    code: |
+      "arguments": {
+        "method": "POST",
+        "url": "https://processor.example.com/api/jobs",
+        "body": {
+          "ticket": "OPS-42",
+          "artifact": "/data/log.bin"
+        },
+        "tls": {
+          "ca_file": "/etc/ssl/private/processor-ca.pem"
+        }
+      }
+
+returns:
+  $:
+    :description: "Generic HTTP response payload"
+    retcode: 0
+    message: "HTTP request completed"
+    data:
+      url: "https://api.example.com/resource"
+      status: 200
+      ok: true
+      headers:
+        content-type: "application/json"
+      body:
+        text: "{\"ok\":true}"
+        json:
+          ok: true
