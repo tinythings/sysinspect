@@ -10,8 +10,9 @@ use rustpython_vm::{
 };
 use serde_json::Value as JsonValue;
 use std::{
+    cell::RefCell,
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, Mutex},
 };
 
 #[derive(Default)]
@@ -20,20 +21,39 @@ struct PyLoggerState {
     modulename: String,
 }
 
-static PY_LOG_STATE: LazyLock<Mutex<PyLoggerState>> = LazyLock::new(|| Mutex::new(PyLoggerState::default()));
+thread_local! {
+    static ACTIVE_PY_LOG_STATE: RefCell<Option<Arc<Mutex<PyLoggerState>>>> = const { RefCell::new(None) };
+}
+
+struct ActiveLogStateGuard {
+    prev: Option<Arc<Mutex<PyLoggerState>>>,
+}
+
+impl Drop for ActiveLogStateGuard {
+    fn drop(&mut self) {
+        ACTIVE_PY_LOG_STATE.with(|slot| {
+            *slot.borrow_mut() = self.prev.take();
+        });
+    }
+}
+
+fn set_active_log_state(state: Arc<Mutex<PyLoggerState>>) -> ActiveLogStateGuard {
+    let prev = ACTIVE_PY_LOG_STATE.with(|slot| slot.borrow_mut().replace(state));
+    ActiveLogStateGuard { prev }
+}
 
 /// Set current Python module name for forwarded log messages
 /// # Arguments
 /// * `modname` - Current Python module name
-fn set_log_modulename(modname: &str) {
-    if let Ok(mut g) = PY_LOG_STATE.lock() {
+fn set_log_modulename(state: &Arc<Mutex<PyLoggerState>>, modname: &str) {
+    if let Ok(mut g) = state.lock() {
         g.modulename = modname.to_string();
     }
 }
 
 /// Clear buffered Python log lines before a module call
-fn clear_log_buffer() {
-    if let Ok(mut g) = PY_LOG_STATE.lock() {
+fn clear_log_buffer(state: &Arc<Mutex<PyLoggerState>>) {
+    if let Ok(mut g) = state.lock() {
         g.logs.clear();
     }
 }
@@ -41,8 +61,8 @@ fn clear_log_buffer() {
 /// Get buffered Python log lines
 /// # Returns
 /// * `Vec<String>` - Collected log lines
-fn get_log_buffer() -> Vec<String> {
-    if let Ok(g) = PY_LOG_STATE.lock() { g.logs.clone() } else { Vec::new() }
+fn get_log_buffer(state: &Arc<Mutex<PyLoggerState>>) -> Vec<String> {
+    if let Ok(g) = state.lock() { g.logs.clone() } else { Vec::new() }
 }
 
 /// Push a single formatted log line into the runtime buffer
@@ -50,11 +70,17 @@ fn get_log_buffer() -> Vec<String> {
 /// * `level` - Log level
 /// * `msg` - Log message
 fn push_log_line(level: &str, msg: &str) {
-    if let Ok(mut g) = PY_LOG_STATE.lock() {
-        let ts = chrono::Local::now().format("%d/%m/%Y %H:%M:%S");
-        let modulename = if g.modulename.is_empty() { "Python module".to_string() } else { g.modulename.clone() };
-        g.logs.push(format!("[{ts}] - {level}: [{modulename}] {msg}"));
-    }
+    ACTIVE_PY_LOG_STATE.with(|slot| {
+        let Some(state) = slot.borrow().clone() else {
+            return;
+        };
+
+        if let Ok(mut g) = state.lock() {
+            let ts = chrono::Local::now().format("%d/%m/%Y %H:%M:%S");
+            let modulename = if g.modulename.is_empty() { "Python module".to_string() } else { g.modulename.clone() };
+            g.logs.push(format!("[{ts}] - {level}: [{modulename}] {msg}"));
+        }
+    });
 }
 
 #[pymodule]
@@ -97,8 +123,7 @@ pub struct Py3Runtime {
     itp: Interpreter,
     scripts_dir: PathBuf,
     lib_dir: PathBuf,
-    logs: Arc<Mutex<Vec<String>>>,
-    modulename: Arc<Mutex<String>>,
+    log_state: Arc<Mutex<PyLoggerState>>,
 }
 
 impl Py3Runtime {
@@ -118,7 +143,7 @@ impl Py3Runtime {
         let rtlog_def = rtlog::module_def(&builder.ctx);
         let itp = builder.init_stdlib().add_native_module(rtlog_def).build();
 
-        Ok(Self { itp, scripts_dir, lib_dir, logs: Arc::new(Mutex::new(Vec::new())), modulename: Arc::new(Mutex::new("Python module".to_string())) })
+        Ok(Self { itp, scripts_dir, lib_dir, log_state: Arc::new(Mutex::new(PyLoggerState { logs: Vec::new(), modulename: "Python module".to_string() })) })
     }
 
     /// Get Python runtime scripts directory
@@ -304,21 +329,14 @@ log = _SysinspectLogger()
     /// # Arguments
     /// * `modname` - Python module name
     fn set_modulename(&self, modname: &str) {
-        if let Ok(mut m) = self.modulename.lock() {
-            *m = modname.to_string();
-        }
-        set_log_modulename(modname);
+        set_log_modulename(&self.log_state, modname);
     }
 
     /// Synchronise global Python log buffer into runtime instance state
     /// # Returns
     /// * `Vec<String>` - Buffered log lines
     fn sync_logs(&self) -> Vec<String> {
-        let logs = get_log_buffer();
-        if let Ok(mut g) = self.logs.lock() {
-            *g = logs.clone();
-        }
-        logs
+        get_log_buffer(&self.log_state)
     }
 
     /// Compile and execute Python code, then call `run(req)`
@@ -410,8 +428,9 @@ log = _SysinspectLogger()
     /// # Returns
     /// * `Result<JsonValue>` - Runtime response payload
     pub fn call_module(&self, modname: &str, code: &str, req: &JsonValue, with_logs: bool) -> Result<JsonValue> {
-        clear_log_buffer();
+        clear_log_buffer(&self.log_state);
         self.set_modulename(modname);
+        let _active_log_state = set_active_log_state(self.log_state.clone());
         let data = self.run_code(&format!("{modname}.py"), code, modname, req)?;
         let logs = if with_logs { self.sync_logs() } else { Vec::new() };
         Ok(serde_json::json!({
