@@ -31,11 +31,8 @@ fn modbase(base: &mut Value, mods: IndexMap<Vec<String>, Value>) {
         let mut cv = &mut *base;
 
         for (i, k) in pth.iter().enumerate() {
-            let (clr_k, rm) = if k.starts_with(MOD_REMOVE) {
-                (k.trim_start_matches(MOD_REMOVE).trim().to_string(), true)
-            } else {
-                (k.clone(), false)
-            };
+            let (clr_k, rm) =
+                if k.starts_with(MOD_REMOVE) { (k.trim_start_matches(MOD_REMOVE).trim().to_string(), true) } else { (k.clone(), false) };
 
             let next = {
                 if let Value::Mapping(m) = cv {

@@ -141,9 +141,9 @@ impl EventsConfig {
     }
 
     /// Get an event config by event id.
-    /// An event Id is constructed from three parts as a path:
+    /// An event Id is constructed from pipe-delimited parts:
     ///
-    /// `<action-id>/<bound entity/<state>`
+    /// `<action-id>|<bound entity>|<state>|<return code>`
     ///
     /// State can be default, i.e. `$`.
     pub fn get_event(&self, event_id: &str) -> Option<EventConfig> {

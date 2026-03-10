@@ -1,0 +1,23 @@
+[package]
+name = "py3-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libmodcore = { path = "../../../libmodcore" }
+libcommon = { path = "../../../libcommon" }
+serde = "1.0.228"
+serde_json = "1.0.149"
+serde_yaml = "0.9.34"
+anyhow = "1.0.100"
+thiserror = "2.0.18"
+clap = "4.5.54"
+log = "0.4.29"
+chrono = "0.4.43"
+indexmap = "2.13.0"
+rustpython-pylib = { git = "https://github.com/RustPython/RustPython.git", features = ["freeze-stdlib"] }
+rustpython = { git = "https://github.com/RustPython/RustPython.git", features = ["freeze-stdlib"] }
+rustpython-vm = { git = "https://github.com/RustPython/RustPython.git", features = ["freeze-stdlib"] }
+
+[dev-dependencies]
+tempfile = "3.25.0"

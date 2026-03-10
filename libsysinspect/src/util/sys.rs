@@ -8,10 +8,7 @@ use std::{io, ptr};
 /// Kills a proces from a PID file
 pub fn kill_process(pidf: PathBuf, wait: Option<u64>) -> io::Result<()> {
     let pid_str = read_to_string(pidf)?;
-    let pid = pid_str
-        .trim()
-        .parse::<i32>()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid PID file content: {e}")))?;
+    let pid = pid_str.trim().parse::<i32>().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid PID file content: {e}")))?;
 
     unsafe {
         if libc::kill(pid, libc::SIGTERM) != 0 {
@@ -74,9 +71,10 @@ pub fn to_fqdn_ip(hostname: &str) -> Option<(String, IpAddr)> {
     }
 
     if let Some(ip) = ipaddr
-        && ip.is_loopback() {
-            ipaddr = ext_ipaddr();
-        }
+        && ip.is_loopback()
+    {
+        ipaddr = ext_ipaddr();
+    }
 
     match (fqdn, ipaddr) {
         (Some(fqdn), Some(ip)) => Some((fqdn, ip)),

@@ -18,15 +18,17 @@ fn get_json_value(s: &str) -> Value {
     }
     // Int (accepts only if string is identical to its integer representation)
     if let Ok(i) = s.parse::<i64>()
-        && s == i.to_string() {
-            return Value::Number(Number::from(i));
-        }
+        && s == i.to_string()
+    {
+        return Value::Number(Number::from(i));
+    }
     // Float (but not if it parses as int)
     if let Ok(f) = s.parse::<f64>()
         && s.contains('.')
-            && let Some(n) = Number::from_f64(f) {
-                return Value::Number(n);
-            }
+        && let Some(n) = Number::from_f64(f)
+    {
+        return Value::Number(n);
+    }
     // Quoted string
     if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
         return Value::String(s[1..s.len() - 1].to_string());

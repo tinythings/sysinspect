@@ -1,0 +1,55 @@
+name: "runtime.python3"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: Python 3.14 runtime module.
+
+options:
+  - name: rt.list
+    description: "List of available Python scripts, ready to be called as modules."
+
+  - name: rt.logs
+    description: "Enable logging from Python scripts to SysInspect logs."
+
+arguments:
+  - name: rt.mod
+    type: string
+    required: true
+    description: "The name of a Python script to be executed from the configured Python runtime directory."
+
+  - name: "[ANY]"
+    type: string
+    required: false
+    description: |
+      Additional arguments that will be passed to the Python module being executed.
+
+examples:
+  - description: "Call a Python module named 'hello.py'"
+    code: |
+      {
+        "opts": ["rt.logs"],
+        "arguments": {
+          "rt.mod": "hello",
+          "name": "Germany"
+        }
+      }
+
+returns:
+  fill:
+    :description: |
+      Returns runtime result payload with module data and optional logs.
+    retcode: 0
+    message: "Called Python module successfully."
+    data:
+      changed: false
+
+manpage: |
+  This module allows executing Python 3 scripts as modules within
+  the SysInspect framework with Python 3.14 compatibility.
+
+  Keep the following directory structure:
+
+  1. Runtime Python modules must be installed in
+  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/python3/[N]
+
+  2. Runtime Python libraries should be installed in
+  [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/python3/site-packages[N]

@@ -15,7 +15,6 @@ enum AlertButtons {
     Quit,
 }
 
-
 static YES_LABEL: &str = "Yes";
 static NO_LABEL: &str = "No";
 static OK_LABEL: &str = "OK";

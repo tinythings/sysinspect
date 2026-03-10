@@ -1,0 +1,96 @@
+py3-runtime Status
+==================
+
+Completed
+---------
+
+1. Crate layout aligned with other runtimes
+   - standalone runtime crate under `modules/runtime/py3-runtime`
+   - `src/main.rs` for CLI/runtime plumbing
+   - `src/prt.rs` for `Py3Runtime`
+   - `src/mod_doc.yaml` for runtime CLI docs
+
+2. Cargo wiring
+   - RustPython dependencies added as Git dependencies
+   - no pinned revision/tag
+   - same `freeze-stdlib` feature family as existing project usage
+
+3. Runtime filesystem layout
+   - entry modules under `lib/runtime/python3`
+   - shared Python libraries under `lib/runtime/python3/site-packages`
+
+4. Runtime object and VM bootstrap
+   - `Py3Runtime` implemented
+   - Python path bootstrap isolated in runtime methods
+   - request execution kept separate from startup
+
+5. Log forwarding
+   - `log.error(...)`, `log.warn(...)`, `log.info(...)`, `log.debug(...)`
+   - log lines buffered per module call
+   - logs returned in `__sysinspect-module-logs`
+
+6. Python module contract
+   - `run(req)` entrypoint
+   - request payload contains `args`, `config`, `opts`, `ext`
+   - runtime response returns `data` and optional `logs`
+
+7. Value conversion
+   - JSON request converted into Python objects
+   - Python return converted back into JSON
+   - unsupported return values fail clearly
+
+8. Module discovery and file loading
+   - dotted names resolved as nested modules, e.g. `nested.reader`
+   - recursive module listing implemented
+   - missing module reads fail with explicit path in the message
+
+9. Documentation extraction
+   - module docs supported as either `doc = {...}` or `def doc(): return {...}`
+   - documentation validated through `validate_module_doc`
+   - contract documented in project docs
+
+10. Runtime CLI integration
+    - supports `rt.mod`
+    - supports `rt.list`
+    - supports `rt.logs`
+    - supports runtime manual requests via `rt.man`
+    - direct CLI/manual/help flow aligned with other runtimes
+
+11. Examples
+    - `hello.py` for simple JSON return
+    - `reader.py` for log forwarding
+    - `caller.py` for command execution example
+    - `site-packages/mathx` for shared library import example
+    - example README added
+
+12. Verification
+    - `cargo check -p py3-runtime`
+    - `cargo test -p py3-runtime`
+    - integration coverage for:
+      - normal module execution
+      - nested module listing
+      - `site-packages` imports
+      - log forwarding
+      - docs from `doc`
+      - docs from `doc()`
+      - missing module failure
+      - non-JSON return failure
+
+13. Cleanup
+    - comments/documentation aligned with existing project style
+    - ignored per-crate release profile removed from `py3-runtime/Cargo.toml`
+    - workspace `Makefile` updated to move `py3-runtime` into `target/*/runtime/`
+
+Notes
+-----
+
+- Release stripping/compression is inherited from the workspace root `Cargo.toml`.
+- Project documentation for the runtime lives in `docs/moddescr/runtime_py3.rst`.
+- The built-in runtime YAML manual remains focused on CLI/module help output.
+
+Possible future work
+--------------------
+
+1. Run full workspace `nextest` if broad regression coverage is desired.
+2. Add more real-world Python example modules once the runtime API settles.
+3. Revisit naming if `py3-runtime` is ever renamed to `runtime.py3` at the package level.
