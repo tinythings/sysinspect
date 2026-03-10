@@ -63,24 +63,30 @@ impl RequestSpec {
         Ok(Self {
             method,
             url,
-            headers: Self::object_arg(rt, "headers"),
+            headers: Self::object_arg(rt, "headers")?,
             query: Self::object_arg(rt, "query"),
             body: Self::value_arg(rt, "body"),
-            auth: Self::struct_arg(rt, "auth"),
-            tls: Self::struct_arg(rt, "tls"),
+            auth: Self::struct_arg(rt, "auth")?,
+            tls: Self::struct_arg(rt, "tls")?,
             timeout_secs: rt.get_arg("timeout").and_then(|v| v.as_int()).and_then(|n| u64::try_from(n).ok()).unwrap_or(30),
             ok_status: Self::ok_status(rt),
         })
     }
 
     /// Convert an object argument into a string/value map.
-    fn object_arg(rt: &runtime::ModRequest, key: &str) -> IndexMap<String, Value> {
-        Self::value_arg(rt, key).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+    fn object_arg(rt: &runtime::ModRequest, key: &str) -> Result<IndexMap<String, Value>, String> {
+        match Self::value_arg(rt, key) {
+            Some(value) => serde_json::from_value(value).map_err(|err| format!("Invalid '{key}' argument: {err}")),
+            None => Ok(IndexMap::default()),
+        }
     }
 
     /// Convert a structured argument into a typed object.
-    fn struct_arg<T: for<'de> Deserialize<'de> + Default>(rt: &runtime::ModRequest, key: &str) -> T {
-        Self::value_arg(rt, key).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+    fn struct_arg<T: for<'de> Deserialize<'de> + Default>(rt: &runtime::ModRequest, key: &str) -> Result<T, String> {
+        match Self::value_arg(rt, key) {
+            Some(value) => serde_json::from_value(value).map_err(|err| format!("Invalid '{key}' configuration: {err}")),
+            None => Ok(T::default()),
+        }
     }
 
     /// Get a raw JSON value argument.
