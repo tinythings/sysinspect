@@ -203,7 +203,7 @@ Let's do it:
 .. code-block:: yaml
 
     events:
-      $/$/$/$:
+      $|$|$|$:
         handler:
           - console-logger
           - outcome-logger

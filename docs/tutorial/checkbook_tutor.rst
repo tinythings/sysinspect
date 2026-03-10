@@ -395,7 +395,7 @@ or trigger some side-effect. In this tutorial we configure two simple handlers:
 .. code-block:: yaml
 
   events:
-    $/$/$/$:
+    $|$|$|$:
       handlers:
         - console-logger
         - outcome-logger

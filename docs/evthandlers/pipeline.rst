@@ -129,7 +129,7 @@ except you read the value from the current event using JSONPath (for example, ``
 In other words:
 
 * Your first action runs and emits an event.
-* The pipeline matches that event (usually only successes, e.g. ``.../0``).
+* The pipeline matches that event (usually only successes, e.g. ``...|0``).
 * The pipeline pulls fields out of the event payload with JSONPath.
 * Those extracted values become the context for the next call.
 
@@ -157,4 +157,3 @@ So instead of hard-coding ``data:500``, you map it from the event like ``data: $
                 # This will pass the value of $.something from the current
                 # action's output to the context of the next action
                 data: $.something
-
