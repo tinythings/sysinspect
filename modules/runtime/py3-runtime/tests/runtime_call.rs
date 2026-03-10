@@ -296,6 +296,21 @@ fn test_python_runtime_reports_missing_module() {
 }
 
 #[test]
+fn test_python_runtime_rejects_invalid_module_name() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "../etc/passwd" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(1)));
+    assert!(out.get("message").and_then(|v| v.as_str()).unwrap_or_default().contains("invalid python module name"));
+}
+
+#[test]
 fn test_python_runtime_reports_non_json_return_value() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());
