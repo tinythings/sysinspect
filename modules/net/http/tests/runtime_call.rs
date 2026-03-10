@@ -91,8 +91,8 @@ fn read_http_request(stream: &mut std::net::TcpStream) -> String {
             content_length = content_length_of(head);
         }
 
-        if let Some((head, body)) = split_http_request(&buf)
-            && body.len() >= content_length_of(head).unwrap_or(0)
+        if let Some((_, body)) = split_http_request(&buf)
+            && body.len() >= content_length.unwrap_or(0)
         {
             break;
         }
@@ -165,6 +165,31 @@ fn test_http_module_gets_json_and_sends_query_and_header_auth() {
 }
 
 #[test]
+fn test_http_module_gets_json_and_sends_bearer_auth() {
+    let base = spawn_server(
+        |request| {
+            assert!(request.starts_with("GET /bearer HTTP/1.1\r\n"));
+            assert_eq!(header_value(request, "Authorization"), Some("Bearer secret-token"));
+        },
+        "200 OK",
+        &["Content-Type: application/json"],
+        r#"{"ok":true}"#,
+    );
+
+    let out = run_module(&json!({
+        "args": {
+            "method": "GET",
+            "url": format!("{base}/bearer"),
+            "auth": { "type": "bearer", "token": "secret-token" }
+        }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/status"), Some(&json!(200)));
+    assert_eq!(out.pointer("/data/body/json/ok"), Some(&json!(true)));
+}
+
+#[test]
 fn test_http_module_posts_json_body_with_basic_auth() {
     let base = spawn_server(
         |request| {
@@ -190,6 +215,30 @@ fn test_http_module_posts_json_body_with_basic_auth() {
     assert_eq!(out.get("retcode"), Some(&json!(0)));
     assert_eq!(out.pointer("/data/status"), Some(&json!(201)));
     assert_eq!(out.pointer("/data/body/json/accepted"), Some(&json!(true)));
+}
+
+#[test]
+fn test_http_module_sends_query_auth_parameter() {
+    let base = spawn_server(
+        |request| {
+            assert!(request.starts_with("GET /query?access_token=secret-token HTTP/1.1\r\n"));
+        },
+        "200 OK",
+        &["Content-Type: application/json"],
+        r#"{"ok":true}"#,
+    );
+
+    let out = run_module(&json!({
+        "args": {
+            "method": "GET",
+            "url": format!("{base}/query"),
+            "auth": { "type": "query", "param": "access_token", "value": "secret-token" }
+        }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/status"), Some(&json!(200)));
+    assert_eq!(out.pointer("/data/body/json/ok"), Some(&json!(true)));
 }
 
 #[test]
