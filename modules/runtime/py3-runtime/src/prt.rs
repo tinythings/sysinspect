@@ -109,6 +109,9 @@ pub enum Py3RuntimeError {
     #[error("python vm error: {0}")]
     Vm(String),
 
+    #[error("invalid python module name '{modname}'")]
+    InvalidModuleName { modname: String },
+
     #[error("failed to read python file '{path}': {source}")]
     ReadFile {
         path: String,
@@ -250,13 +253,24 @@ impl Py3Runtime {
         }
     }
 
+    fn is_valid_module_name(modname: &str) -> bool {
+        !modname.is_empty()
+            && modname
+                .split('.')
+                .all(|segment| !segment.is_empty() && segment.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_'))
+    }
+
     /// Resolve Python runtime module name into an absolute file path
     /// # Arguments
     /// * `modname` - Python module name, dotted or plain
     /// # Returns
-    /// * `PathBuf` - Absolute module file path
-    fn module_path(&self, modname: &str) -> PathBuf {
-        self.scripts_dir.join(format!("{}.py", modname.replace('.', "/").trim_matches('/')))
+    /// * `Result<PathBuf>` - Absolute module file path
+    fn module_path(&self, modname: &str) -> Result<PathBuf> {
+        if !Self::is_valid_module_name(modname) {
+            return Err(Py3RuntimeError::InvalidModuleName { modname: modname.to_string() });
+        }
+
+        Ok(self.scripts_dir.join(format!("{}.py", modname.replace('.', "/"))))
     }
 
     /// Read Python module source code by runtime module name
@@ -265,7 +279,7 @@ impl Py3Runtime {
     /// # Returns
     /// * `Result<String>` - Python source code
     pub fn read_module_code(&self, modname: &str) -> Result<String> {
-        let path = self.module_path(modname);
+        let path = self.module_path(modname)?;
         match std::fs::read_to_string(&path) {
             Ok(code) => Ok(code),
             Err(err) => Err(Py3RuntimeError::ReadFile { path: path.to_string_lossy().to_string(), source: err }),
