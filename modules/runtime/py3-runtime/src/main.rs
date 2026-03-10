@@ -5,7 +5,7 @@ use clap::Parser;
 use libmodcore::{
     init_mod_doc,
     manrndr::print_mod_manual,
-    modcli::ModuleCli,
+    modcli::RuntimeModuleCli,
     modinit::ModInterface,
     response::ModResponse,
     rtspec::RuntimeParams,
@@ -52,7 +52,7 @@ fn list_python_modules(scripts_dir: &Path) -> Vec<String> {
 /// * `modname` - Runtime module name
 /// # Returns
 /// * `Result<Value, Py3RuntimeError>` - Runtime module documentation
-fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, Py3RuntimeError> {
+fn module_doc_help(cli: &RuntimeModuleCli, modname: &str) -> Result<Value, Py3RuntimeError> {
     let rt = Py3Runtime::new(PathBuf::from(cli.get_sharelib()))?;
     rt.module_doc(&rt.read_module_code(modname)?)
 }
@@ -63,7 +63,7 @@ fn module_doc_help(cli: &ModuleCli, modname: &str) -> Result<Value, Py3RuntimeEr
 /// * `rq` - Runtime request
 /// # Returns
 /// * `ModResponse` - Runtime call response
-fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
+fn call_runtime(cli: &RuntimeModuleCli, rq: &ModRequest) -> ModResponse {
     let mut resp = ModResponse::new_cm();
     let sharelib = rq.config().get("path.sharelib").and_then(|v| v.as_string()).unwrap_or(cli.get_sharelib());
     let rt = match Py3Runtime::new(PathBuf::from(&sharelib)) {
@@ -145,7 +145,7 @@ fn call_runtime(cli: &ModuleCli, rq: &ModRequest) -> ModResponse {
 /// Main entry point
 fn main() {
     let mod_doc = init_mod_doc!(ModInterface);
-    let cli = ModuleCli::parse();
+    let cli = RuntimeModuleCli::parse();
 
     if cli.is_manual() {
         print!("{}", mod_doc.help());

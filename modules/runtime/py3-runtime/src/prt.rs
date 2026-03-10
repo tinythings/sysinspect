@@ -204,7 +204,7 @@ impl Py3Runtime {
             Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to serialise Python value to JSON: {err:?}"))),
         };
         let s = match dumped.downcast::<PyStr>() {
-            Ok(s) => s.as_str().to_string(),
+            Ok(s) => s.to_string(),
             Err(_) => return Err(Py3RuntimeError::Vm("Python json.dumps() did not return a string".to_string())),
         };
 
