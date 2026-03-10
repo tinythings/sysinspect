@@ -2,6 +2,7 @@
 mod tests {
     use crate::http::{RequestSpec, response_body, scalar_to_string};
     use indexmap::IndexMap;
+    use libmodcore::runtime::ModRequest;
     use serde_json::json;
 
     /// Scalar values can be converted to strings.
@@ -29,5 +30,37 @@ mod tests {
         let body = response_body(br#"{"hello":"world"}"#);
         assert_eq!(body["text"], "{\"hello\":\"world\"}");
         assert_eq!(body["json"]["hello"], "world");
+    }
+
+    /// Structured arguments should fail fast on invalid JSON shape.
+    #[test]
+    fn request_spec_rejects_invalid_structured_arguments() {
+        let rt: ModRequest = serde_json::from_value(json!({
+            "args": {
+                "method": "GET",
+                "url": "https://example.com",
+                "headers": ["not-an-object"]
+            }
+        }))
+        .unwrap();
+
+        let err = RequestSpec::from_request(&rt).unwrap_err();
+        assert!(err.contains("Invalid 'headers' argument"));
+    }
+
+    /// Structured config should fail fast on invalid config shape.
+    #[test]
+    fn request_spec_rejects_invalid_auth_configuration() {
+        let rt: ModRequest = serde_json::from_value(json!({
+            "args": {
+                "method": "GET",
+                "url": "https://example.com",
+                "auth": ["not-an-object"]
+            }
+        }))
+        .unwrap();
+
+        let err = RequestSpec::from_request(&rt).unwrap_err();
+        assert!(err.contains("Invalid 'auth' configuration"));
     }
 }
