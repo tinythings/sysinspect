@@ -32,8 +32,14 @@ openssl = { version = "0.10.75", features = ["vendored"] }
 [workspace]
 resolver = "2"
 members = [
-    "modules/sys/*",
-    "modules/runtime/*",
+    "modules/sys/proc",
+    "modules/sys/net",
+    "modules/sys/run",
+    "modules/sys/ssrun",
+    "modules/net/http",
+    "modules/runtime/lua-runtime",
+    "modules/runtime/py3-runtime",
+    "modules/runtime/wasm-runtime",
     "libsysinspect",
     "libeventreg",
     "sysmaster",

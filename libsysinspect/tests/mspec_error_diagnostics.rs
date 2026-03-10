@@ -1,10 +1,6 @@
 mod mspec_error_diagnostics_test {
     use libcommon::SysinspectError;
-    use libsysinspect::{
-        cfg::mmconf::MinionConfig,
-        mdescr::mspec,
-        tmpl::render::ModelTplRender,
-    };
+    use libsysinspect::{cfg::mmconf::MinionConfig, mdescr::mspec, tmpl::render::ModelTplRender};
     use std::fs;
     use std::sync::Arc;
     use tempfile::TempDir;

@@ -116,9 +116,7 @@ impl SpecLoader {
             mtr.set_values("context", self.context.clone().unwrap_or_default());
         }
 
-        let rendered = mtr.render().map_err(|e| {
-            SysinspectError::ModelDSLError(format!("Unable to render template \"{}\": {}", pth.display(), e))
-        })?;
+        let rendered = mtr.render().map_err(|e| SysinspectError::ModelDSLError(format!("Unable to render template \"{}\": {}", pth.display(), e)))?;
 
         match serde_yaml::from_str::<Value>(&rendered) {
             Ok(chunk) => Ok(chunk),

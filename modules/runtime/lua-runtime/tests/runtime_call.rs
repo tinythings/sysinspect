@@ -253,10 +253,7 @@ fn test_lua_runtime_lists_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(
-        out.pointer("/data/modules"),
-        Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "reader"]))
-    );
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "reader"])));
 }
 
 #[test]

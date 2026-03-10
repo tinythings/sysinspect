@@ -73,17 +73,9 @@ fn install_module(root: &Path, src: &Path, dst_name: &str) {
 fn install_test_modules(root: &Path) -> Vec<String> {
     let repo = repo_root();
     let hello = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/hello"), "hellodude.wasm");
-    install_module(
-        root,
-        &hello,
-        "hellodude.wasm",
-    );
+    install_module(root, &hello, "hellodude.wasm");
     let caller = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/caller"), "caller.wasm");
-    install_module(
-        root,
-        &caller,
-        "caller.wasm",
-    );
+    install_module(root, &caller, "caller.wasm");
     let mut modules = vec!["caller".to_string(), "hellodude".to_string()];
     if let Some(rs_reader) = prebuilt_rs_reader() {
         install_module(root, &rs_reader, "rs-reader.wasm");

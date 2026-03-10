@@ -244,10 +244,7 @@ fn test_python_runtime_lists_nested_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(
-        out.pointer("/data/modules"),
-        Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "nested.reader"]))
-    );
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "nested.reader"])));
 }
 
 #[test]

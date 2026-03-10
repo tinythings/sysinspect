@@ -2,6 +2,7 @@
 
 ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
 ARC_NAME := sysinspect-${ARC_VERSION}
+PACK_LAYOUT_DIRS := sys net fs runtime
 
 .PHONY:build
 
@@ -33,20 +34,32 @@ define check_present
 	fi
 endef
 
+define prep_layout
+	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
+	for layout in $(PACK_LAYOUT_DIRS); do \
+		if [ -d $$dir/$$layout ]; then rm -rf $$dir/$$layout; fi; \
+	done
+endef
+
 
 define move_bin
 	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
 	echo "Moving binaries in $$dir"; \
+	if [ -f $$dir/net ]; then mv $$dir/net $$dir/.net.bin; fi; \
+	if [ -f $$dir/http ]; then mv $$dir/http $$dir/.http.bin; fi; \
 	rm -rf $$dir/sys; \
 	mkdir -p $$dir/sys; \
+	rm -rf $$dir/net; \
+	mkdir -p $$dir/net; \
 	rm -rf $$dir/fs; \
 	mkdir -p $$dir/fs; \
 	rm -rf $$dir/runtime; \
 	mkdir -p $$dir/runtime; \
 	mv $$dir/proc $$dir/sys/; \
-	mv $$dir/net $$dir/sys/; \
+	mv $$dir/.net.bin $$dir/sys/net; \
 	mv $$dir/run $$dir/sys/; \
 	mv $$dir/ssrun $$dir/sys/; \
+	mv $$dir/.http.bin $$dir/net/http; \
 	mv $$dir/file $$dir/fs/; \
 	mv $$dir/lua-runtime $$dir/runtime/; \
 	mv $$dir/py3-runtime $$dir/runtime/; \
@@ -69,29 +82,35 @@ fix:
 
 musl-aarch64-dev:
 	$(call check_present,aarch64-linux-musl-gcc)
+	$(call prep_layout,debug,aarch64-unknown-linux-musl)
 	cargo build -v --workspace --target aarch64-unknown-linux-musl
 	$(call move_bin,debug,aarch64-unknown-linux-musl)
 
 musl-aarch64:
 	$(call check_present,aarch64-linux-musl-gcc)
+	$(call prep_layout,release,aarch64-unknown-linux-musl)
 	cargo build --release --workspace --target aarch64-unknown-linux-musl
 	$(call move_bin,release,aarch64-unknown-linux-musl)
 
 musl-x86_64-dev:
 	$(call check_present,x86_64-linux-musl-gcc)
+	$(call prep_layout,debug,x86_64-unknown-linux-musl)
 	cargo build -v --workspace --target x86_64-unknown-linux-musl
 	$(call move_bin,debug,x86_64-unknown-linux-musl)
 
 musl-x86_64:
 	$(call check_present,x86_64-linux-musl-gcc)
+	$(call prep_layout,release,x86_64-unknown-linux-musl)
 	cargo build --release --workspace --target x86_64-unknown-linux-musl
 	$(call move_bin,release,x86_64-unknown-linux-musl)
 
 devel:
+	$(call prep_layout,debug,)
 	cargo build -v --workspace
 	$(call move_bin,debug,)
 
 build:
+	$(call prep_layout,release,)
 	cargo build --release --workspace
 	$(call move_bin,release,)
 
