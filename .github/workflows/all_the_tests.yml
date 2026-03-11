@@ -20,8 +20,8 @@ jobs:
     steps:
       - name: Install deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
       - name: Install latest nextest release
         uses: taiki-e/install-action@nextest
@@ -40,8 +40,8 @@ jobs:
     steps:
       - name: Install deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
       - name: Install latest nextest release
         uses: taiki-e/install-action@nextest
@@ -60,8 +60,8 @@ jobs:
     steps:
       - name: Install deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
       - name: Install latest nextest release
         uses: taiki-e/install-action@nextest
@@ -80,8 +80,8 @@ jobs:
     steps:
       - name: Install deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
       - name: Install latest nextest release
         uses: taiki-e/install-action@nextest
