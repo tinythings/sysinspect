@@ -16,7 +16,11 @@ fn mk_tmp_runtime_root() -> TempDir {
 }
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("..")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| panic!("failed to resolve repository root from {}", env!("CARGO_MANIFEST_DIR")))
 }
 
 fn wasm_cache_dir() -> &'static Path {
