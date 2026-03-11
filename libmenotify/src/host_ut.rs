@@ -1,4 +1,4 @@
-use crate::{MeNotifyContext, MeNotifyEventBuilder, MeNotifyProgram, MeNotifyRunner, MeNotifyRuntime};
+use crate::{MeNotifyContext, MeNotifyError, MeNotifyEventBuilder, MeNotifyHost, MeNotifyProgram, MeNotifyRunner, MeNotifyRuntime};
 use std::{
     fs,
     io::{Read, Write},
@@ -124,4 +124,25 @@ return {
     assert!(req.starts_with("post "));
     assert!(req.contains("content-type: text/plain"));
     assert!(req.ends_with("ping"));
+}
+
+#[test]
+fn http_request_rejects_nan_timeout() {
+    let err = MeNotifyHost::timeout_for_test(f64::NAN).expect_err("nan timeout should fail");
+
+    assert!(matches!(err, MeNotifyError::HttpSpec(_)));
+}
+
+#[test]
+fn http_request_rejects_infinite_timeout() {
+    let err = MeNotifyHost::timeout_for_test(f64::INFINITY).expect_err("infinite timeout should fail");
+
+    assert!(matches!(err, MeNotifyError::HttpSpec(_)));
+}
+
+#[test]
+fn http_request_rejects_absurd_timeout() {
+    let err = MeNotifyHost::timeout_for_test(f64::MAX).expect_err("oversized timeout should fail");
+
+    assert!(matches!(err, MeNotifyError::HttpSpec(_)));
 }
