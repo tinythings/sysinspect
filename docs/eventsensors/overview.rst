@@ -202,3 +202,4 @@ Here are the available sensors. This list is not exhaustive and may be updated a
   netnotify
   ifacenotify
   socknotify
+  menotify

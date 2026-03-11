@@ -49,6 +49,8 @@ welcome—see the section on contributing for how to get involved.
    tutorial/module_management
    tutorial/wasm_modules_tutor
    tutorial/lua_modules_tutor
+   tutorial/menotify_tutor
+   tutorial/menotify_sensor_dev_tutor
 
 
 Licence
