@@ -197,24 +197,4 @@ impl MeNotifyRuntime {
             }
         }
     }
-
-    /// Logs the current bootstrap state for the stub runtime.
-    ///
-    /// # Returns
-    ///
-    /// Returns nothing. This method only emits log records describing what the
-    /// runtime resolved or failed to resolve.
-    pub fn run_stub(&self) {
-        match self.load_program() {
-            Ok(program) => log::warn!(
-                "[{}] '{}' validated module '{}' at '{}' with '{:?}' entrypoint; host API is not implemented yet, sensor stays idle",
-                "menotify".bright_magenta(),
-                self.sid,
-                program.module_name(),
-                program.script_path().display(),
-                program.contract().entrypoint()
-            ),
-            Err(err) => self.log_bootstrap_error(&err),
-        }
-    }
 }
