@@ -21,7 +21,7 @@ jobs:
       - name: Install deps
         run: |
           apt-get update
-          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev golang-go
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
       - name: Install latest nextest release
         uses: taiki-e/install-action@nextest
@@ -81,7 +81,7 @@ jobs:
       - name: Install deps
         run: |
           apt-get update
-          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev golang-go
 
       - name: Install latest nextest release
         uses: taiki-e/install-action@nextest
