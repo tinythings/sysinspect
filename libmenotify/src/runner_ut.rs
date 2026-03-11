@@ -164,3 +164,29 @@ return {
     assert_eq!(runner_a.program().lua().globals().get::<i64>("seen").expect("runner a counter should exist"), 2);
     assert_eq!(runner_b.program().lua().globals().get::<i64>("seen").expect("runner b counter should exist"), 1);
 }
+
+#[test]
+fn tick_runner_rejects_unserializable_emit_payload() {
+    let tmp = tempfile::tempdir().expect("tempdir should be created");
+    let root = tmp.path().join("lib/sensors/lua54");
+    fs::create_dir_all(&root).expect("script root should be created");
+    fs::write(
+        root.join("demo.lua"),
+        r#"
+return {
+  tick = function(ctx)
+    ctx.emit(function() end)
+  end
+}
+"#,
+    )
+    .expect("script file should be written");
+
+    let runtime = MeNotifyRuntime::with_sharelib_root("demo".to_string(), "menotify.demo".to_string(), tmp.path().to_path_buf());
+    let runner = MeNotifyRunner::new(
+        MeNotifyProgram::new(&runtime).expect("program should load"),
+        MeNotifyContext::new("demo", "menotify.demo", "demo", &[], &serde_yaml::Value::Null, Some(Duration::from_secs(1))),
+    );
+
+    assert!(runner.run_tick_with_emit(&|_| (), &MeNotifyEventBuilder::new("demo", "menotify.demo", None)).is_err());
+}
