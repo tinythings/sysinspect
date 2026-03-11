@@ -181,8 +181,26 @@ impl<'a> MeNotifyHost<'a> {
         }
     }
 
+    fn timeout(spec: &HttpRequestSpec) -> Result<Duration, MeNotifyError> {
+        if !spec.timeout.is_finite() {
+            return Err(MeNotifyError::HttpSpec("timeout must be a finite number".to_string()));
+        }
+        if spec.timeout.is_sign_negative() {
+            return Err(MeNotifyError::HttpSpec("timeout must not be negative".to_string()));
+        }
+        if spec.timeout > Duration::MAX.as_secs_f64() {
+            return Err(MeNotifyError::HttpSpec(format!("timeout {} is too large", spec.timeout)));
+        }
+        Ok(Duration::from_secs_f64(spec.timeout.max(0.001)))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn timeout_for_test(timeout: f64) -> Result<Duration, MeNotifyError> {
+        Self::timeout(&HttpRequestSpec { timeout, ..HttpRequestSpec::default() })
+    }
+
     fn request(spec: &HttpRequestSpec) -> Result<HttpResponse, MeNotifyError> {
-        let mut builder = reqwest::blocking::Client::builder().timeout(Duration::from_secs_f64(spec.timeout.max(0.001)));
+        let mut builder = reqwest::blocking::Client::builder().timeout(Self::timeout(spec)?);
         if spec.insecure {
             builder = builder.danger_accept_invalid_certs(true);
         }
