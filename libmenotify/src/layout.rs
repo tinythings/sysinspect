@@ -52,3 +52,17 @@ pub fn get_script_root(sharelib_root: &std::path::Path) -> PathBuf {
 pub fn get_site_root(sharelib_root: &std::path::Path) -> PathBuf {
     sharelib_root.join(MENOTIFY_LUA_SITE_ROOT)
 }
+
+/// Returns a Lua `package.path` fragment for the given directory.
+///
+/// # Arguments
+///
+/// * `dir` - Directory to expose to Lua module resolution.
+///
+/// # Returns
+///
+/// Returns a string in the form `dir/?.lua;dir/?/init.lua`.
+pub fn get_path_fragment(dir: &std::path::Path) -> String {
+    let dir = dir.to_string_lossy();
+    format!("{dir}/?.lua;{dir}/?/init.lua")
+}

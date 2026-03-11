@@ -2,6 +2,7 @@ use crate::{
     error::MeNotifyError,
     layout::{get_script_root, get_sharelib_root, get_site_root},
     module::MeNotifyModuleRef,
+    program::MeNotifyProgram,
 };
 use colored::Colorize;
 use std::path::{Path, PathBuf};
@@ -120,6 +121,16 @@ impl MeNotifyRuntime {
         })
     }
 
+    /// Loads and validates the configured Lua script.
+    ///
+    /// # Returns
+    ///
+    /// Returns a loaded `MeNotifyProgram` if the script exists and exports a
+    /// valid MeNotify contract.
+    pub fn load_program(&self) -> Result<MeNotifyProgram, MeNotifyError> {
+        MeNotifyProgram::new(self)
+    }
+
     /// Logs the current bootstrap state for the stub runtime.
     ///
     /// # Returns
@@ -127,13 +138,14 @@ impl MeNotifyRuntime {
     /// Returns nothing. This method only emits log records describing what the
     /// runtime resolved or failed to resolve.
     pub fn run_stub(&self) {
-        match self.require_script() {
-            Ok(path) => log::warn!(
-                "[{}] '{}' resolved module '{}' at '{}' ; Lua runtime is not implemented yet, sensor stays idle",
+        match self.load_program() {
+            Ok(program) => log::warn!(
+                "[{}] '{}' validated module '{}' at '{}' with '{:?}' entrypoint; host API is not implemented yet, sensor stays idle",
                 "menotify".bright_magenta(),
                 self.sid,
-                self.module_name().unwrap_or_default(),
-                path.display()
+                program.module_name(),
+                program.script_path().display(),
+                program.contract().entrypoint()
             ),
             Err(MeNotifyError::MissingModule(_)) => log::warn!(
                 "[{}] '{}' started without a module name in listener '{}'; sensor is a stub and will stay idle",
@@ -147,6 +159,33 @@ impl MeNotifyRuntime {
                 self.sid,
                 path.display(),
                 self.listener
+            ),
+            Err(MeNotifyError::ReadScript { path, source }) => log::warn!(
+                "[{}] '{}' failed reading script '{}' for listener '{}': {}",
+                "menotify".bright_magenta(),
+                self.sid,
+                path.display(),
+                self.listener,
+                source
+            ),
+            Err(MeNotifyError::MissingEntrypoint(module)) => log::warn!(
+                "[{}] '{}' loaded module '{}' but it exports no valid entrypoint",
+                "menotify".bright_magenta(),
+                self.sid,
+                module
+            ),
+            Err(MeNotifyError::AmbiguousEntrypoint(module)) => log::warn!(
+                "[{}] '{}' loaded module '{}' but it exports both tick(ctx) and loop(ctx)",
+                "menotify".bright_magenta(),
+                self.sid,
+                module
+            ),
+            Err(MeNotifyError::Lua(err)) => log::warn!(
+                "[{}] '{}' failed to bootstrap Lua for listener '{}': {}",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.listener,
+                err
             ),
             Err(MeNotifyError::InvalidListener(_)) => log::warn!(
                 "[{}] '{}' got invalid listener '{}'; sensor is a stub and will stay idle",

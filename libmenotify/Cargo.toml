@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 colored = "3.1.1"
 log = "0.4.29"
+mlua = { version = "0.11.5", features = ["lua54", "vendored"] }
 thiserror = "2.0.18"
 
 [dev-dependencies]

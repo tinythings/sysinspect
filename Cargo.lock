@@ -3526,6 +3526,7 @@ version = "0.1.0"
 dependencies = [
  "colored",
  "log",
+ "mlua",
  "tempfile",
  "thiserror 2.0.18",
 ]
