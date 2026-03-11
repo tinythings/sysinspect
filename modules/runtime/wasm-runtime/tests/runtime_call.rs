@@ -8,6 +8,12 @@ use std::{
 };
 use tempfile::TempDir;
 
+static HELLO_GO_MOD: &str = include_str!("../examples/hello/go.mod");
+static HELLO_MAIN_GO: &str = include_str!("../examples/hello/main.go");
+static CALLER_GO_MOD: &str = include_str!("../examples/caller/go.mod");
+static CALLER_MAIN_GO: &str = include_str!("../examples/caller/main.go");
+static CALLER_SYSINSPECT_GO: &str = include_str!("../examples/caller/sysinspect/sysinspect.go");
+
 fn mk_tmp_runtime_root() -> TempDir {
     tempfile::Builder::new()
         .prefix("sysinspect-wasm-runtime-test-")
@@ -59,6 +65,23 @@ fn build_go_example(example_dir: &Path, output_name: &str) -> PathBuf {
     out
 }
 
+fn stage_go_example(name: &str, files: &[(&str, &str)]) -> TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("sysinspect-wasm-runtime-{name}-"))
+        .tempdir()
+        .unwrap_or_else(|err| panic!("failed to create temporary Go example directory: {err}"));
+
+    for (rel, body) in files {
+        let path = dir.path().join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|err| panic!("failed to create {}: {err}", parent.display()));
+        }
+        fs::write(&path, body).unwrap_or_else(|err| panic!("failed to write {}: {err}", path.display()));
+    }
+
+    dir
+}
+
 fn prebuilt_rs_reader() -> Option<PathBuf> {
     let path = repo_root().join("modules/runtime/wasm-runtime/examples/rs-reader/target/release/lib/runtime/wasm/rs-reader.wasm");
     path.exists().then_some(path)
@@ -75,10 +98,12 @@ fn install_module(root: &Path, src: &Path, dst_name: &str) {
 }
 
 fn install_test_modules(root: &Path) -> Vec<String> {
-    let repo = repo_root();
-    let hello = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/hello"), "hellodude.wasm");
+    let hello_src = stage_go_example("hello", &[("go.mod", HELLO_GO_MOD), ("main.go", HELLO_MAIN_GO)]);
+    let hello = build_go_example(hello_src.path(), "hellodude.wasm");
     install_module(root, &hello, "hellodude.wasm");
-    let caller = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/caller"), "caller.wasm");
+    let caller_src =
+        stage_go_example("caller", &[("go.mod", CALLER_GO_MOD), ("main.go", CALLER_MAIN_GO), ("sysinspect/sysinspect.go", CALLER_SYSINSPECT_GO)]);
+    let caller = build_go_example(caller_src.path(), "caller.wasm");
     install_module(root, &caller, "caller.wasm");
     let mut modules = vec!["caller".to_string(), "hellodude".to_string()];
     if let Some(rs_reader) = prebuilt_rs_reader() {
