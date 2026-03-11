@@ -4,7 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use colored::Colorize;
-use libmenotify::{MeNotifyContext, MeNotifyEntrypoint, MeNotifyRunner, MeNotifyRuntime};
+use libmenotify::{MeNotifyContext, MeNotifyEntrypoint, MeNotifyEventBuilder, MeNotifyRunner, MeNotifyRuntime};
 use std::{fmt, time::Duration};
 
 pub struct MeNotifySensor {
@@ -34,13 +34,13 @@ impl Sensor for MeNotifySensor {
         "menotify".to_string()
     }
 
-    async fn run(&self, _emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
+    async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
         match self.runtime.load_program() {
             Ok(program) => {
                 let runner = self.runner(program);
                 match runner.entrypoint() {
-                    MeNotifyEntrypoint::Tick => self.run_tick(runner),
-                    MeNotifyEntrypoint::Loop => self.run_loop(runner),
+                    MeNotifyEntrypoint::Tick => self.run_tick(runner, emit),
+                    MeNotifyEntrypoint::Loop => self.run_loop(runner, emit),
                 }
             }
             Err(err) => self.runtime.log_bootstrap_error(&err),
@@ -81,6 +81,15 @@ impl MeNotifySensor {
         )
     }
 
+    /// Builds an event envelope builder for this sensor instance.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `MeNotifyEventBuilder`.
+    fn event_builder(&self) -> MeNotifyEventBuilder {
+        MeNotifyEventBuilder::new(self.runtime.sid(), self.runtime.listener(), self.cfg.tag())
+    }
+
     /// Runs one `loop(ctx)` style sensor.
     ///
     /// # Arguments
@@ -90,7 +99,7 @@ impl MeNotifySensor {
     /// # Returns
     ///
     /// Returns nothing. The sensor logs and stops if Lua returns an error.
-    fn run_loop(&self, runner: MeNotifyRunner) {
+    fn run_loop(&self, runner: MeNotifyRunner, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
         log::info!(
             "[{}] '{}' running module '{}' as loop(ctx)",
             Self::id().bright_magenta(),
@@ -98,7 +107,7 @@ impl MeNotifySensor {
             runner.program().module_name()
         );
 
-        if let Err(err) = runner.run_loop() {
+        if let Err(err) = runner.run_loop_with_emit(emit, &self.event_builder()) {
             log::warn!(
                 "[{}] '{}' loop(ctx) failed for module '{}': {}",
                 Self::id().bright_magenta(),
@@ -119,7 +128,7 @@ impl MeNotifySensor {
     ///
     /// Returns nothing. The sensor keeps ticking until the Lua entrypoint
     /// fails, then logs and stops.
-    fn run_tick(&self, runner: MeNotifyRunner) {
+    fn run_tick(&self, runner: MeNotifyRunner, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
         log::info!(
             "[{}] '{}' running module '{}' as tick(ctx) every {:?}",
             Self::id().bright_magenta(),
@@ -129,7 +138,7 @@ impl MeNotifySensor {
         );
 
         loop {
-            if let Err(err) = runner.run_tick() {
+            if let Err(err) = runner.run_tick_with_emit(emit, &self.event_builder()) {
                 log::warn!(
                     "[{}] '{}' tick(ctx) failed for module '{}': {}",
                     Self::id().bright_magenta(),

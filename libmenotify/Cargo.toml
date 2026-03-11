@@ -9,8 +9,11 @@ path = "src/lib.rs"
 
 [dependencies]
 colored = "3.1.1"
+libcommon = { path = "../libcommon" }
 log = "0.4.29"
-mlua = { version = "0.11.5", features = ["lua54", "vendored"] }
+mlua = { version = "0.11.5", features = ["lua54", "serialize", "vendored"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 serde_yaml = "0.9.34"
 thiserror = "2.0.18"
 

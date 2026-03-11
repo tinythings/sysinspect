@@ -204,6 +204,13 @@ impl MeNotifyRuntime {
                 self.sid,
                 self.listener
             ),
+            MeNotifyError::InvalidEmitMeta(err) => log::warn!(
+                "[{}] '{}' got invalid emit metadata in listener '{}': {}",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.listener,
+                err
+            ),
         }
     }
 

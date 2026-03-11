@@ -1,5 +1,5 @@
 use crate::MeNotifyError;
-use mlua::{Lua, Table, Value as LuaValue};
+use mlua::{Lua, LuaSerdeExt, Scope, Table, Value as LuaValue};
 use serde_yaml::{Mapping, Value as YamlValue};
 use std::time::Duration;
 
@@ -105,6 +105,48 @@ impl MeNotifyContext {
     /// Returns a Lua table containing passive context fields only.
     pub fn to_lua(&self, lua: &Lua) -> Result<Table, MeNotifyError> {
         let ctx = lua.create_table()?;
+        self.fill(ctx.clone(), lua)?;
+        Ok(ctx)
+    }
+
+    /// Builds a Lua table for the passive v1 context and attaches scoped `emit`.
+    ///
+    /// # Arguments
+    ///
+    /// * `lua` - Lua VM that will own the produced table.
+    /// * `scope` - Scoped Lua lifetime used for non-static callbacks.
+    /// * `emit` - Sensor event sink.
+    /// * `builder` - Event envelope builder.
+    ///
+    /// # Returns
+    ///
+    /// Returns a Lua table containing passive context fields and `emit`.
+    pub fn to_lua_scoped<'lua>(
+        &self,
+        lua: &'lua Lua,
+        scope: &'lua Scope<'lua, '_>,
+        emit: &'lua (dyn Fn(serde_json::Value) + Send + Sync),
+        builder: &'lua crate::MeNotifyEventBuilder,
+    ) -> Result<Table, MeNotifyError> {
+        let ctx = lua.create_table()?;
+        self.fill(ctx.clone(), lua)?;
+        ctx.set(
+            "emit",
+            scope.create_function(|lua, (data, meta): (LuaValue, Option<LuaValue>)| {
+                (emit)(
+                    builder.build(
+                        lua.from_value::<serde_json::Value>(data)?,
+                        meta.map(|v| lua.from_value::<serde_json::Value>(v)).transpose()?,
+                    )
+                    .map_err(|err| mlua::Error::runtime(err.to_string()))?,
+                );
+                Ok(())
+            })?,
+        )?;
+        Ok(ctx)
+    }
+
+    fn fill(&self, ctx: Table, lua: &Lua) -> Result<(), MeNotifyError> {
         ctx.set("id", self.sid())?;
         ctx.set("listener", self.listener())?;
         ctx.set("module", self.module())?;
@@ -113,7 +155,7 @@ impl MeNotifyContext {
         if let Some(interval) = self.interval() {
             ctx.set("interval", interval.as_secs_f64())?;
         }
-        Ok(ctx)
+        Ok(())
     }
 
     fn opts_to_lua(&self, lua: &Lua) -> Result<Table, MeNotifyError> {

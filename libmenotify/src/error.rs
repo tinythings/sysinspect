@@ -34,4 +34,14 @@ pub enum MeNotifyError {
     /// Script exports both tick(ctx) and loop(ctx), which is invalid in v1.
     #[error("module '{0}' exports both tick(ctx) and loop(ctx)")]
     AmbiguousEntrypoint(String),
+
+    /// `ctx.emit` received invalid metadata.
+    #[error("emit metadata is invalid: {0}")]
+    InvalidEmitMeta(String),
+}
+
+impl From<MeNotifyError> for libcommon::SysinspectError {
+    fn from(value: MeNotifyError) -> Self {
+        libcommon::SysinspectError::ModuleError(format!("MeNotify: {value}"))
+    }
 }
