@@ -30,14 +30,7 @@ impl MeNotifyContext {
     ///
     /// Returns a new `MeNotifyContext`.
     pub fn new(sid: &str, listener: &str, module: &str, opts: &[String], args: &YamlValue, interval: Option<Duration>) -> Self {
-        Self {
-            sid: sid.to_string(),
-            listener: listener.to_string(),
-            module: module.to_string(),
-            opts: opts.to_vec(),
-            args: args.clone(),
-            interval,
-        }
+        Self { sid: sid.to_string(), listener: listener.to_string(), module: module.to_string(), opts: opts.to_vec(), args: args.clone(), interval }
     }
 
     /// Returns the sensor id.
@@ -122,10 +115,7 @@ impl MeNotifyContext {
     ///
     /// Returns a Lua table containing passive context fields and `emit`.
     pub fn to_lua_scoped<'lua>(
-        &self,
-        lua: &'lua Lua,
-        scope: &'lua Scope<'lua, '_>,
-        emit: &'lua (dyn Fn(serde_json::Value) + Send + Sync),
+        &self, lua: &'lua Lua, scope: &'lua Scope<'lua, '_>, emit: &'lua (dyn Fn(serde_json::Value) + Send + Sync),
         builder: &'lua crate::MeNotifyEventBuilder,
     ) -> Result<Table, MeNotifyError> {
         let ctx = lua.create_table()?;
@@ -134,11 +124,9 @@ impl MeNotifyContext {
             "emit",
             scope.create_function(|lua, (data, meta): (LuaValue, Option<LuaValue>)| {
                 (emit)(
-                    builder.build(
-                        lua.from_value::<serde_json::Value>(data)?,
-                        meta.map(|v| lua.from_value::<serde_json::Value>(v)).transpose()?,
-                    )
-                    .map_err(|err| mlua::Error::runtime(err.to_string()))?,
+                    builder
+                        .build(lua.from_value::<serde_json::Value>(data)?, meta.map(|v| lua.from_value::<serde_json::Value>(v)).transpose()?)
+                        .map_err(|err| mlua::Error::runtime(err.to_string()))?,
                 );
                 Ok(())
             })?,

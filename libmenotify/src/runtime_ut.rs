@@ -7,10 +7,7 @@ fn resolves_script_path_from_listener_and_env_root() {
     let runtime = MeNotifyRuntime::with_sharelib_root("demo".to_string(), "menotify.sample".to_string(), tmp.path().to_path_buf());
     assert_eq!(runtime.script_root(), Path::new(tmp.path()).join("lib/sensors/lua54"));
     assert_eq!(runtime.site_root(), Path::new(tmp.path()).join("lib/sensors/lua54/site-lua"));
-    assert_eq!(
-        runtime.script_path().expect("script path should resolve"),
-        Path::new(tmp.path()).join("lib/sensors/lua54/sample.lua")
-    );
+    assert_eq!(runtime.script_path().expect("script path should resolve"), Path::new(tmp.path()).join("lib/sensors/lua54/sample.lua"));
 }
 
 #[test]

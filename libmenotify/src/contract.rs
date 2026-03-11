@@ -28,12 +28,8 @@ impl MeNotifyContract {
     /// supported entrypoint.
     pub fn new(module: &Table, module_name: &str) -> Result<Self, MeNotifyError> {
         match (module.get::<Option<Function>>("tick")?, module.get::<Option<Function>>("loop")?) {
-            (Some(_), None) => Ok(Self {
-                entrypoint: MeNotifyEntrypoint::Tick,
-            }),
-            (None, Some(_)) => Ok(Self {
-                entrypoint: MeNotifyEntrypoint::Loop,
-            }),
+            (Some(_), None) => Ok(Self { entrypoint: MeNotifyEntrypoint::Tick }),
+            (None, Some(_)) => Ok(Self { entrypoint: MeNotifyEntrypoint::Loop }),
             (Some(_), Some(_)) => Err(MeNotifyError::AmbiguousEntrypoint(module_name.to_string())),
             (None, None) => Err(MeNotifyError::MissingEntrypoint(module_name.to_string())),
         }

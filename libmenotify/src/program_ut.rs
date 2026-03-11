@@ -32,9 +32,7 @@ fn rejects_program_without_entrypoint() {
 
     let runtime = MeNotifyRuntime::with_sharelib_root("demo".to_string(), "menotify.broken".to_string(), tmp.path().to_path_buf());
     assert_eq!(
-        MeNotifyProgram::new(&runtime)
-            .expect_err("program should fail")
-            .to_string(),
+        MeNotifyProgram::new(&runtime).expect_err("program should fail").to_string(),
         MeNotifyError::MissingEntrypoint("broken".to_string()).to_string()
     );
 }

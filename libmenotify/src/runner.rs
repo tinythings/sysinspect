@@ -77,19 +77,10 @@ impl MeNotifyRunner {
     /// # Returns
     ///
     /// Returns `Ok(())` if the Lua function completed successfully.
-    pub fn run_tick_with_emit(
-        &self,
-        emit: &(dyn Fn(serde_json::Value) + Send + Sync),
-        builder: &MeNotifyEventBuilder,
-    ) -> Result<(), MeNotifyError> {
+    pub fn run_tick_with_emit(&self, emit: &(dyn Fn(serde_json::Value) + Send + Sync), builder: &MeNotifyEventBuilder) -> Result<(), MeNotifyError> {
         self.program().lua().scope(|scope| {
             self.program()
-                .call(
-                    &self
-                        .ctx()
-                        .to_lua_scoped(self.program().lua(), scope, emit, builder)
-                        .map_err(|err| mlua::Error::runtime(err.to_string()))?,
-                )
+                .call(&self.ctx().to_lua_scoped(self.program().lua(), scope, emit, builder).map_err(|err| mlua::Error::runtime(err.to_string()))?)
                 .map_err(|err| mlua::Error::runtime(err.to_string()))
         })?;
         Ok(())
@@ -105,19 +96,10 @@ impl MeNotifyRunner {
     /// # Returns
     ///
     /// Returns `Ok(())` if the Lua function completed successfully.
-    pub fn run_loop_with_emit(
-        &self,
-        emit: &(dyn Fn(serde_json::Value) + Send + Sync),
-        builder: &MeNotifyEventBuilder,
-    ) -> Result<(), MeNotifyError> {
+    pub fn run_loop_with_emit(&self, emit: &(dyn Fn(serde_json::Value) + Send + Sync), builder: &MeNotifyEventBuilder) -> Result<(), MeNotifyError> {
         self.program().lua().scope(|scope| {
             self.program()
-                .call(
-                    &self
-                        .ctx()
-                        .to_lua_scoped(self.program().lua(), scope, emit, builder)
-                        .map_err(|err| mlua::Error::runtime(err.to_string()))?,
-                )
+                .call(&self.ctx().to_lua_scoped(self.program().lua(), scope, emit, builder).map_err(|err| mlua::Error::runtime(err.to_string()))?)
                 .map_err(|err| mlua::Error::runtime(err.to_string()))
         })?;
         Ok(())

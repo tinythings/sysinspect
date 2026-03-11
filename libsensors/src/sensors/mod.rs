@@ -23,14 +23,11 @@ pub type SensorFactory = fn(String, SensorConf) -> Box<dyn Sensor>;
 pub type SensorRegistry = DashMap<String, SensorFactory>;
 
 lazy_static! {
-pub static ref REGISTRY: SensorRegistry = DashMap::new();
+    pub static ref REGISTRY: SensorRegistry = DashMap::new();
 }
 
 pub fn init_sensor(listener: &str, sid: String, cfg: SensorConf) -> Option<Box<dyn Sensor>> {
-    REGISTRY
-        .get(listener)
-        .or_else(|| listener.split_once('.').and_then(|(root, _)| REGISTRY.get(root)))
-        .map(|f| f(sid, cfg))
+    REGISTRY.get(listener).or_else(|| listener.split_once('.').and_then(|(root, _)| REGISTRY.get(root))).map(|f| f(sid, cfg))
 }
 
 pub fn init_registry() {

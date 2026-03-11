@@ -1,9 +1,4 @@
-use crate::{
-    contract::MeNotifyContract,
-    error::MeNotifyError,
-    layout::get_path_fragment,
-    runtime::MeNotifyRuntime,
-};
+use crate::{contract::MeNotifyContract, error::MeNotifyError, layout::get_path_fragment, runtime::MeNotifyRuntime};
 use mlua::{Function, Lua, RegistryKey, Table};
 use std::fmt;
 use std::{fs, path::Path};
@@ -40,25 +35,14 @@ impl MeNotifyProgram {
     /// a valid MeNotify entrypoint.
     pub fn new(runtime: &MeNotifyRuntime) -> Result<Self, MeNotifyError> {
         runtime.require_script().and_then(|script_path| {
-            fs::read_to_string(&script_path)
-                .map_err(|source| MeNotifyError::ReadScript {
-                    path: script_path.clone(),
-                    source,
-                })
-                .and_then(|code| {
-                    let lua = Lua::new();
-                    Self::configure_path(&lua, runtime.script_root().as_path(), runtime.site_root().as_path())?;
-                    let module: Table = lua.load(&code).set_name(runtime.listener()).eval()?;
-                    let contract = MeNotifyContract::new(&module, runtime.module_name().unwrap_or_default())?;
-                    let entrypoint = lua.create_registry_value(module.get::<Function>(Self::entrypoint_name(contract.entrypoint()))?)?;
-                    Ok(Self {
-                        contract,
-                        entrypoint,
-                        lua,
-                        module_name: runtime.module_name().unwrap_or_default().to_string(),
-                        script_path,
-                    })
-                })
+            fs::read_to_string(&script_path).map_err(|source| MeNotifyError::ReadScript { path: script_path.clone(), source }).and_then(|code| {
+                let lua = Lua::new();
+                Self::configure_path(&lua, runtime.script_root().as_path(), runtime.site_root().as_path())?;
+                let module: Table = lua.load(&code).set_name(runtime.listener()).eval()?;
+                let contract = MeNotifyContract::new(&module, runtime.module_name().unwrap_or_default())?;
+                let entrypoint = lua.create_registry_value(module.get::<Function>(Self::entrypoint_name(contract.entrypoint()))?)?;
+                Ok(Self { contract, entrypoint, lua, module_name: runtime.module_name().unwrap_or_default().to_string(), script_path })
+            })
         })
     }
 

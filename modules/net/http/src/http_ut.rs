@@ -17,10 +17,7 @@ mod tests {
     /// Query values must stay scalar.
     #[test]
     fn request_spec_query_rejects_nested_values() {
-        let spec = RequestSpec::with_query(IndexMap::from([
-            ("ok".to_string(), json!("yes")),
-            ("bad".to_string(), json!({"nested": true})),
-        ]));
+        let spec = RequestSpec::with_query(IndexMap::from([("ok".to_string(), json!("yes")), ("bad".to_string(), json!({"nested": true}))]));
         assert!(spec.query().is_err());
     }
 

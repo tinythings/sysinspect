@@ -15,12 +15,7 @@ return {
         .eval()
         .expect("module should evaluate");
 
-    assert_eq!(
-        MeNotifyContract::new(&module, "demo")
-            .expect("contract should validate")
-            .entrypoint(),
-        MeNotifyEntrypoint::Tick
-    );
+    assert_eq!(MeNotifyContract::new(&module, "demo").expect("contract should validate").entrypoint(), MeNotifyEntrypoint::Tick);
 }
 
 #[test]
@@ -37,12 +32,7 @@ return {
         .eval()
         .expect("module should evaluate");
 
-    assert_eq!(
-        MeNotifyContract::new(&module, "demo")
-            .expect("contract should validate")
-            .entrypoint(),
-        MeNotifyEntrypoint::Loop
-    );
+    assert_eq!(MeNotifyContract::new(&module, "demo").expect("contract should validate").entrypoint(), MeNotifyEntrypoint::Loop);
 }
 
 #[test]

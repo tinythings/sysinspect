@@ -14,20 +14,14 @@ pub struct MeNotifySensor {
 
 impl fmt::Debug for MeNotifySensor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MeNotifySensor")
-            .field("sid", &self.runtime.sid())
-            .field("listener", &self.runtime.listener())
-            .finish()
+        f.debug_struct("MeNotifySensor").field("sid", &self.runtime.sid()).field("listener", &self.runtime.listener()).finish()
     }
 }
 
 #[async_trait]
 impl Sensor for MeNotifySensor {
     fn new(id: String, cfg: SensorConf) -> Self {
-        Self {
-            runtime: MeNotifyRuntime::new(id, cfg.listener().to_string()),
-            cfg,
-        }
+        Self { runtime: MeNotifyRuntime::new(id, cfg.listener().to_string()), cfg }
     }
 
     fn id() -> String {
@@ -100,12 +94,7 @@ impl MeNotifySensor {
     ///
     /// Returns nothing. The sensor logs and stops if Lua returns an error.
     fn run_loop(&self, runner: MeNotifyRunner, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
-        log::info!(
-            "[{}] '{}' running module '{}' as loop(ctx)",
-            Self::id().bright_magenta(),
-            self.runtime.sid(),
-            runner.program().module_name()
-        );
+        log::info!("[{}] '{}' running module '{}' as loop(ctx)", Self::id().bright_magenta(), self.runtime.sid(), runner.program().module_name());
 
         if let Err(err) = runner.run_loop_with_emit(emit, &self.event_builder()) {
             log::warn!(

@@ -3,9 +3,7 @@ use serde_json::json;
 
 #[test]
 fn event_builder_uses_defaults() {
-    let ev = MeNotifyEventBuilder::new("sensor-a", "menotify.demo", None)
-        .build(json!({"hello":"world"}), None)
-        .expect("event should build");
+    let ev = MeNotifyEventBuilder::new("sensor-a", "menotify.demo", None).build(json!({"hello":"world"}), None).expect("event should build");
 
     assert_eq!(ev["eid"], "sensor-a|menotify.demo|emitted@-|0");
     assert_eq!(ev["sensor"], "sensor-a");

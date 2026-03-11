@@ -28,15 +28,7 @@ return {
     runner.run_tick().expect("first tick should succeed");
     runner.run_tick().expect("second tick should succeed");
 
-    assert_eq!(
-        runner
-            .program()
-            .lua()
-            .globals()
-            .get::<i64>("seen")
-            .expect("global counter should exist"),
-        2
-    );
+    assert_eq!(runner.program().lua().globals().get::<i64>("seen").expect("global counter should exist"), 2);
 }
 
 #[test]
@@ -63,15 +55,7 @@ return {
     );
 
     runner.run_loop().expect("loop should succeed");
-    assert_eq!(
-        runner
-            .program()
-            .lua()
-            .globals()
-            .get::<String>("executed")
-            .expect("execution marker should exist"),
-            "demo"
-    );
+    assert_eq!(runner.program().lua().globals().get::<String>("executed").expect("execution marker should exist"), "demo");
 }
 
 #[test]
