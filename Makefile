@@ -50,17 +50,18 @@ TEST_RUN_THREADS ?= 3
 	stats man test test-core test-modules test-sensors test-integration tar
 
 define deps
-	@OS_ID=$$(. /etc/os-release 2>/dev/null && echo $$ID || lsb_release -si 2>/dev/null); \
-	SUDO=$$(command -v sudo >/dev/null 2>&1 && echo sudo || true); \
-	if [ "$$OS_ID" = "Ubuntu" ] || [ "$$OS_ID" = "Debian" ]; then \
-		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev"; \
-		$$SUDO apt-get update && $$SUDO apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev; \
-		$$SUDO apt-get install -y llvm-dev libclang-dev clang; \
-		$$SUDO apt-get install -y protobuf-compiler; \
-	else \
-		echo "Oops, no fun for $$OS_ID right now. Builds are only possible on Debian/Ubuntu." >&2; \
-		echo "But! You can fix this by sending your PR here: https://github.com/tinythings/sysinspect :-)" >&2; \
-		exit 1; \
+	@need_apt=0; \
+	for cmd in pkg-config clang protoc; do \
+		command -v $$cmd >/dev/null 2>&1 || need_apt=1; \
+	done; \
+	if [ "$$need_apt" -eq 1 ]; then \
+		if ! command -v apt-get >/dev/null 2>&1; then \
+			echo "Missing required build tools (pkg-config/clang/protoc) and no apt-get is available to install them." >&2; \
+			exit 1; \
+		fi; \
+		SUDO=$$(command -v sudo >/dev/null 2>&1 && echo sudo || true); \
+		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev, libsodium-dev, libpam0g-dev, llvm-dev, libclang-dev, clang, protobuf-compiler"; \
+		$$SUDO apt-get update && $$SUDO apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev llvm-dev libclang-dev clang protobuf-compiler; \
 	fi; \
 	cargo nextest --version >/dev/null 2>&1 || cargo install cargo-nextest --locked; \
 	command -v tokei >/dev/null 2>&1 || cargo install tokei --locked
@@ -68,8 +69,10 @@ endef
 
 define tgt
 	@t=$(1); \
-	echo "Adding target $$t"; \
-	rustup target add $$t;
+	rustup target list --installed | grep -qx "$$t" || { \
+		echo "Adding target $$t"; \
+		rustup target add $$t; \
+	}
 endef
 
 define check_present
