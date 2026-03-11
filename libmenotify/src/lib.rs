@@ -8,6 +8,7 @@ pub mod module;
 pub mod program;
 pub mod runner;
 pub mod runtime;
+pub mod state;
 
 pub use crate::{
     context::MeNotifyContext,
@@ -19,6 +20,7 @@ pub use crate::{
     program::MeNotifyProgram,
     runner::MeNotifyRunner,
     runtime::MeNotifyRuntime,
+    state::MeNotifyState,
 };
 
 #[cfg(test)]
@@ -30,6 +32,8 @@ mod error_ut;
 #[cfg(test)]
 mod event_ut;
 #[cfg(test)]
+mod host_ut;
+#[cfg(test)]
 mod layout_ut;
 #[cfg(test)]
 mod module_ut;
@@ -39,3 +43,5 @@ mod program_ut;
 mod runner_ut;
 #[cfg(test)]
 mod runtime_ut;
+#[cfg(test)]
+mod state_ut;

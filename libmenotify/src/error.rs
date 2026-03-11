@@ -27,6 +27,10 @@ pub enum MeNotifyError {
     #[error("lua runtime error: {0}")]
     Lua(#[from] mlua::Error),
 
+    /// HTTP runtime returned an error while calling a remote endpoint.
+    #[error("http runtime error: {0}")]
+    Http(#[from] reqwest::Error),
+
     /// Script does not export a valid entrypoint.
     #[error("module '{0}' must export either tick(ctx) or loop(ctx)")]
     MissingEntrypoint(String),
@@ -38,6 +42,10 @@ pub enum MeNotifyError {
     /// `ctx.emit` received invalid metadata.
     #[error("emit metadata is invalid: {0}")]
     InvalidEmitMeta(String),
+
+    /// HTTP request specification is invalid.
+    #[error("http request spec is invalid: {0}")]
+    HttpSpec(String),
 }
 
 impl From<MeNotifyError> for libcommon::SysinspectError {

@@ -1,4 +1,4 @@
-use crate::{MeNotifyContext, MeNotifyEntrypoint, MeNotifyError, MeNotifyEventBuilder, MeNotifyProgram};
+use crate::{MeNotifyContext, MeNotifyEntrypoint, MeNotifyError, MeNotifyEventBuilder, MeNotifyProgram, MeNotifyState};
 
 /// Execution wrapper for one loaded MeNotify program and one sensor context.
 #[derive(Debug)]
@@ -20,6 +20,28 @@ impl MeNotifyRunner {
     /// Returns a new `MeNotifyRunner`.
     pub fn new(program: MeNotifyProgram, ctx: MeNotifyContext) -> Self {
         Self { ctx, program }
+    }
+
+    /// Creates a new runner with a fresh VM-local state store.
+    ///
+    /// # Arguments
+    ///
+    /// * `program` - Loaded and validated MeNotify program.
+    /// * `sid` - Sensor id from the DSL.
+    /// * `listener` - Full listener string.
+    /// * `module` - Resolved module name.
+    /// * `opts` - Listener options.
+    /// * `args` - Listener arguments.
+    /// * `interval` - Effective interval, if configured.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new `MeNotifyRunner`.
+    pub fn with_fresh_state(
+        program: MeNotifyProgram, sid: &str, listener: &str, module: &str, opts: &[String], args: &serde_yaml::Value,
+        interval: Option<std::time::Duration>,
+    ) -> Self {
+        Self::new(program, MeNotifyContext::with_state(sid, listener, module, opts, args, interval, MeNotifyState::new()))
     }
 
     /// Returns the configured execution context.

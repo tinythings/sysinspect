@@ -4,7 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use colored::Colorize;
-use libmenotify::{MeNotifyContext, MeNotifyEntrypoint, MeNotifyEventBuilder, MeNotifyRunner, MeNotifyRuntime};
+use libmenotify::{MeNotifyEntrypoint, MeNotifyEventBuilder, MeNotifyRunner, MeNotifyRuntime};
 use std::{
     fmt,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -66,16 +66,14 @@ impl MeNotifySensor {
     ///
     /// Returns a new `MeNotifyRunner`.
     fn runner(&self, program: libmenotify::MeNotifyProgram) -> MeNotifyRunner {
-        MeNotifyRunner::new(
+        MeNotifyRunner::with_fresh_state(
             program,
-            MeNotifyContext::new(
-                self.runtime.sid(),
-                self.runtime.listener(),
-                self.runtime.module_name().unwrap_or_default(),
-                self.cfg.opts(),
-                self.cfg.args(),
-                self.cfg.interval(),
-            ),
+            self.runtime.sid(),
+            self.runtime.listener(),
+            self.runtime.module_name().unwrap_or_default(),
+            self.cfg.opts(),
+            self.cfg.args(),
+            self.cfg.interval(),
         )
     }
 

@@ -1,4 +1,4 @@
-use crate::{MeNotifyError, MeNotifyHost};
+use crate::{MeNotifyError, MeNotifyHost, MeNotifyState};
 use mlua::{Lua, Scope, Table, Value as LuaValue};
 use serde_yaml::{Mapping, Value as YamlValue};
 use std::time::Duration;
@@ -12,6 +12,7 @@ pub struct MeNotifyContext {
     opts: Vec<String>,
     args: YamlValue,
     interval: Option<Duration>,
+    state: MeNotifyState,
 }
 
 impl MeNotifyContext {
@@ -30,7 +31,36 @@ impl MeNotifyContext {
     ///
     /// Returns a new `MeNotifyContext`.
     pub fn new(sid: &str, listener: &str, module: &str, opts: &[String], args: &YamlValue, interval: Option<Duration>) -> Self {
-        Self { sid: sid.to_string(), listener: listener.to_string(), module: module.to_string(), opts: opts.to_vec(), args: args.clone(), interval }
+        Self::with_state(sid, listener, module, opts, args, interval, MeNotifyState::new())
+    }
+
+    /// Creates a new passive MeNotify context with explicit state storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `sid` - Sensor id from the DSL.
+    /// * `listener` - Full listener string, for example `menotify.demo`.
+    /// * `module` - Resolved module name.
+    /// * `opts` - Listener options from the DSL.
+    /// * `args` - Listener arguments from the DSL.
+    /// * `interval` - Effective interval, if configured.
+    /// * `state` - VM-local state store reused across calls.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new `MeNotifyContext`.
+    pub fn with_state(
+        sid: &str, listener: &str, module: &str, opts: &[String], args: &YamlValue, interval: Option<Duration>, state: MeNotifyState,
+    ) -> Self {
+        Self {
+            sid: sid.to_string(),
+            listener: listener.to_string(),
+            module: module.to_string(),
+            opts: opts.to_vec(),
+            args: args.clone(),
+            interval,
+            state,
+        }
     }
 
     /// Returns the sensor id.
@@ -87,6 +117,15 @@ impl MeNotifyContext {
         self.interval
     }
 
+    /// Returns the VM-local state store.
+    ///
+    /// # Returns
+    ///
+    /// Returns the in-memory key/value state store for this sensor instance.
+    pub fn state(&self) -> &MeNotifyState {
+        &self.state
+    }
+
     /// Builds a Lua table for the passive v1 context.
     ///
     /// # Arguments
@@ -131,6 +170,7 @@ impl MeNotifyContext {
         ctx.set("module", self.module())?;
         ctx.set("opts", self.opts_to_lua(lua)?)?;
         ctx.set("args", Self::yaml_to_lua(lua, self.args())?)?;
+        ctx.set("state", self.state().to_lua(lua)?)?;
         if let Some(interval) = self.interval() {
             ctx.set("interval", interval.as_secs_f64())?;
         }

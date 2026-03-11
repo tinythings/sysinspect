@@ -189,6 +189,12 @@ impl MeNotifyRuntime {
             MeNotifyError::InvalidEmitMeta(err) => {
                 log::error!("[{}] '{}' got invalid emit metadata in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
             }
+            MeNotifyError::Http(err) => {
+                log::error!("[{}] '{}' failed HTTP operation in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
+            }
+            MeNotifyError::HttpSpec(err) => {
+                log::error!("[{}] '{}' got invalid HTTP request spec in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
+            }
         }
     }
 
