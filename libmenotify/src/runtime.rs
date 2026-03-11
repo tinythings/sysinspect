@@ -138,7 +138,7 @@ impl MeNotifyRuntime {
         MeNotifyProgram::new(self)
     }
 
-    /// Logs the current bootstrap state for the stub runtime.
+    /// Logs the current bootstrap state for the MeNotify runtime.
     ///
     /// # Arguments
     ///
@@ -157,7 +157,7 @@ impl MeNotifyRuntime {
                 self.listener
             ),
             MeNotifyError::MissingScript { path, .. } => log::error!(
-                "[{}] '{}' expects script '{}' for listener '{}'; runtime is not implemented yet, sensor stays idle",
+                "[{}] '{}' could not find script '{}' for listener '{}'; sensor stays idle",
                 "menotify".bright_magenta(),
                 self.sid,
                 path.display(),
