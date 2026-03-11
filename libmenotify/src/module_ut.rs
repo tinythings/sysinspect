@@ -7,8 +7,8 @@ fn parses_module_listener() {
     assert_eq!(module.listener(), "menotify.jira");
     assert_eq!(module.module(), "jira");
     assert_eq!(
-        module.script_path(Path::new("/usr/share/sysinspect/lib/sensors/lua54")),
-        Path::new("/usr/share/sysinspect/lib/sensors/lua54/jira.lua")
+        module.script_path(Path::new("/usr/share/sysinspect/lib/sensors/lua")),
+        Path::new("/usr/share/sysinspect/lib/sensors/lua/jira.lua")
     );
 }
 

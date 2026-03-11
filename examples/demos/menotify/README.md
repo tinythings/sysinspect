@@ -1,12 +1,16 @@
-MeNotify GitHub Issues Demo
-===========================
+MeNotify Demo Sensors
+=====================
 
-This demo ships one real `menotify` Lua sensor:
+This demo ships two real `menotify` Lua sensors:
 
 - `menotify.githubissues`
+- `menotify.pkgnotify`
 
-It polls issues on a public GitHub repository and emits one event per newly
-opened issue. The first poll only seeds the local cursor and emits nothing.
+- `githubissues` polls issues on a public GitHub repository and emits one event
+  per newly opened issue. The first poll only seeds the local cursor and emits
+  nothing.
+- `pkgnotify` polls PackageKit history and emits one event per newly seen
+  package install or removal for the configured package list.
 
 What this demo contains
 -----------------------
@@ -15,8 +19,10 @@ What this demo contains
   Sensor definition and event handlers.
 - `model.cfg`
   Minimal placeholder model to keep the demo layout consistent.
-- `lib/sensors/lua54/githubissues.lua`
-  The actual Lua sensor script to publish into sharelib.
+- `lib/sensors/lua/githubissues.lua`
+  GitHub issues polling sensor.
+- `lib/sensors/lua/pkgnotify.lua`
+  PackageKit history polling sensor.
 
 Master
 ------
@@ -32,7 +38,8 @@ Master
 
    This uploads:
 
-   - `lib/sensors/lua54/githubissues.lua`
+   - `lib/sensors/lua/githubissues.lua`
+   - `lib/sensors/lua/pkgnotify.lua`
 
 3. Edit master config so this sensor scope is exported:
 

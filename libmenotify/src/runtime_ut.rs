@@ -5,15 +5,15 @@ use std::{fs, path::Path};
 fn resolves_script_path_from_listener_and_env_root() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
     let runtime = MeNotifyRuntime::with_sharelib_root("demo".to_string(), "menotify.sample".to_string(), tmp.path().to_path_buf());
-    assert_eq!(runtime.script_root(), Path::new(tmp.path()).join("lib/sensors/lua54"));
-    assert_eq!(runtime.site_root(), Path::new(tmp.path()).join("lib/sensors/lua54/site-lua"));
-    assert_eq!(runtime.script_path().expect("script path should resolve"), Path::new(tmp.path()).join("lib/sensors/lua54/sample.lua"));
+    assert_eq!(runtime.script_root(), Path::new(tmp.path()).join("lib/sensors/lua"));
+    assert_eq!(runtime.site_root(), Path::new(tmp.path()).join("lib/sensors/lua/site-lua"));
+    assert_eq!(runtime.script_path().expect("script path should resolve"), Path::new(tmp.path()).join("lib/sensors/lua/sample.lua"));
 }
 
 #[test]
 fn require_script_accepts_existing_file() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(root.join("demo.lua"), "return {}\n").expect("script file should be written");
 

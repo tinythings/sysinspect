@@ -54,7 +54,7 @@ Sensor configuration as follows:
 
     .. code-block:: text
 
-        ${SYSINSPECT_SHARELIB_ROOT}/lib/sensors/lua54/githubissues.lua
+        ${SYSINSPECT_SHARELIB_ROOT}/lib/sensors/lua/githubissues.lua
 
 ``opts``
 ^^^^^^^^
@@ -188,7 +188,7 @@ Current layout:
 
     lib/
       sensors/
-        lua54/
+        lua/
           <module>.lua
           site-lua/
             ...
@@ -216,7 +216,7 @@ The repository ships a working demo:
 
 It contains:
 
-- ``lib/sensors/lua54/githubissues.lua``
+- ``lib/sensors/lua/githubissues.lua``
 - ``sensors.cfg``
 - ``README.md``
 

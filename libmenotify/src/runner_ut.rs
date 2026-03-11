@@ -4,7 +4,7 @@ use std::{fs, sync::Mutex, time::Duration};
 #[test]
 fn tick_runner_reuses_program_vm() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),
@@ -34,7 +34,7 @@ return {
 #[test]
 fn loop_runner_calls_loop_entrypoint() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),
@@ -61,7 +61,7 @@ return {
 #[test]
 fn tick_runner_emits_sensor_event() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),
@@ -95,7 +95,7 @@ return {
 #[test]
 fn tick_runner_exposes_sleep_now_timestamp_and_log() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),
@@ -131,7 +131,7 @@ return {
 #[test]
 fn separate_runners_keep_isolated_vms() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),
@@ -168,7 +168,7 @@ return {
 #[test]
 fn tick_runner_rejects_unserializable_emit_payload() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),

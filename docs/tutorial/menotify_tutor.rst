@@ -50,7 +50,7 @@ The example already exists in the source tree:
       model.cfg
       lib/
         sensors/
-          lua54/
+          lua/
             githubissues.lua
 
 Only ``sensors.cfg`` and the ``lib`` tree matter for the actual sensor.
@@ -69,7 +69,7 @@ This uploads:
 
 .. code-block:: text
 
-    lib/sensors/lua54/githubissues.lua
+    lib/sensors/lua/githubissues.lua
 
 That path is where ``menotify.githubissues`` is resolved on the minion.
 
@@ -182,7 +182,7 @@ Where to go next
 Once this example works, the next step is usually to replace the GitHub polling
 logic with your own integration and keep the same packaging pattern:
 
-1. Put your Lua script under ``lib/sensors/lua54/``.
+1. Put your Lua script under ``lib/sensors/lua/``.
 2. Publish it with ``sysinspect module -A --path ./lib -l``.
 3. Reference it as ``listener: menotify.<module>`` in ``sensors.cfg``.
 4. Sync the cluster and restart the minion.

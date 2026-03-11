@@ -55,7 +55,7 @@ That means the Lua file must be named:
 
 .. code-block:: text
 
-    lib/sensors/lua54/myissues.lua
+    lib/sensors/lua/myissues.lua
 
 Step 1: Create the library tree
 -------------------------------
@@ -67,13 +67,13 @@ Create a local working directory with this layout:
     my-menotify-sensor/
       lib/
         sensors/
-          lua54/
+          lua/
             myissues.lua
 
 This is important:
 
 - ``lib`` is the root you will publish
-- ``sensors/lua54`` is the current runtime root for ``menotify`` scripts
+- ``sensors/lua`` is the current runtime root for ``menotify`` scripts
 - the module name comes from the filename
 
 If the file is called ``myissues.lua``, then the DSL listener is:
@@ -344,7 +344,7 @@ The shipped example already does exactly that:
 
 .. code-block:: text
 
-    examples/demos/menotify/lib/sensors/lua54/githubissues.lua
+    examples/demos/menotify/lib/sensors/lua/githubissues.lua
 
 Read it as the reference implementation for this tutorial.
 
@@ -419,6 +419,46 @@ Remember the current restart policy:
 Step 13: Test the sensor properly
 ---------------------------------
 
+Appendix: Polling PackageKit
+----------------------------
+
+For Linux-only integrations, ``menotify`` also exposes a small
+``packagekit`` helper namespace.
+
+Minimal shape:
+
+.. code-block:: lua
+
+    return {
+        tick = function(ctx)
+            if not packagekit.available() then
+                log.warn("PackageKit is not available on this system")
+                return
+            end
+
+            local st = packagekit.status()
+            local hist = packagekit.history({ "bash", "openssl" }, 8)
+
+            ctx.emit({
+                locked = st.locked,
+                daemon_state = st.daemon_state,
+                transactions = st.transactions,
+                history = hist,
+            }, {
+                action = "packagekit-poll",
+                key = tostring(ctx.now()),
+            })
+        end
+    }
+
+This helper is intended for polling-friendly use-cases such as:
+
+- checking whether the daemon is locked
+- observing active transactions
+- looking at recent history for selected packages
+
+It is not a D-Bus signal watcher yet. It is a helper for scripted polling.
+
 There are three separate things to test:
 
 1. Lua logic
@@ -427,7 +467,7 @@ There are three separate things to test:
    - does it emit the right fields?
 
 2. Packaging/layout
-   - is the script under ``lib/sensors/lua54/``?
+   - is the script under ``lib/sensors/lua/``?
    - does the listener name match the filename?
 
 3. End-to-end runtime
@@ -473,4 +513,4 @@ Where to look next
 - Sensor reference: :doc:`../eventsensors/menotify`
 - Practical usage walkthrough: :doc:`menotify_tutor`
 - Working example:
-  ``examples/demos/menotify/lib/sensors/lua54/githubissues.lua``
+  ``examples/demos/menotify/lib/sensors/lua/githubissues.lua``
