@@ -1,28 +1,16 @@
 use crate::MeNotifyRuntime;
 use std::{fs, path::Path};
 
-fn with_sharelib(root: &std::path::Path, f: impl FnOnce()) {
-    unsafe {
-        std::env::set_var("SYSINSPECT_SHARELIB_ROOT", root);
-    }
-    f();
-    unsafe {
-        std::env::remove_var("SYSINSPECT_SHARELIB_ROOT");
-    }
-}
-
 #[test]
 fn resolves_script_path_from_listener_and_env_root() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    with_sharelib(tmp.path(), || {
-        let runtime = MeNotifyRuntime::new("demo".to_string(), "menotify.sample".to_string());
-        assert_eq!(runtime.script_root(), Path::new(tmp.path()).join("lib/sensors/lua54"));
-        assert_eq!(runtime.site_root(), Path::new(tmp.path()).join("lib/sensors/lua54/site-lua"));
-        assert_eq!(
-            runtime.script_path().expect("script path should resolve"),
-            Path::new(tmp.path()).join("lib/sensors/lua54/sample.lua")
-        );
-    });
+    let runtime = MeNotifyRuntime::with_sharelib_root("demo".to_string(), "menotify.sample".to_string(), tmp.path().to_path_buf());
+    assert_eq!(runtime.script_root(), Path::new(tmp.path()).join("lib/sensors/lua54"));
+    assert_eq!(runtime.site_root(), Path::new(tmp.path()).join("lib/sensors/lua54/site-lua"));
+    assert_eq!(
+        runtime.script_path().expect("script path should resolve"),
+        Path::new(tmp.path()).join("lib/sensors/lua54/sample.lua")
+    );
 }
 
 #[test]
@@ -32,10 +20,8 @@ fn require_script_accepts_existing_file() {
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(root.join("demo.lua"), "return {}\n").expect("script file should be written");
 
-    with_sharelib(tmp.path(), || {
-        let runtime = MeNotifyRuntime::new("demo".to_string(), "menotify.demo".to_string());
-        assert_eq!(runtime.require_script().expect("script should exist"), root.join("demo.lua"));
-    });
+    let runtime = MeNotifyRuntime::with_sharelib_root("demo".to_string(), "menotify.demo".to_string(), tmp.path().to_path_buf());
+    assert_eq!(runtime.require_script().expect("script should exist"), root.join("demo.lua"));
 }
 
 #[test]
