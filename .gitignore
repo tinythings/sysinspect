@@ -12,3 +12,4 @@ package/
 .gitignore
 **/build/
 TODO.txt
+DESIGN.txt

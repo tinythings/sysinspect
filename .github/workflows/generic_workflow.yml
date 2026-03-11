@@ -28,11 +28,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-
       - name: Build
         run: make devel
-
-      - name: Run tests
-        run: make test

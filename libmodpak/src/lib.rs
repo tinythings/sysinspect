@@ -1,7 +1,7 @@
 use colored::Colorize;
 use cruet::Inflector;
 use fs_extra::dir::CopyOptions;
-use goblin::{Object, elf::header};
+use goblin::Object;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_DIR;
@@ -18,6 +18,9 @@ use textwrap::{Options, wrap};
 use tokio::sync::Mutex;
 
 pub mod mpk;
+
+#[cfg(test)]
+mod lib_ut;
 
 /*
 ModPack is a library for creating and managing modules, providing a way to define modules,
@@ -342,20 +345,6 @@ impl SysInspectModPak {
         Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(ridx)?)? })
     }
 
-    /// Get osabi label
-    fn get_osabi_label(osabi: u8) -> &'static str {
-        match osabi {
-            header::ELFOSABI_SYSV | header::ELFOSABI_LINUX => "linux",
-            header::ELFOSABI_NETBSD => "netbsd",
-            header::ELFOSABI_FREEBSD => "freebsd",
-            header::ELFOSABI_OPENBSD => "openbsd",
-            header::ELFOSABI_ARM => "arm",
-            header::ELFOSABI_ARM_AEABI => "arm-eabi",
-            header::ELFOSABI_STANDALONE => "standalone",
-            _ => "any",
-        }
-    }
-
     /// Extract module subpath from its name
     fn after<'a>(full_path: &'a str, sub: &'a str) -> &'a str {
         if let Some(index) = full_path.find(sub) {
@@ -484,23 +473,6 @@ impl SysInspectModPak {
         log::info!("Module {} added successfully", meta.get_name().bright_yellow());
 
         Ok(())
-    }
-
-    fn print_kv(name: &str, required: bool, descr: &str, width: usize) {
-        // 1) build plain, aligned label (no colors yet!)
-        let label = if required { format!("{}*:", name) } else { format!("{}:", name) };
-        let padded = format!("{:>width$}", label, width = width);
-
-        // 2) color AFTER padding, so spaces/columns are stable
-        if required {
-            // color the single '*' red, the rest yellow
-            let star_idx = padded.rfind('*').unwrap(); // safe: exists when required
-            let (pre, rest) = padded.split_at(star_idx);
-            let after_star = &rest[1..]; // skip '*'
-            println!("{}{}{} {}", pre.bright_yellow(), "*".bright_red(), after_star.bright_yellow(), descr.white());
-        } else {
-            println!("{} {}", padded.bright_yellow(), descr.white());
-        }
     }
 
     fn print_table(modules: &IndexMap<String, ModAttrs>, _verbose: bool) {
@@ -646,7 +618,39 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    /// Resolves library removal expressions to concrete library names.
+    ///
+    /// Args:
+    /// * `names` - Exact names or glob expressions such as `ansible/*`.
+    ///
+    /// Returns:
+    /// * `Ok(Vec<String>)` containing sorted unique library names present in the index.
+    /// * `Err(SysinspectError)` if any expression is an invalid glob pattern.
+    fn resolve_library_names(&self, names: Vec<String>) -> Result<Vec<String>, SysinspectError> {
+        let mut resolved = IndexMap::<String, ()>::new();
+
+        for name in names {
+            let expr = glob::Pattern::new(&name).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern '{name}': {e}")))?;
+            for lib in self.idx.library().keys().filter(|lib| expr.matches(lib) || lib.strip_prefix("lib/").is_some_and(|rel| expr.matches(rel))) {
+                resolved.insert(lib.to_string(), ());
+            }
+        }
+
+        let mut names = resolved.into_keys().collect::<Vec<_>>();
+        names.sort();
+        Ok(names)
+    }
+
+    /// Removes libraries from the repository and index.
+    ///
+    /// Args:
+    /// * `names` - Exact library names or glob expressions.
+    ///
+    /// Returns:
+    /// * `Ok(())` after removing all matching libraries and rewriting the index.
+    /// * `Err(SysinspectError)` if a glob expression is invalid or the index cannot be updated.
     pub fn remove_library(&mut self, names: Vec<String>) -> Result<(), SysinspectError> {
+        let names = self.resolve_library_names(names)?;
         let mut c = 0;
         log::info!("Removing {} librar{}", names.len(), if names.len() > 1 { "ies" } else { "y" });
         for subp in names {

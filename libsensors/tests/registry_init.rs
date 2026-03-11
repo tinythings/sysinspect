@@ -44,6 +44,42 @@ sensors:
     }
 
     #[test]
+    fn test_registry_resolves_dotted_menotify_listener() {
+        sensors::init_registry();
+
+        let y = r#"
+sensors:
+  gh:
+    listener: menotify.githubissues
+"#;
+
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let (sid, cfg) = items.iter().next().unwrap();
+
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        assert!(s.is_some(), "dotted menotify listener must resolve via listener root");
+    }
+
+    #[test]
+    fn test_registry_unknown_dotted_listener_returns_none() {
+        sensors::init_registry();
+
+        let y = r#"
+sensors:
+  gh:
+    listener: doesnotexist.foo
+"#;
+
+        let mut spec = SensorSpec::from_str(y).unwrap();
+        let items = spec.items();
+        let (sid, cfg) = items.iter().next().unwrap();
+
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        assert!(s.is_none(), "unknown dotted listener root must return None");
+    }
+
+    #[test]
     fn test_registry_init_is_idempotent() {
         sensors::init_registry();
         let n1 = sensors::REGISTRY.len();

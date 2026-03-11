@@ -11,20 +11,70 @@ env:
   # RUSTFLAGS: -D warnings
 
 jobs:
-  unit_tests:
-    name: Unit and Static Type tests
+  core_unit_tests:
+    name: Core unit tests
     runs-on: ubuntu-latest
+    container:
+      image: rust:1-bookworm
 
     steps:
       - name: Install deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
-
-      - name: Install latest nextest release
-        uses: taiki-e/install-action@nextest
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
       - uses: actions/checkout@v2
       - name: Run test target
         run: |
-          make test
+          make test-core
+
+  modules_unit_tests:
+    name: Modules unit tests
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1-bookworm
+
+    steps:
+      - name: Install deps
+        run: |
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+
+      - uses: actions/checkout@v2
+      - name: Run test target
+        run: |
+          make test-modules
+
+  sensors_unit_tests:
+    name: Sensors unit tests
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1-bookworm
+
+    steps:
+      - name: Install deps
+        run: |
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+
+      - uses: actions/checkout@v2
+      - name: Run test target
+        run: |
+          make test-sensors
+
+  integration_tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1-bookworm
+
+    steps:
+      - name: Install deps
+        run: |
+          apt-get update
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
+
+      - uses: actions/checkout@v2
+      - name: Run test target
+        run: |
+          make test-integration

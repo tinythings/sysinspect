@@ -88,11 +88,11 @@ events:
 
         // ensure the first file's value stayed
         let vmap = v.as_mapping().unwrap();
-        let handlers = vmap.get(&serde_yaml::Value::String("handlers".into())).unwrap().as_sequence().unwrap();
+        let handlers = vmap.get(serde_yaml::Value::String("handlers".into())).unwrap().as_sequence().unwrap();
         assert_eq!(handlers[0].as_str().unwrap(), "console-logger");
 
-        let cl = vmap.get(&serde_yaml::Value::String("console-logger".into())).unwrap().as_mapping().unwrap();
-        let prefix = cl.get(&serde_yaml::Value::String("prefix".into())).unwrap().as_str().unwrap();
+        let cl = vmap.get(serde_yaml::Value::String("console-logger".into())).unwrap().as_mapping().unwrap();
+        let prefix = cl.get(serde_yaml::Value::String("prefix".into())).unwrap().as_str().unwrap();
         assert_eq!(prefix, "first");
     }
 
@@ -148,9 +148,9 @@ events:
         let ev = merged_events_yaml(root).unwrap();
         let map = ev.as_mapping().unwrap();
 
-        assert!(map.contains_key(&serde_yaml::Value::String("root|file|ok@r|0".into())));
-        assert!(map.contains_key(&serde_yaml::Value::String("a|fsnotify|changed@/tmp/x|0".into())));
-        assert!(map.contains_key(&serde_yaml::Value::String("b|procnotify|appeared@bash|0".into())));
-        assert!(!map.contains_key(&serde_yaml::Value::String("SHOULD|NOT|APPEAR|0".into())));
+        assert!(map.contains_key(serde_yaml::Value::String("root|file|ok@r|0".into())));
+        assert!(map.contains_key(serde_yaml::Value::String("a|fsnotify|changed@/tmp/x|0".into())));
+        assert!(map.contains_key(serde_yaml::Value::String("b|procnotify|appeared@bash|0".into())));
+        assert!(!map.contains_key(serde_yaml::Value::String("SHOULD|NOT|APPEAR|0".into())));
     }
 }

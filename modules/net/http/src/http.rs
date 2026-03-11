@@ -210,8 +210,8 @@ impl<'a> HttpModule<'a> {
                     tls.client_key_file.as_deref().ok_or_else(|| "tls.client_key_file is required when tls.client_cert_file is set".to_string())?;
                 let cert = fs::read(cert_path).map_err(|e| format!("Unable to read client cert file '{cert_path}': {e}"))?;
                 let key = fs::read(key_path).map_err(|e| format!("Unable to read client key file '{key_path}': {e}"))?;
-                let identity = reqwest::Identity::from_pkcs8_pem(&cert, &key)
-                    .map_err(|e| format!("Unable to parse client identity '{cert_path}': {e}"))?;
+                let identity =
+                    reqwest::Identity::from_pkcs8_pem(&cert, &key).map_err(|e| format!("Unable to parse client identity '{cert_path}': {e}"))?;
                 Ok(builder.identity(identity))
             }
             None => Ok(builder),
@@ -229,9 +229,7 @@ impl<'a> HttpModule<'a> {
     }
 
     /// Apply authentication to the outgoing request.
-    fn with_auth(
-        &self, mut request: RequestBuilder, auth: &AuthConfig, query: &mut Vec<(String, String)>,
-    ) -> Result<RequestBuilder, String> {
+    fn with_auth(&self, mut request: RequestBuilder, auth: &AuthConfig, query: &mut Vec<(String, String)>) -> Result<RequestBuilder, String> {
         match auth.kind.as_deref().unwrap_or("").trim() {
             "" => Ok(request),
             "bearer" => {
@@ -275,7 +273,9 @@ impl<'a> HttpModule<'a> {
         let url = response.url().to_string();
         let headers = response_headers(response.headers());
         match response.bytes() {
-            Ok(body) => self.ok_response(url, status.as_u16(), headers, response_body(&body), status.is_success() || spec.is_ok_status(status.as_u16())),
+            Ok(body) => {
+                self.ok_response(url, status.as_u16(), headers, response_body(&body), status.is_success() || spec.is_ok_status(status.as_u16()))
+            }
             Err(err) => self.error_response(&format!("Unable to read HTTP response body: {err}")),
         }
     }

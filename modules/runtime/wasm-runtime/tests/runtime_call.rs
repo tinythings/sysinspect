@@ -8,6 +8,202 @@ use std::{
 };
 use tempfile::TempDir;
 
+static HELLO_CARGO_TOML: &str = r#"
+[package]
+name = "hellodude"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+"#;
+
+static HELLO_MAIN_RS: &str = r##"
+use std::io::{self, Read};
+
+fn has_opt(src: &str, want: &str) -> bool {
+    src.contains(&format!("\"{want}\""))
+}
+
+fn read_header() -> Result<String, String> {
+    let mut buf = String::new();
+    io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read: {err}"))?;
+    Ok(buf.lines().next().unwrap_or_default().to_string())
+}
+
+fn json_escape(src: &str) -> String {
+    src.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+}
+
+fn find_key(src: &str) -> String {
+    let needle = "\"key\":\"";
+    src.find(needle)
+        .and_then(|start| src[start + needle.len()..].split('"').next())
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or("VERSION")
+        .trim()
+        .to_string()
+}
+
+fn read_os_release() -> Result<Vec<(String, String)>, String> {
+    let src = std::fs::read_to_string("/etc/os-release").map_err(|err| err.to_string())?;
+    let mut out = Vec::new();
+    for line in src.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
+        if let Some((k, v)) = line.split_once('=') {
+            out.push((k.trim().to_string(), v.trim().trim_matches('"').trim_matches('\'').to_string()));
+        }
+    }
+    Ok(out)
+}
+
+fn doc() -> &'static str {
+    r#"{"name":"hellodude","version":"0.1.0","author":"Gru","description":"Says hello and returns OS version from /etc/os-release.","arguments":[{"name":"key","type":"string","description":"A key inside the /etc/os-release file to retrieve (not used in this example). Default: VERSION","required":true}],"options":[{"name":"nohello","description":"Do not say hello"}],"examples":[{"description":"Get module output","code":"{ \"args\": { \"key\": \"VERSION\" } }"},{"description":"Get module documentation","code":"{ \"args\": { \"key\": \"VERSION\" }, \"opts\": [\"man\"] }"}],"returns":{"description":"Returns greeting and OS release info (if accessible).","sample":{"output":"hello, dude","os":{"PRETTY_NAME":"Debian GNU/Linux 12 (bookworm)","VERSION_ID":"12"}}}}"#
+}
+
+fn run(hdr: &str) -> String {
+    let osr = match read_os_release() {
+        Ok(data) => data,
+        Err(err) => return format!("{{\"error\":\"failed to read /etc/os-release\",\"detail\":\"{}\"}}", json_escape(&err)),
+    };
+
+    let key = find_key(hdr);
+    match osr.iter().find(|(k, _)| k == &key) {
+        Some((_, val)) => {
+            if has_opt(hdr, "nohello") {
+                format!("{{\"{}\":\"{}\"}}", json_escape(&key), json_escape(val))
+            } else {
+                format!("{{\"{}\":\"{}\",\"output\":\"hello, dude\"}}", json_escape(&key), json_escape(val))
+            }
+        }
+        None => format!("{{\"error\":\"unknown os-release key\",\"key\":\"{}\"}}", json_escape(&key)),
+    }
+}
+
+fn main() {
+    let hdr = match read_header() {
+        Ok(hdr) => hdr,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("{}", if has_opt(&hdr, "man") { doc().to_string() } else { run(&hdr) });
+}
+"##;
+
+static CALLER_CARGO_TOML: &str = r#"
+[package]
+name = "caller"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+"#;
+
+static CALLER_MAIN_RS: &str = r##"
+use std::io::{self, Read};
+
+#[link(wasm_import_module = "api")]
+unsafe extern "C" {
+    #[link_name = "exec"]
+    fn host_exec(req_ptr: u32, req_len: u32, out_ptr: u32, out_cap: u32) -> i32;
+    #[link_name = "log"]
+    fn host_log(level: i32, msg_ptr: u32, msg_len: u32);
+}
+
+fn has_opt(src: &str, want: &str) -> bool {
+    src.contains(&format!("\"{want}\""))
+}
+
+fn read_header() -> Result<String, String> {
+    let mut buf = String::new();
+    io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read: {err}"))?;
+    Ok(buf.lines().next().unwrap_or_default().to_string())
+}
+
+fn json_escape(src: &str) -> String {
+    src.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+}
+
+fn log_info(msg: &str) {
+    unsafe { host_log(1, msg.as_ptr() as u32, msg.len() as u32) };
+}
+
+fn exec_uname() -> Result<String, String> {
+    let req = br#"{"argv":["/usr/bin/uname","-a"]}"#.to_vec();
+    let mut out = vec![0u8; 256 * 1024];
+    let n = unsafe { host_exec(req.as_ptr() as u32, req.len() as u32, out.as_mut_ptr() as u32, out.len() as u32) };
+    if n < 0 {
+        return Err(format!("host exec failed ({n})"));
+    }
+
+    let resp = String::from_utf8(out[..n as usize].to_vec()).map_err(|err| format!("bad host response json: {err}"))?;
+    let code = if resp.contains("\"exit_code\":0") { 0 } else { 1 };
+    let stdout = resp
+        .split("\"stdout\":\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_default()
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\");
+    let stderr = resp
+        .split("\"stderr\":\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_default()
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\");
+    if code != 0 {
+        return Err(format!("exit {code}: {stderr}"));
+    }
+    Ok(stdout)
+}
+
+fn doc() -> &'static str {
+    r#"{"name":"caller","version":"0.1.0","author":"Bo Maryniuk","description":"Executes `uname -a` via host syscall and returns stdout.","arguments":[],"options":[],"examples":[{"description":"Run uname","code":"{ \"args\": {} }"},{"description":"Show docs","code":"{ \"args\": {}, \"opts\": [\"man\"] }"}],"returns":{"description":"Returns stdout of uname -a","sample":{"output":"Linux host ..."}}}"#
+}
+
+fn main() {
+    let hdr = match read_header() {
+        Ok(hdr) => hdr,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    if has_opt(&hdr, "man") {
+        println!("{}", doc());
+        return;
+    }
+
+    log_info("Called: \"uname -a\"");
+    match exec_uname() {
+        Ok(out) => {
+            println!("{{\"output\":\"{}\"}}", json_escape(out.trim_end()));
+            log_info("Finished successfully");
+        }
+        Err(err) => println!("{{\"error\":\"{}\"}}", json_escape(&err)),
+    }
+}
+"##;
+
 fn mk_tmp_runtime_root() -> TempDir {
     tempfile::Builder::new()
         .prefix("sysinspect-wasm-runtime-test-")
@@ -16,7 +212,11 @@ fn mk_tmp_runtime_root() -> TempDir {
 }
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("..")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| panic!("failed to resolve repository root from {}", env!("CARGO_MANIFEST_DIR")))
 }
 
 fn wasm_cache_dir() -> &'static Path {
@@ -30,29 +230,50 @@ fn wasm_cache_dir() -> &'static Path {
     })
 }
 
-fn build_go_example(example_dir: &Path, output_name: &str) -> PathBuf {
+fn build_rust_example(example_dir: &Path, output_name: &str, bin_name: &str) -> PathBuf {
     let out = wasm_cache_dir().join(output_name);
     if out.exists() {
         return out;
     }
-
-    let status = Command::new("go")
-        .current_dir(example_dir)
-        .env("GOOS", "wasip1")
-        .env("GOARCH", "wasm")
-        .arg("build")
-        .arg("-trimpath")
-        .arg("-ldflags=-s -w")
-        .arg("-o")
-        .arg(&out)
-        .arg("main.go")
-        .status()
-        .unwrap_or_else(|err| panic!("failed to build Go wasm example in {}: {err}", example_dir.display()));
-    if !status.success() {
-        panic!("Go wasm build failed in {} with status {}", example_dir.display(), status);
+    if !example_dir.is_dir() {
+        panic!("rust wasm example directory does not exist: {}", example_dir.display());
     }
 
+    let target_dir = example_dir.join("target");
+    let status = Command::new("cargo")
+        .current_dir(example_dir)
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .arg("build")
+        .arg("--release")
+        .arg("--target")
+        .arg("wasm32-wasip1")
+        .status()
+        .unwrap_or_else(|err| panic!("failed to run 'cargo build' in {}: {err}", example_dir.display()));
+    if !status.success() {
+        panic!("Rust wasm build failed in {} with status {}", example_dir.display(), status);
+    }
+
+    let built = target_dir.join("wasm32-wasip1/release").join(format!("{bin_name}.wasm"));
+    fs::copy(&built, &out).unwrap_or_else(|err| panic!("failed to cache wasm module {}: {err}", built.display()));
+
     out
+}
+
+fn stage_rust_example(name: &str, files: &[(&str, &str)]) -> TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("sysinspect-wasm-runtime-rust-{name}-"))
+        .tempdir()
+        .unwrap_or_else(|err| panic!("failed to create temporary Rust example directory: {err}"));
+
+    for (rel, body) in files {
+        let path = dir.path().join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|err| panic!("failed to create {}: {err}", parent.display()));
+        }
+        fs::write(&path, body).unwrap_or_else(|err| panic!("failed to write {}: {err}", path.display()));
+    }
+
+    dir
 }
 
 fn prebuilt_rs_reader() -> Option<PathBuf> {
@@ -71,10 +292,11 @@ fn install_module(root: &Path, src: &Path, dst_name: &str) {
 }
 
 fn install_test_modules(root: &Path) -> Vec<String> {
-    let repo = repo_root();
-    let hello = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/hello"), "hellodude.wasm");
+    let hello_src = stage_rust_example("hello", &[("Cargo.toml", HELLO_CARGO_TOML), ("src/main.rs", HELLO_MAIN_RS)]);
+    let hello = build_rust_example(hello_src.path(), "hellodude.wasm", "hellodude");
     install_module(root, &hello, "hellodude.wasm");
-    let caller = build_go_example(&repo.join("modules/runtime/wasm-runtime/examples/caller"), "caller.wasm");
+    let caller_src = stage_rust_example("caller", &[("Cargo.toml", CALLER_CARGO_TOML), ("src/main.rs", CALLER_MAIN_RS)]);
+    let caller = build_rust_example(caller_src.path(), "caller.wasm", "caller");
     install_module(root, &caller, "caller.wasm");
     let mut modules = vec!["caller".to_string(), "hellodude".to_string()];
     if let Some(rs_reader) = prebuilt_rs_reader() {
