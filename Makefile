@@ -2,9 +2,20 @@
 
 ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
 ARC_NAME := sysinspect-${ARC_VERSION}
-PACK_LAYOUT_DIRS := sys net fs runtime
+PACK_LAYOUT_DIRS := sys net fs runtime cfg
+MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
+	awk 'BEGIN{name=""; version=""} \
+		/^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } \
+		/^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } \
+		END { if (name != "" && version != "") printf "%s@%s ", name, version }' "$$f"; \
+done)
+CORE_EXCLUDES := $(foreach pkg,$(MODULE_PACKAGE_SPECS),--exclude $(pkg))
+TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
+TEST_RUN_THREADS ?= 3
 
-.PHONY:build
+.PHONY: build devel all all-devel modules modules-dev clean check fix setup \
+	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
+	stats man test tar
 
 define deps
 	@OS_ID=$$(lsb_release -si 2>/dev/null); \
@@ -55,15 +66,18 @@ define move_bin
 	mkdir -p $$dir/fs; \
 	rm -rf $$dir/runtime; \
 	mkdir -p $$dir/runtime; \
-	mv $$dir/proc $$dir/sys/; \
-	mv $$dir/.net.bin $$dir/sys/net; \
-	mv $$dir/run $$dir/sys/; \
-	mv $$dir/ssrun $$dir/sys/; \
-	mv $$dir/.http.bin $$dir/net/http; \
-	mv $$dir/file $$dir/fs/; \
-	mv $$dir/lua-runtime $$dir/runtime/; \
-	mv $$dir/py3-runtime $$dir/runtime/; \
-	mv $$dir/wasm-runtime $$dir/runtime/;
+	rm -rf $$dir/cfg; \
+	mkdir -p $$dir/cfg; \
+	if [ -f $$dir/proc ]; then mv $$dir/proc $$dir/sys/; fi; \
+	if [ -f $$dir/.net.bin ]; then mv $$dir/.net.bin $$dir/sys/net; fi; \
+	if [ -f $$dir/run ]; then mv $$dir/run $$dir/sys/; fi; \
+	if [ -f $$dir/ssrun ]; then mv $$dir/ssrun $$dir/sys/; fi; \
+	if [ -f $$dir/.http.bin ]; then mv $$dir/.http.bin $$dir/net/http; fi; \
+	if [ -f $$dir/file ]; then mv $$dir/file $$dir/fs/; fi; \
+	if [ -f $$dir/lua-runtime ]; then mv $$dir/lua-runtime $$dir/runtime/; fi; \
+	if [ -f $$dir/py3-runtime ]; then mv $$dir/py3-runtime $$dir/runtime/; fi; \
+	if [ -f $$dir/wasm-runtime ]; then mv $$dir/wasm-runtime $$dir/runtime/; fi; \
+	if [ -f $$dir/resource ]; then mv $$dir/resource $$dir/cfg/; fi;
 endef
 
 setup:
@@ -104,14 +118,34 @@ musl-x86_64:
 	cargo build --release --workspace --target x86_64-unknown-linux-musl
 	$(call move_bin,release,x86_64-unknown-linux-musl)
 
-devel:
+all-devel:
 	$(call prep_layout,debug,)
 	cargo build -v --workspace
 	$(call move_bin,debug,)
 
-build:
+all:
 	$(call prep_layout,release,)
 	cargo build --release --workspace
+	$(call move_bin,release,)
+
+devel:
+	$(call prep_layout,debug,)
+	cargo build -v --workspace $(CORE_EXCLUDES)
+	$(call move_bin,debug,)
+
+build:
+	$(call prep_layout,release,)
+	cargo build --release --workspace $(CORE_EXCLUDES)
+	$(call move_bin,release,)
+
+modules-dev:
+	$(call prep_layout,debug,)
+	cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	$(call move_bin,debug,)
+
+modules:
+	$(call prep_layout,release,)
+	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call move_bin,release,)
 
 stats:
@@ -121,7 +155,7 @@ man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
 
 test:
-	cargo nextest run --workspace
+	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace --test-threads $(TEST_RUN_THREADS)
 
 tar:
 	# Cleanup
