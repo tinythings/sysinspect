@@ -109,3 +109,6 @@ impl MeNotifyState {
         Ok(state)
     }
 }
+
+#[cfg(test)]
+mod state_ut;

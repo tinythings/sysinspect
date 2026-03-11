@@ -1,4 +1,6 @@
-use crate::{MeNotifyContext, MeNotifyEntrypoint, MeNotifyError, MeNotifyEventBuilder, MeNotifyProgram, MeNotifyState};
+use crate::{MeNotifyContext, MeNotifyEntrypoint, MeNotifyError, MeNotifyEventBuilder, MeNotifyState};
+
+use super::MeNotifyProgram;
 
 /// Execution wrapper for one loaded MeNotify program and one sensor context.
 #[derive(Debug)]

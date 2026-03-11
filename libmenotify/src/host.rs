@@ -1,8 +1,9 @@
-use crate::{MeNotifyError, MeNotifyEventBuilder, MeNotifyPackageKit};
+use crate::{
+    MeNotifyError, MeNotifyEventBuilder,
+    helpers::{MeNotifyHttp, MeNotifyHttpRequestSpec, MeNotifyPackageKit},
+};
 use mlua::{Lua, LuaSerdeExt, Scope, Table, Value as LuaValue, Variadic};
-use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
     thread,
     time::{Duration, SystemTime},
 };
@@ -74,7 +75,7 @@ impl<'a> MeNotifyHost<'a> {
     {
         Ok(scope.create_function(move |lua, (url, opts): (String, Option<LuaValue>)| {
             Self::request(
-                &HttpRequestSpec::from_get(url, opts.map(|v| lua.from_value::<serde_json::Value>(v)).transpose()?)
+                &MeNotifyHttpRequestSpec::from_get(url, opts.map(|v| lua.from_value::<serde_json::Value>(v)).transpose()?)
                     .map_err(|err| mlua::Error::runtime(err.to_string()))?,
             )
             .and_then(|rsp| lua.to_value(&rsp).map_err(MeNotifyError::from))
@@ -88,7 +89,7 @@ impl<'a> MeNotifyHost<'a> {
     {
         Ok(scope.create_function(move |lua, spec: LuaValue| {
             Self::request(
-                &serde_json::from_value::<HttpRequestSpec>(lua.from_value::<serde_json::Value>(spec)?)
+                &serde_json::from_value::<MeNotifyHttpRequestSpec>(lua.from_value::<serde_json::Value>(spec)?)
                     .map_err(|err| mlua::Error::runtime(format!("http.request({{...}}) invalid request spec: {err}")))?,
             )
             .and_then(|rsp| lua.to_value(&rsp).map_err(MeNotifyError::from))
@@ -222,111 +223,12 @@ impl<'a> MeNotifyHost<'a> {
         }
     }
 
-    fn timeout(spec: &HttpRequestSpec) -> Result<Duration, MeNotifyError> {
-        if !spec.timeout.is_finite() {
-            return Err(MeNotifyError::HttpSpec("timeout must be a finite number".to_string()));
-        }
-        if spec.timeout.is_sign_negative() {
-            return Err(MeNotifyError::HttpSpec("timeout must not be negative".to_string()));
-        }
-        if spec.timeout > Duration::MAX.as_secs_f64() {
-            return Err(MeNotifyError::HttpSpec(format!("timeout {} is too large", spec.timeout)));
-        }
-        Ok(Duration::from_secs_f64(spec.timeout.max(0.001)))
-    }
-
     #[cfg(test)]
     pub(crate) fn timeout_for_test(timeout: f64) -> Result<Duration, MeNotifyError> {
-        Self::timeout(&HttpRequestSpec { timeout, ..HttpRequestSpec::default() })
+        MeNotifyHttp::timeout(&MeNotifyHttpRequestSpec { timeout, ..MeNotifyHttpRequestSpec::default() })
     }
 
-    fn request(spec: &HttpRequestSpec) -> Result<HttpResponse, MeNotifyError> {
-        let mut builder = reqwest::blocking::Client::builder().timeout(Self::timeout(spec)?);
-        if spec.insecure {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-        let mut rb = builder.build().map_err(MeNotifyError::from)?.request(
-            spec.method.parse::<reqwest::Method>().map_err(|err| MeNotifyError::HttpSpec(format!("invalid method '{}': {err}", spec.method)))?,
-            &spec.url,
-        );
-
-        for (k, v) in &spec.headers {
-            rb = rb.header(k, v);
-        }
-        if let Some(body) = &spec.body {
-            rb = rb.body(body.clone());
-        }
-
-        let rsp = rb.send().map_err(MeNotifyError::from)?;
-        let status = rsp.status().as_u16();
-        let headers =
-            rsp.headers().iter().map(|(k, v)| (k.as_str().to_lowercase(), v.to_str().unwrap_or_default().to_string())).collect::<BTreeMap<_, _>>();
-        let body = rsp.text().map_err(MeNotifyError::from)?;
-        let json = if spec.parse_json { serde_json::from_str::<serde_json::Value>(&body).ok() } else { None };
-
-        Ok(HttpResponse { body, headers, json, ok: (200..300).contains(&status), status })
+    fn request(spec: &MeNotifyHttpRequestSpec) -> Result<crate::helpers::MeNotifyHttpResponse, MeNotifyError> {
+        MeNotifyHttp::request(spec)
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-struct HttpGetOptions {
-    body: Option<String>,
-    headers: BTreeMap<String, String>,
-    insecure: bool,
-    parse_json: bool,
-    timeout: f64,
-}
-
-impl Default for HttpGetOptions {
-    fn default() -> Self {
-        Self { body: None, headers: BTreeMap::new(), insecure: false, parse_json: true, timeout: 30.0 }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-struct HttpRequestSpec {
-    body: Option<String>,
-    headers: BTreeMap<String, String>,
-    insecure: bool,
-    method: String,
-    parse_json: bool,
-    timeout: f64,
-    url: String,
-}
-
-impl Default for HttpRequestSpec {
-    fn default() -> Self {
-        Self { body: None, headers: BTreeMap::new(), insecure: false, method: "GET".to_string(), parse_json: true, timeout: 30.0, url: String::new() }
-    }
-}
-
-impl HttpRequestSpec {
-    fn from_get(url: String, opts: Option<serde_json::Value>) -> Result<Self, MeNotifyError> {
-        let opts = opts
-            .map(serde_json::from_value::<HttpGetOptions>)
-            .transpose()
-            .map_err(|err| MeNotifyError::HttpSpec(format!("http.get(url, opts) invalid options: {err}")))?
-            .unwrap_or_default();
-
-        Ok(Self {
-            body: opts.body,
-            headers: opts.headers,
-            insecure: opts.insecure,
-            method: "GET".to_string(),
-            parse_json: opts.parse_json,
-            timeout: opts.timeout,
-            url,
-        })
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct HttpResponse {
-    body: String,
-    headers: BTreeMap<String, String>,
-    json: Option<serde_json::Value>,
-    ok: bool,
-    status: u16,
 }

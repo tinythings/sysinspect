@@ -16,6 +16,9 @@ pub struct MeNotifyRuntime {
     sharelib_root: PathBuf,
 }
 
+#[cfg(test)]
+mod runtime_ut;
+
 impl MeNotifyRuntime {
     /// Creates a new MeNotify runtime bootstrap object.
     ///

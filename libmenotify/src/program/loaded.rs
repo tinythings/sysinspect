@@ -1,4 +1,5 @@
-use crate::{contract::MeNotifyContract, error::MeNotifyError, layout::get_path_fragment, runtime::MeNotifyRuntime};
+use super::MeNotifyContract;
+use crate::{error::MeNotifyError, layout::get_path_fragment, runtime::MeNotifyRuntime};
 use mlua::{Function, Lua, RegistryKey, Table};
 use std::fmt;
 use std::{fs, path::Path};

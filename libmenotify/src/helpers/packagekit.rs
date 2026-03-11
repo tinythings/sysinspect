@@ -67,14 +67,14 @@ impl MeNotifyPackageKit {
 /// Serializable snapshot of the PackageKit root daemon state.
 #[derive(Debug, Serialize)]
 pub struct PackageKitStatus {
-    available: bool,
-    backend_name: String,
-    daemon_state: String,
-    distro_id: String,
-    locked: bool,
-    network_state: u32,
-    transactions: Vec<String>,
-    version_major: u32,
-    version_micro: u32,
-    version_minor: u32,
+    pub available: bool,
+    pub backend_name: String,
+    pub daemon_state: String,
+    pub distro_id: String,
+    pub locked: bool,
+    pub network_state: u32,
+    pub transactions: Vec<String>,
+    pub version_major: u32,
+    pub version_micro: u32,
+    pub version_minor: u32,
 }
