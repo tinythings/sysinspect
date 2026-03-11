@@ -3,19 +3,51 @@
 ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
 ARC_NAME := sysinspect-${ARC_VERSION}
 PACK_LAYOUT_DIRS := sys net fs runtime cfg
+PKG_SPEC_FROM_TOML = $(shell awk 'BEGIN{name=""; version=""} /^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } /^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } END { if (name != "" && version != "") printf "%s@%s", name, version }' $(1))
 MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
 	awk 'BEGIN{name=""; version=""} \
 		/^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } \
 		/^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } \
 		END { if (name != "" && version != "") printf "%s@%s ", name, version }' "$$f"; \
 done)
+SENSOR_PACKAGE_SPECS := $(foreach f,libsensors/Cargo.toml libmenotify/Cargo.toml,$(call PKG_SPEC_FROM_TOML,$(f)))
+CORE_PACKAGE_SPECS := $(strip \
+	$(call PKG_SPEC_FROM_TOML,Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libsysinspect/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libeventreg/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,sysmaster/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,sysminion/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libsetup/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libscheduler/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libmodpak/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libmodcore/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libtelemetry/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libwebapi/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,sysclient/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libdpq/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libsysproto/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libcommon/Cargo.toml) \
+	$(call PKG_SPEC_FROM_TOML,libdatastore/Cargo.toml))
+INTEGRATION_TEST_TARGETS := $(shell find . -path '*/tests/*.rs' | sort | while read f; do \
+	dir=$$(dirname "$$f"); \
+	base=$$(basename "$$f" .rs); \
+	crate_dir=$$(dirname "$$dir"); \
+	if [ -f "$$crate_dir/Cargo.toml" ]; then \
+		spec=$$(awk 'BEGIN{name=""; version=""} \
+			/^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } \
+			/^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } \
+			END { if (name != "" && version != "") printf "%s@%s", name, version }' "$$crate_dir/Cargo.toml"); \
+		if [ -n "$$spec" ]; then printf -- "-p %s --test %s " "$$spec" "$$base"; fi; \
+	fi; \
+done)
+INTEGRATION_TEST_TARGETS += -p $(call PKG_SPEC_FROM_TOML,libmenotify/Cargo.toml) --test githubissues_demo_it
 CORE_EXCLUDES := $(foreach pkg,$(MODULE_PACKAGE_SPECS),--exclude $(pkg))
 TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
 TEST_RUN_THREADS ?= 3
 
 .PHONY: build devel all all-devel modules modules-dev clean check fix setup \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
-	stats man test tar
+	stats man test test-core test-modules test-sensors test-integration tar
 
 define deps
 	@OS_ID=$$(lsb_release -si 2>/dev/null); \
@@ -156,6 +188,18 @@ man:
 
 test:
 	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace --test-threads $(TEST_RUN_THREADS)
+
+test-core:
+	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+
+test-modules:
+	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+
+test-sensors:
+	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+
+test-integration:
+	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
 
 tar:
 	# Cleanup
