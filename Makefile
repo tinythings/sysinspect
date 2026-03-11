@@ -50,17 +50,19 @@ TEST_RUN_THREADS ?= 3
 	stats man test test-core test-modules test-sensors test-integration tar
 
 define deps
-	@OS_ID=$$(lsb_release -si 2>/dev/null); \
+	@OS_ID=$$(. /etc/os-release 2>/dev/null && echo $$ID || lsb_release -si 2>/dev/null); \
+	SUDO=$$(command -v sudo >/dev/null 2>&1 && echo sudo || true); \
 	if [ "$$OS_ID" = "Ubuntu" ] || [ "$$OS_ID" = "Debian" ]; then \
 		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev"; \
-		sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev; \
-		sudo apt-get install -y llvm-dev libclang-dev clang; \
-		sudo apt-get install -y protobuf-compiler; \
+		$$SUDO apt-get update && $$SUDO apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev; \
+		$$SUDO apt-get install -y llvm-dev libclang-dev clang; \
+		$$SUDO apt-get install -y protobuf-compiler; \
 	else \
 		echo "Oops, no fun for $$OS_ID right now. Builds are only possible on Debian/Ubuntu." >&2; \
 		echo "But! You can fix this by sending your PR here: https://github.com/tinythings/sysinspect :-)" >&2; \
 		exit 1; \
 	fi; \
+	cargo nextest --version >/dev/null 2>&1 || cargo install cargo-nextest --locked; \
 	command -v tokei >/dev/null 2>&1 || cargo install tokei --locked
 endef
 
@@ -114,6 +116,7 @@ endef
 
 setup:
 	$(call deps)
+	$(call tgt,wasm32-wasip1)
 	$(call tgt,aarch64-unknown-linux-musl)
 	$(call tgt,x86_64-unknown-linux-musl)
 
@@ -186,19 +189,19 @@ stats:
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
 
-test:
+test: setup
 	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace --test-threads $(TEST_RUN_THREADS)
 
-test-core:
+test-core: setup
 	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
-test-modules:
+test-modules: setup
 	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
 
-test-sensors:
+test-sensors: setup
 	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
-test-integration:
+test-integration: setup
 	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
 
 tar:

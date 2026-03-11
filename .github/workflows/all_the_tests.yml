@@ -23,9 +23,6 @@ jobs:
           apt-get update
           apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
-      - name: Install latest nextest release
-        uses: taiki-e/install-action@nextest
-
       - uses: actions/checkout@v2
       - name: Run test target
         run: |
@@ -42,9 +39,6 @@ jobs:
         run: |
           apt-get update
           apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
-
-      - name: Install latest nextest release
-        uses: taiki-e/install-action@nextest
 
       - uses: actions/checkout@v2
       - name: Run test target
@@ -63,9 +57,6 @@ jobs:
           apt-get update
           apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
-      - name: Install latest nextest release
-        uses: taiki-e/install-action@nextest
-
       - uses: actions/checkout@v2
       - name: Run test target
         run: |
@@ -81,10 +72,7 @@ jobs:
       - name: Install deps
         run: |
           apt-get update
-          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev golang-go
-
-      - name: Install latest nextest release
-        uses: taiki-e/install-action@nextest
+          apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
 
       - uses: actions/checkout@v2
       - name: Run test target
