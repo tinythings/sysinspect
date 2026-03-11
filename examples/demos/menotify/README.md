@@ -8,7 +8,6 @@ This demo ships one real `menotify` Lua sensor:
 It polls issues on a public GitHub repository and emits one event per newly
 opened issue. The first poll only seeds the local cursor and emits nothing.
 
-
 What this demo contains
 -----------------------
 
@@ -18,7 +17,6 @@ What this demo contains
   Minimal placeholder model to keep the demo layout consistent.
 - `lib/sensors/lua54/githubissues.lua`
   The actual Lua sensor script to publish into sharelib.
-
 
 Master
 ------
@@ -49,13 +47,11 @@ Master
 
       `sysinspect --sync`
 
-
 Minion
 ------
 
 Nothing special. Just let it autosync and restart the minion after sensor
 configuration changes so the listener is reloaded.
-
 
 Configure the repository
 ------------------------
@@ -76,7 +72,6 @@ Optional args already supported by the script:
 - `api`
 - `bootstrap_emit_existing`
 
-
 What to expect
 --------------
 
@@ -90,7 +85,6 @@ What to expect
 
 6. The sensor also emits a normal Sysinspect event. `console-logger` prints the
    payload on the minion.
-
 
 Notes
 -----
