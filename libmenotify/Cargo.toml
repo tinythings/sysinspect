@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 colored = "3.1.1"
+humantime = "2.3.0"
 libcommon = { path = "../libcommon" }
 log = "0.4.29"
 mlua = { version = "0.11.5", features = ["lua54", "serialize", "vendored"] }

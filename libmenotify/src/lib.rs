@@ -2,6 +2,7 @@ pub mod context;
 pub mod contract;
 pub mod error;
 pub mod event;
+pub mod host;
 pub mod layout;
 pub mod module;
 pub mod program;
@@ -13,6 +14,7 @@ pub use crate::{
     contract::{MeNotifyContract, MeNotifyEntrypoint},
     error::MeNotifyError,
     event::{MeNotifyEventBuilder, MeNotifyEventMeta},
+    host::MeNotifyHost,
     module::MeNotifyModuleRef,
     program::MeNotifyProgram,
     runner::MeNotifyRunner,

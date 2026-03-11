@@ -150,20 +150,20 @@ impl MeNotifyRuntime {
     /// bootstrap error.
     pub fn log_bootstrap_error(&self, err: &MeNotifyError) {
         match err {
-            MeNotifyError::MissingModule(_) => log::warn!(
+            MeNotifyError::MissingModule(_) => log::error!(
                 "[{}] '{}' started without a module name in listener '{}'; sensor is a stub and will stay idle",
                 "menotify".bright_magenta(),
                 self.sid,
                 self.listener
             ),
-            MeNotifyError::MissingScript { path, .. } => log::warn!(
+            MeNotifyError::MissingScript { path, .. } => log::error!(
                 "[{}] '{}' expects script '{}' for listener '{}'; runtime is not implemented yet, sensor stays idle",
                 "menotify".bright_magenta(),
                 self.sid,
                 path.display(),
                 self.listener
             ),
-            MeNotifyError::ReadScript { path, source } => log::warn!(
+            MeNotifyError::ReadScript { path, source } => log::error!(
                 "[{}] '{}' failed reading script '{}' for listener '{}': {}",
                 "menotify".bright_magenta(),
                 self.sid,
@@ -172,22 +172,22 @@ impl MeNotifyRuntime {
                 source
             ),
             MeNotifyError::MissingEntrypoint(module) => {
-                log::warn!("[{}] '{}' loaded module '{}' but it exports no valid entrypoint", "menotify".bright_magenta(), self.sid, module)
+                log::error!("[{}] '{}' loaded module '{}' but it exports no valid entrypoint", "menotify".bright_magenta(), self.sid, module)
             }
             MeNotifyError::AmbiguousEntrypoint(module) => {
-                log::warn!("[{}] '{}' loaded module '{}' but it exports both tick(ctx) and loop(ctx)", "menotify".bright_magenta(), self.sid, module)
+                log::error!("[{}] '{}' loaded module '{}' but it exports both tick(ctx) and loop(ctx)", "menotify".bright_magenta(), self.sid, module)
             }
             MeNotifyError::Lua(err) => {
-                log::warn!("[{}] '{}' failed to bootstrap Lua for listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
+                log::error!("[{}] '{}' failed to bootstrap Lua for listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
             }
-            MeNotifyError::InvalidListener(_) => log::warn!(
+            MeNotifyError::InvalidListener(_) => log::error!(
                 "[{}] '{}' got invalid listener '{}'; sensor is a stub and will stay idle",
                 "menotify".bright_magenta(),
                 self.sid,
                 self.listener
             ),
             MeNotifyError::InvalidEmitMeta(err) => {
-                log::warn!("[{}] '{}' got invalid emit metadata in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
+                log::error!("[{}] '{}' got invalid emit metadata in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
             }
         }
     }

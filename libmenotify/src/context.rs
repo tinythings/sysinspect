@@ -1,5 +1,5 @@
-use crate::MeNotifyError;
-use mlua::{Lua, LuaSerdeExt, Scope, Table, Value as LuaValue};
+use crate::{MeNotifyError, MeNotifyHost};
+use mlua::{Lua, Scope, Table, Value as LuaValue};
 use serde_yaml::{Mapping, Value as YamlValue};
 use std::time::Duration;
 
@@ -115,22 +115,13 @@ impl MeNotifyContext {
     ///
     /// Returns a Lua table containing passive context fields and `emit`.
     pub fn to_lua_scoped<'lua>(
-        &self, lua: &'lua Lua, scope: &'lua Scope<'lua, '_>, emit: &'lua (dyn Fn(serde_json::Value) + Send + Sync),
+        &'lua self, lua: &'lua Lua, scope: &'lua Scope<'lua, '_>, emit: &'lua (dyn Fn(serde_json::Value) + Send + Sync),
         builder: &'lua crate::MeNotifyEventBuilder,
     ) -> Result<Table, MeNotifyError> {
         let ctx = lua.create_table()?;
         self.fill(ctx.clone(), lua)?;
-        ctx.set(
-            "emit",
-            scope.create_function(|lua, (data, meta): (LuaValue, Option<LuaValue>)| {
-                (emit)(
-                    builder
-                        .build(lua.from_value::<serde_json::Value>(data)?, meta.map(|v| lua.from_value::<serde_json::Value>(v)).transpose()?)
-                        .map_err(|err| mlua::Error::runtime(err.to_string()))?,
-                );
-                Ok(())
-            })?,
-        )?;
+        let host = MeNotifyHost::new(self.sid(), self.module(), emit, builder);
+        host.attach(lua, scope, &ctx)?;
         Ok(ctx)
     }
 
