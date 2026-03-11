@@ -109,6 +109,7 @@ fn collect_chunks(p: &Path) -> Vec<PathBuf> {
     chunks
 }
 
+#[allow(dead_code)]
 fn merged_events_yaml(p: &Path) -> Result<serde_yaml::Value, SysinspectError> {
     let mut events_map: serde_yaml::Mapping = serde_yaml::Mapping::new();
     for path in collect_chunks(p) {

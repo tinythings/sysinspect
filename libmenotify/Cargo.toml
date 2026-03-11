@@ -1,0 +1,16 @@
+[package]
+name = "libmenotify"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "libmenotify"
+path = "src/lib.rs"
+
+[dependencies]
+colored = "3.1.1"
+log = "0.4.29"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+tempfile = "3.25.0"

@@ -1,0 +1,159 @@
+use crate::{
+    error::MeNotifyError,
+    layout::{get_script_root, get_sharelib_root, get_site_root},
+    module::MeNotifyModuleRef,
+};
+use colored::Colorize;
+use std::path::{Path, PathBuf};
+
+/// Runtime bootstrap for one configured MeNotify sensor instance.
+#[derive(Debug, Clone)]
+pub struct MeNotifyRuntime {
+    sid: String,
+    module_ref: Option<MeNotifyModuleRef>,
+    listener: String,
+    sharelib_root: PathBuf,
+}
+
+impl MeNotifyRuntime {
+    /// Creates a new MeNotify runtime bootstrap object.
+    ///
+    /// # Arguments
+    ///
+    /// * `sid` - Sensor id from the DSL.
+    /// * `listener` - Full listener string, for example `menotify.foo`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `MeNotifyRuntime` ready to resolve script and library paths.
+    pub fn new(sid: String, listener: String) -> Self {
+        Self {
+            sid,
+            module_ref: MeNotifyModuleRef::new(&listener).ok(),
+            listener,
+            sharelib_root: get_sharelib_root(),
+        }
+    }
+
+    /// Returns the sensor id.
+    ///
+    /// # Returns
+    ///
+    /// Returns the DSL sensor id.
+    pub fn sid(&self) -> &str {
+        &self.sid
+    }
+
+    /// Returns the full listener string.
+    ///
+    /// # Returns
+    ///
+    /// Returns the listener string used to create the runtime.
+    pub fn listener(&self) -> &str {
+        &self.listener
+    }
+
+    /// Returns the resolved module name, if available.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(&str)` with the parsed module name, or `None` if the
+    /// listener is missing a module suffix.
+    pub fn module_name(&self) -> Option<&str> {
+        self.module_ref.as_ref().map(MeNotifyModuleRef::module)
+    }
+
+    /// Returns the shared library root.
+    ///
+    /// # Returns
+    ///
+    /// Returns the absolute shared library root used by this runtime.
+    pub fn sharelib_root(&self) -> &Path {
+        &self.sharelib_root
+    }
+
+    /// Returns the script root for MeNotify Lua entry scripts.
+    ///
+    /// # Returns
+    ///
+    /// Returns the absolute root directory where MeNotify scripts are expected.
+    pub fn script_root(&self) -> PathBuf {
+        get_script_root(self.sharelib_root())
+    }
+
+    /// Returns the site library root for shared MeNotify Lua code.
+    ///
+    /// # Returns
+    ///
+    /// Returns the absolute root directory for shared MeNotify Lua libraries.
+    pub fn site_root(&self) -> PathBuf {
+        get_site_root(self.sharelib_root())
+    }
+
+    /// Returns the expected entry script path for the resolved module.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(PathBuf)` for the script path, or `MeNotifyError` if the
+    /// listener does not contain a valid module name.
+    pub fn script_path(&self) -> Result<PathBuf, MeNotifyError> {
+        self.module_ref
+            .as_ref()
+            .map(|module| module.script_path(&self.script_root()))
+            .ok_or_else(|| MeNotifyError::MissingModule(self.listener.clone()))
+    }
+
+    /// Verifies that the resolved script file exists on disk.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(PathBuf)` with the resolved script path if it exists, or
+    /// `MeNotifyError` if the listener is invalid or the file is missing.
+    pub fn require_script(&self) -> Result<PathBuf, MeNotifyError> {
+        self.script_path().and_then(|path| {
+            path.exists()
+                .then_some(path.clone())
+                .ok_or_else(|| MeNotifyError::MissingScript {
+                    module: self.module_name().unwrap_or_default().to_string(),
+                    path,
+                })
+        })
+    }
+
+    /// Logs the current bootstrap state for the stub runtime.
+    ///
+    /// # Returns
+    ///
+    /// Returns nothing. This method only emits log records describing what the
+    /// runtime resolved or failed to resolve.
+    pub fn run_stub(&self) {
+        match self.require_script() {
+            Ok(path) => log::warn!(
+                "[{}] '{}' resolved module '{}' at '{}' ; Lua runtime is not implemented yet, sensor stays idle",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.module_name().unwrap_or_default(),
+                path.display()
+            ),
+            Err(MeNotifyError::MissingModule(_)) => log::warn!(
+                "[{}] '{}' started without a module name in listener '{}'; sensor is a stub and will stay idle",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.listener
+            ),
+            Err(MeNotifyError::MissingScript { path, .. }) => log::warn!(
+                "[{}] '{}' expects script '{}' for listener '{}'; runtime is not implemented yet, sensor stays idle",
+                "menotify".bright_magenta(),
+                self.sid,
+                path.display(),
+                self.listener
+            ),
+            Err(MeNotifyError::InvalidListener(_)) => log::warn!(
+                "[{}] '{}' got invalid listener '{}'; sensor is a stub and will stay idle",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.listener
+            ),
+        }
+    }
+}
