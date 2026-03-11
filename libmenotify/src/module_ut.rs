@@ -11,16 +11,16 @@ fn parses_module_listener() {
 
 #[test]
 fn rejects_missing_module() {
-    assert_eq!(
+    assert!(matches!(
         MeNotifyModuleRef::new("menotify").expect_err("listener should fail"),
-        MeNotifyError::MissingModule("menotify".to_string())
-    );
+        MeNotifyError::MissingModule(listener) if listener == "menotify"
+    ));
 }
 
 #[test]
 fn rejects_wrong_listener_family() {
-    assert_eq!(
+    assert!(matches!(
         MeNotifyModuleRef::new("fsnotify.foo").expect_err("listener should fail"),
-        MeNotifyError::InvalidListener("fsnotify.foo".to_string())
-    );
+        MeNotifyError::InvalidListener(listener) if listener == "fsnotify.foo"
+    ));
 }
