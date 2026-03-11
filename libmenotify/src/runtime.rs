@@ -118,11 +118,12 @@ impl MeNotifyRuntime {
     ///
     /// # Returns
     ///
-    /// Returns `Ok(PathBuf)` with the resolved script path if it exists, or
-    /// `MeNotifyError` if the listener is invalid or the file is missing.
+    /// Returns `Ok(PathBuf)` with the resolved script path if it is a regular
+    /// file, or `MeNotifyError` if the listener is invalid or the file is
+    /// missing.
     pub fn require_script(&self) -> Result<PathBuf, MeNotifyError> {
         self.script_path().and_then(|path| {
-            path.exists()
+            path.is_file()
                 .then_some(path.clone())
                 .ok_or_else(|| MeNotifyError::MissingScript { module: self.module_name().unwrap_or_default().to_string(), path })
         })
