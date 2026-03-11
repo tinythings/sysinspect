@@ -45,6 +45,9 @@ fn build_go_example(example_dir: &Path, output_name: &str) -> PathBuf {
     if out.exists() {
         return out;
     }
+    if !example_dir.is_dir() {
+        panic!("go wasm example directory does not exist: {}", example_dir.display());
+    }
 
     let status = Command::new("go")
         .current_dir(example_dir)
@@ -57,7 +60,7 @@ fn build_go_example(example_dir: &Path, output_name: &str) -> PathBuf {
         .arg(&out)
         .arg("main.go")
         .status()
-        .unwrap_or_else(|err| panic!("failed to build Go wasm example in {}: {err}", example_dir.display()));
+        .unwrap_or_else(|err| panic!("failed to run 'go build' in {}: {err}", example_dir.display()));
     if !status.success() {
         panic!("Go wasm build failed in {} with status {}", example_dir.display(), status);
     }
