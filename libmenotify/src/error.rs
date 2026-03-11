@@ -31,6 +31,10 @@ pub enum MeNotifyError {
     #[error("http runtime error: {0}")]
     Http(#[from] reqwest::Error),
 
+    /// D-Bus runtime returned an error while calling a local endpoint.
+    #[error("dbus runtime error: {0}")]
+    Dbus(#[from] zbus::Error),
+
     /// Script does not export a valid entrypoint.
     #[error("module '{0}' must export either tick(ctx) or loop(ctx)")]
     MissingEntrypoint(String),
@@ -46,6 +50,10 @@ pub enum MeNotifyError {
     /// HTTP request specification is invalid.
     #[error("http request spec is invalid: {0}")]
     HttpSpec(String),
+
+    /// PackageKit helper request is invalid or could not be converted.
+    #[error("packagekit helper error: {0}")]
+    PackageKit(String),
 }
 
 impl From<MeNotifyError> for libcommon::SysinspectError {

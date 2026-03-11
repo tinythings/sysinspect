@@ -143,6 +143,42 @@ Global Lua helpers:
 - ``log.debug(...)``
 - ``http.get(url, opts?)``
 - ``http.request({...})``
+- ``packagekit.available()``
+- ``packagekit.status()``
+- ``packagekit.history(names, count?)``
+
+``packagekit.*``
+^^^^^^^^^^^^^^^^
+
+    **Optional Linux-oriented helper**
+
+    ``packagekit`` is a convenience namespace for polling PackageKit over
+    D-Bus from Lua. It is intentionally not part of the portable core
+    contract. If a script uses it, that script is making a Linux-specific
+    choice.
+
+    ``packagekit.available()``
+        Returns ``true`` if the PackageKit root service can be reached on the
+        system bus.
+
+    ``packagekit.status()``
+        Returns a table with current daemon state, including:
+
+        - ``available``
+        - ``backend_name``
+        - ``daemon_state``
+        - ``distro_id``
+        - ``locked``
+        - ``network_state``
+        - ``transactions``
+        - ``version_major``
+        - ``version_minor``
+        - ``version_micro``
+
+    ``packagekit.history(names, count?)``
+        Returns PackageKit package history converted to JSON-compatible Lua
+        tables. This is meant for polling scripts that want to detect package
+        installs, removals, upgrades, or other recent transactions.
 
 Event Shape
 -----------

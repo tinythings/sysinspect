@@ -196,6 +196,12 @@ impl MeNotifyRuntime {
             MeNotifyError::HttpSpec(err) => {
                 log::error!("[{}] '{}' got invalid HTTP request spec in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
             }
+            MeNotifyError::Dbus(err) => {
+                log::error!("[{}] '{}' failed D-Bus operation in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
+            }
+            MeNotifyError::PackageKit(err) => {
+                log::error!("[{}] '{}' failed PackageKit helper in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
+            }
         }
     }
 }

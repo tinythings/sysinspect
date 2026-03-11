@@ -5,6 +5,7 @@ pub mod event;
 pub mod host;
 pub mod layout;
 pub mod module;
+pub mod packagekit;
 pub mod program;
 pub mod runner;
 pub mod runtime;
@@ -17,6 +18,7 @@ pub use crate::{
     event::{MeNotifyEventBuilder, MeNotifyEventMeta},
     host::MeNotifyHost,
     module::MeNotifyModuleRef,
+    packagekit::{MeNotifyPackageKit, PackageKitStatus},
     program::MeNotifyProgram,
     runner::MeNotifyRunner,
     runtime::MeNotifyRuntime,
@@ -37,6 +39,8 @@ mod host_ut;
 mod layout_ut;
 #[cfg(test)]
 mod module_ut;
+#[cfg(test)]
+mod packagekit_ut;
 #[cfg(test)]
 mod program_ut;
 #[cfg(test)]

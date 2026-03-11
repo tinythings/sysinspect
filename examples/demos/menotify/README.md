@@ -79,6 +79,49 @@ Optional args already supported by the script:
 - `api`
 - `bootstrap_emit_existing`
 
+Configure PackageKit polling
+----------------------------
+
+Edit `sensors.cfg` and set the package list for `packagekit-history`:
+
+- `packages`
+- `history_count`
+- `bootstrap_emit_existing`
+
+Example:
+
+```yaml
+packagekit-history:
+  listener: menotify.pkgnotify
+  args:
+    packages:
+      - bash
+      - openssl
+    history_count: 20
+    bootstrap_emit_existing: false
+```
+
+What to expect from PackageKit
+------------------------------
+
+1. Start the minion on a Linux system with PackageKit available.
+2. Wait for the first polling cycle.
+3. The first poll seeds the local PackageKit snapshot and emits nothing.
+4. Install a watched package.
+5. On the next poll, the Lua sensor logs:
+
+      `Package <name> was installed`
+
+6. Remove the same package.
+7. On the next poll, the Lua sensor logs:
+
+      `Package <name> was removed`
+
+8. The sensor also emits normal Sysinspect events with action:
+
+- `installed`
+- `removed`
+
 What to expect
 --------------
 
@@ -100,3 +143,5 @@ Notes
 - This example is intentionally public-repo friendly and does not require a
   token.
 - If you do pass `token` in `args`, the script sends it as a bearer token.
+- The PackageKit demo is Linux-only by design and simply does nothing if
+  PackageKit is unavailable.

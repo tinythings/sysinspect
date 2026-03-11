@@ -143,12 +143,22 @@ Global helpers:
 - ``log.debug(...)``
 - ``http.get(url, opts?)``
 - ``http.request({...})``
+- ``packagekit.available()``
+- ``packagekit.status()``
+- ``packagekit.history(names, count?)``
 
 Important rule:
 
 - ``opts`` and ``args`` are yours
 - Rust does not interpret them
 - if you need a token, URL, threshold, or toggle, put it in ``args``
+
+Linux-specific helper note:
+
+- ``packagekit.*`` is available as an optional helper namespace
+- it is intended for Linux scripts that want to poll PackageKit over D-Bus
+- it is not part of the portable core contract
+- using it is a script-level portability choice
 
 Step 4: Start with configuration
 --------------------------------

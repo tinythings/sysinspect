@@ -1,4 +1,4 @@
-use crate::{MeNotifyError, MeNotifyEventBuilder};
+use crate::{MeNotifyError, MeNotifyEventBuilder, MeNotifyPackageKit};
 use mlua::{Lua, LuaSerdeExt, Scope, Table, Value as LuaValue, Variadic};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -54,6 +54,7 @@ impl<'a> MeNotifyHost<'a> {
         ctx.set("timestamp", self.timestamp_fn(lua, scope)?)?;
         lua.globals().set("http", self.http_table(lua, scope)?)?;
         lua.globals().set("log", self.log_table(lua, scope)?)?;
+        lua.globals().set("packagekit", self.packagekit_table(lua, scope)?)?;
         Ok(())
     }
 
@@ -148,6 +149,46 @@ impl<'a> MeNotifyHost<'a> {
         logtbl.set("info", self.log_fn(lua, scope, "info")?)?;
         logtbl.set("debug", self.log_fn(lua, scope, "debug")?)?;
         Ok(logtbl)
+    }
+
+    fn packagekit_table<'lua>(self, lua: &'lua Lua, scope: &'lua Scope<'lua, '_>) -> Result<Table, MeNotifyError>
+    where
+        'a: 'lua,
+    {
+        let pktbl = lua.create_table()?;
+        pktbl.set("available", self.packagekit_available_fn(lua, scope)?)?;
+        pktbl.set("status", self.packagekit_status_fn(lua, scope)?)?;
+        pktbl.set("history", self.packagekit_history_fn(lua, scope)?)?;
+        Ok(pktbl)
+    }
+
+    fn packagekit_available_fn<'lua>(self, _lua: &'lua Lua, scope: &'lua Scope<'lua, '_>) -> Result<mlua::Function, MeNotifyError>
+    where
+        'a: 'lua,
+    {
+        Ok(scope.create_function(move |_, ()| Ok(MeNotifyPackageKit::available()))?)
+    }
+
+    fn packagekit_status_fn<'lua>(self, _lua: &'lua Lua, scope: &'lua Scope<'lua, '_>) -> Result<mlua::Function, MeNotifyError>
+    where
+        'a: 'lua,
+    {
+        Ok(scope.create_function(move |lua, ()| {
+            MeNotifyPackageKit::status()
+                .and_then(|status| lua.to_value(&status).map_err(MeNotifyError::from))
+                .map_err(|err| mlua::Error::runtime(err.to_string()))
+        })?)
+    }
+
+    fn packagekit_history_fn<'lua>(self, _lua: &'lua Lua, scope: &'lua Scope<'lua, '_>) -> Result<mlua::Function, MeNotifyError>
+    where
+        'a: 'lua,
+    {
+        Ok(scope.create_function(move |lua, (names, count): (Vec<String>, Option<u32>)| {
+            MeNotifyPackageKit::history(names, count.unwrap_or(10))
+                .and_then(|history| lua.to_value(&history).map_err(MeNotifyError::from))
+                .map_err(|err| mlua::Error::runtime(err.to_string()))
+        })?)
     }
 
     fn log_fn<'lua>(self, _lua: &'lua Lua, scope: &'lua Scope<'lua, '_>, level: &'static str) -> Result<mlua::Function, MeNotifyError>
