@@ -1,0 +1,101 @@
+MeNotify GitHub Issues Demo
+===========================
+
+This demo ships one real `menotify` Lua sensor:
+
+- `menotify.githubissues`
+
+It polls issues on a public GitHub repository and emits one event per newly
+opened issue. The first poll only seeds the local cursor and emits nothing.
+
+
+What this demo contains
+-----------------------
+
+- `sensors.cfg`
+  Sensor definition and event handlers.
+- `model.cfg`
+  Minimal placeholder model to keep the demo layout consistent.
+- `lib/sensors/lua54/githubissues.lua`
+  The actual Lua sensor script to publish into sharelib.
+
+
+Master
+------
+
+1. Copy `sensors.cfg` to the master's sensors root into subdirectory
+   `menotify`, so you end up with:
+
+      `$MASTER/data/sensors/menotify/sensors.cfg`
+
+2. From this demo directory, publish the Lua sensor library tree:
+
+      `sysinspect module -A --path ./lib -l`
+
+   This uploads:
+
+   - `lib/sensors/lua54/githubissues.lua`
+
+3. Edit master config so this sensor scope is exported:
+
+   ```yaml
+   config:
+     master:
+       fileserver.sensors:
+         - menotify
+   ```
+
+4. Sync the cluster:
+
+      `sysinspect --sync`
+
+
+Minion
+------
+
+Nothing special. Just let it autosync and restart the minion after sensor
+configuration changes so the listener is reloaded.
+
+
+Configure the repository
+------------------------
+
+Edit `sensors.cfg` and set:
+
+- `owner`
+- `repo`
+
+Use a public repository you control, so you can keep opening test issues.
+
+Optional args already supported by the script:
+
+- `state`
+- `per_page`
+- `user_agent`
+- `token`
+- `api`
+- `bootstrap_emit_existing`
+
+
+What to expect
+--------------
+
+1. Start the minion.
+2. Wait for the first polling cycle.
+3. The first poll seeds the local issue cursor and emits nothing.
+4. Create a new issue in the configured GitHub repository.
+5. On the next poll, the Lua sensor logs:
+
+      `New issue here: #<number> <title>`
+
+6. The sensor also emits a normal Sysinspect event. `console-logger` prints the
+   payload on the minion.
+
+
+Notes
+-----
+
+- Pull requests are ignored.
+- This example is intentionally public-repo friendly and does not require a
+  token.
+- If you do pass `token` in `args`, the script sends it as a bearer token.

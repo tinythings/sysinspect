@@ -7,6 +7,10 @@ edition = "2024"
 name = "libmenotify"
 path = "src/lib.rs"
 
+[[test]]
+name = "githubissues_demo_it"
+path = "../examples/demos/menotify/githubissues_it.rs"
+
 [dependencies]
 colored = "3.1.1"
 humantime = "2.3.0"
