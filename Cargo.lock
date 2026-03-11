@@ -3527,6 +3527,7 @@ dependencies = [
  "colored",
  "log",
  "mlua",
+ "serde_yaml",
  "tempfile",
  "thiserror 2.0.18",
 ]
