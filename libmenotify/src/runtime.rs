@@ -28,11 +28,26 @@ impl MeNotifyRuntime {
     ///
     /// Returns a `MeNotifyRuntime` ready to resolve script and library paths.
     pub fn new(sid: String, listener: String) -> Self {
+        Self::with_sharelib_root(sid, listener, get_sharelib_root())
+    }
+
+    /// Creates a new MeNotify runtime bootstrap object with an explicit sharelib root.
+    ///
+    /// # Arguments
+    ///
+    /// * `sid` - Sensor id from the DSL.
+    /// * `listener` - Full listener string, for example `menotify.foo`.
+    /// * `sharelib_root` - Shared library root to use for script lookup.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `MeNotifyRuntime` ready to resolve script and library paths.
+    pub fn with_sharelib_root(sid: String, listener: String, sharelib_root: PathBuf) -> Self {
         Self {
             sid,
             module_ref: MeNotifyModuleRef::new(&listener).ok(),
             listener,
-            sharelib_root: get_sharelib_root(),
+            sharelib_root,
         }
     }
 
@@ -133,6 +148,67 @@ impl MeNotifyRuntime {
 
     /// Logs the current bootstrap state for the stub runtime.
     ///
+    /// # Arguments
+    ///
+    /// * `err` - Bootstrap error to render into the main log stream.
+    ///
+    /// # Returns
+    ///
+    /// Returns nothing. This method only emits a log record for the given
+    /// bootstrap error.
+    pub fn log_bootstrap_error(&self, err: &MeNotifyError) {
+        match err {
+            MeNotifyError::MissingModule(_) => log::warn!(
+                "[{}] '{}' started without a module name in listener '{}'; sensor is a stub and will stay idle",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.listener
+            ),
+            MeNotifyError::MissingScript { path, .. } => log::warn!(
+                "[{}] '{}' expects script '{}' for listener '{}'; runtime is not implemented yet, sensor stays idle",
+                "menotify".bright_magenta(),
+                self.sid,
+                path.display(),
+                self.listener
+            ),
+            MeNotifyError::ReadScript { path, source } => log::warn!(
+                "[{}] '{}' failed reading script '{}' for listener '{}': {}",
+                "menotify".bright_magenta(),
+                self.sid,
+                path.display(),
+                self.listener,
+                source
+            ),
+            MeNotifyError::MissingEntrypoint(module) => log::warn!(
+                "[{}] '{}' loaded module '{}' but it exports no valid entrypoint",
+                "menotify".bright_magenta(),
+                self.sid,
+                module
+            ),
+            MeNotifyError::AmbiguousEntrypoint(module) => log::warn!(
+                "[{}] '{}' loaded module '{}' but it exports both tick(ctx) and loop(ctx)",
+                "menotify".bright_magenta(),
+                self.sid,
+                module
+            ),
+            MeNotifyError::Lua(err) => log::warn!(
+                "[{}] '{}' failed to bootstrap Lua for listener '{}': {}",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.listener,
+                err
+            ),
+            MeNotifyError::InvalidListener(_) => log::warn!(
+                "[{}] '{}' got invalid listener '{}'; sensor is a stub and will stay idle",
+                "menotify".bright_magenta(),
+                self.sid,
+                self.listener
+            ),
+        }
+    }
+
+    /// Logs the current bootstrap state for the stub runtime.
+    ///
     /// # Returns
     ///
     /// Returns nothing. This method only emits log records describing what the
@@ -147,52 +223,7 @@ impl MeNotifyRuntime {
                 program.script_path().display(),
                 program.contract().entrypoint()
             ),
-            Err(MeNotifyError::MissingModule(_)) => log::warn!(
-                "[{}] '{}' started without a module name in listener '{}'; sensor is a stub and will stay idle",
-                "menotify".bright_magenta(),
-                self.sid,
-                self.listener
-            ),
-            Err(MeNotifyError::MissingScript { path, .. }) => log::warn!(
-                "[{}] '{}' expects script '{}' for listener '{}'; runtime is not implemented yet, sensor stays idle",
-                "menotify".bright_magenta(),
-                self.sid,
-                path.display(),
-                self.listener
-            ),
-            Err(MeNotifyError::ReadScript { path, source }) => log::warn!(
-                "[{}] '{}' failed reading script '{}' for listener '{}': {}",
-                "menotify".bright_magenta(),
-                self.sid,
-                path.display(),
-                self.listener,
-                source
-            ),
-            Err(MeNotifyError::MissingEntrypoint(module)) => log::warn!(
-                "[{}] '{}' loaded module '{}' but it exports no valid entrypoint",
-                "menotify".bright_magenta(),
-                self.sid,
-                module
-            ),
-            Err(MeNotifyError::AmbiguousEntrypoint(module)) => log::warn!(
-                "[{}] '{}' loaded module '{}' but it exports both tick(ctx) and loop(ctx)",
-                "menotify".bright_magenta(),
-                self.sid,
-                module
-            ),
-            Err(MeNotifyError::Lua(err)) => log::warn!(
-                "[{}] '{}' failed to bootstrap Lua for listener '{}': {}",
-                "menotify".bright_magenta(),
-                self.sid,
-                self.listener,
-                err
-            ),
-            Err(MeNotifyError::InvalidListener(_)) => log::warn!(
-                "[{}] '{}' got invalid listener '{}'; sensor is a stub and will stay idle",
-                "menotify".bright_magenta(),
-                self.sid,
-                self.listener
-            ),
+            Err(err) => self.log_bootstrap_error(&err),
         }
     }
 }
