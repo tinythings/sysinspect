@@ -19,23 +19,28 @@ What this demo contains
 - `sensors.cfg`
   Sensor definition and event handlers.
 - `model.cfg`
-  Self-heal model that reinstalls `cowsay` through Lua runtime.
+  Self-heal model that restores a removed package through Lua runtime.
 - `lib/sensors/lua/githubissues.lua`
   GitHub issues polling sensor.
 - `lib/sensors/lua/pkgnotify.lua`
   PackageKit installed-package snapshot polling sensor.
-- `lib/runtime/lua54/reinstall-cowsay.lua`
-  Lua runtime action that installs `cowsay` through PackageKit.
+- `lib/runtime/lua/packagekit.lua`
+  Generic Lua runtime action that runs PackageKit install/remove/upgrade operations.
 
 Master
 ------
 
-1. Copy `sensors.cfg` to the master's sensors root into subdirectory
+1. Copy `model.cfg` to the master's models root into subdirectory
+   `menotify`, so you end up with:
+
+      `$MASTER/data/models/menotify/model.cfg`
+
+2. Copy `sensors.cfg` to the master's sensors root into subdirectory
    `menotify`, so you end up with:
 
       `$MASTER/data/sensors/menotify/sensors.cfg`
 
-2. From this demo directory, publish the Lua sensor library tree:
+3. From this demo directory, publish the Lua sensor library tree:
 
       `sysinspect module -A --path ./lib -l`
 
@@ -43,18 +48,20 @@ Master
 
    - `lib/sensors/lua/githubissues.lua`
    - `lib/sensors/lua/pkgnotify.lua`
-   - `lib/runtime/lua54/reinstall-cowsay.lua`
+   - `lib/runtime/lua/packagekit.lua`
 
-3. Edit master config so this sensor scope is exported:
+4. Edit master config so both the model and sensor scopes are exported:
 
    ```yaml
    config:
      master:
+       fileserver.models:
+         - menotify
        fileserver.sensors:
          - menotify
    ```
 
-4. Sync the cluster:
+5. Sync the cluster:
 
       `sysinspect --sync`
 
@@ -89,20 +96,22 @@ The `packagekit-history` sensor is already wired to:
 
 - watch only `cowsay`
 - notice only `removed`
-- call model action `menotify/cowsay-package/reinstall-cowsay`
+- call model action `menotify/tracked-package/package-op`
 
 The model action runs `runtime.lua-runtime` with:
 
-- `rt.mod: reinstall-cowsay`
-- `package: cowsay`
+- `rt.mod: packagekit`
+- `action: context(action)`
+- `package: context(package)`
 
 So the full path is:
 
 1. `menotify.pkgnotify` notices that `cowsay` disappeared.
 2. The sensor emits `removed`.
-3. The `pipeline` handler calls the demo model action.
-4. `runtime.lua-runtime` runs `lib/runtime/lua54/reinstall-cowsay.lua`.
-5. That Lua runtime script calls `packagekit.install({ "cowsay" })`.
+3. The `pipeline` handler passes `action: install` and `package: $.package`.
+4. The demo model action receives that context and forwards it into runtime args.
+5. `runtime.lua-runtime` runs `lib/runtime/lua/packagekit.lua`.
+6. That generic Lua runtime script calls `packagekit.install({ "cowsay" })`.
 
 What to expect from PackageKit
 ------------------------------
@@ -119,10 +128,9 @@ What to expect from PackageKit
 
     - `removed`
 
-7. The `pipeline` handler invokes the demo model action.
-8. The Lua runtime remediation script logs:
-
-      `Reinstalling package cowsay through PackageKit`
+7. The `pipeline` handler invokes the demo model action with `action=install`
+   and `package=cowsay`.
+8. The Lua runtime remediation script logs a PackageKit install operation.
 
 9. PackageKit installs `cowsay` back.
 
