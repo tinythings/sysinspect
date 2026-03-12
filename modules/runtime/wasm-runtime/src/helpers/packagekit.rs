@@ -36,9 +36,10 @@ pub fn register(linker: &mut Linker<HostState>) -> anyhow::Result<()> {
             };
 
             match RuntimePackageKit::status() {
-                Ok(status) => {
-                    write_json(&mem, &mut caller, out_ptr, out_cap, &serde_json::to_value(status).unwrap_or_else(|_| serde_json::json!({})))
-                }
+                Ok(status) => match serde_json::to_value(status) {
+                    Ok(status) => write_json(&mem, &mut caller, out_ptr, out_cap, &status),
+                    Err(err) => write_error(&mem, &mut caller, out_ptr, out_cap, &format!("failed to serialize PackageKit status: {err}")),
+                },
                 Err(err) => write_error(&mem, &mut caller, out_ptr, out_cap, &err.to_string()),
             }
         })
