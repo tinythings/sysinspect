@@ -254,6 +254,8 @@ the ``api`` import module:
 - ``packagekit_packages(out_ptr, out_cap) -> i32``
 - ``packagekit_history(req_ptr, req_len, out_ptr, out_cap) -> i32``
 - ``packagekit_install(req_ptr, req_len, out_ptr, out_cap) -> i32``
+- ``packagekit_remove(req_ptr, req_len, out_ptr, out_cap) -> i32``
+- ``packagekit_upgrade(req_ptr, req_len, out_ptr, out_cap) -> i32``
 
 These imports are intentionally low-level. They return JSON payloads through
 guest memory buffers, unlike the higher-level Lua and Python helper namespaces.

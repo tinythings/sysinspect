@@ -147,6 +147,9 @@ Global Lua helpers:
 - ``packagekit.status()``
 - ``packagekit.history(names, count?)``
 - ``packagekit.packages()``
+- ``packagekit.install(names)``
+- ``packagekit.remove(names)``
+- ``packagekit.upgrade(names)``
 
 ``packagekit.*``
 ^^^^^^^^^^^^^^^^
@@ -185,6 +188,18 @@ Global Lua helpers:
         Returns the current installed-package snapshot known to PackageKit.
         This is useful for scripts that want to diff installed packages across
         polling cycles and emit add/remove events.
+
+    ``packagekit.install(names)``
+        Installs packages by name through PackageKit and returns the operation
+        result as a Lua table.
+
+    ``packagekit.remove(names)``
+        Removes packages by name through PackageKit and returns the operation
+        result as a Lua table.
+
+    ``packagekit.upgrade(names)``
+        Upgrades packages by name through PackageKit and returns the operation
+        result as a Lua table.
 
 Event Shape
 -----------

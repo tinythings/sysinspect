@@ -147,6 +147,9 @@ Global helpers:
 - ``packagekit.status()``
 - ``packagekit.history(names, count?)``
 - ``packagekit.packages()``
+- ``packagekit.install(names)``
+- ``packagekit.remove(names)``
+- ``packagekit.upgrade(names)``
 
 Important rule:
 

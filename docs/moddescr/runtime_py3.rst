@@ -105,6 +105,8 @@ modules:
 * ``packagekit.history(names, count=10)``
 * ``packagekit.packages()``
 * ``packagekit.install(names)``
+* ``packagekit.remove(names)``
+* ``packagekit.upgrade(names)``
 
 ``packagekit`` is Linux-only and optional. On systems without PackageKit,
 ``packagekit.available()`` returns ``False`` and the other calls may raise a

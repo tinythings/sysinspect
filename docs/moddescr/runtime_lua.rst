@@ -77,3 +77,23 @@ Practical notes
 * Keep argument names unambiguous, since they become globals in the script.
 * Prefer passing strings and parsing them in Lua when you need structured values.
 * Use ``rt.logs`` while developing scripts, then disable it if you want quieter operation.
+
+Built-in Helper Namespaces
+--------------------------
+
+The Lua runtime preinstalls a ``packagekit`` helper namespace for runtime
+scripts on Linux systems where PackageKit is available over D-Bus.
+
+Available helper functions:
+
+* ``packagekit.available()``
+* ``packagekit.status()``
+* ``packagekit.history(names, count?)``
+* ``packagekit.packages()``
+* ``packagekit.install(names)``
+* ``packagekit.remove(names)``
+* ``packagekit.upgrade(names)``
+
+``packagekit`` is optional and Linux-only. If PackageKit is unavailable, then
+``packagekit.available()`` returns ``false`` and the other calls may raise a
+runtime error when invoked.
