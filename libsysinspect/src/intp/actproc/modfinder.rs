@@ -1,18 +1,16 @@
 use super::response::{ActionModResponse, ActionResponse, ConstraintResponse};
 use crate::{
-    cfg::mmconf::{DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR},
+    cfg::mmconf::DEFAULT_MODULES_DIR,
     inspector::SysInspectRunner,
     intp::{
         actproc::response::{ConstraintFailure, ConstraintPass},
         constraints::{Constraint, ConstraintKind, ExprRes},
         functions,
-        inspector::get_cfg_sharelib,
     },
     mdescr::{
         DSL_ACTION_CONDITION_FSZC, DSL_ACTION_CONDITION_GID, DSL_ACTION_CONDITION_UID, DSL_ACTION_CONDITION_VMEM, DSL_ACTION_CONDITION_WDIR,
         DSL_ACTION_CONDITION_WDISK,
     },
-    pylang,
     util::dataconv,
 };
 use core::str;
@@ -83,11 +81,7 @@ impl ModCall {
         let modpath = sharelib
             .join(DEFAULT_MODULES_DIR)
             .join(ns.trim_start_matches('.').trim_end_matches('.').trim().split('.').map(|s| s.to_string()).collect::<Vec<String>>().join("/"));
-        let pymodpath = modpath.parent().unwrap().join(format!("{}.py", modpath.file_name().unwrap().to_os_string().to_str().unwrap_or_default()));
-        if pymodpath.exists() {
-            log::debug!("Path to a Python module: {}", pymodpath.to_str().unwrap_or_default());
-            self.set_module(pymodpath)
-        } else if modpath.exists() {
+        if modpath.exists() {
             log::debug!("Path to a native module: {}", modpath.to_str().unwrap_or_default());
             self.set_module(modpath)
         } else {
@@ -298,38 +292,7 @@ impl ModCall {
 
     /// Run the module
     pub fn run(&self) -> Result<Option<ActionResponse>, SysinspectError> {
-        if self.module.extension().unwrap_or_default().to_str().unwrap_or_default().eq("py") {
-            self.run_python_module()
-        } else {
-            self.run_native_module()
-        }
-    }
-
-    /// Runs python script module
-    fn run_python_module(&self) -> Result<Option<ActionResponse>, SysinspectError> {
-        log::debug!("Calling Python module: {}", self.module.as_os_str().to_str().unwrap_or_default());
-
-        let opts = self.opts.iter().map(|v| json!(v)).collect::<Vec<serde_json::Value>>();
-        let args = self.args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<IndexMap<String, serde_json::Value>>();
-
-        // TODO: Add libpath and modpath here! Must come from MinionConfig
-        match pylang::pvm::PyVm::new(get_cfg_sharelib().join(DEFAULT_MODULES_LIB_DIR), get_cfg_sharelib().join(DEFAULT_MODULES_DIR)).as_ptr().call(
-            &self.module,
-            Some(opts),
-            Some(args),
-        ) {
-            Ok(out) => match serde_json::from_str::<ActionModResponse>(&out) {
-                Ok(r) => Ok(Some(ActionResponse::new(
-                    self.eid.to_owned(),
-                    self.aid.to_owned(),
-                    self.state.to_owned(),
-                    r.clone(),
-                    self.eval_constraints(&r),
-                ))),
-                Err(e) => Err(SysinspectError::ModuleError(format!("JSON error: {e}"))),
-            },
-            Err(err) => Err(err),
-        }
+        self.run_native_module()
     }
 
     fn to_io<E: std::fmt::Display>(e: E) -> io::Error {
