@@ -96,7 +96,7 @@ The `packagekit-history` sensor is already wired to:
 
 - watch only `cowsay`
 - notice only `removed`
-- call model action `menotify/tracked-package/package-op`
+- call model query `menotify/tracked-package`
 
 The model action runs `runtime.lua-runtime` with:
 
@@ -108,10 +108,15 @@ So the full path is:
 
 1. `menotify.pkgnotify` notices that `cowsay` disappeared.
 2. The sensor emits `removed`.
-3. The `pipeline` handler passes `action: install` and `package: $.package`.
+3. The `pipeline` handler passes `action: install` and `package: $.data.package`.
 4. The demo model action receives that context and forwards it into runtime args.
 5. `runtime.lua-runtime` runs `lib/runtime/lua/packagekit.lua`.
 6. That generic Lua runtime script calls `packagekit.install({ "cowsay" })`.
+
+Query syntax note:
+
+- model queries are `<model>/[entity]/[state]`
+- `package-op` is an action id inside the model, not a query path component
 
 What to expect from PackageKit
 ------------------------------

@@ -100,13 +100,25 @@ local function snapshot_fingerprint(packages)
     return table.concat(keys, "\n")
 end
 
+--- Return a readable summary of tracked package snapshot entries.
+-- @param packages table Map of package_id to package entry.
+-- @return string Human-readable summary.
+local function snapshot_summary(packages)
+    local keys = {}
+    for package_id, item in pairs(packages) do
+        keys[#keys + 1] = string.format("%s=%s", item.name or "", package_id)
+    end
+    table.sort(keys)
+    return #keys > 0 and table.concat(keys, ", ") or "<none>"
+end
+
 --- Emit one Sysinspect event for a package add/remove transition.
 -- @param ctx table MeNotify runtime context.
 -- @param action string Either "added" or "removed".
 -- @param item table Package snapshot item.
 -- @return nil
 local function emit_entry(ctx, action, item)
-    log.info("Package", item.name, "was", action)
+    log.debug("Package", item.name, "was", action)
     ctx.emit({
         package = item.name,
         version = item.version,
@@ -137,6 +149,10 @@ return {
         local current = package_map(packagekit.packages(), tracked)
         local fingerprint = snapshot_fingerprint(current)
 
+        if #tracked > 0 then
+            log.debug("Tracked packages:", table.concat(tracked, ", "), "visible in snapshot:", snapshot_summary(current))
+        end
+
         if tostring(ctx.state.get("snapshot_fingerprint") or "") == fingerprint then
             return
         end
@@ -144,7 +160,7 @@ return {
         if not ctx.state.has("snapshot") then
             ctx.state.set("snapshot_fingerprint", fingerprint)
             ctx.state.set("snapshot", current)
-            log.info("Seeded PackageKit package snapshot")
+            log.debug("Seeded PackageKit package snapshot:", snapshot_summary(current))
             return
         end
 
