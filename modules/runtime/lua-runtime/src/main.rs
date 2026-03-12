@@ -1,4 +1,7 @@
 mod lrt;
+#[cfg(test)]
+mod lrt_ut;
+
 use crate::lrt::{LuaRuntime, LuaRuntimeError};
 use clap::Parser;
 use libmodcore::{

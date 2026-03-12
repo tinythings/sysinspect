@@ -6,11 +6,15 @@ use async_trait::async_trait;
 use colored::Colorize;
 use libmenotify::{MeNotifyEntrypoint, MeNotifyEventBuilder, MeNotifyRunner, MeNotifyRuntime};
 use std::{
+    collections::HashMap,
     fmt,
     panic::{AssertUnwindSafe, catch_unwind},
+    sync::{LazyLock, Mutex},
     time::Duration,
 };
 use tokio::task::block_in_place;
+
+static GENERATIONS: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct MeNotifySensor {
     cfg: SensorConf,
@@ -34,12 +38,16 @@ impl Sensor for MeNotifySensor {
     }
 
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
+        let generation = self.activate_generation();
         match self.runtime.load_program() {
             Ok(program) => {
+                if !self.generation_is_current(generation) {
+                    return;
+                }
                 let runner = self.runner(program);
                 match runner.entrypoint() {
-                    MeNotifyEntrypoint::Tick => self.run_tick(runner, emit),
-                    MeNotifyEntrypoint::Loop => self.run_loop(runner, emit),
+                    MeNotifyEntrypoint::Tick => self.run_tick(runner, emit, generation),
+                    MeNotifyEntrypoint::Loop => self.run_loop(runner, emit, generation),
                 }
             }
             Err(err) => self.runtime.log_bootstrap_error(&err),
@@ -48,6 +56,24 @@ impl Sensor for MeNotifySensor {
 }
 
 impl MeNotifySensor {
+    fn activate_generation(&self) -> u64 {
+        let mut generations = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+        let generation = generations.get(self.runtime.sid()).copied().unwrap_or_default() + 1;
+        generations.insert(self.runtime.sid().to_string(), generation);
+        generation
+    }
+
+    fn generation_is_current(&self, generation: u64) -> bool {
+        GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).get(self.runtime.sid()).copied().unwrap_or_default() == generation
+    }
+
+    pub fn invalidate_all() {
+        let mut generations = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+        for generation in generations.values_mut() {
+            *generation += 1;
+        }
+    }
+
     /// Returns the polling interval used for `tick(ctx)` execution.
     ///
     /// # Returns
@@ -115,9 +141,17 @@ impl MeNotifySensor {
         }
     }
 
-    fn run_loop(&self, runner: MeNotifyRunner, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
+    fn run_loop(&self, runner: MeNotifyRunner, emit: &(dyn Fn(SensorEvent) + Send + Sync), generation: u64) {
+        if !self.generation_is_current(generation) {
+            return;
+        }
         let builder = self.event_builder();
-        log::info!("[{}] '{}' running module '{}' as loop(ctx)", Self::id().bright_magenta(), self.runtime.sid(), runner.program().module_name());
+        log::info!(
+            "[{}] '{}' started '{}' with push event listener",
+            Self::id().bright_magenta(),
+            self.runtime.sid(),
+            runner.program().module_name()
+        );
         self.run_loop_once(&runner, emit, &builder);
     }
 
@@ -156,15 +190,25 @@ impl MeNotifySensor {
         }
     }
 
-    fn sleep_interval(&self, interval: Duration) {
-        block_in_place(|| std::thread::sleep(interval));
+    fn sleep_interval(&self, interval: Duration, generation: u64) -> bool {
+        let step = Duration::from_millis(100);
+        let mut left = interval;
+        while left > Duration::ZERO {
+            if !self.generation_is_current(generation) {
+                return false;
+            }
+            let nap = left.min(step);
+            block_in_place(|| std::thread::sleep(nap));
+            left = left.saturating_sub(nap);
+        }
+        self.generation_is_current(generation)
     }
 
-    fn run_tick(&self, runner: MeNotifyRunner, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
+    fn run_tick(&self, runner: MeNotifyRunner, emit: &(dyn Fn(SensorEvent) + Send + Sync), generation: u64) {
         let builder = self.event_builder();
         let interval = self.interval();
         log::info!(
-            "[{}] '{}' running module '{}' as tick(ctx) every {:?}",
+            "[{}] '{}' started '{}' with polling {:?}",
             Self::id().bright_magenta(),
             self.runtime.sid(),
             runner.program().module_name(),
@@ -172,10 +216,15 @@ impl MeNotifySensor {
         );
 
         loop {
+            if !self.generation_is_current(generation) {
+                return;
+            }
             if !self.run_tick_once(&runner, emit, &builder) {
                 return;
             }
-            self.sleep_interval(interval);
+            if !self.sleep_interval(interval, generation) {
+                return;
+            }
         }
     }
 }

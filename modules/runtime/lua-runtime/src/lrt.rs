@@ -2,6 +2,7 @@ use libmodcore::{helpers::RuntimePackageKit, rtdocschema::validate_module_doc, r
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue, Variadic};
 use serde_json::Value as JsonValue;
 use std::{
+    mem,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -85,6 +86,14 @@ impl LuaRuntime {
             // Keep it simple: don't try to serialize tables here.
             other => format!("<lua:{:?}>", other.type_name()),
         }
+    }
+
+    /// Drain buffered Lua log lines collected during the current module call.
+    ///
+    /// Returns:
+    /// * `Vec<String>` containing the buffered log lines in order.
+    fn take_logs(&self) -> Vec<String> {
+        self.logs.lock().map(|mut g| mem::take(&mut *g)).unwrap_or_default()
     }
 
     /// Set up logging functions in Lua environment
@@ -265,13 +274,13 @@ impl LuaRuntime {
             _ => return Err(mlua::Error::runtime("Lua run() must return table or JSON string").into()),
         };
 
-        // Grab buffered logs
-        let logs = if with_logs { if let Ok(g) = self.logs.lock() { g.clone() } else { Vec::new() } } else { Vec::new() };
+        // Drain buffered logs so repeated calls on the same runtime do not keep stale lines.
+        let logs = self.take_logs();
 
         // Return { data, logs }
         Ok(serde_json::json!({
             RuntimeSpec::DataSectionField.to_string(): data,
-            RuntimeSpec::LogsSectionField.to_string(): logs
+            RuntimeSpec::LogsSectionField.to_string(): if with_logs { logs } else { Vec::<String>::new() }
         }))
     }
 

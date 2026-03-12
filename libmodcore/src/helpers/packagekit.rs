@@ -11,6 +11,7 @@ const PK_DEST: &str = "org.freedesktop.PackageKit";
 const PK_PATH: &str = "/org/freedesktop/PackageKit";
 const PK_IFACE: &str = "org.freedesktop.PackageKit";
 const PK_TX_IFACE: &str = "org.freedesktop.PackageKit.Transaction";
+const PK_FILTER_INSTALLED: u64 = 1 << 2;
 
 /// Shared PackageKit helper API for runtime hosts.
 pub struct RuntimePackageKit;
@@ -155,15 +156,16 @@ impl RuntimePackageKit {
         let mut signals = tx.receive_all_signals().map_err(Self::dbus_err)?;
         let mut packages = Vec::new();
 
-        tx.call::<_, _, ()>("GetPackages", &(0u64,)).map_err(Self::dbus_err)?;
+        tx.call::<_, _, ()>("GetPackages", &(PK_FILTER_INSTALLED,)).map_err(Self::dbus_err)?;
 
         for msg in &mut signals {
             match msg.header().member().map(|m| m.as_str()) {
                 Some("Package") => {
                     let (info, package_id, summary) = msg.body().deserialize::<(u32, String, String)>().map_err(Self::dbus_err)?;
-                    if let Some(pkg) = PackageKitPackage::from_signal(info, &package_id, &summary) {
-                        packages.push(pkg);
-                    }
+                    packages.push(
+                        PackageKitPackage::from_signal(info, &package_id, &summary)
+                            .ok_or_else(|| SysinspectError::ModuleError(format!("PackageKit returned malformed package id '{package_id}'")))?,
+                    );
                 }
                 Some("ErrorCode") => {
                     let (code, details) = msg.body().deserialize::<(u32, String)>().map_err(Self::dbus_err)?;
@@ -349,14 +351,6 @@ impl PackageKitPackage {
         let arch = fields.next()?.to_string();
         let data = fields.next()?.to_string();
 
-        data.starts_with("installed").then(|| Self {
-            info,
-            package_id: package_id.to_string(),
-            name,
-            version,
-            arch,
-            data,
-            summary: summary.to_string(),
-        })
+        Some(Self { info, package_id: package_id.to_string(), name, version, arch, data, summary: summary.to_string() })
     }
 }
