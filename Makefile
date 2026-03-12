@@ -168,10 +168,10 @@ clean:
 	cargo clean
 
 check:
-	cargo clippy --no-deps --all -- -Dwarnings -Aunused-variables -Adead-code
+	cargo clippy --no-deps --workspace $(PLATFORM_WORKSPACE_EXCLUDES) -- -Dwarnings -Aunused-variables -Adead-code
 
 fix:
-	cargo clippy --fix --allow-dirty --allow-staged --all
+	cargo clippy --fix --allow-dirty --allow-staged --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 
 musl-aarch64-dev:
 	$(call check_present,aarch64-linux-musl-gcc)
@@ -228,6 +228,7 @@ modules:
 	$(call move_bin,release,)
 
 modules-dist-devel:
+	$(call prep_layout,release,)
 	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_modules_dist)
 
