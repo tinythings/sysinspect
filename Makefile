@@ -3,13 +3,22 @@
 ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
 ARC_NAME := sysinspect-${ARC_VERSION}
 PACK_LAYOUT_DIRS := sys net fs runtime cfg
+UNAME_S := $(shell uname -s)
 PKG_SPEC_FROM_TOML = $(shell awk 'BEGIN{name=""; version=""} /^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } /^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } END { if (name != "" && version != "") printf "%s@%s", name, version }' $(1))
-MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
+ALL_MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
 	awk 'BEGIN{name=""; version=""} \
 		/^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } \
 		/^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } \
 		END { if (name != "" && version != "") printf "%s@%s ", name, version }' "$$f"; \
 done)
+PY3_RUNTIME_SPEC := $(call PKG_SPEC_FROM_TOML,modules/runtime/py3-runtime/Cargo.toml)
+ifeq ($(UNAME_S),NetBSD)
+MODULE_PACKAGE_SPECS := $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
+PLATFORM_WORKSPACE_EXCLUDES := --exclude $(PY3_RUNTIME_SPEC)
+else
+MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
+PLATFORM_WORKSPACE_EXCLUDES :=
+endif
 SENSOR_PACKAGE_SPECS := $(foreach f,libsensors/Cargo.toml libmenotify/Cargo.toml,$(call PKG_SPEC_FROM_TOML,$(f)))
 CORE_PACKAGE_SPECS := $(strip \
 	$(call PKG_SPEC_FROM_TOML,Cargo.toml) \
@@ -41,7 +50,7 @@ INTEGRATION_TEST_TARGETS := $(shell find . -path '*/tests/*.rs' | sort | while r
 	fi; \
 done)
 INTEGRATION_TEST_TARGETS += -p $(call PKG_SPEC_FROM_TOML,libmenotify/Cargo.toml) --test githubissues_demo_it
-CORE_EXCLUDES := $(foreach pkg,$(MODULE_PACKAGE_SPECS),--exclude $(pkg))
+CORE_EXCLUDES := $(foreach pkg,$(ALL_MODULE_PACKAGE_SPECS),--exclude $(pkg))
 TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
 TEST_RUN_THREADS ?= 3
 
@@ -167,35 +176,35 @@ fix:
 musl-aarch64-dev:
 	$(call check_present,aarch64-linux-musl-gcc)
 	$(call prep_layout,debug,aarch64-unknown-linux-musl)
-	cargo build -v --workspace --target aarch64-unknown-linux-musl
+	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call move_bin,debug,aarch64-unknown-linux-musl)
 
 musl-aarch64:
 	$(call check_present,aarch64-linux-musl-gcc)
 	$(call prep_layout,release,aarch64-unknown-linux-musl)
-	cargo build --release --workspace --target aarch64-unknown-linux-musl
+	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call move_bin,release,aarch64-unknown-linux-musl)
 
 musl-x86_64-dev:
 	$(call check_present,x86_64-linux-musl-gcc)
 	$(call prep_layout,debug,x86_64-unknown-linux-musl)
-	cargo build -v --workspace --target x86_64-unknown-linux-musl
+	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call move_bin,debug,x86_64-unknown-linux-musl)
 
 musl-x86_64:
 	$(call check_present,x86_64-linux-musl-gcc)
 	$(call prep_layout,release,x86_64-unknown-linux-musl)
-	cargo build --release --workspace --target x86_64-unknown-linux-musl
+	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call move_bin,release,x86_64-unknown-linux-musl)
 
 all-devel:
 	$(call prep_layout,debug,)
-	cargo build -v --workspace
+	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call move_bin,debug,)
 
 all:
 	$(call prep_layout,release,)
-	cargo build --release --workspace
+	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call move_bin,release,)
 
 devel:
@@ -232,7 +241,7 @@ man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
 
 test: setup
-	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace --test-threads $(TEST_RUN_THREADS)
+	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
 
 test-core: setup
 	CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
