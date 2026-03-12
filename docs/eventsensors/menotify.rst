@@ -146,6 +146,7 @@ Global Lua helpers:
 - ``packagekit.available()``
 - ``packagekit.status()``
 - ``packagekit.history(names, count?)``
+- ``packagekit.packages()``
 
 ``packagekit.*``
 ^^^^^^^^^^^^^^^^
@@ -179,6 +180,11 @@ Global Lua helpers:
         Returns PackageKit package history converted to JSON-compatible Lua
         tables. This is meant for polling scripts that want to detect package
         installs, removals, upgrades, or other recent transactions.
+
+    ``packagekit.packages()``
+        Returns the current installed-package snapshot known to PackageKit.
+        This is useful for scripts that want to diff installed packages across
+        polling cycles and emit add/remove events.
 
 Event Shape
 -----------

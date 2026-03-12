@@ -158,6 +158,7 @@ impl<'a> MeNotifyHost<'a> {
     {
         let pktbl = lua.create_table()?;
         pktbl.set("available", self.packagekit_available_fn(lua, scope)?)?;
+        pktbl.set("packages", self.packagekit_packages_fn(lua, scope)?)?;
         pktbl.set("status", self.packagekit_status_fn(lua, scope)?)?;
         pktbl.set("history", self.packagekit_history_fn(lua, scope)?)?;
         Ok(pktbl)
@@ -177,6 +178,17 @@ impl<'a> MeNotifyHost<'a> {
         Ok(scope.create_function(move |lua, ()| {
             MeNotifyPackageKit::status()
                 .and_then(|status| lua.to_value(&status).map_err(MeNotifyError::from))
+                .map_err(|err| mlua::Error::runtime(err.to_string()))
+        })?)
+    }
+
+    fn packagekit_packages_fn<'lua>(self, _lua: &'lua Lua, scope: &'lua Scope<'lua, '_>) -> Result<mlua::Function, MeNotifyError>
+    where
+        'a: 'lua,
+    {
+        Ok(scope.create_function(move |lua, ()| {
+            MeNotifyPackageKit::packages()
+                .and_then(|packages| lua.to_value(&packages).map_err(MeNotifyError::from))
                 .map_err(|err| mlua::Error::runtime(err.to_string()))
         })?)
     }
