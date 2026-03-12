@@ -10,7 +10,8 @@ This demo ships two real `menotify` Lua sensors:
   per newly opened issue. The first poll only seeds the local cursor and emits
   nothing.
 - `pkgnotify` polls the installed-package snapshot through PackageKit and emits
-  one event when a watched package is added or removed.
+  one event when watched packages disappear. In this demo it watches `cowsay`
+  and immediately triggers a model action that installs `cowsay` back.
 
 What this demo contains
 -----------------------
@@ -18,11 +19,13 @@ What this demo contains
 - `sensors.cfg`
   Sensor definition and event handlers.
 - `model.cfg`
-  Minimal placeholder model to keep the demo layout consistent.
+  Self-heal model that reinstalls `cowsay` through Lua runtime.
 - `lib/sensors/lua/githubissues.lua`
   GitHub issues polling sensor.
 - `lib/sensors/lua/pkgnotify.lua`
-  PackageKit history polling sensor.
+  PackageKit installed-package snapshot polling sensor.
+- `lib/runtime/lua54/reinstall-cowsay.lua`
+  Lua runtime action that installs `cowsay` through PackageKit.
 
 Master
 ------
@@ -40,6 +43,7 @@ Master
 
    - `lib/sensors/lua/githubissues.lua`
    - `lib/sensors/lua/pkgnotify.lua`
+   - `lib/runtime/lua54/reinstall-cowsay.lua`
 
 3. Edit master config so this sensor scope is exported:
 
@@ -78,30 +82,27 @@ Optional args already supported by the script:
 - `token`
 - `api`
 
-Configure PackageKit polling
-----------------------------
+Configure PackageKit self-heal
+------------------------------
 
-Edit `sensors.cfg` and set the package tracking rules for `packagekit-history`:
+The `packagekit-history` sensor is already wired to:
 
-- `opts`
-- `track`
+- watch only `cowsay`
+- notice only `removed`
+- call model action `menotify/cowsay-package/reinstall-cowsay`
 
-Example:
+The model action runs `runtime.lua-runtime` with:
 
-```yaml
-packagekit-history:
-  listener: menotify.pkgnotify
-  opts:
-    - added
-    - removed
-  args:
-    track:
-      - bash
-      - openssl
-```
+- `rt.mod: reinstall-cowsay`
+- `package: cowsay`
 
-If `args.track` is omitted, the sensor watches any installed package change it
-can observe through the current PackageKit package snapshot.
+So the full path is:
+
+1. `menotify.pkgnotify` notices that `cowsay` disappeared.
+2. The sensor emits `removed`.
+3. The `pipeline` handler calls the demo model action.
+4. `runtime.lua-runtime` runs `lib/runtime/lua54/reinstall-cowsay.lua`.
+5. That Lua runtime script calls `packagekit.install({ "cowsay" })`.
 
 What to expect from PackageKit
 ------------------------------
@@ -109,20 +110,21 @@ What to expect from PackageKit
 1. Start the minion on a Linux system with PackageKit available.
 2. Wait for the first polling cycle.
 3. The first poll seeds the local PackageKit snapshot and emits nothing.
-4. Install a watched package.
+4. Remove `cowsay`.
 5. On the next poll, the Lua sensor logs:
 
-      `Package <name> was added`
+      `Package cowsay was removed`
 
-6. Remove the same package.
-7. On the next poll, the Lua sensor logs:
+6. The sensor emits a normal Sysinspect event with action:
 
-      `Package <name> was removed`
+    - `removed`
 
-8. The sensor also emits normal Sysinspect events with action:
+7. The `pipeline` handler invokes the demo model action.
+8. The Lua runtime remediation script logs:
 
-- `added`
-- `removed`
+      `Reinstalling package cowsay through PackageKit`
+
+9. PackageKit installs `cowsay` back.
 
 What to expect
 --------------
@@ -145,5 +147,5 @@ Notes
 - This example is intentionally public-repo friendly and does not require a
   token.
 - If you do pass `token` in `args`, the script sends it as a bearer token.
-- The PackageKit demo is Linux-only by design and simply does nothing if
-  PackageKit is unavailable.
+- The PackageKit self-heal demo is Linux-only by design and simply does nothing
+  if PackageKit is unavailable.
