@@ -9211,6 +9211,7 @@ dependencies = [
 [[package]]
 name = "wasmruntime"
 version = "0.1.0"
+source = "git+https://github.com/isbm/wasmruntime.git?branch=master#6e3d33af67ebef213973bda520c1df56a2c0190e"
 dependencies = [
  "anyhow",
  "chrono",
