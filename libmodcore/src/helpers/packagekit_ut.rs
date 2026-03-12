@@ -31,3 +31,13 @@ fn available_package_id_parser_accepts_non_installed_entries() {
 fn available_package_id_parser_rejects_installed_entries() {
     assert!(!RuntimePackageKit::is_available_package_id("cowsay;1.0;noarch;installed:fedora"));
 }
+
+#[test]
+fn installed_package_id_parser_accepts_installed_entries() {
+    assert!(RuntimePackageKit::is_installed_package_id("cowsay;1.0;noarch;installed:fedora"));
+}
+
+#[test]
+fn installed_package_id_parser_rejects_available_entries() {
+    assert!(!RuntimePackageKit::is_installed_package_id("cowsay;1.0;noarch;fedora"));
+}

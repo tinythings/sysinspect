@@ -170,7 +170,11 @@ return {
         r#"
 return {
     run = function(_req)
-        return { available = packagekit.available() }
+        return {
+            available = packagekit.available(),
+            remove = type(packagekit.remove),
+            upgrade = type(packagekit.upgrade)
+        }
     end
 }
 "#,
@@ -267,6 +271,8 @@ fn test_lua_runtime_exposes_packagekit_helper() {
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
     assert!(out["data"]["data"]["available"].is_boolean());
+    assert_eq!(out["data"]["data"]["remove"], json!("function"));
+    assert_eq!(out["data"]["data"]["upgrade"], json!("function"));
 }
 
 #[test]
