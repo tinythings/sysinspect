@@ -154,6 +154,28 @@ mod rtpackagekit {
         serde_json::to_string(&RuntimePackageKit::install(names).map_err(|err| vm.new_runtime_error(err.to_string()))?)
             .map_err(|err| vm.new_runtime_error(err.to_string()))
     }
+
+    /// Remove packages through PackageKit and return JSON text.
+    /// # Arguments
+    /// * `names` - Package names to remove.
+    /// # Returns
+    /// * `PyResult<String>` - JSON result encoded as string.
+    #[pyfunction]
+    fn remove(names: Vec<String>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::remove(names).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Upgrade packages through PackageKit and return JSON text.
+    /// # Arguments
+    /// * `names` - Package names to upgrade.
+    /// # Returns
+    /// * `PyResult<String>` - JSON result encoded as string.
+    #[pyfunction]
+    fn upgrade(names: Vec<String>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::upgrade(names).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -385,6 +407,12 @@ class _SysinspectPackageKit:
 
     def install(self, names):
         return _sysinspect_json.loads(_sysinspect_rtpackagekit.install(names))
+
+    def remove(self, names):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.remove(names))
+
+    def upgrade(self, names):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.upgrade(names))
 
 packagekit = _SysinspectPackageKit()
 "#;

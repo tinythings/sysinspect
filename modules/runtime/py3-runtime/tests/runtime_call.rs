@@ -156,7 +156,9 @@ def run(req):
         r#"
 def run(req):
     return {
-        "available": packagekit.available()
+        "available": packagekit.available(),
+        "remove": callable(packagekit.remove),
+        "upgrade": callable(packagekit.upgrade)
     }
 "#,
     ) {
@@ -411,4 +413,6 @@ fn test_python_runtime_exposes_packagekit_helper() {
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
     assert!(out["data"]["data"]["available"].is_boolean());
+    assert_eq!(out["data"]["data"]["remove"], json!(true));
+    assert_eq!(out["data"]["data"]["upgrade"], json!(true));
 }
