@@ -8,9 +8,6 @@ options:
 #  - name: rt.list
 #    description: "List of available Wasm scripts, ready to be called as modules."
 #
-#  - name: rt.logs
-#    description: "Enable logging from Wasm scripts to SysInspect logs."
-#
 #  - name: rt.sandbox
 #    description: "Run Wasm binaries in sandboxed environment."
 
@@ -65,8 +62,23 @@ manpage: |
   arguments to the Wasm binary, which will be available as global
   variables within the binary.
 
+  Wasm guest modules may emit runtime logs through the low-level
+  [W::b]api.log(level, msg_ptr, msg_len)[N] host import. The runtime
+  collects these guest log entries and remaps the resulting
+  [W::b]__module-logs[N] payload field into the standard
+  [W::b]__sysinspect-module-logs[N] field so SysInspect observes Wasm
+  runtime logs in the same response location as Lua and Python runtime
+  logs.
+
+  Guest modules may return a ``__module-logs`` array in their JSON payload.
+  The runtime remaps it to the standard ``__sysinspect-module-logs`` field so
+  SysInspect observes Wasm module logs the same way it observes Lua and Python
+  runtime logs. Unlike Lua and Python, the Wasm runtime does not inject a
+  high-level ``log`` namespace into the guest language; guest code uses the
+  lower-level ``api.log(...)`` import or a language-specific wrapper built on
+  top of it.
+
   Important to keep the following directory structure for your
   Wasm binaries and their dependencies. The [W::b]main Wasm binaries[N]
   (modules) for this runtime must be installed in the following directory:
   [y::]${SYSINSPECT_SHARELIB_ROOT}[Y::]/lib/runtime/wasm/[N]
-
