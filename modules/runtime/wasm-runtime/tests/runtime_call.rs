@@ -114,6 +114,22 @@ panic = "abort"
 strip = true
 "#;
 
+static PKGAVAIL_CARGO_TOML: &str = r#"
+[package]
+name = "pkgavail"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+"#;
+
 static CALLER_MAIN_RS: &str = r##"
 use std::io::{self, Read};
 
@@ -201,6 +217,48 @@ fn main() {
         }
         Err(err) => println!("{{\"error\":\"{}\"}}", json_escape(&err)),
     }
+}
+"##;
+
+static PKGAVAIL_MAIN_RS: &str = r##"
+use std::io::{self, Read};
+
+#[link(wasm_import_module = "api")]
+unsafe extern "C" {
+    #[link_name = "packagekit_available"]
+    fn host_packagekit_available() -> i32;
+}
+
+fn has_opt(src: &str, want: &str) -> bool {
+    src.contains(&format!("\"{want}\""))
+}
+
+fn read_header() -> Result<String, String> {
+    let mut buf = String::new();
+    io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read: {err}"))?;
+    Ok(buf.lines().next().unwrap_or_default().to_string())
+}
+
+fn doc() -> &'static str {
+    r#"{"name":"pkgavail","version":"0.1.0","author":"Sysinspect","description":"Returns whether PackageKit helper is available in the host API.","arguments":[],"options":[],"returns":{"description":"Boolean PackageKit helper availability","sample":{"available":true}}}"#
+}
+
+fn main() {
+    let hdr = match read_header() {
+        Ok(hdr) => hdr,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    if has_opt(&hdr, "man") {
+        println!("{}", doc());
+        return;
+    }
+
+    let available = unsafe { host_packagekit_available() } != 0;
+    println!("{{\"available\":{}}}", if available { "true" } else { "false" });
 }
 "##;
 
@@ -298,7 +356,10 @@ fn install_test_modules(root: &Path) -> Vec<String> {
     let caller_src = stage_rust_example("caller", &[("Cargo.toml", CALLER_CARGO_TOML), ("src/main.rs", CALLER_MAIN_RS)]);
     let caller = build_rust_example(caller_src.path(), "caller.wasm", "caller");
     install_module(root, &caller, "caller.wasm");
-    let mut modules = vec!["caller".to_string(), "hellodude".to_string()];
+    let pkgavail_src = stage_rust_example("pkgavail", &[("Cargo.toml", PKGAVAIL_CARGO_TOML), ("src/main.rs", PKGAVAIL_MAIN_RS)]);
+    let pkgavail = build_rust_example(pkgavail_src.path(), "pkgavail.wasm", "pkgavail");
+    install_module(root, &pkgavail, "pkgavail.wasm");
+    let mut modules = vec!["caller".to_string(), "hellodude".to_string(), "pkgavail".to_string()];
     if let Some(rs_reader) = prebuilt_rs_reader() {
         install_module(root, &rs_reader, "rs-reader.wasm");
         modules.push("rs-reader".to_string());
@@ -369,6 +430,22 @@ fn test_wasm_runtime_honours_guest_options() {
     assert_eq!(out.get("retcode"), Some(&json!(0)));
     assert!(out.pointer("/data/VERSION").and_then(|v| v.as_str()).is_some());
     assert_eq!(out.pointer("/data/output"), None);
+}
+
+#[test]
+fn test_wasm_runtime_exposes_packagekit_helper() {
+    let root = mk_tmp_runtime_root();
+    install_test_modules(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "pkgavail" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert!(out.pointer("/data/available").is_some());
+    assert!(out.pointer("/data/available").and_then(|v| v.as_bool()).is_some());
 }
 
 #[test]
