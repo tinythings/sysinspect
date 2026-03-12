@@ -1,3 +1,4 @@
+use super::packagekit::PackageKitPackage;
 use crate::{MeNotifyContext, MeNotifyEventBuilder, MeNotifyProgram, MeNotifyRunner, MeNotifyRuntime};
 use std::{fs, sync::Mutex, time::Duration};
 
@@ -38,4 +39,25 @@ return {
 
     let events = out.lock().expect("lock should work");
     assert!(events[0]["data"]["available"].is_boolean());
+}
+
+#[test]
+fn installed_package_parser_rejects_non_installed_entries() {
+    assert!(PackageKitPackage::from_signal(1, "cowsay;1.0;noarch;fedora", "Cowsay").is_none());
+}
+
+#[test]
+fn installed_package_parser_accepts_installed_entries() {
+    assert_eq!(
+        PackageKitPackage::from_signal(1, "cowsay;1.0;noarch;installed:fedora", "Cowsay").expect("installed package should parse"),
+        PackageKitPackage {
+            info: 1,
+            package_id: "cowsay;1.0;noarch;installed:fedora".to_string(),
+            name: "cowsay".to_string(),
+            version: "1.0".to_string(),
+            arch: "noarch".to_string(),
+            data: "installed:fedora".to_string(),
+            summary: "Cowsay".to_string(),
+        }
+    );
 }
