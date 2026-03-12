@@ -476,6 +476,8 @@ fn test_wasm_runtime_returns_forwarded_logs() {
     assert!(out.pointer("/data/output").and_then(|v| v.as_str()).unwrap_or_default().contains("Linux"));
     let logs = out.pointer("/data/__sysinspect-module-logs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     assert!(!logs.is_empty());
+    assert!(logs.iter().any(|v| v.as_str().unwrap_or_default().contains("INFO")));
+    assert!(logs.iter().any(|v| v.as_str().unwrap_or_default().contains("Called: \"uname -a\"")));
 }
 
 #[test]
