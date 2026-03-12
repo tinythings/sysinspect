@@ -9,8 +9,8 @@ This demo ships two real `menotify` Lua sensors:
 - `githubissues` polls issues on a public GitHub repository and emits one event
   per newly opened issue. The first poll only seeds the local cursor and emits
   nothing.
-- `pkgnotify` polls PackageKit history and emits one event per newly seen
-  package install or removal for the configured package list.
+- `pkgnotify` polls the installed-package snapshot through PackageKit and emits
+  one event when a watched package is added or removed.
 
 What this demo contains
 -----------------------
@@ -77,29 +77,31 @@ Optional args already supported by the script:
 - `user_agent`
 - `token`
 - `api`
-- `bootstrap_emit_existing`
 
 Configure PackageKit polling
 ----------------------------
 
-Edit `sensors.cfg` and set the package list for `packagekit-history`:
+Edit `sensors.cfg` and set the package tracking rules for `packagekit-history`:
 
-- `packages`
-- `history_count`
-- `bootstrap_emit_existing`
+- `opts`
+- `track`
 
 Example:
 
 ```yaml
 packagekit-history:
   listener: menotify.pkgnotify
+  opts:
+    - added
+    - removed
   args:
-    packages:
+    track:
       - bash
       - openssl
-    history_count: 20
-    bootstrap_emit_existing: false
 ```
+
+If `args.track` is omitted, the sensor watches any installed package change it
+can observe through the current PackageKit package snapshot.
 
 What to expect from PackageKit
 ------------------------------
@@ -110,7 +112,7 @@ What to expect from PackageKit
 4. Install a watched package.
 5. On the next poll, the Lua sensor logs:
 
-      `Package <name> was installed`
+      `Package <name> was added`
 
 6. Remove the same package.
 7. On the next poll, the Lua sensor logs:
@@ -119,7 +121,7 @@ What to expect from PackageKit
 
 8. The sensor also emits normal Sysinspect events with action:
 
-- `installed`
+- `added`
 - `removed`
 
 What to expect

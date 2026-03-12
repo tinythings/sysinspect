@@ -5,29 +5,17 @@ local function is_array(v)
     return type(v) == "table" and rawget(v, 1) ~= nil
 end
 
---- Convert a Lua value to a number with a fallback.
--- @param v any Raw Lua value.
--- @param default number Fallback value when conversion fails.
--- @return number Converted number or the fallback.
-local function as_number(v, default)
-    local n = tonumber(v)
-    if n == nil then
-        return default
-    end
-    return n
-end
-
---- Return the configured package list.
+--- Return the configured track list.
 -- @param ctx table MeNotify runtime context.
--- @return table Array of package names.
-local function configured_packages(ctx)
-    if type(ctx.args.packages) == "string" and ctx.args.packages ~= "" then
-        return { ctx.args.packages }
+-- @return table Array of package names to track.
+local function tracked_packages(ctx)
+    if type(ctx.args.track) == "string" and ctx.args.track ~= "" then
+        return { tostring(ctx.args.track) }
     end
 
-    if is_array(ctx.args.packages) then
+    if is_array(ctx.args.track) then
         local out = {}
-        for _, name in ipairs(ctx.args.packages) do
+        for _, name in ipairs(ctx.args.track) do
             if tostring(name) ~= "" then
                 out[#out + 1] = tostring(name)
             end
@@ -38,180 +26,147 @@ local function configured_packages(ctx)
     return {}
 end
 
---- Map PackageKit info enum value to a Sysinspect-friendly action.
--- Enum ordering is taken from PackageKit `PkInfoEnum` in `pk-enum.h`.
--- @param info number PackageKit `info` enum value.
--- @return string|nil Normalized action or nil when the entry is not interesting.
-local function action_from_info(info)
-    local actions = {
-        [1] = "installed",
-        [12] = "installed",
-        [13] = "removed",
-        [19] = "installed",
-    }
+--- Return the enabled actions selected in `opts`.
+-- @param ctx table MeNotify runtime context.
+-- @return table Set-like table keyed by action name.
+local function enabled_actions(ctx)
+    local out = { added = true, removed = true }
 
-    return actions[as_number(info, 0)]
-end
-
---- Build a compact unique key for a normalized history entry.
--- @param pkg string Package name.
--- @param action string Normalized action.
--- @param item table PackageKit history item.
--- @return string Compact event identity key.
-local function entry_key(pkg, action, item)
-    return table.concat({
-        pkg,
-        action,
-        tostring(item.version or ""),
-        tostring(item.source or ""),
-        tostring(item.timestamp or 0),
-        tostring(item["user-id"] or 0),
-        tostring(item.info or 0),
-    }, "|")
-end
-
---- Normalize raw PackageKit history into event candidates.
--- @param history table Raw `packagekit.history(...)` result.
--- @param packages table Configured package names.
--- @return table Array of normalized event candidates.
-local function normalize_history(history, packages)
-    local out = {}
-
-    for _, pkg in ipairs(packages) do
-        local rows = type(history) == "table" and history[pkg] or nil
-        if is_array(rows) then
-            for _, item in ipairs(rows) do
-                local action = type(item) == "table" and action_from_info(item.info) or nil
-                if action ~= nil then
-                    out[#out + 1] = {
-                        package = pkg,
-                        action = action,
-                        version = item.version or "",
-                        source = item.source or "",
-                        timestamp = as_number(item.timestamp, 0),
-                        user_id = as_number(item["user-id"], 0),
-                        info = as_number(item.info, 0),
-                        key = entry_key(pkg, action, item),
-                    }
-                end
-            end
-        end
+    if not is_array(ctx.opts) or #ctx.opts == 0 then
+        return out
     end
 
-    table.sort(out, function(a, b)
-        if a.timestamp ~= b.timestamp then
-            return a.timestamp < b.timestamp
+    out = {}
+    for _, opt in ipairs(ctx.opts) do
+        if tostring(opt) == "added" or tostring(opt) == "removed" then
+            out[tostring(opt)] = true
         end
-        return a.key < b.key
-    end)
+    end
 
     return out
 end
 
---- Return a cheap fingerprint for the current normalized history slice.
--- @param entries table Array of normalized history entries.
--- @return string Stable concatenated fingerprint.
-local function history_fingerprint(entries)
-    local keys = {}
-    for _, item in ipairs(entries) do
-        keys[#keys + 1] = item.key
+--- Return true when the package matches the configured tracking rules.
+-- @param item table Package snapshot item.
+-- @param tracked table Array of tracked package names.
+-- @return boolean True when the package should be considered.
+local function is_tracked(item, tracked)
+    if #tracked == 0 then
+        return true
     end
+
+    for _, name in ipairs(tracked) do
+        if item.name == name then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Build a map of relevant installed packages keyed by package id.
+-- @param snapshot table Raw `packagekit.packages()` result.
+-- @param tracked table Array of tracked package names.
+-- @return table Map of package_id to package snapshot entry.
+local function package_map(snapshot, tracked)
+    local out = {}
+
+    for _, item in ipairs(snapshot or {}) do
+        if type(item) == "table" and type(item.package_id) == "string" and is_tracked(item, tracked) then
+            out[item.package_id] = {
+                package_id = item.package_id,
+                name = item.name or "",
+                version = item.version or "",
+                arch = item.arch or "",
+                data = item.data or "",
+                summary = item.summary or "",
+                info = item.info or 0,
+            }
+        end
+    end
+
+    return out
+end
+
+--- Return a stable fingerprint for the current package snapshot.
+-- @param packages table Map of package_id to package entry.
+-- @return string Stable concatenated fingerprint.
+local function snapshot_fingerprint(packages)
+    local keys = {}
+    for package_id, _ in pairs(packages) do
+        keys[#keys + 1] = package_id
+    end
+    table.sort(keys)
     return table.concat(keys, "\n")
 end
 
---- Return a set-like table from an array of keys.
--- @param keys table|nil Array of string keys from VM-local state.
--- @return table Set-like table of existing keys.
-local function keyset(keys)
-    local out = {}
-    if is_array(keys) then
-        for _, key in ipairs(keys) do
-            out[tostring(key)] = true
-        end
-    end
-    return out
-end
-
---- Return only the entry keys from normalized history.
--- @param entries table Array of normalized history entries.
--- @return table Array of string keys.
-local function snapshot_keys(entries)
-    local out = {}
-    for _, item in ipairs(entries) do
-        out[#out + 1] = item.key
-    end
-    return out
-end
-
---- Emit one Sysinspect event for a normalized package history entry.
+--- Emit one Sysinspect event for a package add/remove transition.
 -- @param ctx table MeNotify runtime context.
--- @param item table Normalized history entry.
+-- @param action string Either "added" or "removed".
+-- @param item table Package snapshot item.
 -- @return nil
-local function emit_entry(ctx, item)
-    log.info("Package", item.package, "was", item.action)
+local function emit_entry(ctx, action, item)
+    log.info("Package", item.name, "was", action)
     ctx.emit({
-        package = item.package,
+        package = item.name,
         version = item.version,
-        source = item.source,
-        timestamp = item.timestamp,
-        user_id = item.user_id,
+        arch = item.arch,
+        source = item.data,
+        summary = item.summary,
+        package_id = item.package_id,
         info = item.info,
     }, {
-        action = item.action,
-        key = item.key,
+        action = action,
+        key = item.package_id,
     })
 end
 
 return {
-    --- Poll PackageKit package history and emit install/remove/update events.
-    -- The first successful poll seeds the local snapshot and emits nothing
-    -- unless `bootstrap_emit_existing` is true.
+    --- Poll installed packages through PackageKit and emit add/remove events.
+    -- The first successful poll seeds the local snapshot and emits nothing.
     -- @param ctx table MeNotify runtime context.
     -- @return nil
     tick = function(ctx)
-        local packages = configured_packages(ctx)
-        if #packages == 0 then
-            log.error("pkgnotify requires args.packages")
-            return
-        end
-
         if not packagekit.available() then
             log.warn("PackageKit is not available on this system")
             return
         end
 
-        local entries = normalize_history(packagekit.history(packages, as_number(ctx.args.history_count, 20)), packages)
-        local fingerprint = history_fingerprint(entries)
-        local previous_fingerprint = tostring(ctx.state.get("history_fingerprint") or "")
+        local tracked = tracked_packages(ctx)
+        local actions = enabled_actions(ctx)
+        local current = package_map(packagekit.packages(), tracked)
+        local fingerprint = snapshot_fingerprint(current)
 
-        if previous_fingerprint == fingerprint then
+        if tostring(ctx.state.get("snapshot_fingerprint") or "") == fingerprint then
             return
         end
 
-        local keys = snapshot_keys(entries)
-        local seeded = ctx.state.has("history_keys")
-        local seen = keyset(ctx.state.get("history_keys"))
+        if not ctx.state.has("snapshot") then
+            ctx.state.set("snapshot_fingerprint", fingerprint)
+            ctx.state.set("snapshot", current)
+            log.info("Seeded PackageKit package snapshot")
+            return
+        end
 
-        if not seeded then
-            ctx.state.set("history_fingerprint", fingerprint)
-            ctx.state.set("history_keys", keys)
-            log.info("Seeded PackageKit history snapshot for", table.concat(packages, ", "))
+        local previous = ctx.state.get("snapshot") or {}
 
-            if ctx.args.bootstrap_emit_existing then
-                for _, item in ipairs(entries) do
-                    emit_entry(ctx, item)
+        if actions.added then
+            for package_id, item in pairs(current) do
+                if previous[package_id] == nil then
+                    emit_entry(ctx, "added", item)
                 end
             end
-            return
         end
 
-        for _, item in ipairs(entries) do
-            if not seen[item.key] then
-                emit_entry(ctx, item)
+        if actions.removed then
+            for package_id, item in pairs(previous) do
+                if current[package_id] == nil then
+                    emit_entry(ctx, "removed", item)
+                end
             end
         end
 
-        ctx.state.set("history_fingerprint", fingerprint)
-        ctx.state.set("history_keys", keys)
+        ctx.state.set("snapshot_fingerprint", fingerprint)
+        ctx.state.set("snapshot", current)
     end
 }

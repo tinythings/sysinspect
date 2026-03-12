@@ -146,6 +146,7 @@ Global helpers:
 - ``packagekit.available()``
 - ``packagekit.status()``
 - ``packagekit.history(names, count?)``
+- ``packagekit.packages()``
 
 Important rule:
 
