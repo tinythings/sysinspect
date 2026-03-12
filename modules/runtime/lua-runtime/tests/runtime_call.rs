@@ -14,7 +14,7 @@ fn mk_tmp_runtime_root() -> TempDir {
 }
 
 fn write_test_module(root: &std::path::Path) {
-    let moddir = root.join("lib/runtime/lua54");
+    let moddir = root.join("lib/runtime/lua");
     let pkgdir = moddir.join("site-lua/mathx");
     if let Err(err) = fs::create_dir_all(&pkgdir) {
         panic!("failed to create test runtime tree: {err}");

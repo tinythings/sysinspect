@@ -37,13 +37,13 @@ under ``${SYSINSPECT_SHARELIB_ROOT}``:
 
    Install entry-point scripts into::
 
-      lib/runtime/lua54/
+      lib/runtime/lua/
 
 2. **Dependency libraries**
 
    Install Lua libraries required by your scripts into::
 
-      lib/runtime/lua54/site-lua/
+      lib/runtime/lua/site-lua/
 
 This separation keeps your callable modules easy to list and prevents helper libraries from being treated
 as top-level SysInspect modules.
@@ -77,4 +77,3 @@ Practical notes
 * Keep argument names unambiguous, since they become globals in the script.
 * Prefer passing strings and parsing them in Lua when you need structured values.
 * Use ``rt.logs`` while developing scripts, then disable it if you want quieter operation.
-

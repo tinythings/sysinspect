@@ -38,7 +38,7 @@ impl LuaRuntime {
         let lua = Lua::new();
 
         // Runtime configuration
-        let lib_dir = sharelib_root.join("lib/runtime/lua54/site-lua");
+        let lib_dir = sharelib_root.join("lib/runtime/lua/site-lua");
         let globals = lua.globals();
         let package: mlua::Table = globals.get("package")?;
 
@@ -48,7 +48,7 @@ impl LuaRuntime {
         }
 
         let mut path = String::new();
-        path.push_str(&LuaRuntime::path_fragment(&sharelib_root.join("lib/runtime/lua54")));
+        path.push_str(&LuaRuntime::path_fragment(&sharelib_root.join("lib/runtime/lua")));
         path.push(';');
         path.push_str(&LuaRuntime::path_fragment(&lib_dir));
 
@@ -56,7 +56,7 @@ impl LuaRuntime {
 
         let rt = Self {
             lua,
-            scripts_dir: sharelib_root.join("lib/runtime/lua54"),
+            scripts_dir: sharelib_root.join("lib/runtime/lua"),
             logs: Arc::new(Mutex::new(Vec::new())),
             modulename: Arc::new(Mutex::new("Lua module".into())),
         };
