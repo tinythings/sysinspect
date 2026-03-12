@@ -18,7 +18,7 @@ impl ArgValue {
     /// (note the space):
     ///
     /// ```
-    /// "foo,bar, baz"
+    /// # let _ = "foo,bar, baz";
     /// ```
     pub fn as_str_vec(&self) -> Option<Vec<String>> {
         util::dataconv::as_str_list_opt(Some(&self.0).cloned())

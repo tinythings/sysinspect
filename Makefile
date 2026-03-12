@@ -45,7 +45,7 @@ CORE_EXCLUDES := $(foreach pkg,$(MODULE_PACKAGE_SPECS),--exclude $(pkg))
 TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
 TEST_RUN_THREADS ?= 3
 
-.PHONY: build devel all all-devel modules modules-dev clean check fix setup \
+.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel clean check fix setup \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar
 
@@ -117,6 +117,38 @@ define move_bin
 	if [ -f $$dir/resource ]; then mv $$dir/resource $$dir/cfg/; fi;
 endef
 
+define stage_modules_dist
+	@dist=target/modules-dist; \
+	rm -rf "$$dist"; \
+	mkdir -p "$$dist"; \
+	find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
+		pkg=$$(awk 'BEGIN{name=""} /^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } END { print name }' "$$f"); \
+		srcdir=$$(dirname "$$f"); \
+		bin=target/release/$$pkg; \
+		spec=$$srcdir/src/mod_doc.yaml; \
+		dstdir=$$dist/$$pkg; \
+		if [ ! -f "$$bin" ]; then echo "Missing built module binary: $$bin" >&2; exit 1; fi; \
+		if [ ! -f "$$spec" ]; then echo "Missing module spec source: $$spec" >&2; exit 1; fi; \
+		mkdir -p "$$dstdir"; \
+		cp "$$bin" "$$dstdir/$$pkg"; \
+		chmod +x "$$dstdir/$$pkg"; \
+		cp "$$spec" "$$dstdir/$$pkg.spec"; \
+	done
+endef
+
+define refresh_modules_repo
+	@sysbin=target/debug/sysinspect; \
+	if [ ! -x "$$sysbin" ]; then \
+		echo "Building debug sysinspect helper"; \
+		cargo build -v -p $(call PKG_SPEC_FROM_TOML,Cargo.toml); \
+	fi; \
+	"$$sysbin" module -R -n '*'; \
+	find target/modules-dist -mindepth 2 -maxdepth 2 -type f ! -name '*.spec' | sort | while read mod; do \
+		echo "Installing $$mod"; \
+		"$$sysbin" module -A --path "$$mod"; \
+	done
+endef
+
 setup:
 	$(call deps)
 	$(call tgt,wasm32-wasip1)
@@ -185,6 +217,13 @@ modules:
 	$(call prep_layout,release,)
 	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call move_bin,release,)
+
+modules-dist-devel:
+	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	$(call stage_modules_dist)
+
+modules-refresh-devel: modules-dist-devel
+	$(call refresh_modules_repo)
 
 stats:
 	tokei . --exclude target --exclude .git

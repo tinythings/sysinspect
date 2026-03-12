@@ -1,4 +1,6 @@
 mod prt;
+#[cfg(test)]
+mod prt_ut;
 
 use crate::prt::{Py3Runtime, Py3RuntimeError};
 use clap::Parser;

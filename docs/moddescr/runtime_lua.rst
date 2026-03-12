@@ -37,13 +37,13 @@ under ``${SYSINSPECT_SHARELIB_ROOT}``:
 
    Install entry-point scripts into::
 
-      lib/runtime/lua54/
+      lib/runtime/lua/
 
 2. **Dependency libraries**
 
    Install Lua libraries required by your scripts into::
 
-      lib/runtime/lua54/site-lua/
+      lib/runtime/lua/site-lua/
 
 This separation keeps your callable modules easy to list and prevents helper libraries from being treated
 as top-level SysInspect modules.
@@ -78,3 +78,36 @@ Practical notes
 * Prefer passing strings and parsing them in Lua when you need structured values.
 * Use ``rt.logs`` while developing scripts, then disable it if you want quieter operation.
 
+Logging
+~~~~~~~
+
+The runtime preinstalls a global ``log`` table in Lua modules with these
+methods:
+
+* ``log.error(...)``
+* ``log.warn(...)``
+* ``log.info(...)``
+* ``log.debug(...)``
+
+When ``rt.logs`` is enabled, emitted log lines are returned in the runtime
+response payload under ``__sysinspect-module-logs``.
+
+Built-in Helper Namespaces
+--------------------------
+
+The Lua runtime preinstalls a ``packagekit`` helper namespace for runtime
+scripts on Linux systems where PackageKit is available over D-Bus.
+
+Available helper functions:
+
+* ``packagekit.available()``
+* ``packagekit.status()``
+* ``packagekit.history(names, count?)``
+* ``packagekit.packages()``
+* ``packagekit.install(names)``
+* ``packagekit.remove(names)``
+* ``packagekit.upgrade(names)``
+
+``packagekit`` is optional and Linux-only. If PackageKit is unavailable, then
+``packagekit.available()`` returns ``false`` and the other calls may raise a
+runtime error when invoked.

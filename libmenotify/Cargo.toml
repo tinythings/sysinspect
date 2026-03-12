@@ -15,6 +15,7 @@ path = "../examples/demos/menotify/githubissues_it.rs"
 colored = "3.1.1"
 humantime = "2.3.0"
 libcommon = { path = "../libcommon" }
+libmodcore = { path = "../libmodcore" }
 log = "0.4.29"
 mlua = { version = "0.11.5", features = ["lua54", "serialize", "vendored"] }
 reqwest = { version = "0.12.28", features = ["blocking", "json"] }

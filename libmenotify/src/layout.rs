@@ -4,10 +4,10 @@ use std::{env, path::PathBuf};
 pub static DEFAULT_SHARELIB_ROOT: &str = "/usr/share/sysinspect";
 
 /// Relative path to MeNotify Lua scripts under the shared library root.
-pub static MENOTIFY_LUA_ROOT: &str = "lib/sensors/lua54";
+pub static MENOTIFY_LUA_ROOT: &str = "lib/sensors/lua";
 
 /// Relative path to MeNotify shared Lua libraries.
-pub static MENOTIFY_LUA_SITE_ROOT: &str = "lib/sensors/lua54/site-lua";
+pub static MENOTIFY_LUA_SITE_ROOT: &str = "lib/sensors/lua/site-lua";
 
 /// Returns the configured shared library root for MeNotify.
 ///

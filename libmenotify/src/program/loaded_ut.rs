@@ -4,7 +4,7 @@ use std::fs;
 #[test]
 fn loads_tick_program() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),
@@ -26,7 +26,7 @@ return {
 #[test]
 fn rejects_program_without_entrypoint() {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(root.join("broken.lua"), "return {}\n").expect("script file should be written");
 

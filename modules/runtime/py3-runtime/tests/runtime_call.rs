@@ -150,6 +150,20 @@ def run(req):
     ) {
         panic!("failed to write bad doc test python module: {err}");
     }
+
+    if let Err(err) = fs::write(
+        moddir.join("pkgavail.py"),
+        r#"
+def run(req):
+    return {
+        "available": packagekit.available(),
+        "remove": callable(packagekit.remove),
+        "upgrade": callable(packagekit.upgrade)
+    }
+"#,
+    ) {
+        panic!("failed to write packagekit helper test python module: {err}");
+    }
 }
 
 /// Run `py3-runtime` binary with JSON request payload
@@ -244,7 +258,7 @@ fn test_python_runtime_lists_nested_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "nested.reader"])));
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "nested.reader", "pkgavail"])));
 }
 
 #[test]
@@ -384,4 +398,21 @@ fn test_python_runtime_rejects_invalid_module_doc() {
 
     assert_eq!(out.get("retcode"), Some(&json!(1)));
     assert!(out.get("message").and_then(|v| v.as_str()).unwrap_or_default().contains("doc.name is required"));
+}
+
+#[test]
+fn test_python_runtime_exposes_packagekit_helper() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "pkgavail" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert!(out["data"]["data"]["available"].is_boolean());
+    assert_eq!(out["data"]["data"]["remove"], json!(true));
+    assert_eq!(out["data"]["data"]["upgrade"], json!(true));
 }

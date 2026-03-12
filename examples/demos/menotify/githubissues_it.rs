@@ -31,7 +31,7 @@ fn spawn_github_issues_server(first: &'static str, second: &'static str) -> Stri
 fn copy_demo_script(dst_root: &Path) {
     fs::create_dir_all(dst_root).expect("script root should be created");
     fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/demos/menotify/lib/sensors/lua54/githubissues.lua"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/demos/menotify/lib/sensors/lua/githubissues.lua"),
         dst_root.join("githubissues.lua"),
     )
     .expect("demo script should copy");
@@ -45,7 +45,7 @@ fn githubissues_demo_seeds_then_emits_new_issue() {
     );
 
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    copy_demo_script(&tmp.path().join("lib/sensors/lua54"));
+    copy_demo_script(&tmp.path().join("lib/sensors/lua"));
 
     let runtime =
         MeNotifyRuntime::with_sharelib_root("github-public-issues".to_string(), "menotify.githubissues".to_string(), tmp.path().to_path_buf());

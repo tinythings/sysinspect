@@ -116,7 +116,7 @@ runtime-specific path, for example:
 
    lib/
      runtime/
-       lua54/
+       lua/
          hello.lua
          reader.lua
          caller.lua
@@ -175,11 +175,11 @@ directory, mentioned above, and have a ``./lib`` directory, publish the scripts 
 
       Type    Name                                    OS   Arch    SHA256
       ──────────────────────────────────────────────────────────────────────────
-      script  runtime/lua54/caller.lua                Any  noarch  7aff...d8c5
-      script  runtime/lua54/hello.lua                 Any  noarch  22ce...f2e1
-      script  runtime/lua54/reader.lua                Any  noarch  8ce3...0135
-      script  runtime/lua54/site-lua/mathx/extra.lua  Any  noarch  92ce...79e3
-      script  runtime/lua54/site-lua/mathx/init.lua   Any  noarch  f636...f314
+      script  runtime/lua/caller.lua                  Any  noarch  7aff...d8c5
+      script  runtime/lua/hello.lua                   Any  noarch  22ce...f2e1
+      script  runtime/lua/reader.lua                  Any  noarch  8ce3...0135
+      script  runtime/lua/site-lua/mathx/extra.lua    Any  noarch  92ce...79e3
+      script  runtime/lua/site-lua/mathx/init.lua     Any  noarch  f636...f314
 
 Once you've done this, the Lua scripts are available to be called from models.
 There are three modules in the example set:
@@ -266,5 +266,5 @@ Troubleshooting
 * If the runtime is missing, confirm ``runtime.lua-runtime`` appears in ``sysinspect module -L``.
 * If scripts are missing, confirm you uploaded ``./lib`` (the directory) and re-ran
   ``sysinspect --sync``.
-* If module imports fail, verify your ``lib/runtime/lua54/...`` layout matches what the runtime
+* If module imports fail, verify your ``lib/runtime/lua/...`` layout matches what the runtime
   expects, and that any ``site-lua`` modules are located under the same tree.

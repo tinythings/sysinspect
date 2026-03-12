@@ -1,5 +1,5 @@
 use libcommon::SysinspectError;
-use libmodcore::{rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
+use libmodcore::{helpers::RuntimePackageKit, rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
 use rustpython::InterpreterBuilderExt;
 use rustpython_vm::{
     Interpreter, PyObjectRef, PyResult, Settings, VirtualMachine,
@@ -11,14 +11,28 @@ use rustpython_vm::{
 use serde_json::Value as JsonValue;
 use std::{
     cell::RefCell,
+    mem,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
 #[derive(Default)]
-struct PyLoggerState {
+pub(crate) struct PyLoggerState {
     logs: Vec<String>,
     modulename: String,
+}
+
+impl PyLoggerState {
+    /// Create logger state for tests and runtime initialisation
+    /// # Arguments
+    /// * `logs` - Initial buffered log lines
+    /// * `modulename` - Active module name
+    /// # Returns
+    /// * `Self` - Logger state instance
+    #[cfg(test)]
+    pub(crate) fn new(logs: Vec<String>, modulename: String) -> Self {
+        Self { logs, modulename }
+    }
 }
 
 thread_local! {
@@ -52,17 +66,17 @@ fn set_log_modulename(state: &Arc<Mutex<PyLoggerState>>, modname: &str) {
 }
 
 /// Clear buffered Python log lines before a module call
-fn clear_log_buffer(state: &Arc<Mutex<PyLoggerState>>) {
+pub(crate) fn clear_log_buffer(state: &Arc<Mutex<PyLoggerState>>) {
     if let Ok(mut g) = state.lock() {
         g.logs.clear();
     }
 }
 
-/// Get buffered Python log lines
+/// Take buffered Python log lines and clear the underlying buffer
 /// # Returns
 /// * `Vec<String>` - Collected log lines
-fn get_log_buffer(state: &Arc<Mutex<PyLoggerState>>) -> Vec<String> {
-    if let Ok(g) = state.lock() { g.logs.clone() } else { Vec::new() }
+pub(crate) fn take_log_buffer(state: &Arc<Mutex<PyLoggerState>>) -> Vec<String> {
+    if let Ok(mut g) = state.lock() { mem::take(&mut g.logs) } else { Vec::new() }
 }
 
 /// Push a single formatted log line into the runtime buffer
@@ -98,6 +112,83 @@ mod rtlog {
     fn write(level: String, msg: String, _vm: &VirtualMachine) -> PyResult<()> {
         push_log_line(level.trim(), msg.trim());
         Ok(())
+    }
+}
+
+#[pymodule]
+mod rtpackagekit {
+    use super::RuntimePackageKit;
+    use rustpython_vm::{PyResult, VirtualMachine};
+
+    /// Return whether PackageKit is reachable on this system.
+    /// # Returns
+    /// * `PyResult<bool>` - True when PackageKit responds over D-Bus.
+    #[pyfunction]
+    fn available(_vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(RuntimePackageKit::available())
+    }
+
+    /// Return current PackageKit daemon status as JSON text.
+    /// # Returns
+    /// * `PyResult<String>` - JSON object encoded as string.
+    #[pyfunction]
+    fn status(vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::status().map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Return PackageKit history as JSON text.
+    /// # Arguments
+    /// * `names` - Package names to inspect.
+    /// * `count` - Optional history depth.
+    /// # Returns
+    /// * `PyResult<String>` - JSON array/object encoded as string.
+    #[pyfunction]
+    fn history(names: Vec<String>, count: Option<u32>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::history(names, count.unwrap_or(10)).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Return installed packages snapshot as JSON text.
+    /// # Returns
+    /// * `PyResult<String>` - JSON array encoded as string.
+    #[pyfunction]
+    fn packages(vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::packages().map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Install packages through PackageKit and return JSON text.
+    /// # Arguments
+    /// * `names` - Package names to install.
+    /// # Returns
+    /// * `PyResult<String>` - JSON result encoded as string.
+    #[pyfunction]
+    fn install(names: Vec<String>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::install(names).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Remove packages through PackageKit and return JSON text.
+    /// # Arguments
+    /// * `names` - Package names to remove.
+    /// # Returns
+    /// * `PyResult<String>` - JSON result encoded as string.
+    #[pyfunction]
+    fn remove(names: Vec<String>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::remove(names).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Upgrade packages through PackageKit and return JSON text.
+    /// # Arguments
+    /// * `names` - Package names to upgrade.
+    /// # Returns
+    /// * `PyResult<String>` - JSON result encoded as string.
+    #[pyfunction]
+    fn upgrade(names: Vec<String>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::upgrade(names).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
     }
 }
 
@@ -144,7 +235,8 @@ impl Py3Runtime {
 
         let builder = rustpython::Interpreter::builder(cfg);
         let rtlog_def = rtlog::module_def(&builder.ctx);
-        let itp = builder.init_stdlib().add_native_module(rtlog_def).build();
+        let rtpackagekit_def = rtpackagekit::module_def(&builder.ctx);
+        let itp = builder.init_stdlib().add_native_module(rtlog_def).add_native_module(rtpackagekit_def).build();
 
         Ok(Self {
             itp,
@@ -167,11 +259,12 @@ impl Py3Runtime {
     /// # Returns
     /// * `Result<()>` - Result of the operation
     fn load_pylib(&self, vm: &VirtualMachine) -> Result<()> {
-        let sysmod = match vm.import("sys", 0) {
+        let syspath = match match vm.import("sys", 0) {
             Ok(m) => m,
             Err(_) => return Err(Py3RuntimeError::Vm("Unable to import sys module".to_string())),
-        };
-        let syspath = match sysmod.get_attr("path", vm) {
+        }
+        .get_attr("path", vm)
+        {
             Ok(path) => path,
             Err(_) => return Err(Py3RuntimeError::Vm("Unable to access sys.path".to_string())),
         };
@@ -241,11 +334,12 @@ impl Py3Runtime {
             Ok(m) => m,
             Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to import json module: {err:?}"))),
         };
-        let dumped = match vm.call_method(&jsonmod, "dumps", (obj,)) {
+        let s = match match vm.call_method(&jsonmod, "dumps", (obj,)) {
             Ok(v) => v,
             Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to serialise Python value to JSON: {err:?}"))),
-        };
-        let s = match dumped.downcast::<PyStr>() {
+        }
+        .downcast::<PyStr>()
+        {
             Ok(s) => s.to_string(),
             Err(_) => return Err(Py3RuntimeError::Vm("Python json.dumps() did not return a string".to_string())),
         };
@@ -296,6 +390,8 @@ impl Py3Runtime {
     fn exec_prelude(&self, vm: &VirtualMachine, scope: rustpython_vm::scope::Scope) -> Result<()> {
         let prelude = r#"
 import rtlog as _sysinspect_rtlog
+import rtpackagekit as _sysinspect_rtpackagekit
+import json as _sysinspect_json
 
 class _SysinspectLogger:
     def error(self, *args):
@@ -311,13 +407,38 @@ class _SysinspectLogger:
         _sysinspect_rtlog.write("DEBUG", " ".join(map(str, args)))
 
 log = _SysinspectLogger()
-"#;
-        let code = match vm.compile(prelude, Exec, "<sysinspect-prelude>".to_string()) {
-            Ok(code) => code,
-            Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python prelude: {err}"))),
-        };
 
-        match vm.run_code_obj(code, scope) {
+class _SysinspectPackageKit:
+    def available(self):
+        return _sysinspect_rtpackagekit.available()
+
+    def status(self):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.status())
+
+    def history(self, names, count=10):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.history(names, count))
+
+    def packages(self):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.packages())
+
+    def install(self, names):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.install(names))
+
+    def remove(self, names):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.remove(names))
+
+    def upgrade(self, names):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.upgrade(names))
+
+packagekit = _SysinspectPackageKit()
+"#;
+        match vm.run_code_obj(
+            match vm.compile(prelude, Exec, "<sysinspect-prelude>".to_string()) {
+                Ok(code) => code,
+                Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python prelude: {err}"))),
+            },
+            scope,
+        ) {
             Ok(_) => Ok(()),
             Err(err) => {
                 let mut buff = String::new();
@@ -336,12 +457,13 @@ log = _SysinspectLogger()
     /// # Returns
     /// * `Result<()>` - Result of the operation
     fn exec_scope_code(&self, vm: &VirtualMachine, scope: rustpython_vm::scope::Scope, code: &str, filename: &str) -> Result<()> {
-        let code_obj = match vm.compile(code, Exec, filename.to_string()) {
-            Ok(code) => code,
-            Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python source {filename}: {err}"))),
-        };
-
-        match vm.run_code_obj(code_obj, scope) {
+        match vm.run_code_obj(
+            match vm.compile(code, Exec, filename.to_string()) {
+                Ok(code) => code,
+                Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python source {filename}: {err}"))),
+            },
+            scope,
+        ) {
             Ok(_) => Ok(()),
             Err(err) => {
                 let mut buff = String::new();
@@ -358,11 +480,11 @@ log = _SysinspectLogger()
         set_log_modulename(&self.log_state, modname);
     }
 
-    /// Synchronise global Python log buffer into runtime instance state
+    /// Take buffered Python log lines from the runtime state
     /// # Returns
     /// * `Vec<String>` - Buffered log lines
-    fn sync_logs(&self) -> Vec<String> {
-        get_log_buffer(&self.log_state)
+    fn take_logs(&self) -> Vec<String> {
+        take_log_buffer(&self.log_state)
     }
 
     /// Compile and execute Python code, then call `run(req)`
@@ -383,19 +505,19 @@ log = _SysinspectLogger()
                 return Err(Py3RuntimeError::Vm(format!("Unable to set __module_name: {err:?}")));
             }
 
-            let code_obj = match vm.compile(code, Exec, filename.to_string()) {
-                Ok(obj) => obj,
-                Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile source code for {modname}: {err}"))),
-            };
-
-            if let Err(err) = vm.run_code_obj(code_obj, scope.clone()) {
+            if let Err(err) = vm.run_code_obj(
+                match vm.compile(code, Exec, filename.to_string()) {
+                    Ok(obj) => obj,
+                    Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile source code for {modname}: {err}"))),
+                },
+                scope.clone(),
+            ) {
                 let mut buff = String::new();
                 _ = vm.write_exception(&mut buff, &err);
                 return Err(Py3RuntimeError::Vm(format!("Error running Python module \"{modname}\": {}", buff.trim())));
             }
 
-            let entrypoint = RuntimeSpec::MainEntryFunction.to_string();
-            let runfn = match scope.globals.get_item(&entrypoint, vm) {
+            let runfn = match scope.globals.get_item(&RuntimeSpec::MainEntryFunction.to_string(), vm) {
                 Ok(obj) => obj,
                 Err(err) => {
                     let mut buff = String::new();
@@ -404,21 +526,26 @@ log = _SysinspectLogger()
                 }
             };
 
-            let py_req = match Self::from_json(vm, req.clone()) {
-                Ok(v) => v,
-                Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to convert request to Python object: {err:?}"))),
-            };
-
-            let result = match runfn.call(FuncArgs::new(vec![py_req], KwArgs::default()), vm) {
-                Ok(v) => v,
-                Err(err) => {
-                    let mut buff = String::new();
-                    _ = vm.write_exception(&mut buff, &err);
-                    return Err(Py3RuntimeError::Vm(format!("Error calling run(req) in Python module \"{modname}\": {}", buff.trim())));
-                }
-            };
-
-            Self::dumps_json(vm, result)
+            Self::dumps_json(
+                vm,
+                match runfn.call(
+                    FuncArgs::new(
+                        vec![match Self::from_json(vm, req.clone()) {
+                            Ok(v) => v,
+                            Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to convert request to Python object: {err:?}"))),
+                        }],
+                        KwArgs::default(),
+                    ),
+                    vm,
+                ) {
+                    Ok(v) => v,
+                    Err(err) => {
+                        let mut buff = String::new();
+                        _ = vm.write_exception(&mut buff, &err);
+                        return Err(Py3RuntimeError::Vm(format!("Error calling run(req) in Python module \"{modname}\": {}", buff.trim())));
+                    }
+                },
+            )
         })
     }
 
@@ -457,11 +584,9 @@ log = _SysinspectLogger()
         clear_log_buffer(&self.log_state);
         self.set_modulename(modname);
         let _active_log_state = set_active_log_state(self.log_state.clone());
-        let data = self.run_code(&format!("{modname}.py"), code, modname, req)?;
-        let logs = if with_logs { self.sync_logs() } else { Vec::new() };
         Ok(serde_json::json!({
-            RuntimeSpec::DataSectionField.to_string(): data,
-            RuntimeSpec::LogsSectionField.to_string(): logs
+            RuntimeSpec::DataSectionField.to_string(): self.run_code(&format!("{modname}.py"), code, modname, req)?,
+            RuntimeSpec::LogsSectionField.to_string(): if with_logs { self.take_logs() } else { take_log_buffer(&self.log_state) }
         }))
     }
 

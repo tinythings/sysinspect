@@ -41,11 +41,11 @@ You should see something like this (among other stuff, if any):
 
  Type    Name                                    OS   Arch    SHA256        
  ────────────────────────────────────────────────────────────────────────── 
- script  runtime/lua54/caller.lua                Any  noarch  7aff...d8c5   
- script  runtime/lua54/hello.lua                 Any  noarch  22ce...f2e1   
- script  runtime/lua54/reader.lua                Any  noarch  8ce3...0135   
- script  runtime/lua54/site-lua/mathx/extra.lua  Any  noarch  92ce...79e3   
- script  runtime/lua54/site-lua/mathx/init.lua   Any  noarch  f636...f314   
+ script  runtime/lua/caller.lua                  Any  noarch  7aff...d8c5   
+ script  runtime/lua/hello.lua                   Any  noarch  22ce...f2e1   
+ script  runtime/lua/reader.lua                  Any  noarch  8ce3...0135   
+ script  runtime/lua/site-lua/mathx/extra.lua    Any  noarch  92ce...79e3   
+ script  runtime/lua/site-lua/mathx/init.lua     Any  noarch  f636...f314   
 
 
 4. To run them, add some caller to your model, something like:

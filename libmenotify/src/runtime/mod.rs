@@ -16,6 +16,9 @@ pub struct MeNotifyRuntime {
     sharelib_root: PathBuf,
 }
 
+#[cfg(test)]
+mod runtime_ut;
+
 impl MeNotifyRuntime {
     /// Creates a new MeNotify runtime bootstrap object.
     ///
@@ -195,6 +198,9 @@ impl MeNotifyRuntime {
             }
             MeNotifyError::HttpSpec(err) => {
                 log::error!("[{}] '{}' got invalid HTTP request spec in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
+            }
+            MeNotifyError::PackageKit(err) => {
+                log::error!("[{}] '{}' failed PackageKit helper in listener '{}': {}", "menotify".bright_magenta(), self.sid, self.listener, err)
             }
         }
     }

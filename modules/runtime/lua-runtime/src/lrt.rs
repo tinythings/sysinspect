@@ -1,7 +1,8 @@
-use libmodcore::{rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
+use libmodcore::{helpers::RuntimePackageKit, rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue, Variadic};
 use serde_json::Value as JsonValue;
 use std::{
+    mem,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -13,20 +14,6 @@ pub enum LuaRuntimeError {
 
     #[error("sysinspect error: {0}")]
     Sysinspect(#[from] libcommon::SysinspectError),
-
-    #[error("failed to read lua file '{path}': {source}")]
-    ReadFile {
-        path: String,
-        #[source]
-        source: std::io::Error,
-    },
-
-    #[error("{msg}: {source}")]
-    Context {
-        msg: String,
-        #[source]
-        source: Box<LuaRuntimeError>,
-    },
 }
 
 pub type Result<T> = std::result::Result<T, LuaRuntimeError>;
@@ -52,7 +39,7 @@ impl LuaRuntime {
         let lua = Lua::new();
 
         // Runtime configuration
-        let lib_dir = sharelib_root.join("lib/runtime/lua54/site-lua");
+        let lib_dir = sharelib_root.join("lib/runtime/lua/site-lua");
         let globals = lua.globals();
         let package: mlua::Table = globals.get("package")?;
 
@@ -62,7 +49,7 @@ impl LuaRuntime {
         }
 
         let mut path = String::new();
-        path.push_str(&LuaRuntime::path_fragment(&sharelib_root.join("lib/runtime/lua54")));
+        path.push_str(&LuaRuntime::path_fragment(&sharelib_root.join("lib/runtime/lua")));
         path.push(';');
         path.push_str(&LuaRuntime::path_fragment(&lib_dir));
 
@@ -70,11 +57,12 @@ impl LuaRuntime {
 
         let rt = Self {
             lua,
-            scripts_dir: sharelib_root.join("lib/runtime/lua54"),
+            scripts_dir: sharelib_root.join("lib/runtime/lua"),
             logs: Arc::new(Mutex::new(Vec::new())),
             modulename: Arc::new(Mutex::new("Lua module".into())),
         };
         rt.set_logger()?;
+        rt.set_packagekit()?;
 
         Ok(rt)
     }
@@ -98,6 +86,14 @@ impl LuaRuntime {
             // Keep it simple: don't try to serialize tables here.
             other => format!("<lua:{:?}>", other.type_name()),
         }
+    }
+
+    /// Drain buffered Lua log lines collected during the current module call.
+    ///
+    /// Returns:
+    /// * `Vec<String>` containing the buffered log lines in order.
+    fn take_logs(&self) -> Vec<String> {
+        self.logs.lock().map(|mut g| mem::take(&mut *g)).unwrap_or_default()
     }
 
     /// Set up logging functions in Lua environment
@@ -172,28 +168,68 @@ impl LuaRuntime {
         Ok(())
     }
 
+    /// Set up PackageKit helper functions in Lua environment.
+    /// # Returns
+    /// * `mlua::Result<()>` - Result of the operation
+    fn set_packagekit(&self) -> mlua::Result<()> {
+        let globals = self.lua.globals();
+        let pktbl: Table = self.lua.create_table()?;
+
+        pktbl.set("available", self.lua.create_function(move |_, ()| Ok(RuntimePackageKit::available()))?)?;
+
+        pktbl.set(
+            "status",
+            self.lua.create_function(move |lua, ()| {
+                RuntimePackageKit::status().map_err(|err| mlua::Error::runtime(err.to_string())).and_then(|status| lua.to_value(&status))
+            })?,
+        )?;
+
+        pktbl.set(
+            "history",
+            self.lua.create_function(move |lua, (names, count): (Vec<String>, Option<u32>)| {
+                RuntimePackageKit::history(names, count.unwrap_or(10))
+                    .map_err(|err| mlua::Error::runtime(err.to_string()))
+                    .and_then(|history| lua.to_value(&history))
+            })?,
+        )?;
+
+        pktbl.set(
+            "packages",
+            self.lua.create_function(move |lua, ()| {
+                RuntimePackageKit::packages().map_err(|err| mlua::Error::runtime(err.to_string())).and_then(|packages| lua.to_value(&packages))
+            })?,
+        )?;
+
+        pktbl.set(
+            "install",
+            self.lua.create_function(move |lua, names: Vec<String>| {
+                RuntimePackageKit::install(names).map_err(|err| mlua::Error::runtime(err.to_string())).and_then(|result| lua.to_value(&result))
+            })?,
+        )?;
+
+        pktbl.set(
+            "remove",
+            self.lua.create_function(move |lua, names: Vec<String>| {
+                RuntimePackageKit::remove(names).map_err(|err| mlua::Error::runtime(err.to_string())).and_then(|result| lua.to_value(&result))
+            })?,
+        )?;
+
+        pktbl.set(
+            "upgrade",
+            self.lua.create_function(move |lua, names: Vec<String>| {
+                RuntimePackageKit::upgrade(names).map_err(|err| mlua::Error::runtime(err.to_string())).and_then(|result| lua.to_value(&result))
+            })?,
+        )?;
+
+        globals.set("packagekit", pktbl)?;
+        Ok(())
+    }
+
     // Lua package.path uses ; separated patterns with ?
     // Typical: /path/?.lua;/path/?/init.lua
     fn path_fragment(dir: &Path) -> String {
         let d = dir.to_string_lossy();
         format!("{d}/?.lua;{d}/?/init.lua")
-    }
-
-    /// Execute Lua code string
-    /// # Arguments
-    /// * `code` - Lua code string
-    /// # Returns
-    /// * `Result<()>` - Result of the execution
-    /// # Errors
-    /// * `LuaRuntimeError` - If the execution fails
-    /// # Example
-    /// ```no_run
-    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
-    /// rt.exec_str(r#"print("Hello, Lua!")"#)?;
-    /// ```
-    pub fn exec_str(&self, code: &str) -> Result<()> {
-        self.lua.load(code).exec()?;
-        Ok(())
     }
 
     /// Call Lua module's run(req) function
@@ -238,13 +274,13 @@ impl LuaRuntime {
             _ => return Err(mlua::Error::runtime("Lua run() must return table or JSON string").into()),
         };
 
-        // Grab buffered logs
-        let logs = if with_logs { if let Ok(g) = self.logs.lock() { g.clone() } else { Vec::new() } } else { Vec::new() };
+        // Drain buffered logs so repeated calls on the same runtime do not keep stale lines.
+        let logs = self.take_logs();
 
         // Return { data, logs }
         Ok(serde_json::json!({
             RuntimeSpec::DataSectionField.to_string(): data,
-            RuntimeSpec::LogsSectionField.to_string(): logs
+            RuntimeSpec::LogsSectionField.to_string(): if with_logs { logs } else { Vec::<String>::new() }
         }))
     }
 
@@ -274,71 +310,5 @@ impl LuaRuntime {
         validate_module_doc(&json)?;
 
         Ok(json)
-    }
-
-    pub fn exec_file(&self, path: &str) -> Result<()> {
-        let code = std::fs::read_to_string(path).map_err(|e| LuaRuntimeError::ReadFile { path: path.to_string(), source: e })?;
-
-        self.exec_str(&code).map_err(|e| LuaRuntimeError::Context { msg: format!("lua exec_file failed: {path}"), source: Box::new(e) })
-    }
-
-    /// Call a Lua function with arguments
-    /// # Arguments
-    /// * `name` - Function name
-    /// * `args` - Function arguments
-    /// # Returns
-    /// * `R` - Return type of the function
-    /// # Errors
-    /// * `LuaRuntimeError` - If the function call fails
-    /// # Example
-    /// ```no_run
-    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
-    /// rt.exec_str(r#"function add(a, b) return a + b end"#)?;
-    /// let result: i64 = rt.call_fn("add", (2, 3))?;
-    /// assert_eq!(result, 5);
-    /// ```
-    pub fn call_fn<R: mlua::FromLua>(&self, name: &str, args: impl mlua::IntoLuaMulti) -> Result<R> {
-        let globals = self.lua.globals();
-        let f: mlua::Function = globals.get(name)?;
-        Ok(f.call(args)?)
-    }
-
-    /// Set a global variable in Lua
-    /// # Arguments
-    /// * `key` - Variable name
-    /// * `val` - Variable value
-    /// # Returns
-    /// * `Result<()>` - Result of the operation
-    /// # Errors
-    /// * `LuaRuntimeError` - If setting the global variable fails
-    /// # Example
-    /// ```no_run
-    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
-    /// rt.set_global("my_var", 42)?;
-    /// let value: i64 = rt.get_global("my_var")?;
-    /// assert_eq!(value, 42);
-    /// ```
-    pub fn set_global(&self, key: &str, val: impl mlua::IntoLua) -> Result<()> {
-        let v = val.into_lua(&self.lua)?;
-        self.lua.globals().set(key, v)?;
-        Ok(())
-    }
-
-    /// Get a global variable from Lua
-    /// # Arguments
-    /// * `key` - Variable name
-    /// # Returns
-    /// * `Result<T>` - Value of the variable
-    /// # Errors
-    /// * `LuaRuntimeError` - If getting the global variable fails
-    /// # Example
-    /// ```no_run
-    /// let rt = LuaRuntime::new(PathBuf::from("scripts"))?;
-    /// rt.set_global("my_var", 42)?;
-    /// let value: i64 = rt.get_global("my_var")?;
-    /// assert_eq!(value, 42);
-    /// ```
-    pub fn get_global<T: mlua::FromLua>(&self, key: &str) -> Result<T> {
-        Ok(self.lua.globals().get(key)?)
     }
 }

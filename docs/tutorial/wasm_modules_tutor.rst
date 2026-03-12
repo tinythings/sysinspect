@@ -246,6 +246,48 @@ At present, the Wasm runtime operates in **spartan mode**:
 
 This reduces maintenance cost and keeps runtime behavior transparent.
 
+Logging
+^^^^^^^
+
+Wasm logging is currently lower-level than Lua or Python runtime logging, but
+it is already available as part of the host API.
+
+Wasm guests can emit runtime logs through the low-level import:
+
+- ``api.log(level, msg_ptr, msg_len)``
+
+Guest-side helper code may wrap that into a more convenient language-level
+API, but Sysinspect itself does not currently inject a high-level ``log.*``
+namespace into Wasm guests.
+
+The runtime collects guest-emitted logs and exposes them in the standard
+``__sysinspect-module-logs`` response field. If a guest returns a raw
+``__module-logs`` field directly, the runtime remaps that field into the same
+standard location.
+
+This means:
+
+- Lua and Python expose runtime-owned ``log.*`` helpers.
+- Wasm exposes a lower-level ``api.log(...)`` host import instead.
+- the runtime normalises the final output field to
+  ``__sysinspect-module-logs``.
+
+The Wasm host API now also exposes low-level PackageKit helper imports under
+the ``api`` import module:
+
+- ``packagekit_available() -> i32``
+- ``packagekit_status(out_ptr, out_cap) -> i32``
+- ``packagekit_packages(out_ptr, out_cap) -> i32``
+- ``packagekit_history(req_ptr, req_len, out_ptr, out_cap) -> i32``
+- ``packagekit_install(req_ptr, req_len, out_ptr, out_cap) -> i32``
+- ``packagekit_remove(req_ptr, req_len, out_ptr, out_cap) -> i32``
+- ``packagekit_upgrade(req_ptr, req_len, out_ptr, out_cap) -> i32``
+
+These imports are intentionally low-level. They return JSON payloads through
+guest memory buffers, unlike the higher-level Lua and Python helper namespaces.
+The helper remains Linux-only and depends on PackageKit being present on the
+host system.
+
 Calling a Wasm module from a model
 ----------------------------------
 

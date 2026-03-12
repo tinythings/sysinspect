@@ -5,6 +5,56 @@ use colored::{self, Colorize};
 use console::strip_ansi_codes;
 use log::{Level, Metadata, Record};
 
+fn is_internal_target(target: &str) -> bool {
+    [
+        "sysinspect",
+        "sysmaster",
+        "sysminion",
+        "libsysinspect",
+        "libcommon",
+        "libdpq",
+        "libeventreg",
+        "libmodcore",
+        "libmodpak",
+        "libtelemetry",
+        "libwebapi",
+        "libdatastore",
+        "libscheduler",
+        "libsensors",
+        "libmenotify",
+        "libsetup",
+        "libsysproto",
+        "sysclient",
+        "proc",
+        "net",
+        "run",
+        "ssrun",
+        "http",
+        "file",
+        "resource",
+        "lua_runtime",
+        "py3_runtime",
+        "wasm_runtime",
+    ]
+    .iter()
+    .any(|pfx| target == *pfx || target.starts_with(&format!("{pfx}::")))
+}
+
+fn is_noise_message(msg: &str) -> bool {
+    [
+        "write_command;",
+        "write_commands;",
+        "read_command;",
+        "read_commands;",
+        "-- write_command;",
+        "-- write_commands;",
+        "-- read_command;",
+        "-- read_commands;",
+    ]
+    .iter()
+    .any(|pfx| msg.starts_with(pfx))
+}
+
 #[derive(Default)]
 pub struct STDOUTLogger {
     nocolor: bool,
@@ -18,25 +68,39 @@ impl STDOUTLogger {
 
 impl log::Log for STDOUTLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Trace
+        if metadata.level() > Level::Trace {
+            return false;
+        }
+
+        if metadata.level() < Level::Warn && !is_internal_target(metadata.target()) {
+            return false;
+        }
+
+        true
     }
 
     fn log(&self, msg: &Record) {
-        if self.enabled(msg.metadata()) {
-            let s_level: String = match msg.level() {
-                log::Level::Info => format!("{}", msg.level().as_str().bright_green()),
-                log::Level::Warn => format!("{}", msg.level().as_str().yellow()),
-                log::Level::Error => format!("{}", msg.level().as_str().bright_red()),
-                log::Level::Debug => format!("{}", msg.level().as_str().bright_cyan()),
-                log::Level::Trace => format!("{}", msg.level().as_str().cyan()),
-            };
-
-            let mut msg = format!("[{}] - {}: {}", Local::now().format("%d/%m/%Y %H:%M:%S"), s_level, msg.args());
-            if self.nocolor || !std::io::stdout().is_terminal() {
-                msg = strip_ansi_codes(msg.as_str()).into_owned();
-            }
-            println!("{}", msg);
+        if !self.enabled(msg.metadata()) {
+            return;
         }
+
+        if is_noise_message(&msg.args().to_string()) {
+            return;
+        }
+
+        let s_level: String = match msg.level() {
+            log::Level::Info => format!("{}", msg.level().as_str().bright_green()),
+            log::Level::Warn => format!("{}", msg.level().as_str().yellow()),
+            log::Level::Error => format!("{}", msg.level().as_str().bright_red()),
+            log::Level::Debug => format!("{}", msg.level().as_str().bright_cyan()),
+            log::Level::Trace => format!("{}", msg.level().as_str().cyan()),
+        };
+
+        let mut msg = format!("[{}] - {}: {}", Local::now().format("%d/%m/%Y %H:%M:%S"), s_level, msg.args());
+        if self.nocolor || !std::io::stdout().is_terminal() {
+            msg = strip_ansi_codes(msg.as_str()).into_owned();
+        }
+        println!("{}", msg);
     }
 
     fn flush(&self) {}
@@ -57,14 +121,28 @@ impl MemoryLogger {
 // Implement the Log trait for MemoryLogger
 impl log::Log for MemoryLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
+        if metadata.level() > Level::Info {
+            return false;
+        }
+
+        if metadata.level() < Level::Warn && !is_internal_target(metadata.target()) {
+            return false;
+        }
+
+        true
     }
 
     fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            let mut messages = self.messages.lock().unwrap();
-            messages.push(format!("{} - {}", record.level(), record.args()));
+        if !self.enabled(record.metadata()) {
+            return;
         }
+
+        if is_noise_message(&record.args().to_string()) {
+            return;
+        }
+
+        let mut messages = self.messages.lock().unwrap();
+        messages.push(format!("{} - {}", record.level(), record.args()));
     }
 
     fn flush(&self) {}

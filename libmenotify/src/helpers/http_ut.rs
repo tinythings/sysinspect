@@ -30,7 +30,7 @@ fn tick_runner_exposes_http_get() {
     let url = spawn_http_server("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"hello\":\"world\"}", seen.clone());
 
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),
@@ -77,7 +77,7 @@ fn tick_runner_exposes_http_request() {
     let url = spawn_http_server("HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nok", seen.clone());
 
     let tmp = tempfile::tempdir().expect("tempdir should be created");
-    let root = tmp.path().join("lib/sensors/lua54");
+    let root = tmp.path().join("lib/sensors/lua");
     fs::create_dir_all(&root).expect("script root should be created");
     fs::write(
         root.join("demo.lua"),

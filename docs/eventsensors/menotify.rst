@@ -54,7 +54,7 @@ Sensor configuration as follows:
 
     .. code-block:: text
 
-        ${SYSINSPECT_SHARELIB_ROOT}/lib/sensors/lua54/githubissues.lua
+        ${SYSINSPECT_SHARELIB_ROOT}/lib/sensors/lua/githubissues.lua
 
 ``opts``
 ^^^^^^^^
@@ -143,6 +143,63 @@ Global Lua helpers:
 - ``log.debug(...)``
 - ``http.get(url, opts?)``
 - ``http.request({...})``
+- ``packagekit.available()``
+- ``packagekit.status()``
+- ``packagekit.history(names, count?)``
+- ``packagekit.packages()``
+- ``packagekit.install(names)``
+- ``packagekit.remove(names)``
+- ``packagekit.upgrade(names)``
+
+``packagekit.*``
+^^^^^^^^^^^^^^^^
+
+    **Optional Linux-oriented helper**
+
+    ``packagekit`` is a convenience namespace for polling PackageKit over
+    D-Bus from Lua. It is intentionally not part of the portable core
+    contract. If a script uses it, that script is making a Linux-specific
+    choice.
+
+    ``packagekit.available()``
+        Returns ``true`` if the PackageKit root service can be reached on the
+        system bus.
+
+    ``packagekit.status()``
+        Returns a table with current daemon state, including:
+
+        - ``available``
+        - ``backend_name``
+        - ``daemon_state``
+        - ``distro_id``
+        - ``locked``
+        - ``network_state``
+        - ``transactions``
+        - ``version_major``
+        - ``version_minor``
+        - ``version_micro``
+
+    ``packagekit.history(names, count?)``
+        Returns PackageKit package history converted to JSON-compatible Lua
+        tables. This is meant for polling scripts that want to detect package
+        installs, removals, upgrades, or other recent transactions.
+
+    ``packagekit.packages()``
+        Returns the current installed-package snapshot known to PackageKit.
+        This is useful for scripts that want to diff installed packages across
+        polling cycles and emit add/remove events.
+
+    ``packagekit.install(names)``
+        Installs packages by name through PackageKit and returns the operation
+        result as a Lua table.
+
+    ``packagekit.remove(names)``
+        Removes packages by name through PackageKit and returns the operation
+        result as a Lua table.
+
+    ``packagekit.upgrade(names)``
+        Upgrades packages by name through PackageKit and returns the operation
+        result as a Lua table.
 
 Event Shape
 -----------
@@ -188,7 +245,7 @@ Current layout:
 
     lib/
       sensors/
-        lua54/
+        lua/
           <module>.lua
           site-lua/
             ...
@@ -216,7 +273,7 @@ The repository ships a working demo:
 
 It contains:
 
-- ``lib/sensors/lua54/githubissues.lua``
+- ``lib/sensors/lua/githubissues.lua``
 - ``sensors.cfg``
 - ``README.md``
 

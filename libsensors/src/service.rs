@@ -5,11 +5,27 @@ use colored::Colorize;
 use libsysinspect::reactor::evtproc::EventProcessor;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle, JoinSet};
 
 pub struct SensorService {
     spec: SensorSpec,
     reactor: Option<Arc<Mutex<EventProcessor>>>,
+}
+
+struct AbortOnDropGuard(Vec<AbortHandle>);
+
+impl AbortOnDropGuard {
+    fn push(&mut self, h: AbortHandle) {
+        self.0.push(h);
+    }
+}
+
+impl Drop for AbortOnDropGuard {
+    fn drop(&mut self) {
+        for h in self.0.drain(..) {
+            h.abort();
+        }
+    }
 }
 
 impl SensorService {
@@ -43,6 +59,29 @@ impl SensorService {
         }
 
         handles
+    }
+
+    /// Start all sensors under one supervisor task so aborting the returned
+    /// handle aborts all running sensor tasks as well.
+    ///
+    /// # Returns
+    ///
+    /// Returns a join handle for the supervisor task.
+    pub fn spawn(mut self) -> JoinHandle<()> {
+        let handles = self.start();
+        tokio::spawn(async move {
+            let mut tasks = JoinSet::new();
+            let mut aborts = AbortOnDropGuard(Vec::new());
+            for h in handles {
+                aborts.push(h.abort_handle());
+                tasks.spawn(async move {
+                    let _ = h.await;
+                });
+            }
+
+            while tasks.join_next().await.is_some() {}
+            drop(aborts);
+        })
     }
 
     pub fn set_event_processor(&mut self, events: Arc<Mutex<EventProcessor>>) {

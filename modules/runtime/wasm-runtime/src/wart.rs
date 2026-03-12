@@ -1,3 +1,4 @@
+use crate::helpers::packagekit;
 use futures::executor;
 use libcommon::SysinspectError;
 use libmodcore::{response::ModResponse, rtspec::RuntimeSpec, runtime::ModRequest};
@@ -16,12 +17,13 @@ pub struct WasmRuntime {
 impl WasmRuntime {
     pub fn new(rq: &ModRequest) -> Result<Self, SysinspectError> {
         let wcfg = Self::get_wcfg(rq)?;
-        let rt = match wasmruntime::WasmRuntime::new(wcfg.clone()) {
+        let mut rt = match wasmruntime::WasmRuntime::new(wcfg.clone()) {
             Err(err) => {
                 return Err(SysinspectError::ConfigError(format!("Failed to initialize Wasm runtime: {err}")));
             }
             Ok(rt) => rt,
         };
+        rt.extend_linker(packagekit::register).map_err(|err| SysinspectError::ConfigError(format!("Failed to extend Wasm runtime linker: {err}")))?;
 
         Ok(WasmRuntime { rq: rq.clone(), rt })
     }

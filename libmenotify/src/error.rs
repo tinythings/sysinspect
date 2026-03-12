@@ -46,6 +46,10 @@ pub enum MeNotifyError {
     /// HTTP request specification is invalid.
     #[error("http request spec is invalid: {0}")]
     HttpSpec(String),
+
+    /// PackageKit helper request is invalid or could not be converted.
+    #[error("packagekit helper error: {0}")]
+    PackageKit(String),
 }
 
 impl From<MeNotifyError> for libcommon::SysinspectError {

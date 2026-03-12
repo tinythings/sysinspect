@@ -14,7 +14,7 @@ fn mk_tmp_runtime_root() -> TempDir {
 }
 
 fn write_test_module(root: &std::path::Path) {
-    let moddir = root.join("lib/runtime/lua54");
+    let moddir = root.join("lib/runtime/lua");
     let pkgdir = moddir.join("site-lua/mathx");
     if let Err(err) = fs::create_dir_all(&pkgdir) {
         panic!("failed to create test runtime tree: {err}");
@@ -164,6 +164,23 @@ return {
     ) {
         panic!("failed to write bad doc lua module: {err}");
     }
+
+    if let Err(err) = fs::write(
+        moddir.join("pkgavail.lua"),
+        r#"
+return {
+    run = function(_req)
+        return {
+            available = packagekit.available(),
+            remove = type(packagekit.remove),
+            upgrade = type(packagekit.upgrade)
+        }
+    end
+}
+"#,
+    ) {
+        panic!("failed to write packagekit helper test lua module: {err}");
+    }
 }
 
 fn run_runtime(payload: &Value) -> Value {
@@ -242,6 +259,23 @@ fn test_lua_runtime_returns_forwarded_logs() {
 }
 
 #[test]
+fn test_lua_runtime_exposes_packagekit_helper() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "opts": [],
+        "args": { "rt.mod": "pkgavail" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert!(out["data"]["data"]["available"].is_boolean());
+    assert_eq!(out["data"]["data"]["remove"], json!("function"));
+    assert_eq!(out["data"]["data"]["upgrade"], json!("function"));
+}
+
+#[test]
 fn test_lua_runtime_lists_modules() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());
@@ -253,7 +287,7 @@ fn test_lua_runtime_lists_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "reader"])));
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "pkgavail", "reader"])));
 }
 
 #[test]

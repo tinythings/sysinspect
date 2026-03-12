@@ -14,6 +14,7 @@ use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
 use libmodpak::{MODPAK_SYNC_STATE, SysInspectModPakMinion};
+use libsensors::sensors::menotify::MeNotifySensor;
 use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
 use libsysinspect::{
@@ -195,6 +196,7 @@ impl SysMinion {
     /// Stop sensors by aborting their tasks. This is used when the master
     /// disconnects or becomes unresponsive, to stop the sensors and prepare for reconnection.
     pub(crate) async fn stop_sensors(&self) {
+        MeNotifySensor::invalidate_all();
         if let Some(h) = self.sensors_pump.lock().await.take() {
             h.abort();
             let _ = h.await;
@@ -404,14 +406,11 @@ impl SysMinion {
         *self.sensors_pump.lock().await = Some(pump_handle);
 
         // Spawn service task and store it
-        let sensors_task = tokio::spawn({
-            let events = events.clone();
-            async move {
-                let mut service = SensorService::new(spec);
-                service.set_event_processor(events);
-                service.start();
-            }
-        });
+        let sensors_task = {
+            let mut service = SensorService::new(spec);
+            service.set_event_processor(events.clone());
+            service.spawn()
+        };
         *self.sensors_task.lock().await = Some(sensors_task);
 
         Ok(())
