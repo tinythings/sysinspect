@@ -95,7 +95,7 @@ impl EventsConfig {
         Err(SysinspectError::ModelDSLError("Unable to parse configuration".to_string()))
     }
 
-    /// Get module (or Python module) from the namespace
+    /// Get a module path from the namespace
     pub fn get_module(&self, namespace: &str) -> Result<PathBuf, SysinspectError> {
         let modpath = self.modules.to_owned().unwrap_or(get_cfg_sharelib().join(DEFAULT_MODULES_DIR)).join(
             namespace.trim_start_matches('.').trim_end_matches('.').trim().split('.').map(|s| s.to_string()).collect::<Vec<String>>().join("/"),
