@@ -227,6 +227,10 @@ use std::io::{self, Read};
 unsafe extern "C" {
     #[link_name = "packagekit_available"]
     fn host_packagekit_available() -> i32;
+    #[link_name = "packagekit_remove"]
+    fn host_packagekit_remove(req_ptr: u32, req_len: u32, out_ptr: u32, out_cap: u32) -> i32;
+    #[link_name = "packagekit_upgrade"]
+    fn host_packagekit_upgrade(req_ptr: u32, req_len: u32, out_ptr: u32, out_cap: u32) -> i32;
 }
 
 fn has_opt(src: &str, want: &str) -> bool {
@@ -258,7 +262,14 @@ fn main() {
     }
 
     let available = unsafe { host_packagekit_available() } != 0;
-    println!("{{\"available\":{}}}", if available { "true" } else { "false" });
+    let remove_rc = unsafe { host_packagekit_remove(0, 0, 0, 0) };
+    let upgrade_rc = unsafe { host_packagekit_upgrade(0, 0, 0, 0) };
+    println!(
+        "{{\"available\":{},\"remove_import\":{},\"upgrade_import\":{}}}",
+        if available { "true" } else { "false" },
+        remove_rc,
+        upgrade_rc
+    );
 }
 "##;
 
@@ -446,6 +457,8 @@ fn test_wasm_runtime_exposes_packagekit_helper() {
     assert_eq!(out.get("retcode"), Some(&json!(0)));
     assert!(out.pointer("/data/available").is_some());
     assert!(out.pointer("/data/available").and_then(|v| v.as_bool()).is_some());
+    assert_eq!(out.pointer("/data/remove_import"), Some(&json!(-2)));
+    assert_eq!(out.pointer("/data/upgrade_import"), Some(&json!(-2)));
 }
 
 #[test]

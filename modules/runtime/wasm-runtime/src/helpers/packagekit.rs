@@ -119,5 +119,63 @@ pub fn register(linker: &mut Linker<HostState>) -> anyhow::Result<()> {
         )
         .map_err(|err| anyhow::anyhow!("Failed to register Wasm PackageKit install helper: {err}"))?;
 
+    linker
+        .func_wrap(
+            API_NAMESPACE,
+            "packagekit_remove",
+            |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32, out_ptr: i32, out_cap: i32| -> i32 {
+                let mem: Memory = match caller.get_export("memory") {
+                    Some(Extern::Memory(m)) => m,
+                    _ => return -2,
+                };
+                let Some(req_bytes) = request_bytes(&caller, &mem, req_ptr, req_len) else {
+                    return -2;
+                };
+                let Some((out_ptr, out_cap)) = output_region(&caller, &mem, out_ptr, out_cap) else {
+                    return -2;
+                };
+
+                let req: PackageKitNamesReq = match serde_json::from_slice(req_bytes) {
+                    Ok(req) => req,
+                    Err(err) => return write_error(&mem, &mut caller, out_ptr, out_cap, &format!("invalid PackageKit remove request: {err}")),
+                };
+
+                match RuntimePackageKit::remove(req.names) {
+                    Ok(result) => write_json(&mem, &mut caller, out_ptr, out_cap, &result),
+                    Err(err) => write_error(&mem, &mut caller, out_ptr, out_cap, &err.to_string()),
+                }
+            },
+        )
+        .map_err(|err| anyhow::anyhow!("Failed to register Wasm PackageKit remove helper: {err}"))?;
+
+    linker
+        .func_wrap(
+            API_NAMESPACE,
+            "packagekit_upgrade",
+            |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32, out_ptr: i32, out_cap: i32| -> i32 {
+                let mem: Memory = match caller.get_export("memory") {
+                    Some(Extern::Memory(m)) => m,
+                    _ => return -2,
+                };
+                let Some(req_bytes) = request_bytes(&caller, &mem, req_ptr, req_len) else {
+                    return -2;
+                };
+                let Some((out_ptr, out_cap)) = output_region(&caller, &mem, out_ptr, out_cap) else {
+                    return -2;
+                };
+
+                let req: PackageKitNamesReq = match serde_json::from_slice(req_bytes) {
+                    Ok(req) => req,
+                    Err(err) => return write_error(&mem, &mut caller, out_ptr, out_cap, &format!("invalid PackageKit upgrade request: {err}")),
+                };
+
+                match RuntimePackageKit::upgrade(req.names) {
+                    Ok(result) => write_json(&mem, &mut caller, out_ptr, out_cap, &result),
+                    Err(err) => write_error(&mem, &mut caller, out_ptr, out_cap, &err.to_string()),
+                }
+            },
+        )
+        .map_err(|err| anyhow::anyhow!("Failed to register Wasm PackageKit upgrade helper: {err}"))?;
+
     Ok(())
 }
