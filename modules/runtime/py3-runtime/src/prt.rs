@@ -1,5 +1,5 @@
 use libcommon::SysinspectError;
-use libmodcore::{rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
+use libmodcore::{helpers::RuntimePackageKit, rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
 use rustpython::InterpreterBuilderExt;
 use rustpython_vm::{
     Interpreter, PyObjectRef, PyResult, Settings, VirtualMachine,
@@ -101,6 +101,61 @@ mod rtlog {
     }
 }
 
+#[pymodule]
+mod rtpackagekit {
+    use super::RuntimePackageKit;
+    use rustpython_vm::{PyResult, VirtualMachine};
+
+    /// Return whether PackageKit is reachable on this system.
+    /// # Returns
+    /// * `PyResult<bool>` - True when PackageKit responds over D-Bus.
+    #[pyfunction]
+    fn available(_vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(RuntimePackageKit::available())
+    }
+
+    /// Return current PackageKit daemon status as JSON text.
+    /// # Returns
+    /// * `PyResult<String>` - JSON object encoded as string.
+    #[pyfunction]
+    fn status(vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::status().map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Return PackageKit history as JSON text.
+    /// # Arguments
+    /// * `names` - Package names to inspect.
+    /// * `count` - Optional history depth.
+    /// # Returns
+    /// * `PyResult<String>` - JSON array/object encoded as string.
+    #[pyfunction]
+    fn history(names: Vec<String>, count: Option<u32>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::history(names, count.unwrap_or(10)).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Return installed packages snapshot as JSON text.
+    /// # Returns
+    /// * `PyResult<String>` - JSON array encoded as string.
+    #[pyfunction]
+    fn packages(vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::packages().map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+
+    /// Install packages through PackageKit and return JSON text.
+    /// # Arguments
+    /// * `names` - Package names to install.
+    /// # Returns
+    /// * `PyResult<String>` - JSON result encoded as string.
+    #[pyfunction]
+    fn install(names: Vec<String>, vm: &VirtualMachine) -> PyResult<String> {
+        serde_json::to_string(&RuntimePackageKit::install(names).map_err(|err| vm.new_runtime_error(err.to_string()))?)
+            .map_err(|err| vm.new_runtime_error(err.to_string()))
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum Py3RuntimeError {
     #[error("python runtime error: {0}")]
@@ -144,7 +199,8 @@ impl Py3Runtime {
 
         let builder = rustpython::Interpreter::builder(cfg);
         let rtlog_def = rtlog::module_def(&builder.ctx);
-        let itp = builder.init_stdlib().add_native_module(rtlog_def).build();
+        let rtpackagekit_def = rtpackagekit::module_def(&builder.ctx);
+        let itp = builder.init_stdlib().add_native_module(rtlog_def).add_native_module(rtpackagekit_def).build();
 
         Ok(Self {
             itp,
@@ -296,6 +352,8 @@ impl Py3Runtime {
     fn exec_prelude(&self, vm: &VirtualMachine, scope: rustpython_vm::scope::Scope) -> Result<()> {
         let prelude = r#"
 import rtlog as _sysinspect_rtlog
+import rtpackagekit as _sysinspect_rtpackagekit
+import json as _sysinspect_json
 
 class _SysinspectLogger:
     def error(self, *args):
@@ -311,6 +369,24 @@ class _SysinspectLogger:
         _sysinspect_rtlog.write("DEBUG", " ".join(map(str, args)))
 
 log = _SysinspectLogger()
+
+class _SysinspectPackageKit:
+    def available(self):
+        return _sysinspect_rtpackagekit.available()
+
+    def status(self):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.status())
+
+    def history(self, names, count=10):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.history(names, count))
+
+    def packages(self):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.packages())
+
+    def install(self, names):
+        return _sysinspect_json.loads(_sysinspect_rtpackagekit.install(names))
+
+packagekit = _SysinspectPackageKit()
 "#;
         let code = match vm.compile(prelude, Exec, "<sysinspect-prelude>".to_string()) {
             Ok(code) => code,

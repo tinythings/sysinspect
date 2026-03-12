@@ -9145,6 +9145,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "wasmruntime",
+ "wasmtime",
 ]
 
 [[package]]
@@ -9210,7 +9211,6 @@ dependencies = [
 [[package]]
 name = "wasmruntime"
 version = "0.1.0"
-source = "git+https://github.com/isbm/wasmruntime.git#9723eefb6dc256b82815c1c2420c747929ade4b7"
 dependencies = [
  "anyhow",
  "chrono",
