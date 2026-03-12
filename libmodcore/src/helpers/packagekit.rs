@@ -84,10 +84,59 @@ impl RuntimePackageKit {
             return Err(SysinspectError::ModuleError("PackageKit install requires at least one package name".to_string()));
         }
 
-        let package_ids = Self::resolve_package_ids(&names)?;
+        let package_ids = Self::resolve_available_package_ids(&names)?;
         let changed = Self::install_package_ids(&package_ids)?;
 
         Ok(json!({
+            "action": "install",
+            "requested": names,
+            "package_ids": package_ids,
+            "changed": changed,
+        }))
+    }
+
+    /// Removes installed packages by name through PackageKit.
+    ///
+    /// Arguments:
+    /// * `names` - Package names to resolve and remove.
+    ///
+    /// Returns:
+    /// * `Ok(serde_json::Value)` describing requested names and resolved package ids.
+    /// * `Err(SysinspectError)` if resolution or removal fails.
+    pub fn remove(names: Vec<String>) -> Result<serde_json::Value, SysinspectError> {
+        if names.is_empty() {
+            return Err(SysinspectError::ModuleError("PackageKit remove requires at least one package name".to_string()));
+        }
+
+        let package_ids = Self::resolve_installed_package_ids(&names)?;
+        let changed = Self::remove_package_ids(&package_ids)?;
+
+        Ok(json!({
+            "action": "remove",
+            "requested": names,
+            "package_ids": package_ids,
+            "changed": changed,
+        }))
+    }
+
+    /// Upgrades installed packages by name through PackageKit.
+    ///
+    /// Arguments:
+    /// * `names` - Package names to resolve and upgrade.
+    ///
+    /// Returns:
+    /// * `Ok(serde_json::Value)` describing requested names and resolved package ids.
+    /// * `Err(SysinspectError)` if resolution or upgrade fails.
+    pub fn upgrade(names: Vec<String>) -> Result<serde_json::Value, SysinspectError> {
+        if names.is_empty() {
+            return Err(SysinspectError::ModuleError("PackageKit upgrade requires at least one package name".to_string()));
+        }
+
+        let package_ids = Self::resolve_installed_package_ids(&names)?;
+        let changed = Self::update_package_ids(&package_ids)?;
+
+        Ok(json!({
+            "action": "upgrade",
             "requested": names,
             "package_ids": package_ids,
             "changed": changed,
@@ -128,7 +177,10 @@ impl RuntimePackageKit {
         Ok(packages)
     }
 
-    fn resolve_package_ids(names: &[String]) -> Result<Vec<String>, SysinspectError> {
+    fn resolve_package_ids<F>(names: &[String], select: F, errctx: &str) -> Result<Vec<String>, SysinspectError>
+    where
+        F: Fn(&str) -> bool,
+    {
         let conn = Connection::system().map_err(Self::dbus_err)?;
         let root = Proxy::new(&conn, PK_DEST, PK_PATH, PK_IFACE).map_err(Self::dbus_err)?;
         let tx_path = root.call::<_, _, OwnedObjectPath>("CreateTransaction", &()).map_err(Self::dbus_err)?;
@@ -142,7 +194,7 @@ impl RuntimePackageKit {
             match msg.header().member().map(|m| m.as_str()) {
                 Some("Package") => {
                     let (_, package_id, _) = msg.body().deserialize::<(u32, String, String)>().map_err(Self::dbus_err)?;
-                    if Self::is_available_package_id(&package_id) {
+                    if select(&package_id) {
                         package_ids.push(package_id);
                     }
                 }
@@ -159,13 +211,25 @@ impl RuntimePackageKit {
         package_ids.dedup();
 
         if package_ids.is_empty() {
-            return Err(SysinspectError::ModuleError(format!("PackageKit could not resolve installable package ids for {}", names.join(", "))));
+            return Err(SysinspectError::ModuleError(format!("PackageKit could not resolve {errctx} package ids for {}", names.join(", "))));
         }
 
         Ok(package_ids)
     }
 
+    fn resolve_available_package_ids(names: &[String]) -> Result<Vec<String>, SysinspectError> {
+        Self::resolve_package_ids(names, Self::is_available_package_id, "installable")
+    }
+
+    fn resolve_installed_package_ids(names: &[String]) -> Result<Vec<String>, SysinspectError> {
+        Self::resolve_package_ids(names, Self::is_installed_package_id, "installed")
+    }
+
     fn install_package_ids(package_ids: &[String]) -> Result<Vec<String>, SysinspectError> {
+        Self::run_package_id_transaction("InstallPackages", package_ids, "install")
+    }
+
+    fn remove_package_ids(package_ids: &[String]) -> Result<Vec<String>, SysinspectError> {
         let conn = Connection::system().map_err(Self::dbus_err)?;
         let root = Proxy::new(&conn, PK_DEST, PK_PATH, PK_IFACE).map_err(Self::dbus_err)?;
         let tx_path = root.call::<_, _, OwnedObjectPath>("CreateTransaction", &()).map_err(Self::dbus_err)?;
@@ -173,7 +237,7 @@ impl RuntimePackageKit {
         let mut signals = tx.receive_all_signals().map_err(Self::dbus_err)?;
         let mut changed = Vec::new();
 
-        tx.call::<_, _, ()>("InstallPackages", &(0u64, package_ids.to_vec())).map_err(Self::dbus_err)?;
+        tx.call::<_, _, ()>("RemovePackages", &(0u64, package_ids.to_vec(), true, false)).map_err(Self::dbus_err)?;
 
         for msg in &mut signals {
             match msg.header().member().map(|m| m.as_str()) {
@@ -183,7 +247,45 @@ impl RuntimePackageKit {
                 }
                 Some("ErrorCode") => {
                     let (code, details) = msg.body().deserialize::<(u32, String)>().map_err(Self::dbus_err)?;
-                    return Err(SysinspectError::ModuleError(format!("PackageKit install failed with error code {code}: {details}")));
+                    return Err(SysinspectError::ModuleError(format!("PackageKit remove failed with error code {code}: {details}")));
+                }
+                Some("Finished") => break,
+                _ => (),
+            }
+        }
+
+        changed.sort();
+        changed.dedup();
+        if changed.is_empty() {
+            changed.extend(package_ids.iter().cloned());
+        }
+
+        Ok(changed)
+    }
+
+    fn update_package_ids(package_ids: &[String]) -> Result<Vec<String>, SysinspectError> {
+        Self::run_package_id_transaction("UpdatePackages", package_ids, "upgrade")
+    }
+
+    fn run_package_id_transaction(method: &str, package_ids: &[String], op: &str) -> Result<Vec<String>, SysinspectError> {
+        let conn = Connection::system().map_err(Self::dbus_err)?;
+        let root = Proxy::new(&conn, PK_DEST, PK_PATH, PK_IFACE).map_err(Self::dbus_err)?;
+        let tx_path = root.call::<_, _, OwnedObjectPath>("CreateTransaction", &()).map_err(Self::dbus_err)?;
+        let tx = Proxy::new(&conn, PK_DEST, tx_path.as_str(), PK_TX_IFACE).map_err(Self::dbus_err)?;
+        let mut signals = tx.receive_all_signals().map_err(Self::dbus_err)?;
+        let mut changed = Vec::new();
+
+        tx.call::<_, _, ()>(method, &(0u64, package_ids.to_vec())).map_err(Self::dbus_err)?;
+
+        for msg in &mut signals {
+            match msg.header().member().map(|m| m.as_str()) {
+                Some("Package") => {
+                    let (_, package_id, _) = msg.body().deserialize::<(u32, String, String)>().map_err(Self::dbus_err)?;
+                    changed.push(package_id);
+                }
+                Some("ErrorCode") => {
+                    let (code, details) = msg.body().deserialize::<(u32, String)>().map_err(Self::dbus_err)?;
+                    return Err(SysinspectError::ModuleError(format!("PackageKit {op} failed with error code {code}: {details}")));
                 }
                 Some("Finished") => break,
                 _ => (),
@@ -201,6 +303,10 @@ impl RuntimePackageKit {
 
     pub(crate) fn is_available_package_id(package_id: &str) -> bool {
         package_id.splitn(4, ';').nth(3).is_some_and(|data| !data.starts_with("installed"))
+    }
+
+    pub(crate) fn is_installed_package_id(package_id: &str) -> bool {
+        package_id.splitn(4, ';').nth(3).is_some_and(|data| data.starts_with("installed"))
     }
 
     fn dbus_err(err: zbus::Error) -> SysinspectError {

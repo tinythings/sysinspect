@@ -198,6 +198,20 @@ impl LuaRuntime {
             })?,
         )?;
 
+        pktbl.set(
+            "remove",
+            self.lua.create_function(move |lua, names: Vec<String>| {
+                RuntimePackageKit::remove(names).map_err(|err| mlua::Error::runtime(err.to_string())).and_then(|result| lua.to_value(&result))
+            })?,
+        )?;
+
+        pktbl.set(
+            "upgrade",
+            self.lua.create_function(move |lua, names: Vec<String>| {
+                RuntimePackageKit::upgrade(names).map_err(|err| mlua::Error::runtime(err.to_string())).and_then(|result| lua.to_value(&result))
+            })?,
+        )?;
+
         globals.set("packagekit", pktbl)?;
         Ok(())
     }
