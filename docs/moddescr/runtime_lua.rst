@@ -78,6 +78,20 @@ Practical notes
 * Prefer passing strings and parsing them in Lua when you need structured values.
 * Use ``rt.logs`` while developing scripts, then disable it if you want quieter operation.
 
+Logging
+~~~~~~~
+
+The runtime preinstalls a global ``log`` table in Lua modules with these
+methods:
+
+* ``log.error(...)``
+* ``log.warn(...)``
+* ``log.info(...)``
+* ``log.debug(...)``
+
+When ``rt.logs`` is enabled, emitted log lines are returned in the runtime
+response payload under ``__sysinspect-module-logs``.
+
 Built-in Helper Namespaces
 --------------------------
 
