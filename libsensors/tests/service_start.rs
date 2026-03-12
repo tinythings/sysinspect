@@ -40,4 +40,20 @@ sensors:
             h.await.unwrap();
         }
     }
+
+    #[tokio::test]
+    async fn spawn_returns_abortable_supervisor_handle() {
+        let y = r#"
+sensors:
+  p:
+    listener: procnotify
+"#;
+        let spec = SensorSpec::from_str(y).unwrap();
+        let svc = SensorService::new(spec);
+
+        let h = svc.spawn();
+        tokio::task::yield_now().await;
+        h.abort();
+        let _ = h.await;
+    }
 }
