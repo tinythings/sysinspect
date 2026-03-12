@@ -641,6 +641,37 @@ impl SysInspectModPak {
         Ok(names)
     }
 
+    /// Resolves module removal expressions to concrete module names.
+    ///
+    /// Args:
+    /// * `names` - Exact names or glob expressions such as `cfg.*` or `*`.
+    ///
+    /// Returns:
+    /// * `Ok(Vec<String>)` containing sorted unique module names present in the index.
+    /// * `Err(SysinspectError)` if any expression is an invalid glob pattern.
+    fn resolve_module_names(&self, names: Vec<&str>) -> Result<Vec<String>, SysinspectError> {
+        let mut known = IndexMap::<String, ()>::new();
+        for (_, archset) in self.idx.all_modules(None, None) {
+            for (_, modules) in archset {
+                for name in modules.keys() {
+                    known.insert(name.to_string(), ());
+                }
+            }
+        }
+
+        let mut resolved = IndexMap::<String, ()>::new();
+        for name in names {
+            let expr = glob::Pattern::new(name).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern '{name}': {e}")))?;
+            for module in known.keys().filter(|module| expr.matches(module)) {
+                resolved.insert(module.to_string(), ());
+            }
+        }
+
+        let mut names = resolved.into_keys().collect::<Vec<_>>();
+        names.sort();
+        Ok(names)
+    }
+
     /// Removes libraries from the repository and index.
     ///
     /// Args:
@@ -676,8 +707,10 @@ impl SysInspectModPak {
 
     /// Removes a module from the repository and index.
     pub fn remove_module(&mut self, name: Vec<&str>) -> Result<(), SysinspectError> {
+        let names = self.resolve_module_names(name)?;
         let mut c = 0;
-        for (p, archset) in self.idx.all_modules(None, Some(name.clone())) {
+        let name_refs = names.iter().map(String::as_str).collect::<Vec<_>>();
+        for (p, archset) in self.idx.all_modules(None, Some(name_refs.clone())) {
             for (arch, modules) in archset {
                 for attrs in modules.values() {
                     let path = self.root.join(
@@ -706,11 +739,11 @@ impl SysInspectModPak {
 
         // Update the index
         if c > 0 {
-            self.idx.remove_module_all(name.clone())?; // unindex
+            self.idx.remove_module_all(name_refs)?; // unindex
             fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
-            log::info!("Module{} {} has been removed", if name.len() > 1 { "s" } else { "" }, name.join(", ").bright_yellow());
+            log::info!("Module{} {} has been removed", if names.len() > 1 { "s" } else { "" }, names.join(", ").bright_yellow());
         } else {
-            log::error!("No module{} found: {}", if name.len() > 1 { "s" } else { "" }, name.join(", ").bright_yellow());
+            log::error!("No module{} found: {}", if names.len() > 1 { "s" } else { "" }, names.join(", ").bright_yellow());
         }
 
         Ok(())
