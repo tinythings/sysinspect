@@ -3730,6 +3730,7 @@ dependencies = [
  "colored",
  "humantime",
  "libcommon",
+ "libmodcore",
  "log",
  "mlua",
  "reqwest 0.12.28",
@@ -3738,7 +3739,6 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "thiserror 2.0.18",
- "zbus",
 ]
 
 [[package]]
@@ -3760,6 +3760,7 @@ dependencies = [
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "textwrap",
+ "zbus",
 ]
 
 [[package]]
