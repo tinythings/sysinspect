@@ -177,6 +177,7 @@ impl<'a> MeNotifyHost<'a> {
     {
         Ok(scope.create_function(move |lua, ()| {
             MeNotifyPackageKit::status()
+                .map_err(|err| MeNotifyError::PackageKit(err.to_string()))
                 .and_then(|status| lua.to_value(&status).map_err(MeNotifyError::from))
                 .map_err(|err| mlua::Error::runtime(err.to_string()))
         })?)
@@ -188,6 +189,7 @@ impl<'a> MeNotifyHost<'a> {
     {
         Ok(scope.create_function(move |lua, ()| {
             MeNotifyPackageKit::packages()
+                .map_err(|err| MeNotifyError::PackageKit(err.to_string()))
                 .and_then(|packages| lua.to_value(&packages).map_err(MeNotifyError::from))
                 .map_err(|err| mlua::Error::runtime(err.to_string()))
         })?)
@@ -199,6 +201,7 @@ impl<'a> MeNotifyHost<'a> {
     {
         Ok(scope.create_function(move |lua, (names, count): (Vec<String>, Option<u32>)| {
             MeNotifyPackageKit::history(names, count.unwrap_or(10))
+                .map_err(|err| MeNotifyError::PackageKit(err.to_string()))
                 .and_then(|history| lua.to_value(&history).map_err(MeNotifyError::from))
                 .map_err(|err| mlua::Error::runtime(err.to_string()))
         })?)

@@ -31,10 +31,6 @@ pub enum MeNotifyError {
     #[error("http runtime error: {0}")]
     Http(#[from] reqwest::Error),
 
-    /// D-Bus runtime returned an error while calling a local endpoint.
-    #[error("dbus runtime error: {0}")]
-    Dbus(#[from] zbus::Error),
-
     /// Script does not export a valid entrypoint.
     #[error("module '{0}' must export either tick(ctx) or loop(ctx)")]
     MissingEntrypoint(String),
