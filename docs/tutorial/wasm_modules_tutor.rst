@@ -246,6 +246,20 @@ At present, the Wasm runtime operates in **spartan mode**:
 
 This reduces maintenance cost and keeps runtime behavior transparent.
 
+The Wasm host API now also exposes low-level PackageKit helper imports under
+the ``api`` import module:
+
+- ``packagekit_available() -> i32``
+- ``packagekit_status(out_ptr, out_cap) -> i32``
+- ``packagekit_packages(out_ptr, out_cap) -> i32``
+- ``packagekit_history(req_ptr, req_len, out_ptr, out_cap) -> i32``
+- ``packagekit_install(req_ptr, req_len, out_ptr, out_cap) -> i32``
+
+These imports are intentionally low-level. They return JSON payloads through
+guest memory buffers, unlike the higher-level Lua and Python helper namespaces.
+The helper remains Linux-only and depends on PackageKit being present on the
+host system.
+
 Calling a Wasm module from a model
 ----------------------------------
 
