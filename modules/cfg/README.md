@@ -1,3 +1,3 @@
-# Ansible Integration
+# Configuration Modules
 
-The `cfg.mgmt` module implements Ansible integration.
+This namespace contains configuration-related modules.

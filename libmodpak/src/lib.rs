@@ -623,7 +623,7 @@ impl SysInspectModPak {
     /// Resolves library removal expressions to concrete library names.
     ///
     /// Args:
-    /// * `names` - Exact names or glob expressions such as `ansible/*`.
+    /// * `names` - Exact names or glob expressions such as `library/*`.
     ///
     /// Returns:
     /// * `Ok(Vec<String>)` containing sorted unique library names present in the index.

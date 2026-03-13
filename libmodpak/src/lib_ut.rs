@@ -27,8 +27,8 @@ mod tests {
     fn seeded_repo() -> (tempfile::TempDir, SysInspectModPak) {
         let root = tempfile::tempdir().expect("repo tempdir should be created");
         let src = tempfile::tempdir().expect("src tempdir should be created");
-        write_library(src.path(), "ansible/foo.py");
-        write_library(src.path(), "ansible/bar.py");
+        write_library(src.path(), "library/foo.py");
+        write_library(src.path(), "library/bar.py");
         write_library(src.path(), "lua/baz.lua");
 
         let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
@@ -78,18 +78,18 @@ mod tests {
         repo.remove_library(vec!["lib/lua/baz.lua".to_string()]).expect("exact library removal should succeed");
 
         assert!(!root.path().join("lib/lib/lua/baz.lua").exists());
-        assert!(root.path().join("lib/lib/ansible/foo.py").exists());
-        assert!(root.path().join("lib/lib/ansible/bar.py").exists());
+        assert!(root.path().join("lib/lib/library/foo.py").exists());
+        assert!(root.path().join("lib/lib/library/bar.py").exists());
     }
 
     #[test]
     fn remove_library_supports_glob_patterns() {
         let (root, mut repo) = seeded_repo();
 
-        repo.remove_library(vec!["ansible/*".to_string()]).expect("glob library removal should succeed");
+        repo.remove_library(vec!["library/*".to_string()]).expect("glob library removal should succeed");
 
-        assert!(!root.path().join("lib/lib/ansible/foo.py").exists());
-        assert!(!root.path().join("lib/lib/ansible/bar.py").exists());
+        assert!(!root.path().join("lib/lib/library/foo.py").exists());
+        assert!(!root.path().join("lib/lib/library/bar.py").exists());
         assert!(root.path().join("lib/lib/lua/baz.lua").exists());
     }
 
@@ -97,7 +97,7 @@ mod tests {
     fn remove_library_rejects_invalid_glob_patterns() {
         let (_, mut repo) = seeded_repo();
 
-        assert!(repo.remove_library(vec!["ansible/[".to_string()]).is_err());
+        assert!(repo.remove_library(vec!["library/[".to_string()]).is_err());
     }
 
     #[test]

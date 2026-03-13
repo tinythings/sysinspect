@@ -16,7 +16,7 @@ Here, Wasm is used as a *portable execution format*, comparable to a Java ``.jar
 a single, architecture-independent artifact that can be distributed and executed
 consistently across heterogeneous systems.
 
-Traditional configuration management systems (Ansible, Salt, Puppet, etc.) primarily execute
+Traditional configuration management systems primarily execute
 scripts or, in some cases, native binaries directly on the target system. As soon as compiled binaries
 are involved, this approach becomes fragile:
 
