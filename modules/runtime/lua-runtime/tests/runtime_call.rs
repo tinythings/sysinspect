@@ -159,8 +159,11 @@ return {
     run = function(req)
         return {
             host = req.host,
-            host_name = req.host.sys.hostname.short,
-            sharelib = req.host.paths.sharelib
+            host_name = host.trait("system.hostname"),
+            has_host = host.has("system.hostname"),
+            has_missing = host.has("system.kernel"),
+            sharelib = host.path("sharelib"),
+            paths = host.paths()
         }
     end
 }
@@ -286,7 +289,7 @@ fn test_lua_runtime_passes_host_context_to_guest() {
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy() },
         "host": {
-            "sys": { "hostname": { "short": "lua-host" } },
+            "traits": { "system.hostname": "lua-host" },
             "paths": { "sharelib": "/srv/lua-share" }
         },
         "opts": [],
@@ -295,8 +298,10 @@ fn test_lua_runtime_passes_host_context_to_guest() {
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
     assert_eq!(out.pointer("/data/data/host_name"), Some(&json!("lua-host")));
+    assert_eq!(out.pointer("/data/data/has_host"), Some(&json!(true)));
+    assert_eq!(out.pointer("/data/data/has_missing"), Some(&json!(false)));
     assert_eq!(out.pointer("/data/data/sharelib"), Some(&json!("/srv/lua-share")));
-    assert_eq!(out.pointer("/data/data/host/sys/hostname/short"), Some(&json!("lua-host")));
+    assert_eq!(out.pointer("/data/data/paths/sharelib"), Some(&json!("/srv/lua-share")));
 }
 
 #[test]

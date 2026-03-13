@@ -281,6 +281,9 @@ edition = "2024"
 
 [workspace]
 
+[dependencies]
+serde_json = "1"
+
 [profile.release]
 opt-level = "z"
 lto = true
@@ -292,26 +295,35 @@ strip = true
 static HOSTPEEK_MAIN_RS: &str = r##"
 use std::io::{self, Read};
 
+mod sysinspect_host;
+
 fn read_header() -> Result<String, String> {
     let mut buf = String::new();
     io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read: {err}"))?;
     Ok(buf.lines().next().unwrap_or_default().to_string())
 }
 
-fn has_host(src: &str) -> bool {
-    src.contains("\"host\":{") && src.contains("\"short\":\"wasm-host\"") && src.contains("\"sharelib\":\"/srv/wasm-share\"")
-}
-
 fn main() {
-    let hdr = match read_header() {
-        Ok(hdr) => hdr,
+    match read_header() {
+        Ok(_) => {}
         Err(err) => {
             eprintln!("{err}");
             std::process::exit(1);
         }
-    };
+    }
 
-    println!("{{\"has_host\":{}}}", if has_host(&hdr) { "true" } else { "false" });
+    let host_name = sysinspect_host::trait_value("system.hostname");
+    let sharelib = sysinspect_host::path_value("sharelib");
+    let paths = sysinspect_host::paths();
+
+    println!(
+        "{{\"has_host\":{},\"has_missing\":{},\"host_name_ok\":{},\"sharelib_ok\":{},\"paths_ok\":{}}}",
+        if sysinspect_host::has("system.hostname") { "true" } else { "false" },
+        if sysinspect_host::has("system.kernel") { "true" } else { "false" },
+        if host_name == Some(serde_json::json!("wasm-host")) { "true" } else { "false" },
+        if sharelib == Some(serde_json::json!("/srv/wasm-share")) { "true" } else { "false" },
+        if paths.and_then(|v| v.get("sharelib").cloned()) == Some(serde_json::json!("/srv/wasm-share")) { "true" } else { "false" }
+    );
 }
 "##;
 
@@ -471,6 +483,13 @@ fn install_test_modules(root: &Path) -> Vec<String> {
     let echoreq = build_rust_example(echoreq_src.path(), "echoreq.wasm", "echoreq");
     install_module(root, &echoreq, "echoreq.wasm");
     let hostpeek_src = stage_rust_example("hostpeek", &[("Cargo.toml", HOSTPEEK_CARGO_TOML), ("src/main.rs", HOSTPEEK_MAIN_RS)]);
+    let host_helper = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/rust-sdk/host.rs");
+    if let Err(err) = fs::write(
+        hostpeek_src.path().join("src/sysinspect_host.rs"),
+        fs::read_to_string(&host_helper).unwrap_or_else(|read_err| panic!("failed to read Wasm host helper {}: {read_err}", host_helper.display())),
+    ) {
+        panic!("failed to write staged Wasm host helper: {err}");
+    }
     let hostpeek = build_rust_example(hostpeek_src.path(), "hostpeek.wasm", "hostpeek");
     install_module(root, &hostpeek, "hostpeek.wasm");
     let mut modules = vec!["caller".to_string(), "echoreq".to_string(), "hellodude".to_string(), "hostpeek".to_string(), "pkgavail".to_string()];
@@ -591,7 +610,7 @@ fn test_wasm_runtime_passes_host_context_to_guest() {
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy() },
         "host": {
-            "sys": { "hostname": { "short": "wasm-host" } },
+            "traits": { "system.hostname": "wasm-host" },
             "paths": { "sharelib": "/srv/wasm-share" }
         },
         "opts": [],
@@ -599,7 +618,18 @@ fn test_wasm_runtime_passes_host_context_to_guest() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/has_host"), Some(&json!(true)));
+    assert_eq!(
+        out.get("data"),
+        Some(&json!({
+            "changed": false,
+            "has_host": true,
+            "has_missing": false,
+            "host_name_ok": true,
+            "sharelib_ok": true,
+            "paths_ok": true,
+            "__sysinspect-module-logs": []
+        }))
+    );
 }
 
 #[test]

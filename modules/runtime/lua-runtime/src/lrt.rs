@@ -1,4 +1,8 @@
-use libmodcore::{helpers::RuntimePackageKit, rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
+use libmodcore::{
+    helpers::{RuntimeHost, RuntimePackageKit},
+    rtdocschema::validate_module_doc,
+    rtspec::RuntimeSpec,
+};
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue, Variadic};
 use serde_json::Value as JsonValue;
 use std::{
@@ -63,6 +67,7 @@ impl LuaRuntime {
         };
         rt.set_logger()?;
         rt.set_packagekit()?;
+        rt.set_host(&serde_json::json!({}))?;
 
         Ok(rt)
     }
@@ -225,6 +230,51 @@ impl LuaRuntime {
         Ok(())
     }
 
+    /// Set up read-only host helper accessors in Lua globals.
+    ///
+    /// The helper reads from the request payload passed to the current module
+    /// call and only reshapes data already present in `req.host`.
+    fn set_host(&self, req: &JsonValue) -> mlua::Result<()> {
+        let globals = self.lua.globals();
+        let hosttbl: Table = self.lua.create_table()?;
+        let host_data = std::sync::Arc::new(req.get("host").cloned().unwrap_or_else(|| serde_json::json!({})));
+
+        {
+            let host_data = host_data.clone();
+            hosttbl.set(
+                "trait",
+                self.lua.create_function(move |lua, name: String| {
+                    let value = RuntimeHost::new(host_data.as_ref()).trait_value(&name).unwrap_or(JsonValue::Null);
+                    lua.to_value(&value)
+                })?,
+            )?;
+        }
+
+        {
+            let host_data = host_data.clone();
+            hosttbl.set("has", self.lua.create_function(move |_, name: String| Ok(RuntimeHost::new(host_data.as_ref()).has_trait(&name)))?)?;
+        }
+
+        {
+            let host_data = host_data.clone();
+            hosttbl.set("paths", self.lua.create_function(move |lua, ()| lua.to_value(&RuntimeHost::new(host_data.as_ref()).paths()))?)?;
+        }
+
+        {
+            let host_data = host_data.clone();
+            hosttbl.set(
+                "path",
+                self.lua.create_function(move |lua, name: String| {
+                    let value = RuntimeHost::new(host_data.as_ref()).path_value(&name).unwrap_or(JsonValue::Null);
+                    lua.to_value(&value)
+                })?,
+            )?;
+        }
+
+        globals.set("host", hosttbl)?;
+        Ok(())
+    }
+
     // Lua package.path uses ; separated patterns with ?
     // Typical: /path/?.lua;/path/?/init.lua
     fn path_fragment(dir: &Path) -> String {
@@ -256,6 +306,7 @@ impl LuaRuntime {
         if let Ok(mut m) = self.modulename.lock() {
             *m = modname.to_string();
         }
+        self.set_host(req)?;
 
         // Tell Lua module its name
         self.lua.globals().set("__module_name", modname)?;
@@ -298,6 +349,7 @@ impl LuaRuntime {
     /// println!("{}", serde_json::to_string_pretty(&doc).unwrap());
     /// ```
     pub fn module_doc(&self, code: &str) -> Result<JsonValue> {
+        self.set_host(&serde_json::json!({}))?;
         let module: Table = self.lua.load(code).eval()?;
         let doc: LuaValue = module.get(RuntimeSpec::DocumentationFunction.to_string())?;
 
