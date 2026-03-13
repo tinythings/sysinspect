@@ -401,15 +401,18 @@ pub struct SysInspectModPak {
 }
 
 impl SysInspectModPak {
+    /// Load the on-disk profiles index published next to the module repository.
     fn get_profiles_index(&self) -> Result<ModPakProfilesIndex, SysinspectError> {
         ModPakProfilesIndex::from_yaml(&fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX))?)
     }
 
+    /// Persist the profiles index next to the module repository.
     fn set_profiles_index(&self, index: &ModPakProfilesIndex) -> Result<(), SysinspectError> {
         fs::write(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX), index.to_yaml()?)?;
         Ok(())
     }
 
+    /// Load one profile by canonical name and verify the file content name matches the index entry.
     fn get_profile(&self, name: &str) -> Result<ModPakProfile, SysinspectError> {
         let index = self.get_profiles_index()?;
         let entry = index
@@ -429,6 +432,7 @@ impl SysInspectModPak {
         }
     }
 
+    /// Persist one profile file and refresh its `profiles.index` checksum entry.
     fn set_profile(&self, name: &str, profile: &ModPakProfile) -> Result<(), SysinspectError> {
         let mut index = self.get_profiles_index()?;
         let file = PathBuf::from(format!("{name}.profile"));
@@ -441,6 +445,7 @@ impl SysInspectModPak {
         self.set_profiles_index(&index)
     }
 
+    /// Remove one profile file and its `profiles.index` entry.
     fn remove_profile_entry(&self, name: &str) -> Result<(), SysinspectError> {
         let mut index = self.get_profiles_index()?;
         if let Some(entry) = index.profiles().get(name)
@@ -759,6 +764,7 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    /// List profile names filtered by an optional glob expression.
     pub fn list_profiles(&self, expr: Option<&str>) -> Result<Vec<String>, SysinspectError> {
         let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {e}")))?;
         let mut profiles = self.get_profiles_index()?.profiles().keys().filter(|name| expr.matches(name)).map(|name| name.to_string()).collect::<Vec<_>>();
@@ -766,6 +772,7 @@ impl SysInspectModPak {
         Ok(profiles)
     }
 
+    /// Create a new empty profile with the given canonical name.
     pub fn new_profile(&self, name: &str) -> Result<(), SysinspectError> {
         if self.get_profiles_index()?.get(name).is_some() {
             return Err(SysinspectError::MasterGeneralError(format!("Profile {} already exists", name.bright_yellow())));
@@ -773,6 +780,7 @@ impl SysInspectModPak {
         self.set_profile(name, &ModPakProfile::new(name))
     }
 
+    /// Delete one profile by canonical name.
     pub fn delete_profile(&self, name: &str) -> Result<(), SysinspectError> {
         if self.get_profiles_index()?.get(name).is_none() {
             return Err(SysinspectError::MasterGeneralError(format!("Profile {} was not found", name.bright_yellow())));
@@ -780,6 +788,7 @@ impl SysInspectModPak {
         self.remove_profile_entry(name)
     }
 
+    /// Add module or library selectors to the named profile.
     pub fn add_profile_matches(&self, name: &str, matches: Vec<String>, library: bool) -> Result<(), SysinspectError> {
         let mut profile = self.get_profile(name)?;
         if library {
@@ -790,6 +799,7 @@ impl SysInspectModPak {
         self.set_profile(name, &profile)
     }
 
+    /// Remove module or library selectors from the named profile.
     pub fn remove_profile_matches(&self, name: &str, matches: Vec<String>, library: bool) -> Result<(), SysinspectError> {
         let mut profile = self.get_profile(name)?;
         if library {
@@ -800,6 +810,7 @@ impl SysInspectModPak {
         self.set_profile(name, &profile)
     }
 
+    /// List module or library selectors for profiles matching the optional glob expression.
     pub fn list_profile_matches(&self, expr: Option<&str>, library: bool) -> Result<Vec<String>, SysinspectError> {
         let mut out = Vec::new();
         for profile in self.list_profiles(expr)? {
