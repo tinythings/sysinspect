@@ -34,7 +34,7 @@ use libsysinspect::{
         fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     },
     rsa,
-    traits::{self},
+    traits::{self, TraitUpdateRequest, ensure_master_traits_file},
     util::{self, dataconv},
 };
 use libsysproto::{
@@ -171,6 +171,7 @@ impl SysMinion {
             log::debug!("Creating directory for the drop-in traits at {}", self.cfg.traits_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.traits_dir())?;
         }
+        ensure_master_traits_file(&self.cfg)?;
 
         // Place for trait functions
         if !self.cfg.functions_dir().exists() {
@@ -843,13 +844,42 @@ impl SysMinion {
             }
             CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
+                if let Err(e) = ensure_master_traits_file(&self.cfg) {
+                    log::error!("Failed to ensure master-managed traits file: {e}");
+                }
                 if let Err(e) = SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
                     log::error!("Failed to sync minion with master: {e}");
                 }
                 let _ = self.as_ptr().send_sensors_sync().await;
             }
             CLUSTER_TRAITS_UPDATE => {
-                log::error!("Received traits update payload: {}", context);
+                match TraitUpdateRequest::from_context(context) {
+                    Ok(update) => match update.apply(&self.cfg) {
+                        Ok(_) => {
+                            let summary = if update.op() == "reset" {
+                                "all master-managed traits".bright_yellow().to_string()
+                            } else if update.op() == "unset" {
+                                update.traits().keys().map(|key| key.yellow().to_string()).collect::<Vec<String>>().join(", ")
+                            } else {
+                                update
+                                    .traits()
+                                    .iter()
+                                    .map(|(key, value)| format!("{}: {}", key.yellow(), dataconv::to_string(Some(value.clone())).unwrap_or_default().bright_yellow()))
+                                    .collect::<Vec<String>>()
+                                    .join(", ")
+                            };
+                            let label = match update.op() {
+                                "set" => "Set traits",
+                                "unset" => "Unset traits",
+                                "reset" => "Reset traits",
+                                _ => "Updated traits",
+                            };
+                            log::info!("{}: {}", label, summary);
+                        }
+                        Err(err) => log::error!("Failed to apply traits update: {err}"),
+                    },
+                    Err(err) => log::error!("Failed to parse traits update payload: {err}"),
+                }
             }
             _ => {
                 log::warn!("Unknown command: {cmd}");
