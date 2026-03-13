@@ -95,6 +95,35 @@ map of minion traits. This is intentionally dynamic, because traits can be built
 sources, including user-controlled ones. Small convenience sections such as ``host.paths`` and
 ``host.capabilities`` may exist, but they are secondary to ``host.traits``.
 
+Helper Taxonomy
+---------------
+
+Runtime helpers are split into two categories:
+
+* passive descriptive data
+* active helper operations
+
+Passive descriptive data stays in the shared request payload, primarily under ``host``.
+This is the portable core contract and should be preferred whenever a script only needs
+facts about the current minion or runtime call.
+
+Active helper operations must stay in explicit helper namespaces instead of being stuffed
+into ``host``. This keeps the protocol boundary clear: ``host`` describes the system,
+while helper namespaces perform host-assisted operations.
+
+Current portable helper surfaces are:
+
+* ``host`` helper facades in Lua, Py3, and Wasm guest helper code
+* runtime logging facilities, normalised into ``__sysinspect-module-logs``
+
+Current platform-specific helpers are:
+
+* ``packagekit`` for Lua and Py3
+* low-level PackageKit host imports for Wasm guests
+
+``packagekit`` remains intentionally separate from ``host``. It is an active, Linux-specific
+integration and is not part of the portable descriptive contract.
+
 ``ext`` is used for *arbitrary* caller-specific data. It is understood only by the receiving module.
 Example:
 

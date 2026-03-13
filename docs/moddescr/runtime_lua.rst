@@ -99,6 +99,25 @@ response payload under ``__sysinspect-module-logs``.
 Built-in Helper Namespaces
 --------------------------
 
+Portable helpers
+~~~~~~~~~~~~~~~~
+
+The Lua runtime preinstalls a portable ``host`` helper namespace that reshapes
+the shared ``req.host`` payload without adding hidden behavior.
+
+Available helper functions:
+
+* ``host.trait(name)``
+* ``host.has(name)``
+* ``host.paths()``
+* ``host.path(name)``
+
+Use ``host`` for passive descriptive data. The source of truth remains
+``req.host`` itself, especially ``req.host.traits``.
+
+Platform-specific helpers
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
 The Lua runtime preinstalls a ``packagekit`` helper namespace for runtime
 scripts on Linux systems where PackageKit is available over D-Bus.
 
@@ -112,6 +131,7 @@ Available helper functions:
 * ``packagekit.remove(names)``
 * ``packagekit.upgrade(names)``
 
-``packagekit`` is optional and Linux-only. If PackageKit is unavailable, then
+``packagekit`` is optional and Linux-only. It is an active helper namespace,
+not part of the portable core contract. If PackageKit is unavailable, then
 ``packagekit.available()`` returns ``false`` and the other calls may raise a
 runtime error when invoked.

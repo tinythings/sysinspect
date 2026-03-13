@@ -104,6 +104,26 @@ response payload under ``__sysinspect-module-logs``.
 Helpers
 ~~~~~~~
 
+Portable helpers
+^^^^^^^^^^^^^^^^
+
+The Python runtime preinstalls a portable ``host`` helper object that reads
+from ``req["host"]`` and exposes the same helper meanings as Lua and Wasm
+guest helper code.
+
+Available helper methods:
+
+* ``host.trait(name)``
+* ``host.has(name)``
+* ``host.paths()``
+* ``host.path(name)``
+
+Use ``host`` for passive descriptive data. The source of truth remains
+``req["host"]``, especially ``req["host"]["traits"]``.
+
+Platform-specific helpers
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
 The runtime also preinstalls a ``packagekit`` helper namespace for Python
 modules:
 
@@ -115,7 +135,8 @@ modules:
 * ``packagekit.remove(names)``
 * ``packagekit.upgrade(names)``
 
-``packagekit`` is Linux-only and optional. On systems without PackageKit,
+``packagekit`` is Linux-only and optional. It is an active helper namespace,
+not part of the portable core contract. On systems without PackageKit,
 ``packagekit.available()`` returns ``False`` and the other calls may raise a
 runtime error if used anyway.
 
