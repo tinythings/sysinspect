@@ -135,6 +135,9 @@ return {
             config_value = req.config["custom.flag"],
             opts = req.opts,
             ext = req.ext,
+            host = req.host,
+            host_name = req.host.traits["system.hostname"],
+            host_sharelib = req.host.paths.sharelib,
             types = {
                 truth = true,
                 nothing = vim and nil or nil,
@@ -396,6 +399,10 @@ fn test_lua_runtime_preserves_request_sections_and_json_types() {
 
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy(), "custom.flag": "seen" },
+        "host": {
+            "traits": { "system.hostname": "lua-minion" },
+            "paths": { "sharelib": "/srv/lua-share" }
+        },
         "opts": ["alpha", "beta", "rt.logs"],
         "args": { "rt.mod": "echoreq", "name": "Germany", "enabled": true, "count": 7 },
         "trace_id": "abc-123",
@@ -410,6 +417,12 @@ fn test_lua_runtime_preserves_request_sections_and_json_types() {
             "config_value": "seen",
             "opts": ["alpha", "beta"],
             "ext": { "trace_id": "abc-123", "payload": { "items": [1, 2, 3] } },
+            "host": {
+                "traits": { "system.hostname": "lua-minion" },
+                "paths": { "sharelib": "/srv/lua-share" }
+            },
+            "host_name": "lua-minion",
+            "host_sharelib": "/srv/lua-share",
             "types": {
                 "truth": true,
                 "items": [1, "two", false],

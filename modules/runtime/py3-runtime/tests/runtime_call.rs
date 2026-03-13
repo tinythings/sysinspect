@@ -125,6 +125,9 @@ def run(req):
         "config_value": req["config"].get("custom.flag"),
         "opts": req["opts"],
         "ext": req["ext"],
+        "host": req["host"],
+        "host_name": req["host"]["traits"]["system.hostname"],
+        "host_sharelib": req["host"]["paths"]["sharelib"],
         "types": {
             "truth": True,
             "nothing": None,
@@ -399,6 +402,10 @@ fn test_python_runtime_preserves_request_sections_and_json_types() {
 
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy(), "custom.flag": "seen" },
+        "host": {
+            "traits": { "system.hostname": "py-minion" },
+            "paths": { "sharelib": "/srv/py-share" }
+        },
         "opts": ["alpha", "beta", "rt.logs"],
         "args": { "rt.mod": "echoreq", "name": "Germany", "enabled": true, "count": 7 },
         "trace_id": "abc-123",
@@ -413,6 +420,12 @@ fn test_python_runtime_preserves_request_sections_and_json_types() {
             "config_value": "seen",
             "opts": ["alpha", "beta"],
             "ext": { "trace_id": "abc-123", "payload": { "items": [1, 2, 3] } },
+            "host": {
+                "traits": { "system.hostname": "py-minion" },
+                "paths": { "sharelib": "/srv/py-share" }
+            },
+            "host_name": "py-minion",
+            "host_sharelib": "/srv/py-share",
             "types": {
                 "truth": true,
                 "nothing": null,

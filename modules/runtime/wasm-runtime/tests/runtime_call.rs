@@ -315,6 +315,61 @@ fn main() {
 }
 "##;
 
+static ECHOREQ_CARGO_TOML: &str = r#"
+[package]
+name = "echoreq"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+"#;
+
+static ECHOREQ_MAIN_RS: &str = r##"
+use std::io::{self, Read};
+
+fn read_header() -> Result<String, String> {
+    let mut buf = String::new();
+    io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read: {err}"))?;
+    Ok(buf.lines().next().unwrap_or_default().to_string())
+}
+
+fn has(src: &str, needle: &str) -> bool {
+    src.contains(needle)
+}
+
+fn main() {
+    let hdr = match read_header() {
+        Ok(hdr) => hdr,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    println!(
+        "{{\"args_name\":{},\"args_enabled\":{},\"args_count\":{},\"opts_alpha\":{},\"opts_beta\":{},\"config_seen\":{},\"ext_seen\":{},\"host_trait_seen\":{},\"host_path_seen\":{},\"no_rt_mod\":{},\"no_rt_logs\":{}}}",
+        if has(&hdr, "\"name\":\"Germany\"") { "true" } else { "false" },
+        if has(&hdr, "\"enabled\":true") { "true" } else { "false" },
+        if has(&hdr, "\"count\":7") { "true" } else { "false" },
+        if has(&hdr, "\"alpha\"") { "true" } else { "false" },
+        if has(&hdr, "\"beta\"") { "true" } else { "false" },
+        if has(&hdr, "\"custom.flag\":\"seen\"") { "true" } else { "false" },
+        if has(&hdr, "\"trace_id\":\"abc-123\"") && has(&hdr, "\"items\":[1,2,3]") { "true" } else { "false" },
+        if has(&hdr, "\"system.hostname\":\"wasm-minion\"") { "true" } else { "false" },
+        if has(&hdr, "\"sharelib\":\"/srv/wasm-share\"") { "true" } else { "false" },
+        if !has(&hdr, "\"rt.mod\"") { "true" } else { "false" },
+        if !has(&hdr, "\"rt.logs\"") { "true" } else { "false" }
+    );
+}
+"##;
+
 fn mk_tmp_runtime_root() -> TempDir {
     tempfile::Builder::new()
         .prefix("sysinspect-wasm-runtime-test-")
@@ -412,10 +467,13 @@ fn install_test_modules(root: &Path) -> Vec<String> {
     let pkgavail_src = stage_rust_example("pkgavail", &[("Cargo.toml", PKGAVAIL_CARGO_TOML), ("src/main.rs", PKGAVAIL_MAIN_RS)]);
     let pkgavail = build_rust_example(pkgavail_src.path(), "pkgavail.wasm", "pkgavail");
     install_module(root, &pkgavail, "pkgavail.wasm");
+    let echoreq_src = stage_rust_example("echoreq", &[("Cargo.toml", ECHOREQ_CARGO_TOML), ("src/main.rs", ECHOREQ_MAIN_RS)]);
+    let echoreq = build_rust_example(echoreq_src.path(), "echoreq.wasm", "echoreq");
+    install_module(root, &echoreq, "echoreq.wasm");
     let hostpeek_src = stage_rust_example("hostpeek", &[("Cargo.toml", HOSTPEEK_CARGO_TOML), ("src/main.rs", HOSTPEEK_MAIN_RS)]);
     let hostpeek = build_rust_example(hostpeek_src.path(), "hostpeek.wasm", "hostpeek");
     install_module(root, &hostpeek, "hostpeek.wasm");
-    let mut modules = vec!["caller".to_string(), "hellodude".to_string(), "hostpeek".to_string(), "pkgavail".to_string()];
+    let mut modules = vec!["caller".to_string(), "echoreq".to_string(), "hellodude".to_string(), "hostpeek".to_string(), "pkgavail".to_string()];
     if let Some(rs_reader) = prebuilt_rs_reader() {
         install_module(root, &rs_reader, "rs-reader.wasm");
         modules.push("rs-reader".to_string());
@@ -542,6 +600,44 @@ fn test_wasm_runtime_passes_host_context_to_guest() {
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
     assert_eq!(out.pointer("/data/has_host"), Some(&json!(true)));
+}
+
+#[test]
+fn test_wasm_runtime_preserves_request_sections_and_contract_shape() {
+    let root = mk_tmp_runtime_root();
+    install_test_modules(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy(), "custom.flag": "seen" },
+        "host": {
+            "traits": { "system.hostname": "wasm-minion" },
+            "paths": { "sharelib": "/srv/wasm-share" }
+        },
+        "opts": ["alpha", "beta", "rt.logs"],
+        "args": { "rt.mod": "echoreq", "name": "Germany", "enabled": true, "count": 7 },
+        "trace_id": "abc-123",
+        "payload": { "items": [1, 2, 3] }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(
+        out.get("data"),
+        Some(&json!({
+            "changed": false,
+            "args_name": true,
+            "args_enabled": true,
+            "args_count": true,
+            "opts_alpha": true,
+            "opts_beta": true,
+            "config_seen": true,
+            "ext_seen": true,
+            "host_trait_seen": true,
+            "host_path_seen": true,
+            "no_rt_mod": true,
+            "no_rt_logs": true,
+            "__sysinspect-module-logs": []
+        }))
+    );
 }
 
 #[test]
