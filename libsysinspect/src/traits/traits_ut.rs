@@ -1,5 +1,5 @@
 use crate::cfg::mmconf::MinionConfig;
-use crate::traits::{MASTER_TRAITS_FILE, TraitUpdateRequest, ensure_master_traits_file};
+use crate::traits::{MASTER_TRAITS_FILE, TraitUpdateRequest, effective_profiles, ensure_master_traits_file};
 use crate::traits::systraits::SystemTraits;
 use std::fs;
 
@@ -85,4 +85,18 @@ fn empty_master_traits_file_is_accepted_during_trait_load() {
 
     let traits = SystemTraits::new(cfg, true);
     assert!(!traits.has("foo"), "header-only master.cfg should not inject traits");
+}
+
+#[test]
+fn effective_profiles_fallback_to_default_and_dedup_array_values() {
+    let root = tempfile::tempdir().unwrap_or_else(|err| panic!("failed to create tempdir: {err}"));
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir(root.path().to_str().unwrap_or_default());
+
+    ensure_master_traits_file(&cfg).unwrap_or_else(|err| panic!("failed to ensure master traits file: {err}"));
+    assert_eq!(effective_profiles(&cfg), vec!["default".to_string()]);
+
+    fs::write(cfg.traits_dir().join(MASTER_TRAITS_FILE), "minion.profile:\n  - Foo\n  - Bar\n  - Foo\n")
+        .unwrap_or_else(|err| panic!("failed to write master traits file: {err}"));
+    assert_eq!(effective_profiles(&cfg), vec!["Foo".to_string(), "Bar".to_string()]);
 }

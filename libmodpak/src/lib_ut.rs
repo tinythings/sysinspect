@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::{SysInspectModPak, mpk::ModPakMetadata};
+    use libsysinspect::{cfg::mmconf::MinionConfig, traits::effective_profiles};
+    use std::collections::HashSet;
     use colored::control;
     use std::{fs, path::Path};
 
@@ -222,5 +224,65 @@ mod tests {
             }
         }
         assert!(found, "runtime.lua should be indexed");
+    }
+
+    #[test]
+    fn profile_crud_updates_index_and_profile_file() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
+
+        repo.new_profile("toto").expect("profile should be created");
+        repo.add_profile_matches("toto", vec!["runtime.lua".to_string(), "net.*".to_string()], false)
+            .expect("module selectors should be added");
+        repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true).expect("library selectors should be added");
+
+        assert_eq!(repo.list_profiles(None).expect("profiles should list"), vec!["toto".to_string()]);
+        assert!(repo
+            .list_profile_matches(Some("toto"), false)
+            .expect("profile modules should list")
+            .contains(&"toto: runtime.lua".to_string()));
+        assert!(repo
+            .list_profile_matches(Some("toto"), false)
+            .expect("profile modules should list")
+            .contains(&"toto: net.*".to_string()));
+        assert!(repo
+            .list_profile_matches(Some("toto"), true)
+            .expect("profile libraries should list")
+            .contains(&"toto: runtime/lua/*.lua".to_string()));
+
+        repo.remove_profile_matches("toto", vec!["net.*".to_string()], false).expect("module selector should be removed");
+        assert!(!repo
+            .list_profile_matches(Some("toto"), false)
+            .expect("profile modules should list")
+            .contains(&"toto: net.*".to_string()));
+
+        repo.delete_profile("toto").expect("profile should be deleted");
+        assert!(repo.list_profiles(None).expect("profiles should list").is_empty());
+    }
+
+    #[test]
+    fn profile_create_and_delete_validate_existence() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
+
+        assert!(repo.delete_profile("missing").is_err());
+        repo.new_profile("toto").expect("profile should be created");
+        assert!(repo.new_profile("toto").is_err());
+    }
+
+    #[test]
+    fn effective_profile_names_fallback_to_default_and_accept_array() {
+        let root = tempfile::tempdir().expect("root tempdir should be created");
+        let share = tempfile::tempdir().expect("share tempdir should be created");
+        let mut cfg = MinionConfig::default();
+        cfg.set_root_dir(root.path().to_str().expect("root path should be valid"));
+        cfg.set_sharelib_path(share.path().to_str().expect("share path should be valid"));
+        fs::create_dir_all(cfg.traits_dir()).expect("traits dir should be created");
+
+        assert_eq!(effective_profiles(&cfg), vec!["default".to_string()]);
+
+        fs::write(cfg.traits_dir().join("master.cfg"), "minion.profile:\n  - Toto\n  - Foo\n  - Toto\n").expect("master traits should be written");
+        let names = effective_profiles(&cfg).into_iter().collect::<HashSet<_>>();
+        assert_eq!(names, HashSet::from(["Toto".to_string(), "Foo".to_string()]));
     }
 }
