@@ -12,6 +12,8 @@ static RE_NL: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s*\n\s*").unwrap()); // c
 static RE_SPACE_BEFORE_PUNCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+([.!?;,:])").unwrap());
 static RE_MULTI_SPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t\u{00A0}]{2,}").unwrap()); // spaces/tabs/NBSP
 static RE_NO_SPACE_AFTER_PUNCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"([.!?;,:])([^\s\)])").unwrap());
+static SUPPORTED_RUNTIMES: &[&str] = &["lua", "py3", "wasm"];
+static RUNTIME_PREFIX: &str = "runtime";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModAttrs {
@@ -330,14 +332,14 @@ impl ModPakMetadata {
     ///   `runtime.py3`, or `runtime.wasm`.
     /// - virtual namespaces `lua.*`, `py3.*`, and `wasm.*` are not installable
     ///   module names; they exist only in model DSL and are resolved at runtime.
-    pub(crate) fn validate_name_for_path(&self) -> Result<(), SysinspectError> {
+    pub(crate) fn validate_namespace(&self) -> Result<(), SysinspectError> {
         let name = self.name.trim();
-        let runtime_dispatchers = [("lua-runtime", "runtime.lua"), ("py3-runtime", "runtime.py3"), ("wasm-runtime", "runtime.wasm")];
-        let virtual_prefixes = ["lua.", "py3.", "wasm."];
+        let runtime_dispatchers =
+            SUPPORTED_RUNTIMES.iter().map(|rt| (format!("{rt}-runtime"), format!("{RUNTIME_PREFIX}.{rt}"))).collect::<Vec<(String, String)>>();
 
-        if let Some((_, expected)) = runtime_dispatchers.iter().find(|(_, expected)| *expected == name) {
+        if let Some((_, expected)) = runtime_dispatchers.iter().find(|(_, expected)| expected == name) {
             let fname = self.path.file_name().and_then(|v| v.to_str()).unwrap_or_default();
-            if runtime_dispatchers.iter().any(|(bin, module)| module == expected && fname == *bin) {
+            if runtime_dispatchers.iter().any(|(bin, module)| module == expected && fname == bin) {
                 return Ok(());
             }
 
@@ -346,11 +348,12 @@ impl ModPakMetadata {
             )));
         }
 
-        if name.starts_with("runtime.") {
+        if name.starts_with(&format!("{RUNTIME_PREFIX}.")) {
             return Err(SysinspectError::InvalidModuleName("Namespace \"runtime.*\" is reserved for runtime dispatcher modules only".to_string()));
         }
 
-        if virtual_prefixes.iter().any(|prefix| name.starts_with(prefix)) {
+        let rt_prefix = SUPPORTED_RUNTIMES.iter().map(|rt| format!("{rt}.")).collect::<Vec<String>>();
+        if rt_prefix.iter().any(|prefix| name.starts_with(prefix)) {
             return Err(SysinspectError::InvalidModuleName(format!(
                 "Namespace \"{name}\" is reserved for virtual runtime module dispatch and cannot be installed directly"
             )));
@@ -439,7 +442,7 @@ impl ModPakMetadata {
                 format!("name was not obtained. Either add a spec file or use the {} option.", "--name".bright_yellow()).to_string(),
             ));
         }
-        mpm.validate_name_for_path()?;
+        mpm.validate_namespace()?;
 
         if let Some(descr) = matches.get_one::<String>("descr") {
             mpm.descr = descr.clone();
