@@ -316,6 +316,42 @@ pub struct ModPakMetadata {
 }
 
 impl ModPakMetadata {
+    #[cfg(test)]
+    pub(crate) fn new_for_test(path: PathBuf, name: &str) -> Self {
+        Self { path, name: name.to_string(), ..Default::default() }
+    }
+
+    pub(crate) fn validate_name_for_path(&self) -> Result<(), SysinspectError> {
+        let name = self.name.trim();
+        let runtime_dispatchers = [("lua-runtime", "runtime.lua"), ("py3-runtime", "runtime.py3"), ("wasm-runtime", "runtime.wasm")];
+        let virtual_prefixes = ["lua.", "py3.", "wasm."];
+
+        if let Some((_, expected)) = runtime_dispatchers.iter().find(|(_, expected)| *expected == name) {
+            let fname = self.path.file_name().and_then(|v| v.to_str()).unwrap_or_default();
+            if runtime_dispatchers.iter().any(|(bin, module)| module == expected && fname == *bin) {
+                return Ok(());
+            }
+
+            return Err(SysinspectError::InvalidModuleName(format!(
+                "Reserved runtime module namespace \"{name}\" can only be used by its dispatcher binary"
+            )));
+        }
+
+        if name.starts_with("runtime.") {
+            return Err(SysinspectError::InvalidModuleName(format!(
+                "Namespace \"runtime.*\" is reserved for runtime dispatcher modules only"
+            )));
+        }
+
+        if virtual_prefixes.iter().any(|prefix| name.starts_with(prefix)) {
+            return Err(SysinspectError::InvalidModuleName(format!(
+                "Namespace \"{name}\" is reserved for virtual runtime module dispatch and cannot be installed directly"
+            )));
+        }
+
+        Ok(())
+    }
+
     pub fn set_arch(&mut self, arch: &str) {
         self.arch = arch.to_string();
     }
@@ -396,6 +432,7 @@ impl ModPakMetadata {
                 format!("name was not obtained. Either add a spec file or use the {} option.", "--name".bright_yellow()).to_string(),
             ));
         }
+        mpm.validate_name_for_path()?;
 
         if let Some(descr) = matches.get_one::<String>("descr") {
             mpm.descr = descr.clone();

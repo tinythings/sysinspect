@@ -21,6 +21,8 @@ pub mod mpk;
 
 #[cfg(test)]
 mod lib_ut;
+#[cfg(test)]
+mod mpk_ut;
 
 /*
 ModPack is a library for creating and managing modules, providing a way to define modules,
