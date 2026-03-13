@@ -133,7 +133,7 @@ fn call_runtime(cli: &RuntimeModuleCli, rq: &ModRequest) -> ModResponse {
                 return resp;
             }
         },
-        &serde_json::json!({"args": rq.args(), "config": rq.config(), "opts": rq.options(), "ext": rq.ext()}),
+        &serde_json::json!({"args": rq.args(), "config": rq.config(), "opts": rq.options(), "ext": rq.ext(), "host": rq.host()}),
         rq.has_option(&format!("{}{}", RuntimeParams::RtPrefix, "logs")),
     ) {
         Ok(data) => match resp.set_data(data) {

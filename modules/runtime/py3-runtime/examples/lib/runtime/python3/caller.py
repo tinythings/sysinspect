@@ -16,11 +16,11 @@ def doc():
         "examples": [
             {
                 "description": "List /etc as raw output",
-                "code": '{ "args": { "rt.mod": "caller", "dir": "/etc" } }',
+                "code": '{ "module": "py3.caller", "args": { "dir": "/etc" } }',
             },
             {
                 "description": "List /etc as lines",
-                "code": '{ "args": { "rt.mod": "caller", "dir": "/etc" }, "opts": ["lines"] }',
+                "code": '{ "module": "py3.caller", "opts": ["lines"], "args": { "dir": "/etc" } }',
             },
         ],
         "returns": {

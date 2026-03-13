@@ -1,4 +1,4 @@
-name: "runtime.python3"
+name: "runtime.py3"
 version: "0.1.0"
 author: "Bo Maryniuk"
 description: Python 3.14 runtime module.
@@ -14,7 +14,9 @@ arguments:
   - name: rt.mod
     type: string
     required: true
-    description: "The name of a Python script to be executed from the configured Python runtime directory."
+    description: |
+      Reserved internal runtime selector. Direct JSON calls to `runtime.py3`
+      must set this to the Python module name to execute.
 
   - name: "[ANY]"
     type: string
@@ -23,15 +25,9 @@ arguments:
       Additional arguments that will be passed to the Python module being executed.
 
 examples:
-  - description: "Call a Python module named 'hello.py'"
+  - description: "Call a Python runtime module from model DSL with module `py3.hello`"
     code: |
-      {
-        "opts": ["rt.logs"],
-        "arguments": {
-          "rt.mod": "hello",
-          "name": "Germany"
-        }
-      }
+      { "module": "py3.hello", "opts": ["rt.logs"], "args": { "name": "Germany" } }
 
 returns:
   fill:

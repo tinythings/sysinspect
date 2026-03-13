@@ -393,6 +393,8 @@ import rtlog as _sysinspect_rtlog
 import rtpackagekit as _sysinspect_rtpackagekit
 import json as _sysinspect_json
 
+_sysinspect_req = {}
+
 class _SysinspectLogger:
     def error(self, *args):
         _sysinspect_rtlog.write("ERROR", " ".join(map(str, args)))
@@ -431,6 +433,21 @@ class _SysinspectPackageKit:
         return _sysinspect_json.loads(_sysinspect_rtpackagekit.upgrade(names))
 
 packagekit = _SysinspectPackageKit()
+
+class _SysinspectHost:
+    def trait(self, name):
+        return _sysinspect_req.get("host", {}).get("traits", {}).get(name)
+
+    def has(self, name):
+        return name in _sysinspect_req.get("host", {}).get("traits", {})
+
+    def paths(self):
+        return _sysinspect_req.get("host", {}).get("paths", {})
+
+    def path(self, name):
+        return _sysinspect_req.get("host", {}).get("paths", {}).get(name)
+
+host = _SysinspectHost()
 "#;
         match vm.run_code_obj(
             match vm.compile(prelude, Exec, "<sysinspect-prelude>".to_string()) {
@@ -526,18 +543,17 @@ packagekit = _SysinspectPackageKit()
                 }
             };
 
+            let req_obj = match Self::from_json(vm, req.clone()) {
+                Ok(v) => v,
+                Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to convert request to Python object: {err:?}"))),
+            };
+            if let Err(err) = scope.globals.set_item("_sysinspect_req", req_obj.clone(), vm) {
+                return Err(Py3RuntimeError::Vm(format!("Unable to set _sysinspect_req: {err:?}")));
+            }
+
             Self::dumps_json(
                 vm,
-                match runfn.call(
-                    FuncArgs::new(
-                        vec![match Self::from_json(vm, req.clone()) {
-                            Ok(v) => v,
-                            Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to convert request to Python object: {err:?}"))),
-                        }],
-                        KwArgs::default(),
-                    ),
-                    vm,
-                ) {
+                match runfn.call(FuncArgs::new(vec![req_obj], KwArgs::default()), vm) {
                     Ok(v) => v,
                     Err(err) => {
                         let mut buff = String::new();
@@ -601,6 +617,13 @@ packagekit = _SysinspectPackageKit()
 
             let scope = vm.new_scope_with_builtins();
             self.exec_prelude(vm, scope.clone())?;
+            let empty_req = match Self::from_json(vm, serde_json::json!({})) {
+                Ok(req) => req,
+                Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to convert empty request to Python object: {err:?}"))),
+            };
+            if let Err(err) = scope.globals.set_item("_sysinspect_req", empty_req, vm) {
+                return Err(Py3RuntimeError::Vm(format!("Unable to set empty _sysinspect_req for docs: {err:?}")));
+            }
             self.exec_scope_code(vm, scope.clone(), code, "<module-doc>")?;
             self.exec_scope_code(
                 vm,

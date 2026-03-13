@@ -10,3 +10,6 @@ pub mod runtime;
 pub mod tpl;
 
 pub use crate::helpers::getenv;
+
+#[cfg(test)]
+mod runtime_ut;

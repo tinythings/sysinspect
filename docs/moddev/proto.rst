@@ -31,8 +31,38 @@ left on receiving the data.
 Request Format
 --------------
 
-As previously mentioned, the request must be strictly aligned with the structure of the :ref:`modindex`,
-but resembling only the ``arguments`` and ``options`` structures.
+As previously mentioned, the request must be strictly aligned with the structure of the :ref:`modindex`.
+For historical reasons, both ``arguments`` / ``options`` and ``args`` / ``opts`` are supported.
+The former must remain supported; the latter are accepted aliases.
+
+The top-level runtime request contract is:
+
+.. code-block:: json
+
+    {
+        "arguments": {},
+        "options": [],
+        "config": {},
+        "host": {}
+    }
+
+Equivalent alias form:
+
+.. code-block:: json
+
+    {
+        "args": {},
+        "opts": [],
+        "config": {},
+        "host": {}
+    }
+
+Additional passthrough data SHOULD be sent as extra top-level fields alongside those shown above.
+These are collected into the runtime's internal ``ext`` map. For example, ``"trace_id"``,
+``"payload"``, or other caller-specific fields may appear at the top level.
+
+For historical compatibility, an explicit top-level ``"ext"`` object is also accepted. If both
+forms are present, their contents are merged into the same internal ``ext`` map.
 
 The following example shows how a module defines the arguments and options, as well as
 it would expect as an input:
@@ -57,27 +87,85 @@ it would expect as an input:
         "arguments": {
             "mask": "*.txt"
         },
-        "options": ["verbose",],
+        "options": ["verbose"],
+        "config": {},
+        "host": {},
+        "trace_id": "req-42"
     }
 
-Additionally, ``data`` key/value container is used for *arbitrary* data. This can be
-additional facts, constraint expressions or anything that is possible be relevant to
-the particular module. This section is understood only by this particular module and
-is just a static container of anything. Example:
+``config`` is the full runtime config payload. It remains available to runtimes as-is.
+
+Additional passthrough fields may appear at the top level and are exposed to runtimes via the
+internal ``ext`` map. An explicit ``"ext"`` object is also accepted for compatibility.
+
+``host`` is descriptive only. Its primary facts surface is ``host.traits``, which is a serialized
+map of minion traits. This is intentionally dynamic, because traits can be built from multiple
+sources, including user-controlled ones. Small convenience sections such as ``host.paths`` and
+``host.capabilities`` may exist, but they are secondary to ``host.traits``.
+
+Helper Taxonomy
+---------------
+
+Runtime helpers are split into two categories:
+
+* passive descriptive data
+* active helper operations
+
+Passive descriptive data stays in the shared request payload, primarily under ``host``.
+This is the portable core contract and should be preferred whenever a script only needs
+facts about the current minion or runtime call.
+
+Active helper operations must stay in explicit helper namespaces instead of being stuffed
+into ``host``. This keeps the protocol boundary clear: ``host`` describes the system,
+while helper namespaces perform host-assisted operations.
+
+Current portable helper surfaces are:
+
+* ``host`` helper facades in Lua, Py3, and Wasm guest helper code
+* runtime logging facilities, normalised into ``__sysinspect-module-logs``
+
+Current platform-specific helpers are:
+
+* ``packagekit`` for Lua and Py3
+* low-level PackageKit host imports for Wasm guests
+
+``packagekit`` remains intentionally separate from ``host``. It is an active, Linux-specific
+integration and is not part of the portable descriptive contract.
+
+``ext`` is used for *arbitrary* caller-specific data. It is understood only by the receiving module.
+Example:
 
 .. code-block:: json
     :caption: Payload example
 
     {
-        // Just for the reference
         "arguments": {},
-        "options": []
-
-        // Payload data
-        "data": {
-            "some-key": ["what", "ever", "data",],
-        },
+        "options": [],
+        "config": {},
+        "host": {},
+        "some-key": ["what", "ever", "data"],
+        "flag": true
     }
+
+The contract intentionally excludes transport/session internals, side-effecting APIs, and unstable
+telemetry blobs. Runtime-control names under ``rt.*`` remain reserved internal protocol parameters.
+
+Migration Notes
+---------------
+
+Older SysInspect setups exposed useful host data through embedded-language
+bindings. That model is gone.
+
+Use these replacements instead:
+
+* host facts from ``host.traits``
+* runtime-relevant paths from ``host.paths``
+* full minion/runtime configuration from ``config``
+* portable helper sugar from the runtime ``host`` helpers in Lua, Py3, and Wasm
+
+Native ``.py`` modules are no longer resolved by ``libsysinspect``. Python is
+available only through the ``runtime.py3`` dispatcher and the virtual
+``py3.<module>`` namespace.
 
 .. hint::
 

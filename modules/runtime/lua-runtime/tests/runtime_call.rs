@@ -135,6 +135,9 @@ return {
             config_value = req.config["custom.flag"],
             opts = req.opts,
             ext = req.ext,
+            host = req.host,
+            host_name = req.host.traits["system.hostname"],
+            host_sharelib = req.host.paths.sharelib,
             types = {
                 truth = true,
                 nothing = vim and nil or nil,
@@ -147,6 +150,26 @@ return {
 "#,
     ) {
         panic!("failed to write echo request lua module: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        moddir.join("hostecho.lua"),
+        r#"
+return {
+    run = function(req)
+        return {
+            host = req.host,
+            host_name = host.trait("system.hostname"),
+            has_host = host.has("system.hostname"),
+            has_missing = host.has("system.kernel"),
+            sharelib = host.path("sharelib"),
+            paths = host.paths()
+        }
+    end
+}
+"#,
+    ) {
+        panic!("failed to write host echo lua module: {err}");
     }
 
     if let Err(err) = fs::write(
@@ -259,6 +282,47 @@ fn test_lua_runtime_returns_forwarded_logs() {
 }
 
 #[test]
+fn test_lua_runtime_passes_host_context_to_guest() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {
+            "traits": { "system.hostname": "lua-host" },
+            "paths": { "sharelib": "/srv/lua-share" }
+        },
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/data/host_name"), Some(&json!("lua-host")));
+    assert_eq!(out.pointer("/data/data/has_host"), Some(&json!(true)));
+    assert_eq!(out.pointer("/data/data/has_missing"), Some(&json!(false)));
+    assert_eq!(out.pointer("/data/data/sharelib"), Some(&json!("/srv/lua-share")));
+    assert_eq!(out.pointer("/data/data/paths/sharelib"), Some(&json!("/srv/lua-share")));
+}
+
+#[test]
+fn test_lua_runtime_host_helper_tolerates_missing_data() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {},
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/data/has_host"), Some(&json!(false)));
+    assert_eq!(out.pointer("/data/data/has_missing"), Some(&json!(false)));
+    assert_eq!(out.pointer("/data/data/paths"), Some(&json!({})));
+}
+
+#[test]
 fn test_lua_runtime_exposes_packagekit_helper() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());
@@ -287,7 +351,7 @@ fn test_lua_runtime_lists_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "pkgavail", "reader"])));
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "hostecho", "importer", "pkgavail", "reader"])));
 }
 
 #[test]
@@ -358,6 +422,10 @@ fn test_lua_runtime_preserves_request_sections_and_json_types() {
 
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy(), "custom.flag": "seen" },
+        "host": {
+            "traits": { "system.hostname": "lua-minion" },
+            "paths": { "sharelib": "/srv/lua-share" }
+        },
         "opts": ["alpha", "beta", "rt.logs"],
         "args": { "rt.mod": "echoreq", "name": "Germany", "enabled": true, "count": 7 },
         "trace_id": "abc-123",
@@ -372,6 +440,12 @@ fn test_lua_runtime_preserves_request_sections_and_json_types() {
             "config_value": "seen",
             "opts": ["alpha", "beta"],
             "ext": { "trace_id": "abc-123", "payload": { "items": [1, 2, 3] } },
+            "host": {
+                "traits": { "system.hostname": "lua-minion" },
+                "paths": { "sharelib": "/srv/lua-share" }
+            },
+            "host_name": "lua-minion",
+            "host_sharelib": "/srv/lua-share",
             "types": {
                 "truth": true,
                 "items": [1, "two", false],

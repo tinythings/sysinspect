@@ -15,16 +15,23 @@ the interpreter and its shared libraries inside the SysInspect runtime layout.
 At a high level, the runtime:
 
 * discovers Python scripts in the configured runtime directory,
-* executes a selected script by name via ``rt.mod``,
+* executes a selected script by name,
 * passes the SysInspect request object into ``run(req)``,
 * optionally forwards script logs back to SysInspect via ``rt.logs``,
 * resolves shared Python libraries from the runtime ``site-packages`` namespace.
 
+In normal model DSL, Python runtime modules are called through the virtual
+``py3.<module>`` namespace. For example, ``module: py3.hello`` dispatches to
+the installed ``runtime.py3`` runtime module and selects ``hello`` as the
+runtime module name internally.
+
 Script lookup and naming
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-When you set the required keyword argument ``rt.mod``, SysInspect resolves the
-module name into a Python file path under the runtime scripts directory.
+When you use a module name such as ``py3.hello`` in the model DSL, SysInspect
+selects the installed ``runtime.py3`` dispatcher and resolves the suffix
+(``hello`` in this example) into a Python file path under the runtime scripts
+directory.
 
 Examples:
 
@@ -77,9 +84,13 @@ The ``req`` object passed to ``run(req)`` contains the same main sections
 used by other runtimes:
 
 * ``args`` for keyword arguments,
-* ``config`` for selected runtime configuration,
+* ``config`` for the full runtime configuration payload,
 * ``opts`` for options,
-* ``ext`` for extra passthrough payload.
+* ``ext`` for extra passthrough payload,
+* ``host`` for descriptive host data.
+
+At the runtime input boundary, the historical ``arguments`` / ``options``
+shape is still accepted as an alias for ``args`` / ``opts``.
 
 Logging
 ~~~~~~~
@@ -97,6 +108,26 @@ response payload under ``__sysinspect-module-logs``.
 Helpers
 ~~~~~~~
 
+Portable helpers
+^^^^^^^^^^^^^^^^
+
+The Python runtime preinstalls a portable ``host`` helper object that reads
+from ``req["host"]`` and exposes the same helper meanings as Lua and Wasm
+guest helper code.
+
+Available helper methods:
+
+* ``host.trait(name)``
+* ``host.has(name)``
+* ``host.paths()``
+* ``host.path(name)``
+
+Use ``host`` for passive descriptive data. The source of truth remains
+``req["host"]``, especially ``req["host"]["traits"]``.
+
+Platform-specific helpers
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
 The runtime also preinstalls a ``packagekit`` helper namespace for Python
 modules:
 
@@ -108,7 +139,8 @@ modules:
 * ``packagekit.remove(names)``
 * ``packagekit.upgrade(names)``
 
-``packagekit`` is Linux-only and optional. On systems without PackageKit,
+``packagekit`` is Linux-only and optional. It is an active helper namespace,
+not part of the portable core contract. On systems without PackageKit,
 ``packagekit.available()`` returns ``False`` and the other calls may raise a
 runtime error if used anyway.
 
@@ -125,10 +157,6 @@ Options
 Keyword arguments
 -----------------
 
-``rt.mod`` (type: string, required)
-  The name of the Python script to execute. The runtime looks it up in the
-  configured scripts directory and supports dotted names for nested modules.
-
 ``[ANY]`` (type: string)
   Additional keyword arguments forwarded inside ``req["args"]`` to the executed
   module.
@@ -142,3 +170,17 @@ Practical notes
   one callable module from another.
 * Use ``rt.logs`` while developing runtime scripts, then disable it if you want
   quieter operation.
+
+Migration note
+--------------
+
+Python is no longer embedded in the SysInspect core. Direct native ``.py``
+modules are not resolved by ``libsysinspect`` anymore.
+
+Use the virtual ``py3.<module>`` namespace instead. Useful host data now comes
+from the shared request payload and portable helpers:
+
+* ``req["host"]["traits"]``
+* ``req["host"]["paths"]``
+* ``req["config"]``
+* ``host.trait(...)`` / ``host.path(...)`` when helper sugar is more convenient

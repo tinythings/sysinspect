@@ -7,7 +7,7 @@ if you build the whole thing using "make", you will have in your
 target/<debug|release>/runtime/lua-runtime binary. Then you have to
 install it, by issuing this command:
 
-1. sysinspect module -A --path /to/your/target/release/runtime/lua-runtime --name runtime.lua-runtime --descr "Lua runtime"
+1. sysinspect module -A --path /to/your/target/release/runtime/lua-runtime --name runtime.lua --descr "Lua runtime"
 
    This will put Lua runtime into your package manager repository on
    SysMaster side.
@@ -18,7 +18,7 @@ install it, by issuing this command:
 
 
 You're good to go! Now you need to install these modules. Current implementation
-allows you to install Lua modules as a library to "lua-runtime" module.
+allows you to install Lua modules as a library payload for the ``runtime.lua`` dispatcher.
 
 To install these into your environment, do the following (assuming you
 are literally HERE in the current directory):
@@ -56,14 +56,13 @@ entities:
 actions:
   my-example:
     descr: Call some Lua stuff
-    module: runtime.lua-runtime
+    module: lua.reader
     bind:
       - foo
     state:
       $:
-        opts:
-	args:
-	  mod: reader
+        opts: []
+        args: {}
 ------------------------------
 
 This will call "reader.lua" module. It supposed to read your /etc/os-release
@@ -99,25 +98,5 @@ reader.lua
   2. Finds "VERSION"
   3. Returns the result as data
 
-Call example:
-
-$ echo '{"opts":["lines"], "args":{"mod": "caller", "dir": "."}}' | ../../../../target/debug/runtime/lua-runtime | jq
-{
-  "retcode": 0,
-  "message": "Called Lua module successfully.",
-  "data": {
-    "changed": true,
-    "command": "ls -lah . 2>&1",
-    "exit_code": 0,
-    "output": [
-      "total 28K",
-      "drwxr-xr-x 3 isbm user 4,0K Jan 21 19:28 .",
-      "drwxr-xr-x 4 isbm user 4,0K Jan 21 17:49 ..",
-      "-rw-r--r-- 1 isbm user 1,9K Jan 21 19:38 caller.lua",
-      "-rw-r--r-- 1 isbm user 1,2K Jan 21 19:34 hello.lua",
-      "drwxr-xr-x 3 isbm user 4,0K Jan 21 19:20 lib",
-      "-rw-r--r-- 1 isbm user 1,2K Jan 21 19:34 reader.lua",
-      "-rw-r--r-- 1 isbm user  442 Jan 21 19:28 README.txt"
-    ]
-  }
-}
+Call these from a model using namespaces such as ``lua.caller`` or
+``lua.reader``.

@@ -4,7 +4,6 @@ pub mod inspector;
 pub mod intp;
 pub mod logger;
 pub mod mdescr;
-pub mod pylang;
 pub mod reactor;
 pub mod rsa;
 pub mod tmpl;

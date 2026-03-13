@@ -9,8 +9,8 @@ use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAUL
 use libsysinspect::util::iofs::get_file_sha256;
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use once_cell::sync::Lazy;
-use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
 use prettytable::{Cell, Row, Table, format};
+use regex::Regex;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -21,6 +21,8 @@ pub mod mpk;
 
 #[cfg(test)]
 mod lib_ut;
+#[cfg(test)]
+mod mpk_ut;
 
 /*
 ModPack is a library for creating and managing modules, providing a way to define modules,
@@ -29,6 +31,7 @@ their dependencies, and their architecture.
 
 static REPO_MOD_INDEX: &str = "mod.index";
 static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
+static ANSI_ESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("ansi regex should compile"));
 
 pub struct ModPakSyncState {
     state: Arc<Mutex<bool>>,
@@ -328,6 +331,34 @@ pub struct SysInspectModPak {
 }
 
 impl SysInspectModPak {
+    /// Format a library path for `module -Ll` with runtime-aware filename colors.
+    pub(crate) fn format_library_name(name: &str) -> String {
+        for marker in ["site-lua/", "site-packages/"] {
+            if let Some((prefix, suffix)) = name.split_once(marker) {
+                return format!("{}{}{}", prefix.white(), marker.white(), suffix.yellow());
+            }
+        }
+
+        let (prefix, file) = match name.rsplit_once('/') {
+            Some((prefix, file)) => (format!("{prefix}/"), file),
+            None => (String::new(), name),
+        };
+
+        let file = match file.rsplit_once('.') {
+            Some((_, "lua")) => file.bright_cyan().to_string(),
+            Some((_, "py")) => file.bright_blue().to_string(),
+            Some((_, "wasm")) => file.bright_magenta().to_string(),
+            _ => file.bright_white().to_string(),
+        };
+
+        format!("{}{}", prefix.bright_white().bold(), file)
+    }
+
+    fn pad_visible(text: &str, width: usize) -> String {
+        let visible = ANSI_ESCAPE_RE.replace_all(text, "").chars().count();
+        if visible >= width { text.to_string() } else { format!("{text}{}", " ".repeat(width - visible)) }
+    }
+
     /// Creates a new ModPakRepo with the given root path.
     pub fn new(root: PathBuf) -> Result<Self, SysinspectError> {
         if !root.exists() {
@@ -343,16 +374,6 @@ impl SysInspectModPak {
         }
 
         Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(ridx)?)? })
-    }
-
-    /// Extract module subpath from its name
-    fn after<'a>(full_path: &'a str, sub: &'a str) -> &'a str {
-        if let Some(index) = full_path.find(sub) {
-            let result = &full_path[index..];
-            if result.len() == sub.len() { sub } else { result }
-        } else {
-            sub
-        }
     }
 
     /// Parses an object file and returns its architecture and OS ABI.
@@ -437,8 +458,7 @@ impl SysInspectModPak {
         meta.set_arch(&arch);
 
         log::info!("Platform: {p}");
-        let module_subpath =
-            PathBuf::from(Self::after(meta.get_path().to_str().unwrap_or_default(), meta.get_subpath().to_str().unwrap_or_default()));
+        let module_subpath = meta.get_subpath();
         let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(&module_subpath);
         log::debug!("Subpath: {}", subpath.display().to_string().bright_yellow());
         if let Some(p) = self.root.join(&subpath).parent()
@@ -513,26 +533,11 @@ impl SysInspectModPak {
     /// Lists all libraries in the repository.
     pub fn list_libraries(&self, expr: Option<&str>) -> Result<(), SysinspectError> {
         let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {e}")))?;
-        let mut table = Table::new();
-        table.set_format(
-            FormatBuilder::new().borders(' ').padding(0, 2).separators(&[LinePosition::Title], LineSeparator::new('─', ' ', ' ', ' ')).build(),
-        );
-
-        table.set_titles(prettytable::Row::new(vec![
-            prettytable::Cell::new("Type").style_spec("Fy"),
-            prettytable::Cell::new("Name").style_spec("Fy"),
-            prettytable::Cell::new("OS").style_spec("Fy"),
-            prettytable::Cell::new("Arch").style_spec("Fy"),
-            prettytable::Cell::new("SHA256").style_spec("Fy"),
-        ]));
-
-        let mut lines = 0;
+        let mut rows = Vec::<(String, String, String, String, String)>::new();
         for (_, mpklf) in self.idx.library() {
             if !expr.matches(&mpklf.file().display().to_string()) {
                 continue;
             }
-
-            lines += 1;
 
             let buff = match fs::read(self.root.join(PathBuf::from(DEFAULT_MODULES_LIB_DIR)).join(mpklf.file())) {
                 Ok(data) => data,
@@ -542,34 +547,69 @@ impl SysInspectModPak {
                 }
             };
 
-            let (is_bin, arch, p) = if buff.is_empty() {
-                (false, "noarch".to_string(), "any".to_string())
-            } else {
+            let (kind, arch, p) = if mpklf.kind() == "binary" {
                 match Self::parse_obj(&buff) {
-                    Ok((true, arch, osabi)) => (true, arch.to_string(), osabi.to_string()),
-                    Ok((false, _, _)) => (false, "noarch".to_string(), "any".to_string()),
+                    Ok((true, arch, osabi)) => ("binary".to_string(), arch.to_string(), osabi.to_string()),
+                    Ok((false, _, _)) => ("binary".to_string(), "noarch".to_string(), "any".to_string()),
                     Err(e) => {
                         log::error!("Failed to parse object for {}: {}", mpklf.file().display(), e);
                         continue;
                     }
                 }
+            } else {
+                (mpklf.kind().to_string(), "noarch".to_string(), "any".to_string())
             };
 
-            table.add_row(prettytable::Row::new(vec![
-                prettytable::Cell::new(if is_bin { "binary" } else { "script" }).style_spec("Fw"),
-                prettytable::Cell::new(&mpklf.file().display().to_string()).style_spec("FY"),
-                prettytable::Cell::new(&p.to_title_case()).style_spec("FW"),
-                prettytable::Cell::new(&arch).style_spec("FG"),
-                prettytable::Cell::new(&format!("{}...{}", &mpklf.checksum()[..4], &mpklf.checksum()[mpklf.checksum().len() - 4..])).style_spec("Fg"),
-            ]));
+            rows.push((
+                match kind.as_str() {
+                    "wasm" | "binary" => "binary".to_string(),
+                    _ => "script".to_string(),
+                },
+                mpklf.file().display().to_string(),
+                p.to_title_case(),
+                arch,
+                format!("{}...{}", &mpklf.checksum()[..4], &mpklf.checksum()[mpklf.checksum().len() - 4..]),
+            ));
         }
 
-        if lines == 0 {
+        if rows.is_empty() {
             log::warn!("No libraries found matching the pattern: {}", expr.as_str().bright_yellow());
             return Ok(());
         }
 
-        table.print_tty(true)?;
+        let type_width = rows.iter().map(|r| r.0.chars().count()).max().unwrap_or(4).max("Type".chars().count());
+        let name_width = rows.iter().map(|r| r.1.chars().count()).max().unwrap_or(4).max("Name".chars().count());
+        let os_width = rows.iter().map(|r| r.2.chars().count()).max().unwrap_or(2).max("OS".chars().count());
+        let arch_width = rows.iter().map(|r| r.3.chars().count()).max().unwrap_or(4).max("Arch".chars().count());
+        let sha_width = rows.iter().map(|r| r.4.chars().count()).max().unwrap_or(6).max("SHA256".chars().count());
+
+        println!(
+            "{}  {}  {}  {}  {}",
+            Self::pad_visible(&"Type".bright_yellow().to_string(), type_width),
+            Self::pad_visible(&"Name".bright_yellow().to_string(), name_width),
+            Self::pad_visible(&"OS".bright_yellow().to_string(), os_width),
+            Self::pad_visible(&"Arch".bright_yellow().to_string(), arch_width),
+            Self::pad_visible(&"SHA256".bright_yellow().to_string(), sha_width),
+        );
+        println!(
+            "{}  {}  {}  {}  {}",
+            "─".repeat(type_width),
+            "─".repeat(name_width),
+            "─".repeat(os_width),
+            "─".repeat(arch_width),
+            "─".repeat(sha_width),
+        );
+
+        for (kind, name, os_name, arch, sha) in rows {
+            println!(
+                "{}  {}  {}  {}  {}",
+                Self::pad_visible(&kind.bright_green().to_string(), type_width),
+                Self::pad_visible(&Self::format_library_name(&name), name_width),
+                Self::pad_visible(&os_name.bright_green().to_string(), os_width),
+                Self::pad_visible(&arch.bright_green().to_string(), arch_width),
+                Self::pad_visible(&sha.green().to_string(), sha_width),
+            );
+        }
 
         Ok(())
     }
@@ -621,7 +661,7 @@ impl SysInspectModPak {
     /// Resolves library removal expressions to concrete library names.
     ///
     /// Args:
-    /// * `names` - Exact names or glob expressions such as `ansible/*`.
+    /// * `names` - Exact names or glob expressions such as `library/*`.
     ///
     /// Returns:
     /// * `Ok(Vec<String>)` containing sorted unique library names present in the index.

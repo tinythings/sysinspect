@@ -18,14 +18,38 @@ At a high level, the runtime:
 * optionally forwards keyword arguments to the script as global variables,
 * can expose logging and native library loading depending on the configured options.
 
+In normal model DSL, Lua runtime modules are called through the virtual
+``lua.<module>`` namespace. For example, ``module: lua.reader`` dispatches to
+the installed ``runtime.lua`` runtime module and selects ``reader`` as the
+runtime module name internally.
+
 Script lookup and naming
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-When you set the required keyword argument ``rt.mod``, SysInspect searches for a Lua file with that module
-name in the predefined, configured scripts directory.
+When you use a module name such as ``lua.reader`` in the model DSL, SysInspect
+selects the installed ``runtime.lua`` dispatcher and resolves the suffix
+(``reader`` in this example) to a Lua file in the configured runtime scripts
+directory.
 
 The runtime treats the script as an entry point. Keep the script focused on one task and prefer importing
 shared helpers from the dependency directory described below.
+
+Lua request contract
+~~~~~~~~~~~~~~~~~~~~
+
+Lua modules receive the shared runtime request as ``req`` when the module
+``run(req)`` entrypoint is executed.
+
+The request contains the same portable sections used by the other runtimes:
+
+* ``req.args`` for keyword arguments
+* ``req.opts`` for options
+* ``req.config`` for the full runtime config payload
+* ``req.ext`` for caller-specific passthrough data
+* ``req.host`` for descriptive host data
+
+At the runtime input boundary, the historical ``arguments`` / ``options``
+shape is still accepted as an alias for ``args`` / ``opts``.
 
 Directory layout (Lua 5.4)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -64,9 +88,6 @@ Options
 Keyword arguments
 -----------------
 
-``rt.mod`` (type: string, required)
-  The name of the Lua script to execute. The runtime looks it up in the configured scripts directory.
-
 ``[ANY]`` (type: string)
   Additional keyword arguments forwarded to the executed script. These values are made available to the
   script as global variables.
@@ -95,6 +116,25 @@ response payload under ``__sysinspect-module-logs``.
 Built-in Helper Namespaces
 --------------------------
 
+Portable helpers
+~~~~~~~~~~~~~~~~
+
+The Lua runtime preinstalls a portable ``host`` helper namespace that reshapes
+the shared ``req.host`` payload without adding hidden behavior.
+
+Available helper functions:
+
+* ``host.trait(name)``
+* ``host.has(name)``
+* ``host.paths()``
+* ``host.path(name)``
+
+Use ``host`` for passive descriptive data. The source of truth remains
+``req.host`` itself, especially ``req.host.traits``.
+
+Platform-specific helpers
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
 The Lua runtime preinstalls a ``packagekit`` helper namespace for runtime
 scripts on Linux systems where PackageKit is available over D-Bus.
 
@@ -108,6 +148,7 @@ Available helper functions:
 * ``packagekit.remove(names)``
 * ``packagekit.upgrade(names)``
 
-``packagekit`` is optional and Linux-only. If PackageKit is unavailable, then
+``packagekit`` is optional and Linux-only. It is an active helper namespace,
+not part of the portable core contract. If PackageKit is unavailable, then
 ``packagekit.available()`` returns ``false`` and the other calls may raise a
 runtime error when invoked.

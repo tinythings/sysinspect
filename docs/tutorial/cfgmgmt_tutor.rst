@@ -33,15 +33,14 @@ Before You Start
 ----------------
 
 A traditional Configuration Management operations is an :bi:`optional` feature
-in Sysinspect. Therefore, do not expect it as super-easy as in Ansible or SaltStack. 😊
+in Sysinspect.
 
 Nevertheless, this is the same Configuration Management as everywhere else!
 Follow this tutorial to understand how it works.
 
 .. important::
 
-    Don't expect it to begin with as super-easy as in Ansible or SaltStack.
-    You would still need a model for all that!
+    Expect to define a model for all that.
 
 
 Model Definition
@@ -76,8 +75,8 @@ Step 2: Define Checkbook
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
 While Sysinspect can allow you to call only a specific part of the model,
-still it is a good idea to first define a checkbook. It is like a Playbook
-in Ansible: you define the entire block to run. Yes, in the same ``model.cfg``, yes!
+still it is a good idea to first define a checkbook: you define the entire
+block to run in the same ``model.cfg``.
 
 So let's do this:
 

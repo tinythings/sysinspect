@@ -4,7 +4,7 @@ use super::response::ModResponse;
 use indexmap::IndexMap;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_SHARELIB;
 use libsysinspect::util;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::io::Error;
 use std::io::{self, Read};
@@ -47,7 +47,7 @@ impl From<ArgValue> for serde_json::Value {
 }
 
 /// Struct to call plugin parameters
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Debug, Clone, Default)]
 pub struct ModRequest {
     /// Timeout of the module running.
     /// If timeout is exceeded, module quits.
@@ -73,9 +73,64 @@ pub struct ModRequest {
     #[serde(default)]
     config: Option<IndexMap<String, ArgValue>>,
 
+    /// Shared host context passed through to runtime guests.
+    #[serde(default)]
+    host: Option<Value>,
+
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
     ext: IndexMap<String, serde_json::Value>,
+}
+
+#[derive(Deserialize, Default)]
+struct ModRequestWire {
+    timeout: Option<u8>,
+    quiet: Option<bool>,
+
+    #[serde(default)]
+    #[serde(alias = "opts")]
+    options: Option<Vec<ArgValue>>,
+
+    #[serde(default)]
+    #[serde(alias = "args")]
+    arguments: Option<IndexMap<String, ArgValue>>,
+
+    #[serde(default)]
+    config: Option<IndexMap<String, ArgValue>>,
+
+    #[serde(default)]
+    host: Option<Value>,
+
+    #[serde(default)]
+    ext: Option<IndexMap<String, serde_json::Value>>,
+
+    #[serde(flatten)]
+    extra: IndexMap<String, serde_json::Value>,
+}
+
+impl<'de> Deserialize<'de> for ModRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = ModRequestWire::deserialize(deserializer)?;
+        let mut ext = wire.ext.unwrap_or_default();
+
+        // Keep top-level passthrough fields canonical if both representations are present.
+        for (key, value) in wire.extra {
+            ext.insert(key, value);
+        }
+
+        Ok(Self {
+            timeout: wire.timeout,
+            quiet: wire.quiet,
+            options: wire.options,
+            arguments: wire.arguments,
+            config: wire.config,
+            host: wire.host,
+            ext,
+        })
+    }
 }
 
 impl ModRequest {
@@ -126,6 +181,11 @@ impl ModRequest {
             config.insert("path.sharelib".to_string(), ArgValue(serde_json::Value::String(DEFAULT_MODULES_SHARELIB.to_string())));
         }
         config
+    }
+
+    /// Get the shared host context payload.
+    pub fn host(&self) -> Value {
+        self.host.clone().unwrap_or_else(|| Value::Object(serde_json::Map::new()))
     }
 
     /// Get all param args including runtime-specific ones (those starting with "rt.")

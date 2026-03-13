@@ -16,11 +16,6 @@ options:
 
 # Keyword arguments
 arguments:
-  - name: rt.mod
-    type: string
-    required: true
-    description: "The name of a Lua script to be executed. This script will be looked up in the predefined configured scripts directory."
-
   - name: "[ANY]"
     type: string
     required: false
@@ -29,15 +24,9 @@ arguments:
       as global variables.
 
 examples:
-  - description: "Call a Lua script named 'hello_world.lua' so it will greet Germany"
+  - description: "Call a Lua script from model DSL with module `lua.hello_world` so it will greet Germany"
     code: |
-      {
-        "opts": [],
-        "arguments": {
-          "rt.mod": "hello_world",
-          "name": "Germany"
-        }
-      }
+      { "module": "lua.hello_world", "args": { "name": "Germany" } }
 
 # Description of additional data format
 returns:
@@ -54,8 +43,8 @@ returns:
 manpage: |
   This module allows executing Lua scripts as modules within
   the SysInspect framework. Lua scripts should be placed
-  in the configured scripts directory and can be called by
-  specifying their name.
+  in the configured scripts directory and are normally called
+  through model DSL names such as [W::b]lua.reader[N].
 
   The module supports passing additional arguments to the Lua
   script, which will be available as global variables within

@@ -102,10 +102,10 @@ Sysinspect keeps the philosophy of UNIX: a chain of small, composable tools. It 
 Universe in its own language, but rather provides a powerful framework to define your own models and tools. Think of it
 as a Swiss Army knife for system inspection and validation—you build exactly what you need, nothing more.
 
-A Checkbook is what one would call a "playbook" in Ansible or a "formula" in SaltStack. It's essentially your
-automation script—a collection of inspections and actions bundled together. The clever part is that Sysinspect breaks
-things down into "relations" (facts, assertions, actions) that run one after another in a logical order. If you're
-used to Ansible, think of it as a more granular way to organize your plays with built-in validation checks.
+A Checkbook is Sysinspect's bundled automation script: a collection of
+inspections and actions organised into one execution plan. The clever part is
+that Sysinspect breaks things down into "relations" (facts, assertions,
+actions) that run one after another in a logical order.
 
 Requirements
 ============

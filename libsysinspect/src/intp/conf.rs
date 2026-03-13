@@ -95,38 +95,16 @@ impl EventsConfig {
         Err(SysinspectError::ModelDSLError("Unable to parse configuration".to_string()))
     }
 
-    /// Get module (or Python module) from the namespace
+    /// Get a module path from the namespace
     pub fn get_module(&self, namespace: &str) -> Result<PathBuf, SysinspectError> {
-        // Fool-proof cleanup, likely a bad idea
-        // XXX: This is reimplemented in modfinder::ModCall::set_module_ns
-        let mut modpath = self.modules.to_owned().unwrap_or(get_cfg_sharelib().join(DEFAULT_MODULES_DIR)).join(
+        let modpath = self.modules.to_owned().unwrap_or(get_cfg_sharelib().join(DEFAULT_MODULES_DIR)).join(
             namespace.trim_start_matches('.').trim_end_matches('.').trim().split('.').map(|s| s.to_string()).collect::<Vec<String>>().join("/"),
         );
-
-        let pymodpath = modpath.parent().unwrap().join(format!("{}.py", modpath.file_name().unwrap().to_os_string().to_str().unwrap_or_default()));
-
-        // Collision
-        if pymodpath.exists() && modpath.exists() {
-            return Err(SysinspectError::ModuleError(format!(
-                "Module names must be unique, however both \"{}\" and \"{}\" do exist. Please rename one of these, update your model and continue.",
-                pymodpath.file_name().unwrap_or_default().to_str().unwrap_or_default(),
-                modpath.file_name().unwrap_or_default().to_str().unwrap_or_default()
-            )));
-        }
-
         if !modpath.exists() {
-            if !pymodpath.exists() {
-                return Err(SysinspectError::ModuleError(format!(
-                    "Missing module \"{}\" in \"{}\"",
-                    namespace,
-                    modpath.to_str().unwrap_or_default()
-                )));
-            } else {
-                modpath = pymodpath;
-            }
+            return Err(SysinspectError::ModuleError(format!("Missing module \"{}\" in \"{}\"", namespace, modpath.to_str().unwrap_or_default())));
         }
 
-        Ok(modpath.to_owned())
+        Ok(modpath)
     }
 
     /// Set events config

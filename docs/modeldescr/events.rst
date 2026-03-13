@@ -14,8 +14,8 @@ Events are emitted during the cycle check-up. Every time SysInspect calls an act
 and the result arrives, an event occurs.
 
 Events are used for absolutely everything: reports, feedback, integration etc.
-One can use them to integrate SysInspect with any kind of Configuration Management
-system (Ansible, Salt etc) or other tools.
+One can use them to integrate SysInspect with other configuration-management
+systems or external tools.
 
 Configuration
 -------------

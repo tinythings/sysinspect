@@ -16,7 +16,7 @@ Here, Wasm is used as a *portable execution format*, comparable to a Java ``.jar
 a single, architecture-independent artifact that can be distributed and executed
 consistently across heterogeneous systems.
 
-Traditional configuration management systems (Ansible, Salt, Puppet, etc.) primarily execute
+Traditional configuration management systems primarily execute
 scripts or, in some cases, native binaries directly on the target system. As soon as compiled binaries
 are involved, this approach becomes fragile:
 
@@ -95,7 +95,7 @@ Register the runtime on the SysMaster:
 
   sysinspect module -A \
     --path /path/to/target/release/runtime/wasm-runtime \
-    --name "runtime.wasm-runtime" \
+    --name "runtime.wasm" \
     --descr "Wasm runtime"
 
 Verify registration:
@@ -246,6 +246,30 @@ At present, the Wasm runtime operates in **spartan mode**:
 
 This reduces maintenance cost and keeps runtime behavior transparent.
 
+Portable Helpers
+^^^^^^^^^^^^^^^^
+
+Unlike Lua and Py3, the Wasm runtime does not inject a runtime-owned
+high-level object directly into the guest language. Instead, SysInspect ships
+guest-side helper code that builds portable helper meanings on top of the
+generic Wasm host header API.
+
+For Rust guests, the example helper lives under:
+
+* ``modules/runtime/wasm-runtime/examples/rust-sdk/host.rs``
+
+That helper exposes the same portable host meanings as the Lua and Py3
+runtimes:
+
+* ``has(name)``
+* ``trait_value(name)``
+* ``paths()``
+* ``path_value(name)``
+
+These helpers are still passive views over the shared request payload. The
+source of truth remains the request header, especially ``host.traits`` and
+``host.paths``.
+
 Logging
 ^^^^^^^
 
@@ -272,8 +296,11 @@ This means:
 - the runtime normalises the final output field to
   ``__sysinspect-module-logs``.
 
-The Wasm host API now also exposes low-level PackageKit helper imports under
-the ``api`` import module:
+Platform-specific helpers
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The Wasm host API also exposes low-level PackageKit helper imports under the
+``api`` import module:
 
 - ``packagekit_available() -> i32``
 - ``packagekit_status(out_ptr, out_cap) -> i32``
@@ -285,14 +312,15 @@ the ``api`` import module:
 
 These imports are intentionally low-level. They return JSON payloads through
 guest memory buffers, unlike the higher-level Lua and Python helper namespaces.
-The helper remains Linux-only and depends on PackageKit being present on the
-host system.
+They remain Linux-only active helpers and are not part of the portable
+descriptive contract.
 
 Calling a Wasm module from a model
 ----------------------------------
 
-Runtime-bound modules are not invoked directly at this moment. Instead, you reference the runtime module and
-specify which submodule it should execute.
+Runtime-bound modules are invoked through the virtual ``wasm.<module>``
+namespace. Sysinspect resolves that virtual namespace to the installed
+``runtime.wasm`` dispatcher automatically.
 
 Example action:
 
@@ -300,29 +328,20 @@ Example action:
 
    call-hello:
      descr: Call WASM/WASI module
-     module: runtime.wasm-runtime
+     module: wasm.hellodude
      bind:
        - wasm
      state:
        $:
          args:
-           rt.mod: hellodude
            key: PRIVACY_POLICY_URL
 
 Here:
 
-- ``runtime.wasm-runtime`` selects the runtime.
-- ``rt.mod`` identifies the Wasm module.
+- ``wasm.hellodude`` identifies the Wasm runtime module.
 - Arguments with the ``rt.*`` prefix are reserved for runtime configuration. You can always get runtime manual with
   directly calling the runtime module using ``--man`` argument.
 - Arguments without the ``rt.*`` prefix are passed to the submodule "as is".
-
-.. note::
-
-   The exact syntax for runtime invocation may evolve in the future. A more
-   unified namespace (for example ``runtime.wasm.<module>``) is planned, but
-   requires additional module typing and namespace changes. For now, the
-   explicit ``rt.mod`` approach is used.
 
 Mixed Runtime Example
 ---------------------
@@ -339,22 +358,20 @@ Example:
    actions:
      call-spawner:
        descr: Try spawner
-       module: runtime.wasm-runtime
+       module: wasm.caller
        bind: [example]
        state:
          $:
-           args:
-             rt.mod: caller
+           args: {}
 
      get-os-version:
        descr: Return OS version
-       module: runtime.lua-runtime
+       module: lua.reader
        bind: [example]
        state:
          $:
            opts: [rt.logs]
-           args:
-             rt.mod: reader
+           args: {}
 
      ping:
        descr: Information module

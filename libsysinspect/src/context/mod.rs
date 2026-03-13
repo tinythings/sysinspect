@@ -1,3 +1,8 @@
+pub mod host;
+
+#[cfg(test)]
+mod host_ut;
+
 use indexmap::IndexMap;
 use serde_json::{Number, Value};
 

@@ -6,12 +6,16 @@ use libmodcore::modinit::{ModArgument, ModInterface, ModOption};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 static RE_NL: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s*\n\s*").unwrap()); // collapse newlines to single space
 static RE_SPACE_BEFORE_PUNCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+([.!?;,:])").unwrap());
 static RE_MULTI_SPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t\u{00A0}]{2,}").unwrap()); // spaces/tabs/NBSP
 static RE_NO_SPACE_AFTER_PUNCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"([.!?;,:])([^\s\)])").unwrap());
+static SUPPORTED_RUNTIMES: &[&str] = &["lua", "py3", "wasm"];
+static RUNTIME_PREFIX: &str = "runtime";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModAttrs {
@@ -72,12 +76,14 @@ impl ModAttrs {
 pub struct ModPakRepoLibFile {
     file: PathBuf,
     checksum: String,
+    #[serde(default = "default_library_kind")]
+    kind: String,
 }
 
 impl ModPakRepoLibFile {
     /// Creates a new ModPakRepoLibFile with the given file and checksum.
-    pub fn new(file: PathBuf, checksum: &str) -> Self {
-        Self { file, checksum: checksum.to_string() }
+    pub fn new(file: PathBuf, checksum: &str, kind: &str) -> Self {
+        Self { file, checksum: checksum.to_string(), kind: kind.to_string() }
     }
 
     /// Returns the file of the library file.
@@ -89,6 +95,15 @@ impl ModPakRepoLibFile {
     pub fn checksum(&self) -> &str {
         &self.checksum
     }
+
+    /// Returns the detected library kind.
+    pub fn kind(&self) -> &str {
+        &self.kind
+    }
+}
+
+fn default_library_kind() -> String {
+    "script".to_string()
 }
 
 #[allow(clippy::type_complexity)]
@@ -117,10 +132,36 @@ impl ModPakRepoIndex {
         Self { platform: IndexMap::new(), library: IndexMap::new() }
     }
 
+    fn detect_library_kind(path: &Path) -> String {
+        let mut header = [0_u8; 8];
+        if let Ok(mut file) = File::open(path)
+            && let Ok(read) = file.read(&mut header)
+        {
+            let header = &header[..read];
+            if header.starts_with(b"\0asm") {
+                return "wasm".to_string();
+            }
+
+            if header.starts_with(b"\x7FELF") {
+                return "binary".to_string();
+            }
+        }
+
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("lua") => "lua".to_string(),
+            Some("py") => "python".to_string(),
+            Some("wasm") => "wasm".to_string(),
+            Some("so" | "dylib" | "dll") => "binary".to_string(),
+            _ => default_library_kind(),
+        }
+    }
+
     pub fn index_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
         for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.to_path_buf(), None) {
             log::debug!("Adding library file: {fname} with checksum: {cs}");
-            self.library.insert(fname.clone(), ModPakRepoLibFile::new(PathBuf::from(fname), &cs));
+            let path = p.join(&fname);
+            let kind = Self::detect_library_kind(&path);
+            self.library.insert(fname.clone(), ModPakRepoLibFile::new(PathBuf::from(fname), &cs, &kind));
         }
 
         Ok(())
@@ -316,6 +357,50 @@ pub struct ModPakMetadata {
 }
 
 impl ModPakMetadata {
+    /// Construct minimal metadata for unit tests without exposing struct fields.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(path: PathBuf, name: &str) -> Self {
+        Self { path, name: name.to_string(), ..Default::default() }
+    }
+
+    /// Validate module naming against reserved runtime namespaces.
+    ///
+    /// Rules:
+    /// - `runtime.*` is reserved for installed runtime dispatcher modules.
+    /// - only the matching dispatcher binary may use `runtime.lua`,
+    ///   `runtime.py3`, or `runtime.wasm`.
+    /// - virtual namespaces `lua.*`, `py3.*`, and `wasm.*` are not installable
+    ///   module names; they exist only in model DSL and are resolved at runtime.
+    pub(crate) fn validate_namespace(&self) -> Result<(), SysinspectError> {
+        let name = self.name.trim();
+        let runtime_dispatchers =
+            SUPPORTED_RUNTIMES.iter().map(|rt| (format!("{rt}-runtime"), format!("{RUNTIME_PREFIX}.{rt}"))).collect::<Vec<(String, String)>>();
+
+        if let Some((_, expected)) = runtime_dispatchers.iter().find(|(_, expected)| expected == name) {
+            let fname = self.path.file_name().and_then(|v| v.to_str()).unwrap_or_default();
+            if runtime_dispatchers.iter().any(|(bin, module)| module == expected && fname == bin) {
+                return Ok(());
+            }
+
+            return Err(SysinspectError::InvalidModuleName(format!(
+                "Reserved runtime module namespace \"{name}\" can only be used by its dispatcher binary"
+            )));
+        }
+
+        if name.starts_with(&format!("{RUNTIME_PREFIX}.")) {
+            return Err(SysinspectError::InvalidModuleName("Namespace \"runtime.*\" is reserved for runtime dispatcher modules only".to_string()));
+        }
+
+        let rt_prefix = SUPPORTED_RUNTIMES.iter().map(|rt| format!("{rt}.")).collect::<Vec<String>>();
+        if rt_prefix.iter().any(|prefix| name.starts_with(prefix)) {
+            return Err(SysinspectError::InvalidModuleName(format!(
+                "Namespace \"{name}\" is reserved for virtual runtime module dispatch and cannot be installed directly"
+            )));
+        }
+
+        Ok(())
+    }
+
     pub fn set_arch(&mut self, arch: &str) {
         self.arch = arch.to_string();
     }
@@ -396,6 +481,7 @@ impl ModPakMetadata {
                 format!("name was not obtained. Either add a spec file or use the {} option.", "--name".bright_yellow()).to_string(),
             ));
         }
+        mpm.validate_namespace()?;
 
         if let Some(descr) = matches.get_one::<String>("descr") {
             mpm.descr = descr.clone();

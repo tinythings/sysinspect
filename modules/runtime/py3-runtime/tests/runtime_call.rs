@@ -125,16 +125,36 @@ def run(req):
         "config_value": req["config"].get("custom.flag"),
         "opts": req["opts"],
         "ext": req["ext"],
+        "host": req["host"],
+        "host_name": req["host"]["traits"]["system.hostname"],
+        "host_sharelib": req["host"]["paths"]["sharelib"],
         "types": {
             "truth": True,
             "nothing": None,
             "items": [1, "two", False, None],
             "nested": {"value": 3.5},
         },
-    }
+}
 "#,
     ) {
         panic!("failed to write echo request test python module: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        moddir.join("hostecho.py"),
+        r#"
+def run(req):
+    return {
+        "host": req["host"],
+        "host_name": host.trait("system.hostname"),
+        "has_host": host.has("system.hostname"),
+        "has_missing": host.has("system.kernel"),
+        "sharelib": host.path("sharelib"),
+        "paths": host.paths(),
+    }
+"#,
+    ) {
+        panic!("failed to write host echo test python module: {err}");
     }
 
     if let Err(err) = fs::write(
@@ -247,6 +267,55 @@ fn test_python_runtime_returns_forwarded_logs() {
 }
 
 #[test]
+fn test_python_runtime_passes_host_context_to_guest() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {
+            "traits": { "system.hostname": "py-host" },
+            "paths": { "sharelib": "/srv/py-share" }
+        },
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/data/host_name"), Some(&json!("py-host")));
+    assert_eq!(out.pointer("/data/data/has_host"), Some(&json!(true)));
+    assert_eq!(out.pointer("/data/data/has_missing"), Some(&json!(false)));
+    assert_eq!(out.pointer("/data/data/sharelib"), Some(&json!("/srv/py-share")));
+    assert_eq!(out.pointer("/data/data/paths/sharelib"), Some(&json!("/srv/py-share")));
+}
+
+#[test]
+fn test_python_runtime_host_helper_tolerates_missing_data() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {},
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(
+        out.pointer("/data/data"),
+        Some(&json!({
+            "host": {},
+            "host_name": null,
+            "has_host": false,
+            "has_missing": false,
+            "sharelib": null,
+            "paths": {}
+        }))
+    );
+}
+
+#[test]
 fn test_python_runtime_lists_nested_modules() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());
@@ -258,7 +327,10 @@ fn test_python_runtime_lists_nested_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "nested.reader", "pkgavail"])));
+    assert_eq!(
+        out.pointer("/data/modules"),
+        Some(&json!(["baddoc", "badret", "echoreq", "hello", "hostecho", "importer", "nested.reader", "pkgavail"]))
+    );
 }
 
 #[test]
@@ -361,6 +433,10 @@ fn test_python_runtime_preserves_request_sections_and_json_types() {
 
     let out = run_runtime(&json!({
         "config": { "path.sharelib": root.path().to_string_lossy(), "custom.flag": "seen" },
+        "host": {
+            "traits": { "system.hostname": "py-minion" },
+            "paths": { "sharelib": "/srv/py-share" }
+        },
         "opts": ["alpha", "beta", "rt.logs"],
         "args": { "rt.mod": "echoreq", "name": "Germany", "enabled": true, "count": 7 },
         "trace_id": "abc-123",
@@ -375,6 +451,12 @@ fn test_python_runtime_preserves_request_sections_and_json_types() {
             "config_value": "seen",
             "opts": ["alpha", "beta"],
             "ext": { "trace_id": "abc-123", "payload": { "items": [1, 2, 3] } },
+            "host": {
+                "traits": { "system.hostname": "py-minion" },
+                "paths": { "sharelib": "/srv/py-share" }
+            },
+            "host_name": "py-minion",
+            "host_sharelib": "/srv/py-share",
             "types": {
                 "truth": true,
                 "nothing": null,

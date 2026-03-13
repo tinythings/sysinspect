@@ -22,7 +22,7 @@ Root Cause Analysis (RCA).
 
 Configuration management. As Sysinspect can get the information, it
 also can set the information. It is a matter of modules.
-This workflow works very similar to Ansible style.
+This workflow follows a model-driven configuration approach.
 
 ## Documentation
 

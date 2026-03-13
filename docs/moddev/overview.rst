@@ -10,7 +10,6 @@ Modules Development
 
    proto
    modstruct
-   pymod
 
 Overview
 --------
@@ -37,22 +36,5 @@ in any language or scripts, as long as a Module is supporting defined communicat
 This approach enables everyone to be as flexible and free as possible, adapting to any unpredictable
 environment and allowing to choose any technology one might like to.
 
-Python Modules
---------------
-
-.. important::
-
-    What!? Python? *Without* any extra kind of runtime??..
-
-Yes!
-
-Since version 0.2.0, SysInspect brings its own embedded Python runtime, specification 3.12. However,
-this runtime comes with the limitations. It contains a "frozen" standard library and does not support
-native modules. This means:
-
-- Anything which is written in Python supposed to work
-- Anything which is native (C or C++) will not work and will never be supported
-
-On the other hand, the entire Minion with the whole Python runtime and its standard
-"included batteries" costs just 29 Mb on the disk and is shipped just as one single static
-binary (``musl``).
+Python support is provided through runtime modules. Python code is no longer treated as a
+native module type under the main shared modules tree.

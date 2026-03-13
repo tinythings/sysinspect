@@ -75,6 +75,24 @@ pub struct Action {
 }
 
 impl Action {
+    /// Resolve a virtual runtime namespace used in model DSL.
+    ///
+    /// This maps user-facing action module names like `lua.reader` or
+    /// `py3.nested.reader` to the installed dispatcher module
+    /// (`runtime.lua`, `runtime.py3`, `runtime.wasm`) plus the inner runtime
+    /// module name that will later be injected as `rt.mod`.
+    pub(crate) fn runtime_dispatch(module: &str) -> Option<(&'static str, String)> {
+        for (prefix, runtime) in [("lua.", "runtime.lua"), ("py3.", "runtime.py3"), ("wasm.", "runtime.wasm")] {
+            if let Some(rest) = module.strip_prefix(prefix)
+                && !rest.is_empty()
+            {
+                return Some((runtime, rest.to_string()));
+            }
+        }
+
+        None
+    }
+
     pub fn new(id: &Value, states: &Value) -> Result<Self, SysinspectError> {
         let i_id: String;
 
@@ -211,7 +229,8 @@ impl Action {
     /// Setup and activate an action and is done by the Inspector.
     /// This method finds module, sets up its parameters, binds constraint etc.
     pub(crate) fn setup(&mut self, inspector: &SysInspector, eid: &str, state: String) -> Result<Action, SysinspectError> {
-        let mpath = inspector.cfg().get_module(&self.module)?;
+        let runtime_dispatch = Self::runtime_dispatch(&self.module);
+        let mpath = inspector.cfg().get_module(runtime_dispatch.as_ref().map(|(runtime, _)| *runtime).unwrap_or(&self.module))?;
 
         /*
         XXX: Bogus constraints are still present in the whole pool.
@@ -256,6 +275,12 @@ impl Action {
 
             // Setup modcall
             let mut modcall = ModCall::default().set_state(state).set_module(mpath).set_aid(self.id()).set_eid(eid.to_string()).set_constraints(cst);
+
+            if let Some((_, runtime_module)) = &runtime_dispatch
+                && !mod_args.args().contains_key("rt.mod")
+            {
+                modcall.add_kwargs("rt.mod".to_string(), Value::String(runtime_module.to_string()));
+            }
 
             // Set module launching arguments
             for (kw, arg) in &mod_args.args() {
