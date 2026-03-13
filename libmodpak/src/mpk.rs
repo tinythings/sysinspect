@@ -1,13 +1,13 @@
 use anyhow::Context;
 use colored::Colorize;
-use goblin::Object;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libmodcore::modinit::{ModArgument, ModInterface, ModOption};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 static RE_NL: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s*\n\s*").unwrap()); // collapse newlines to single space
@@ -133,12 +133,16 @@ impl ModPakRepoIndex {
     }
 
     fn detect_library_kind(path: &Path) -> String {
-        if let Ok(buff) = fs::read(path) {
-            if buff.starts_with(b"\0asm") {
+        let mut header = [0_u8; 8];
+        if let Ok(mut file) = File::open(path)
+            && let Ok(read) = file.read(&mut header)
+        {
+            let header = &header[..read];
+            if header.starts_with(b"\0asm") {
                 return "wasm".to_string();
             }
 
-            if matches!(Object::parse(&buff), Ok(Object::Elf(_))) {
+            if header.starts_with(b"\x7FELF") {
                 return "binary".to_string();
             }
         }
