@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::SysInspectModPak;
+    use crate::{SysInspectModPak, mpk::ModPakMetadata};
     use colored::control;
     use std::{fs, path::Path};
 
@@ -182,5 +182,29 @@ mod tests {
         let library = repo.idx.library();
         let entry = library.get("lib/runtime/wasm/demo.wasm").expect("wasm library entry should exist");
         assert_eq!(entry.kind(), "wasm");
+    }
+
+    #[test]
+    fn add_module_installs_binary_under_namespace_path_not_source_filename() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let src = tempfile::tempdir().expect("src tempdir should be created");
+        let binary = src.path().join("lua-runtime");
+        fs::copy("/bin/sh", &binary).expect("test binary should be copied");
+
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let meta = ModPakMetadata::new_for_test(binary, "runtime.lua");
+        repo.add_module(meta).expect("module should be added");
+
+        let idx = repo.idx.all_modules(None, Some(vec!["runtime.lua"]));
+        let mut found = false;
+        for archset in idx.values() {
+            for modules in archset.values() {
+                if let Some(attrs) = modules.get("runtime.lua") {
+                    assert_eq!(attrs.subpath(), "runtime/lua");
+                    found = true;
+                }
+            }
+        }
+        assert!(found, "runtime.lua should be indexed");
     }
 }

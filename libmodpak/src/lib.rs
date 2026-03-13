@@ -376,16 +376,6 @@ impl SysInspectModPak {
         Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(ridx)?)? })
     }
 
-    /// Extract module subpath from its name
-    fn after<'a>(full_path: &'a str, sub: &'a str) -> &'a str {
-        if let Some(index) = full_path.find(sub) {
-            let result = &full_path[index..];
-            if result.len() == sub.len() { sub } else { result }
-        } else {
-            sub
-        }
-    }
-
     /// Parses an object file and returns its architecture and OS ABI.
     fn parse_obj(buff: &[u8]) -> Result<(bool, &str, &str), SysinspectError> {
         match Object::parse(buff).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to parse object: {e}")))? {
@@ -468,8 +458,7 @@ impl SysInspectModPak {
         meta.set_arch(&arch);
 
         log::info!("Platform: {p}");
-        let module_subpath =
-            PathBuf::from(Self::after(meta.get_path().to_str().unwrap_or_default(), meta.get_subpath().to_str().unwrap_or_default()));
+        let module_subpath = meta.get_subpath();
         let subpath = PathBuf::from(format!("{}/{}/{}", if is_bin { "bin" } else { "script" }, p, arch)).join(&module_subpath);
         log::debug!("Subpath: {}", subpath.display().to_string().bright_yellow());
         if let Some(p) = self.root.join(&subpath).parent()
