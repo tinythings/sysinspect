@@ -34,7 +34,7 @@ use libsysinspect::{
         fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     },
     rsa,
-    traits::{self, TraitUpdateRequest, ensure_master_traits_file},
+    traits::{self, TraitUpdateRequest, ensure_master_traits_file, systraits::SystemTraits},
     util::{self, dataconv},
 };
 use libsysproto::{
@@ -622,7 +622,8 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
+        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_json_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -634,10 +635,11 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
+        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
         let mut r = MinionMessage::new(
-            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            dataconv::as_str(fresh_traits.get(traits::SYS_ID)),
             RequestType::Ehlo,
-            traits::get_minion_traits(None).to_json_value()?,
+            fresh_traits.to_json_value()?,
         );
         r.set_sid(MINION_SID.to_string());
 
@@ -850,6 +852,9 @@ impl SysMinion {
                 if let Err(e) = SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
                     log::error!("Failed to sync minion with master: {e}");
                 }
+                if let Err(e) = self.as_ptr().send_traits().await {
+                    log::error!("Failed to sync traits with master: {e}");
+                }
                 let _ = self.as_ptr().send_sensors_sync().await;
             }
             CLUSTER_TRAITS_UPDATE => {
@@ -875,6 +880,9 @@ impl SysMinion {
                                 _ => "Updated traits",
                             };
                             log::info!("{}: {}", label, summary);
+                            if let Err(err) = self.as_ptr().send_traits().await {
+                                log::error!("Failed to sync traits with master: {err}");
+                            }
                         }
                         Err(err) => log::error!("Failed to apply traits update: {err}"),
                     },
