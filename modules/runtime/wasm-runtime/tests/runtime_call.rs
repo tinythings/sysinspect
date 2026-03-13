@@ -273,6 +273,48 @@ fn main() {
 }
 "##;
 
+static HOSTPEEK_CARGO_TOML: &str = r#"
+[package]
+name = "hostpeek"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+"#;
+
+static HOSTPEEK_MAIN_RS: &str = r##"
+use std::io::{self, Read};
+
+fn read_header() -> Result<String, String> {
+    let mut buf = String::new();
+    io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read: {err}"))?;
+    Ok(buf.lines().next().unwrap_or_default().to_string())
+}
+
+fn has_host(src: &str) -> bool {
+    src.contains("\"host\":{") && src.contains("\"short\":\"wasm-host\"") && src.contains("\"sharelib\":\"/srv/wasm-share\"")
+}
+
+fn main() {
+    let hdr = match read_header() {
+        Ok(hdr) => hdr,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("{{\"has_host\":{}}}", if has_host(&hdr) { "true" } else { "false" });
+}
+"##;
+
 fn mk_tmp_runtime_root() -> TempDir {
     tempfile::Builder::new()
         .prefix("sysinspect-wasm-runtime-test-")
@@ -370,7 +412,10 @@ fn install_test_modules(root: &Path) -> Vec<String> {
     let pkgavail_src = stage_rust_example("pkgavail", &[("Cargo.toml", PKGAVAIL_CARGO_TOML), ("src/main.rs", PKGAVAIL_MAIN_RS)]);
     let pkgavail = build_rust_example(pkgavail_src.path(), "pkgavail.wasm", "pkgavail");
     install_module(root, &pkgavail, "pkgavail.wasm");
-    let mut modules = vec!["caller".to_string(), "hellodude".to_string(), "pkgavail".to_string()];
+    let hostpeek_src = stage_rust_example("hostpeek", &[("Cargo.toml", HOSTPEEK_CARGO_TOML), ("src/main.rs", HOSTPEEK_MAIN_RS)]);
+    let hostpeek = build_rust_example(hostpeek_src.path(), "hostpeek.wasm", "hostpeek");
+    install_module(root, &hostpeek, "hostpeek.wasm");
+    let mut modules = vec!["caller".to_string(), "hellodude".to_string(), "hostpeek".to_string(), "pkgavail".to_string()];
     if let Some(rs_reader) = prebuilt_rs_reader() {
         install_module(root, &rs_reader, "rs-reader.wasm");
         modules.push("rs-reader".to_string());
@@ -478,6 +523,25 @@ fn test_wasm_runtime_returns_forwarded_logs() {
     assert!(!logs.is_empty());
     assert!(logs.iter().any(|v| v.as_str().unwrap_or_default().contains("INFO")));
     assert!(logs.iter().any(|v| v.as_str().unwrap_or_default().contains("Called: \"uname -a\"")));
+}
+
+#[test]
+fn test_wasm_runtime_passes_host_context_to_guest() {
+    let root = mk_tmp_runtime_root();
+    install_test_modules(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {
+            "sys": { "hostname": { "short": "wasm-host" } },
+            "paths": { "sharelib": "/srv/wasm-share" }
+        },
+        "opts": [],
+        "args": { "rt.mod": "hostpeek" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/has_host"), Some(&json!(true)));
 }
 
 #[test]
