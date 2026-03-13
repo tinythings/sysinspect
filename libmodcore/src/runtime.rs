@@ -73,6 +73,10 @@ pub struct ModRequest {
     #[serde(default)]
     config: Option<IndexMap<String, ArgValue>>,
 
+    /// Shared host context passed through to runtime guests.
+    #[serde(default)]
+    host: Option<Value>,
+
     /// Extra data, that might be needed to be passed through.
     #[serde(flatten)]
     ext: IndexMap<String, serde_json::Value>,
@@ -126,6 +130,11 @@ impl ModRequest {
             config.insert("path.sharelib".to_string(), ArgValue(serde_json::Value::String(DEFAULT_MODULES_SHARELIB.to_string())));
         }
         config
+    }
+
+    /// Get the shared host context payload.
+    pub fn host(&self) -> Value {
+        self.host.clone().unwrap_or_else(|| Value::Object(serde_json::Map::new()))
     }
 
     /// Get all param args including runtime-specific ones (those starting with "rt.")

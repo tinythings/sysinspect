@@ -91,6 +91,11 @@ impl SystemTraits {
         items
     }
 
+    /// Return a cloned map of all known trait items.
+    pub fn to_map(&self) -> IndexMap<String, Value> {
+        self.data.clone()
+    }
+
     /// Return checksum of traits.
     /// This is done by calculating checksum of the *keys*, as values can change on every restart,
     /// e.g. IPv6 data, which is usually irrelevant or any other things that *meant* to change.

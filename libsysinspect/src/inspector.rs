@@ -1,5 +1,6 @@
 use crate::{
     cfg::mmconf::MinionConfig,
+    context::host::get_runtime_host_context_json,
     intp::{self, actions::Action, inspector::SysInspector},
     mdescr::mspec,
     reactor::{callback::EventProcessorCallback, evtproc::EventProcessor},
@@ -16,6 +17,7 @@ use tokio::sync::Mutex;
 
 static MINION_CONFIG: OnceCell<Arc<MinionConfig>> = OnceCell::new();
 static DPQ_HANDLE: OnceCell<Arc<DiskPersistentQueue>> = OnceCell::new();
+static MINION_HOST_CONTEXT: OnceCell<serde_json::Value> = OnceCell::new();
 
 #[derive(Debug, Default)]
 pub struct SysInspectRunner {
@@ -72,6 +74,11 @@ impl SysInspectRunner {
     /// Return minion config as JSON
     pub fn minion_cfg_json() -> serde_json::Value {
         serde_json::to_value(&*Self::minion_cfg()).unwrap_or_default()
+    }
+
+    /// Return the shared runtime host context as JSON.
+    pub fn minion_host_json() -> serde_json::Value {
+        MINION_HOST_CONTEXT.get_or_init(|| get_runtime_host_context_json(Self::minion_cfg().as_ref())).clone()
     }
 
     /// Set model path

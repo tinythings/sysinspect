@@ -145,10 +145,16 @@ impl ModCall {
         }
 
         out.insert("config".to_string(), SysInspectRunner::minion_cfg_json());
+        out.insert("host".to_string(), SysInspectRunner::minion_host_json());
 
         let x = json!(out).to_string();
         log::trace!("Params: {x}");
         x
+    }
+
+    #[cfg(test)]
+    pub(crate) fn params_json_for_test(&self) -> String {
+        self.params_json()
     }
 
     /// Get module namespace.
