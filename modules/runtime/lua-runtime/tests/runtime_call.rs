@@ -150,6 +150,23 @@ return {
     }
 
     if let Err(err) = fs::write(
+        moddir.join("hostecho.lua"),
+        r#"
+return {
+    run = function(req)
+        return {
+            host = req.host,
+            host_name = req.host.sys.hostname.short,
+            sharelib = req.host.paths.sharelib
+        }
+    end
+}
+"#,
+    ) {
+        panic!("failed to write host echo lua module: {err}");
+    }
+
+    if let Err(err) = fs::write(
         moddir.join("baddoc.lua"),
         r#"
 return {
@@ -259,6 +276,27 @@ fn test_lua_runtime_returns_forwarded_logs() {
 }
 
 #[test]
+fn test_lua_runtime_passes_host_context_to_guest() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {
+            "sys": { "hostname": { "short": "lua-host" } },
+            "paths": { "sharelib": "/srv/lua-share" }
+        },
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/data/host_name"), Some(&json!("lua-host")));
+    assert_eq!(out.pointer("/data/data/sharelib"), Some(&json!("/srv/lua-share")));
+    assert_eq!(out.pointer("/data/data/host/sys/hostname/short"), Some(&json!("lua-host")));
+}
+
+#[test]
 fn test_lua_runtime_exposes_packagekit_helper() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());
@@ -287,7 +325,7 @@ fn test_lua_runtime_lists_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "pkgavail", "reader"])));
+    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "hostecho", "importer", "pkgavail", "reader"])));
 }
 
 #[test]

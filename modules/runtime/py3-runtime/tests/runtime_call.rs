@@ -131,10 +131,24 @@ def run(req):
             "items": [1, "two", False, None],
             "nested": {"value": 3.5},
         },
-    }
+}
 "#,
     ) {
         panic!("failed to write echo request test python module: {err}");
+    }
+
+    if let Err(err) = fs::write(
+        moddir.join("hostecho.py"),
+        r#"
+def run(req):
+    return {
+        "host": req["host"],
+        "host_name": req["host"]["sys"]["hostname"]["short"],
+        "sharelib": req["host"]["paths"]["sharelib"],
+    }
+"#,
+    ) {
+        panic!("failed to write host echo test python module: {err}");
     }
 
     if let Err(err) = fs::write(
@@ -247,6 +261,27 @@ fn test_python_runtime_returns_forwarded_logs() {
 }
 
 #[test]
+fn test_python_runtime_passes_host_context_to_guest() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {
+            "sys": { "hostname": { "short": "py-host" } },
+            "paths": { "sharelib": "/srv/py-share" }
+        },
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/data/host_name"), Some(&json!("py-host")));
+    assert_eq!(out.pointer("/data/data/sharelib"), Some(&json!("/srv/py-share")));
+    assert_eq!(out.pointer("/data/data/host/sys/hostname/short"), Some(&json!("py-host")));
+}
+
+#[test]
 fn test_python_runtime_lists_nested_modules() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());
@@ -258,7 +293,10 @@ fn test_python_runtime_lists_nested_modules() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert_eq!(out.pointer("/data/modules"), Some(&json!(["baddoc", "badret", "echoreq", "hello", "importer", "nested.reader", "pkgavail"])));
+    assert_eq!(
+        out.pointer("/data/modules"),
+        Some(&json!(["baddoc", "badret", "echoreq", "hello", "hostecho", "importer", "nested.reader", "pkgavail"]))
+    );
 }
 
 #[test]
