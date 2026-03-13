@@ -95,7 +95,7 @@ Register the runtime on the SysMaster:
 
   sysinspect module -A \
     --path /path/to/target/release/runtime/wasm-runtime \
-    --name "runtime.wasm-runtime" \
+    --name "runtime.wasm" \
     --descr "Wasm runtime"
 
 Verify registration:
@@ -291,8 +291,9 @@ host system.
 Calling a Wasm module from a model
 ----------------------------------
 
-Runtime-bound modules are not invoked directly at this moment. Instead, you reference the runtime module and
-specify which submodule it should execute.
+Runtime-bound modules are invoked through the virtual ``wasm.<module>``
+namespace. Sysinspect resolves that virtual namespace to the installed
+``runtime.wasm`` dispatcher automatically.
 
 Example action:
 
@@ -300,29 +301,20 @@ Example action:
 
    call-hello:
      descr: Call WASM/WASI module
-     module: runtime.wasm-runtime
+     module: wasm.hellodude
      bind:
        - wasm
      state:
        $:
          args:
-           rt.mod: hellodude
            key: PRIVACY_POLICY_URL
 
 Here:
 
-- ``runtime.wasm-runtime`` selects the runtime.
-- ``rt.mod`` identifies the Wasm module.
+- ``wasm.hellodude`` identifies the Wasm runtime module.
 - Arguments with the ``rt.*`` prefix are reserved for runtime configuration. You can always get runtime manual with
   directly calling the runtime module using ``--man`` argument.
 - Arguments without the ``rt.*`` prefix are passed to the submodule "as is".
-
-.. note::
-
-   The exact syntax for runtime invocation may evolve in the future. A more
-   unified namespace (for example ``runtime.wasm.<module>``) is planned, but
-   requires additional module typing and namespace changes. For now, the
-   explicit ``rt.mod`` approach is used.
 
 Mixed Runtime Example
 ---------------------
@@ -339,22 +331,20 @@ Example:
    actions:
      call-spawner:
        descr: Try spawner
-       module: runtime.wasm-runtime
+       module: wasm.caller
        bind: [example]
        state:
          $:
-           args:
-             rt.mod: caller
+           args: {}
 
      get-os-version:
        descr: Return OS version
-       module: runtime.lua-runtime
+       module: lua.reader
        bind: [example]
        state:
          $:
            opts: [rt.logs]
-           args:
-             rt.mod: reader
+           args: {}
 
      ping:
        descr: Information module

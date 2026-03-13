@@ -71,13 +71,13 @@ Replace the path with the actual path to your built binary:
 
   sysinspect module -A \
     --path /path/to/your/target/release/runtime/lua-runtime \
-    --name "runtime.lua-runtime" \
+    --name "runtime.lua" \
     --descr "Lua runtime"
 
 What this does:
 
 1. ``--path`` points to the runtime binary you built.
-2. ``--name`` is the module name you will reference from models.
+2. ``--name`` is the installed dispatcher module name.
 3. ``--descr`` is a human-readable description (optional).
 
 This adds the runtime into SysMaster's package repository. You can then verify the module is registered
@@ -193,9 +193,9 @@ configuration management modules, capable of being extended for any use case.
 Calling a Lua module from a model
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-In current implementation, you :bi:`do not call Lua modules directly` from actions. To execute these Lua
-modules, you reference the runtime module (``runtime.lua-runtime``) from an action. Your action passes
-arguments telling the runtime which Lua module to invoke.
+In current implementation, you call Lua runtime modules through the virtual
+``lua.<module>`` namespace. Sysinspect resolves that to the installed
+``runtime.lua`` dispatcher automatically.
 
 Example model snippet:
 
@@ -207,7 +207,7 @@ Example model snippet:
    actions:
      my-example:
        descr: Read VERSION from /etc/os-release via Lua
-       module: runtime.lua-runtime
+       module: lua.reader
        bind:
          - foo
        state:
@@ -216,13 +216,11 @@ Example model snippet:
              # Enable logging from Lua scripts to SysInspect logs
              # Logs will be included in the action result under 'logs' namespace
              - rt.logs
-           args:
-             rt.mod: reader
+           args: {}
 
-The confusing part here is the ``rt.mod`` argument under ``opts.args``. All arguments with the ``rt.*``
-prefix are special runtime arguments that the Lua runtime module understands and are **not** passed to
-the Lua script. Any other arguments (without the ``rt.*`` prefix) are directly passed to the Lua script
-as normal arguments.
+For normal model usage, Sysinspect extracts the ``reader`` suffix from
+``lua.reader`` and passes it to ``runtime.lua`` internally. Model authors do
+not need to care about the internal runtime selector parameter.
 
 .. important::
 
@@ -234,7 +232,7 @@ as normal arguments.
 
        /usr/lib/sysinspect/runtime/lua-runtime --man
 
-In this example, ``mod: reader`` means you would run the Lua module implemented by ``reader.lua``.
+In this example, ``module: lua.reader`` means you would run the Lua module implemented by ``reader.lua``.
 What *exactly* the Lua runtime expects for module naming depends on the runtime implementation,
 but the intent is: keep your script name stable and call it by module name.
 
@@ -263,7 +261,7 @@ by invokindg the Sysinspect terminal UI, used for merely checking if the results
 Troubleshooting
 ^^^^^^^^^^^^^^^
 
-* If the runtime is missing, confirm ``runtime.lua-runtime`` appears in ``sysinspect module -L``.
+* If the runtime is missing, confirm ``runtime.lua`` appears in ``sysinspect module -L``.
 * If scripts are missing, confirm you uploaded ``./lib`` (the directory) and re-ran
   ``sysinspect --sync``.
 * If module imports fail, verify your ``lib/runtime/lua/...`` layout matches what the runtime

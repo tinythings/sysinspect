@@ -15,16 +15,23 @@ the interpreter and its shared libraries inside the SysInspect runtime layout.
 At a high level, the runtime:
 
 * discovers Python scripts in the configured runtime directory,
-* executes a selected script by name via ``rt.mod``,
+* executes a selected script by name,
 * passes the SysInspect request object into ``run(req)``,
 * optionally forwards script logs back to SysInspect via ``rt.logs``,
 * resolves shared Python libraries from the runtime ``site-packages`` namespace.
 
+In normal model DSL, Python runtime modules are called through the virtual
+``py3.<module>`` namespace. For example, ``module: py3.hello`` dispatches to
+the installed ``runtime.py3`` runtime module and selects ``hello`` as the
+runtime module name internally.
+
 Script lookup and naming
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-When you set the required keyword argument ``rt.mod``, SysInspect resolves the
-module name into a Python file path under the runtime scripts directory.
+When you use a module name such as ``py3.hello`` in the model DSL, SysInspect
+selects the installed ``runtime.py3`` dispatcher and resolves the suffix
+(``hello`` in this example) into a Python file path under the runtime scripts
+directory.
 
 Examples:
 
@@ -124,10 +131,6 @@ Options
 
 Keyword arguments
 -----------------
-
-``rt.mod`` (type: string, required)
-  The name of the Python script to execute. The runtime looks it up in the
-  configured scripts directory and supports dotted names for nested modules.
 
 ``[ANY]`` (type: string)
   Additional keyword arguments forwarded inside ``req["args"]`` to the executed
