@@ -43,7 +43,6 @@ The top-level runtime request contract is:
         "arguments": {},
         "options": [],
         "config": {},
-        "ext": {},
         "host": {}
     }
 
@@ -55,9 +54,15 @@ Equivalent alias form:
         "args": {},
         "opts": [],
         "config": {},
-        "ext": {},
         "host": {}
     }
+
+Additional passthrough data SHOULD be sent as extra top-level fields alongside those shown above.
+These are collected into the runtime's internal ``ext`` map. For example, ``"trace_id"``,
+``"payload"``, or other caller-specific fields may appear at the top level.
+
+For historical compatibility, an explicit top-level ``"ext"`` object is also accepted. If both
+forms are present, their contents are merged into the same internal ``ext`` map.
 
 The following example shows how a module defines the arguments and options, as well as
 it would expect as an input:
@@ -84,11 +89,14 @@ it would expect as an input:
         },
         "options": ["verbose"],
         "config": {},
-        "ext": {},
-        "host": {}
+        "host": {},
+        "trace_id": "req-42"
     }
 
 ``config`` is the full runtime config payload. It remains available to runtimes as-is.
+
+Additional passthrough fields may appear at the top level and are exposed to runtimes via the
+internal ``ext`` map. An explicit ``"ext"`` object is also accepted for compatibility.
 
 ``host`` is descriptive only. Its primary facts surface is ``host.traits``, which is a serialized
 map of minion traits. This is intentionally dynamic, because traits can be built from multiple
@@ -135,10 +143,8 @@ Example:
         "options": [],
         "config": {},
         "host": {},
-
-        "ext": {
-            "some-key": ["what", "ever", "data",],
-        }
+        "some-key": ["what", "ever", "data"],
+        "flag": true
     }
 
 The contract intentionally excludes transport/session internals, side-effecting APIs, and unstable
