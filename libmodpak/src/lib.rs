@@ -6,11 +6,10 @@ use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_DIR;
 use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
-use libsysinspect::util::iofs::get_file_sha256;
+use libsysinspect::util::{iofs::get_file_sha256, pad_visible};
 use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
 use once_cell::sync::Lazy;
 use prettytable::{Cell, Row, Table, format};
-use regex::Regex;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -31,8 +30,6 @@ their dependencies, and their architecture.
 
 static REPO_MOD_INDEX: &str = "mod.index";
 static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
-static ANSI_ESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("ansi regex should compile"));
-
 pub struct ModPakSyncState {
     state: Arc<Mutex<bool>>,
 }
@@ -354,11 +351,6 @@ impl SysInspectModPak {
         format!("{}{}", prefix.bright_white().bold(), file)
     }
 
-    fn pad_visible(text: &str, width: usize) -> String {
-        let visible = ANSI_ESCAPE_RE.replace_all(text, "").chars().count();
-        if visible >= width { text.to_string() } else { format!("{text}{}", " ".repeat(width - visible)) }
-    }
-
     /// Creates a new ModPakRepo with the given root path.
     pub fn new(root: PathBuf) -> Result<Self, SysinspectError> {
         if !root.exists() {
@@ -585,11 +577,11 @@ impl SysInspectModPak {
 
         println!(
             "{}  {}  {}  {}  {}",
-            Self::pad_visible(&"Type".bright_yellow().to_string(), type_width),
-            Self::pad_visible(&"Name".bright_yellow().to_string(), name_width),
-            Self::pad_visible(&"OS".bright_yellow().to_string(), os_width),
-            Self::pad_visible(&"Arch".bright_yellow().to_string(), arch_width),
-            Self::pad_visible(&"SHA256".bright_yellow().to_string(), sha_width),
+            pad_visible(&"Type".bright_yellow().to_string(), type_width),
+            pad_visible(&"Name".bright_yellow().to_string(), name_width),
+            pad_visible(&"OS".bright_yellow().to_string(), os_width),
+            pad_visible(&"Arch".bright_yellow().to_string(), arch_width),
+            pad_visible(&"SHA256".bright_yellow().to_string(), sha_width),
         );
         println!(
             "{}  {}  {}  {}  {}",
@@ -603,11 +595,11 @@ impl SysInspectModPak {
         for (kind, name, os_name, arch, sha) in rows {
             println!(
                 "{}  {}  {}  {}  {}",
-                Self::pad_visible(&kind.bright_green().to_string(), type_width),
-                Self::pad_visible(&Self::format_library_name(&name), name_width),
-                Self::pad_visible(&os_name.bright_green().to_string(), os_width),
-                Self::pad_visible(&arch.bright_green().to_string(), arch_width),
-                Self::pad_visible(&sha.green().to_string(), sha_width),
+                pad_visible(&kind.bright_green().to_string(), type_width),
+                pad_visible(&Self::format_library_name(&name), name_width),
+                pad_visible(&os_name.bright_green().to_string(), os_width),
+                pad_visible(&arch.bright_green().to_string(), arch_width),
+                pad_visible(&sha.green().to_string(), sha_width),
             );
         }
 

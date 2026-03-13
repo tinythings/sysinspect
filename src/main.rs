@@ -51,7 +51,7 @@ fn print_event_handlers() {
 
 async fn call_master_console(
     cfg: &MasterConfig, model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, context: Option<&String>,
-) -> Result<(), SysinspectError> {
+) -> Result<ConsoleResponse, SysinspectError> {
     let request = ConsoleQuery {
         model: model.to_string(),
         query: query.to_string(),
@@ -73,7 +73,7 @@ async fn call_master_console(
     if !response.ok {
         return Err(SysinspectError::MasterGeneralError(response.message));
     }
-    Ok(())
+    Ok(response)
 }
 
 fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
@@ -335,10 +335,10 @@ async fn main() {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("online") {
-        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, None).await {
-            log::error!("Cannot reach master: {err}");
-        } else {
-            println!("Check the master's logs for online minions information. 😀");
+        match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, None).await {
+            Ok(response) if !response.message.is_empty() => println!("{}", response.message),
+            Ok(_) => {}
+            Err(err) => log::error!("Cannot reach master: {err}"),
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
         let mut sr = SysInspectRunner::new(&MinionConfig::default());

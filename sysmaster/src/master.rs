@@ -21,7 +21,7 @@ use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     console::{ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
-    util::{self, iofs::scan_files_sha256},
+    util::{self, iofs::scan_files_sha256, pad_visible},
 };
 use libsysproto::{
     self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
@@ -729,6 +729,64 @@ impl SysMaster {
         }
     }
 
+    async fn online_minions_summary(&mut self) -> Result<String, SysinspectError> {
+        let mreg = self.mreg.lock().await;
+        let mut session = self.session.lock().await;
+        let ids = mreg.get_registered_ids()?;
+        let mut rows: Vec<(String, String, String, String, String, String)> = vec![];
+
+        for mid in &ids {
+            let alive = session.alive(mid);
+            let traits = match mreg.get(mid) {
+                Ok(Some(mrec)) => mrec.get_traits().to_owned(),
+                _ => HashMap::new(),
+            };
+            let mut h = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown");
+            if h.is_empty() {
+                h = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
+            }
+            let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let mid_short = if mid.chars().count() > 8 {
+                format!("{}...{}", &mid[..4], &mid[mid.len() - 4..])
+            } else {
+                mid.to_string()
+            };
+            rows.push((
+                h.to_string(),
+                if alive { h.bright_green().to_string() } else { h.red().to_string() },
+                ip.to_string(),
+                if alive { ip.bright_blue().to_string() } else { ip.blue().to_string() },
+                mid_short.clone(),
+                if alive { mid_short.bright_green().to_string() } else { mid_short.green().to_string() },
+            ));
+        }
+
+        let host_width = rows.iter().map(|r| r.0.chars().count()).max().unwrap_or(4).max("HOST".chars().count());
+        let ip_width = rows.iter().map(|r| r.2.chars().count()).max().unwrap_or(2).max("IP".chars().count());
+        let id_width = rows.iter().map(|r| r.4.chars().count()).max().unwrap_or(2).max("ID".chars().count());
+
+        let mut out = vec![
+            format!(
+                "{}  {}  {}",
+                pad_visible(&"HOST".bright_yellow().to_string(), host_width),
+                pad_visible(&"IP".bright_yellow().to_string(), ip_width),
+                pad_visible(&"ID".bright_yellow().to_string(), id_width),
+            ),
+            format!("{}  {}  {}", "─".repeat(host_width), "─".repeat(ip_width), "─".repeat(id_width)),
+        ];
+
+        for (_, host, _, ip, _, mid) in rows {
+            out.push(format!(
+                "{}  {}  {}",
+                pad_visible(&host, host_width),
+                pad_visible(&ip, ip_width),
+                pad_visible(&mid, id_width),
+            ));
+        }
+
+        Ok(out.join("\n"))
+    }
+
     pub async fn do_console(master: Arc<Mutex<Self>>) {
         log::trace!("Init local console channel");
         tokio::spawn({
@@ -765,6 +823,12 @@ impl SysMaster {
                                                 } else {
                                                     match envelope.sealed.open::<ConsoleQuery>(&key) {
                                                         Ok(query) => {
+                                                            if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}")) {
+                                                                match master.lock().await.online_minions_summary().await {
+                                                                    Ok(summary) => ConsoleResponse { ok: true, message: summary },
+                                                                    Err(err) => ConsoleResponse { ok: false, message: format!("Unable to get online minions: {err}") },
+                                                                }
+                                                            } else {
                                                             let msg = {
                                                                 let mut guard = master.lock().await;
                                                                 guard.msg_query_data(&query.model, &query.query, &query.traits, &query.mid, &query.context).await
@@ -777,6 +841,7 @@ impl SysMaster {
                                                                 ConsoleResponse { ok: true, message: format!("Accepted console command from {peer}") }
                                                             } else {
                                                                 ConsoleResponse { ok: false, message: "No message constructed for the console query".to_string() }
+                                                            }
                                                             }
                                                         }
                                                         Err(err) => ConsoleResponse { ok: false, message: format!("Failed to open console query: {err}") },
