@@ -144,6 +144,23 @@ Example:
 The contract intentionally excludes transport/session internals, side-effecting APIs, and unstable
 telemetry blobs. Runtime-control names under ``rt.*`` remain reserved internal protocol parameters.
 
+Migration Notes
+---------------
+
+Older SysInspect setups exposed useful host data through embedded-language
+bindings. That model is gone.
+
+Use these replacements instead:
+
+* host facts from ``host.traits``
+* runtime-relevant paths from ``host.paths``
+* full minion/runtime configuration from ``config``
+* portable helper sugar from the runtime ``host`` helpers in Lua, Py3, and Wasm
+
+Native ``.py`` modules are no longer resolved by ``libsysinspect``. Python is
+available only through the ``runtime.py3`` dispatcher and the virtual
+``py3.<module>`` namespace.
+
 .. hint::
 
     As keyword arguments are quite primitive and support only ``int``, ``string`` and ``bool``,

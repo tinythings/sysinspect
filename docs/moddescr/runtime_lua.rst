@@ -34,6 +34,23 @@ directory.
 The runtime treats the script as an entry point. Keep the script focused on one task and prefer importing
 shared helpers from the dependency directory described below.
 
+Lua request contract
+~~~~~~~~~~~~~~~~~~~~
+
+Lua modules receive the shared runtime request as ``req`` when the module
+``run(req)`` entrypoint is executed.
+
+The request contains the same portable sections used by the other runtimes:
+
+* ``req.args`` for keyword arguments
+* ``req.opts`` for options
+* ``req.config`` for the full runtime config payload
+* ``req.ext`` for caller-specific passthrough data
+* ``req.host`` for descriptive host data
+
+At the runtime input boundary, the historical ``arguments`` / ``options``
+shape is still accepted as an alias for ``args`` / ``opts``.
+
 Directory layout (Lua 5.4)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 

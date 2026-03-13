@@ -84,9 +84,13 @@ The ``req`` object passed to ``run(req)`` contains the same main sections
 used by other runtimes:
 
 * ``args`` for keyword arguments,
-* ``config`` for selected runtime configuration,
+* ``config`` for the full runtime configuration payload,
 * ``opts`` for options,
-* ``ext`` for extra passthrough payload.
+* ``ext`` for extra passthrough payload,
+* ``host`` for descriptive host data.
+
+At the runtime input boundary, the historical ``arguments`` / ``options``
+shape is still accepted as an alias for ``args`` / ``opts``.
 
 Logging
 ~~~~~~~
@@ -166,3 +170,17 @@ Practical notes
   one callable module from another.
 * Use ``rt.logs`` while developing runtime scripts, then disable it if you want
   quieter operation.
+
+Migration note
+--------------
+
+Python is no longer embedded in the SysInspect core. Direct native ``.py``
+modules are not resolved by ``libsysinspect`` anymore.
+
+Use the virtual ``py3.<module>`` namespace instead. Useful host data now comes
+from the shared request payload and portable helpers:
+
+* ``req["host"]["traits"]``
+* ``req["host"]["paths"]``
+* ``req["config"]``
+* ``host.trait(...)`` / ``host.path(...)`` when helper sugar is more convenient
