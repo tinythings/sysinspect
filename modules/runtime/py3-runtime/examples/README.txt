@@ -6,7 +6,7 @@ To use these, compile and install Python runtime first. If you build the
 whole workspace using "make", you will get
 target/<debug|release>/runtime/py3-runtime binary. Then install it:
 
-1. sysinspect module -A --path /to/your/target/release/runtime/py3-runtime --name runtime.py3-runtime --descr "Python 3 runtime"
+1. sysinspect module -A --path /to/your/target/release/runtime/py3-runtime --name runtime.py3 --descr "Python 3 runtime"
 
    This will put Python runtime into your package manager repository on
    SysMaster side.

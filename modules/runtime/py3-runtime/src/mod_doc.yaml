@@ -1,4 +1,4 @@
-name: "runtime.python3"
+name: "runtime.py3"
 version: "0.1.0"
 author: "Bo Maryniuk"
 description: Python 3.14 runtime module.

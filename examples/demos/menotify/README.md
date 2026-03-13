@@ -98,9 +98,8 @@ The `packagekit-history` sensor is already wired to:
 - notice only `removed`
 - call model query `menotify/tracked-package`
 
-The model action runs `runtime.lua-runtime` with:
+The model action runs `lua.packagekit` with:
 
-- `rt.mod: packagekit`
 - `action: context(action)`
 - `package: context(package)`
 
@@ -110,7 +109,7 @@ So the full path is:
 2. The sensor emits `removed`.
 3. The `pipeline` handler passes `action: install` and `package: $.data.package`.
 4. The demo model action receives that context and forwards it into runtime args.
-5. `runtime.lua-runtime` runs `lib/runtime/lua/packagekit.lua`.
+5. The installed `runtime.lua` dispatcher runs `lib/runtime/lua/packagekit.lua`.
 6. That generic Lua runtime script calls `packagekit.install({ "cowsay" })`.
 
 Query syntax note:
