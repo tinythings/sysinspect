@@ -31,8 +31,33 @@ left on receiving the data.
 Request Format
 --------------
 
-As previously mentioned, the request must be strictly aligned with the structure of the :ref:`modindex`,
-but resembling only the ``arguments`` and ``options`` structures.
+As previously mentioned, the request must be strictly aligned with the structure of the :ref:`modindex`.
+For historical reasons, both ``arguments`` / ``options`` and ``args`` / ``opts`` are supported.
+The former must remain supported; the latter are accepted aliases.
+
+The top-level runtime request contract is:
+
+.. code-block:: json
+
+    {
+        "arguments": {},
+        "options": [],
+        "config": {},
+        "ext": {},
+        "host": {}
+    }
+
+Equivalent alias form:
+
+.. code-block:: json
+
+    {
+        "args": {},
+        "opts": [],
+        "config": {},
+        "ext": {},
+        "host": {}
+    }
 
 The following example shows how a module defines the arguments and options, as well as
 it would expect as an input:
@@ -57,27 +82,38 @@ it would expect as an input:
         "arguments": {
             "mask": "*.txt"
         },
-        "options": ["verbose",],
+        "options": ["verbose"],
+        "config": {},
+        "ext": {},
+        "host": {}
     }
 
-Additionally, ``data`` key/value container is used for *arbitrary* data. This can be
-additional facts, constraint expressions or anything that is possible be relevant to
-the particular module. This section is understood only by this particular module and
-is just a static container of anything. Example:
+``config`` is the full runtime config payload. It remains available to runtimes as-is.
+
+``host`` is descriptive only. Its primary facts surface is ``host.traits``, which is a serialized
+map of minion traits. This is intentionally dynamic, because traits can be built from multiple
+sources, including user-controlled ones. Small convenience sections such as ``host.paths`` and
+``host.capabilities`` may exist, but they are secondary to ``host.traits``.
+
+``ext`` is used for *arbitrary* caller-specific data. It is understood only by the receiving module.
+Example:
 
 .. code-block:: json
     :caption: Payload example
 
     {
-        // Just for the reference
         "arguments": {},
-        "options": []
+        "options": [],
+        "config": {},
+        "host": {},
 
-        // Payload data
-        "data": {
+        "ext": {
             "some-key": ["what", "ever", "data",],
-        },
+        }
     }
+
+The contract intentionally excludes transport/session internals, side-effecting APIs, and unstable
+telemetry blobs. Runtime-control names under ``rt.*`` remain reserved internal protocol parameters.
 
 .. hint::
 
