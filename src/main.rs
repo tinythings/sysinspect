@@ -7,6 +7,7 @@ use libsysinspect::{
         mmconf::{MasterConfig, MinionConfig},
         select_config_path,
     },
+    console::{ConsoleQuery, ConsoleResponse, ConsoleSealed, build_console_query},
     context,
     inspector::SysInspectRunner,
     logger::{self, MemoryLogger, STDOUTLogger},
@@ -21,11 +22,14 @@ use log::LevelFilter;
 use serde_json::json;
 use std::{
     env,
-    fs::OpenOptions,
-    io::{ErrorKind, Write},
+    io::ErrorKind,
     path::PathBuf,
     process::exit,
     sync::{Mutex, OnceLock},
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
 };
 
 mod clidef;
@@ -45,20 +49,31 @@ fn print_event_handlers() {
     println!();
 }
 
-/// Call master via FIFO
-fn call_master_fifo(
-    model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, fifo: &str, context: Option<&String>,
+async fn call_master_console(
+    cfg: &MasterConfig, model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, context: Option<&String>,
 ) -> Result<(), SysinspectError> {
-    let payload =
-        format!("{model};{query};{};{};{}\n", traits.unwrap_or(&"".to_string()), mid.unwrap_or_default(), context.unwrap_or(&"".to_string()));
-    OpenOptions::new().write(true).open(fifo)?.write_all(payload.as_bytes())?;
+    let request = ConsoleQuery {
+        model: model.to_string(),
+        query: query.to_string(),
+        traits: traits.cloned().unwrap_or_default(),
+        mid: mid.unwrap_or_default().to_string(),
+        context: context.cloned().unwrap_or_default(),
+    };
+    let (envelope, key) = build_console_query(&cfg.root_dir(), cfg, &request)?;
+    let mut stream = TcpStream::connect(cfg.console_bind_addr()).await?;
+    stream.write_all(format!("{}\n", serde_json::to_string(&envelope)?).as_bytes()).await?;
 
-    log::debug!("Message sent to the master via FIFO: {payload:?}");
+    let mut reader = BufReader::new(stream);
+    let mut reply = String::new();
+    reader.read_line(&mut reply).await?;
+    let response: ConsoleResponse = match serde_json::from_str::<ConsoleSealed>(reply.trim()) {
+        Ok(sealed) => sealed.open(&key)?,
+        Err(_) => serde_json::from_str(reply.trim())?,
+    };
+    if !response.ok {
+        return Err(SysinspectError::MasterGeneralError(response.message));
+    }
     Ok(())
-}
-
-fn call_master_command(model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, fifo: &str, context: Option<String>) -> Result<(), SysinspectError> {
-    call_master_fifo(model, query, traits, mid, fifo, context.as_ref())
 }
 
 fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
@@ -275,7 +290,7 @@ async fn main() {
             }
         };
 
-        if let Err(err) = call_master_command(&scheme, target_query, target_traits, target_id, &cfg.socket(), context) {
+        if let Err(err) = call_master_console(&cfg, &scheme, target_query, target_traits, target_id, context.as_ref()).await {
             log::error!("Cannot reach master: {err}");
         }
         exit(0);
@@ -304,23 +319,23 @@ async fn main() {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
         let context = params.get_one::<String>("context");
-        if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, None, &cfg.socket(), context) {
+        if let Err(err) = call_master_console(&cfg, model, query.unwrap_or(&"".to_string()), traits, None, context).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("shutdown") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, &cfg.socket(), None) {
+        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("sync") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, &cfg.socket(), None) {
+        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mid) = params.get_one::<String>("unregister") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), &cfg.socket(), None) {
+        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("online") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, &cfg.socket(), None) {
+        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         } else {
             println!("Check the master's logs for online minions information. 😀");

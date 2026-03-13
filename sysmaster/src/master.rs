@@ -19,6 +19,7 @@ use libeventreg::{
 };
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
+    console::{ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     util::{self, iofs::scan_files_sha256},
 };
@@ -37,15 +38,14 @@ use serde_json::json;
 use std::time::Duration as StdDuration;
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Weak},
     vec,
 };
 use tokio::net::TcpListener;
-use tokio::select;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, sleep};
-use tokio::{fs::OpenOptions, sync::Mutex};
+use tokio::sync::Mutex;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader},
     time,
@@ -105,17 +105,6 @@ impl SysMaster {
         })
     }
 
-    /// Open FIFO socket for command-line communication
-    fn open_socket(&self, path: &str) -> Result<(), SysinspectError> {
-        if !Path::new(path).exists() {
-            if unsafe { libc::mkfifo(std::ffi::CString::new(path)?.as_ptr(), 0o600) } != 0 {
-                return Err(SysinspectError::ConfigError(format!("{}", std::io::Error::last_os_error())));
-            }
-            log::info!("Socket opened at {path}");
-        }
-        Ok(())
-    }
-
     /// Parse minion request
     fn to_request(&self, data: &str) -> Option<MinionMessage> {
         match serde_json::from_str::<MinionMessage>(data) {
@@ -133,7 +122,8 @@ impl SysMaster {
     /// Start sysmaster
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
         log::info!("Starting master at {}", self.cfg.bind_addr());
-        self.open_socket(&self.cfg.socket())?;
+        ensure_console_keypair(&self.cfg.root_dir())?;
+        std::fs::create_dir_all(self.cfg.console_keys_root()).map_err(SysinspectError::IoErr)?;
         self.vmcluster.init().await?;
         Ok(())
     }
@@ -241,84 +231,88 @@ impl SysMaster {
     pub(crate) async fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
         if let [querypath, query, traits, mid, context] = query.as_slice() {
-            let is_virtual = query.to_lowercase().starts_with("v:");
-            let query = query.to_lowercase().replace("v:", "");
-
-            log::debug!("Context: {context}");
-
-            let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
-            let mut tgt = MinionTarget::new(mid, "");
-            tgt.set_scheme(querypath);
-            tgt.set_context_query(context);
-
-            log::debug!(
-                "Querying minions for: {}, traits: {}, is virtual: {}",
-                query.bright_yellow(),
-                traits.bright_yellow(),
-                if is_virtual { "yes".bright_green() } else { "no".bright_red() }
-            );
-
-            let mut targeted = false;
-            if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
-                for hostname in decided.iter() {
-                    log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
-                    tgt.add_hostname(hostname);
-                    if !targeted {
-                        targeted = true;
-                    }
-                }
-            } else if !is_virtual {
-                for hostname in hostnames.iter() {
-                    tgt.add_hostname(hostname);
-                    if !targeted {
-                        targeted = true;
-                    }
-                }
-                tgt.set_traits_query(traits);
-            }
-
-            if !targeted {
-                log::warn!(
-                    "No suitable {}minion found for the query: {}, traits query: {}, context: {}",
-                    if is_virtual { "virtual " } else { "" },
-                    if query.is_empty() { "<N/A>".red() } else { query.bright_yellow() },
-                    if traits.is_empty() { "<N/A>".red() } else { traits.bright_yellow() },
-                    if context.is_empty() { "<N/A>".red() } else { context.bright_yellow() }
-                );
-                return None;
-            }
-            log::debug!("Target: {:#?}", tgt);
-
-            let mut out: IndexMap<String, String> = IndexMap::default();
-            for em in self.cfg.fileserver_models() {
-                for (n, cs) in scan_files_sha256(self.cfg.fileserver_models_root(false).join(em), Some(MODEL_FILE_EXT)) {
-                    out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_models_root(false).file_name().unwrap().to_str().unwrap()), cs);
-                }
-            }
-
-            let mut payload = String::from("");
-            if tgt.scheme().eq(SCHEME_COMMAND) {
-                payload = query.to_owned();
-            }
-
-            let mut msg = MasterMessage::new(
-                RequestType::Command,
-                json!(
-                    ModStatePayload::new(payload)
-                        .set_uri(querypath.to_string())
-                        .add_files(out)
-                        .set_models_root(self.cfg.fileserver_models_root(true).to_str().unwrap_or_default())
-                ), // TODO: SID part
-            );
-            msg.set_target(tgt);
-            msg.set_retcode(ProtoErrorCode::Success);
-
-            log::debug!("Constructed message: {:#?}", msg);
-
-            return Some(msg);
+            return self.msg_query_data(querypath, query, traits, mid, context).await;
         }
 
         None
+    }
+
+    async fn msg_query_data(&mut self, querypath: &str, query: &str, traits: &str, mid: &str, context: &str) -> Option<MasterMessage> {
+        let is_virtual = query.to_lowercase().starts_with("v:");
+        let query = query.to_lowercase().replace("v:", "");
+
+        log::debug!("Context: {context}");
+
+        let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
+        let mut tgt = MinionTarget::new(mid, "");
+        tgt.set_scheme(querypath);
+        tgt.set_context_query(context);
+
+        log::debug!(
+            "Querying minions for: {}, traits: {}, is virtual: {}",
+            query.bright_yellow(),
+            traits.bright_yellow(),
+            if is_virtual { "yes".bright_green() } else { "no".bright_red() }
+        );
+
+        let mut targeted = false;
+        if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
+            for hostname in decided.iter() {
+                log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
+                tgt.add_hostname(hostname);
+                if !targeted {
+                    targeted = true;
+                }
+            }
+        } else if !is_virtual {
+            for hostname in hostnames.iter() {
+                tgt.add_hostname(hostname);
+                if !targeted {
+                    targeted = true;
+                }
+            }
+            tgt.set_traits_query(traits);
+        }
+
+        if !targeted {
+            log::warn!(
+                "No suitable {}minion found for the query: {}, traits query: {}, context: {}",
+                if is_virtual { "virtual " } else { "" },
+                if query.is_empty() { "<N/A>".red() } else { query.bright_yellow() },
+                if traits.is_empty() { "<N/A>".red() } else { traits.bright_yellow() },
+                if context.is_empty() { "<N/A>".red() } else { context.bright_yellow() }
+            );
+            return None;
+        }
+        log::debug!("Target: {:#?}", tgt);
+
+        let mut out: IndexMap<String, String> = IndexMap::default();
+        for em in self.cfg.fileserver_models() {
+            for (n, cs) in scan_files_sha256(self.cfg.fileserver_models_root(false).join(em), Some(MODEL_FILE_EXT)) {
+                out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_models_root(false).file_name().unwrap().to_str().unwrap()), cs);
+            }
+        }
+
+        let mut payload = String::new();
+        if tgt.scheme().eq(SCHEME_COMMAND) {
+            payload = query.to_owned();
+        }
+
+        let mut msg = MasterMessage::new(
+            RequestType::Command,
+            json!(
+                ModStatePayload::new(payload)
+                    .set_uri(querypath.to_string())
+                    .add_files(out)
+                    .set_models_root(self.cfg.fileserver_models_root(true).to_str().unwrap_or_default())
+            ),
+        );
+        msg.set_target(tgt);
+        msg.set_retcode(ProtoErrorCode::Success);
+
+        log::debug!("Constructed message: {:#?}", msg);
+
+        Some(msg)
     }
 
     fn msg_sensors_files(&mut self) -> MasterMessage {
@@ -735,58 +729,78 @@ impl SysMaster {
         }
     }
 
-    pub async fn do_fifo(master: Arc<Mutex<Self>>) {
-        log::trace!("Init local command channel");
+    pub async fn do_console(master: Arc<Mutex<Self>>) {
+        log::trace!("Init local console channel");
         tokio::spawn({
-            let master = Arc::clone(&master); // Don't move master into the closure multiple times.
+            let master = Arc::clone(&master);
             async move {
-                // Only lock to get broadcast and cfg, then drop immediately.
                 let (cfg, bcast) = {
-                    let master = master.lock().await;
-                    (master.cfg(), master.broadcast().clone())
+                    let guard = master.lock().await;
+                    (guard.cfg(), guard.broadcast().clone())
+                };
+                let listener = match TcpListener::bind(cfg.console_bind_addr()).await {
+                    Ok(listener) => listener,
+                    Err(err) => {
+                        log::error!("Failed to bind console listener: {err}");
+                        return;
+                    }
                 };
                 loop {
-                    match OpenOptions::new().read(true).open(cfg.socket()).await {
-                        Ok(file) => {
-                            let reader = TokioBufReader::new(file);
-                            let mut lines = reader.lines();
-
-                            loop {
-                                select! {
-                                    line = lines.next_line() => {
-                                        match line {
-                                            Ok(Some(payload)) => {
-                                                log::debug!("Querying minions: {payload}");
-                                                let msg = {
-                                                    let mut guard = master.lock().await;
-                                                    guard.msg_query(&payload).await
+                    match listener.accept().await {
+                        Ok((stream, peer)) => {
+                            let master = Arc::clone(&master);
+                            let cfg = cfg.clone();
+                            let bcast = bcast.clone();
+                            tokio::spawn(async move {
+                                let (read_half, mut write_half) = stream.into_split();
+                                let mut reader = TokioBufReader::new(read_half);
+                                let mut line = String::new();
+                                let reply = match reader.read_line(&mut line).await {
+                                    Ok(0) => serde_json::to_string(&ConsoleResponse { ok: false, message: "Empty console request".to_string() }).ok(),
+                                    Ok(_) => match serde_json::from_str::<ConsoleEnvelope>(line.trim()) {
+                                        Ok(envelope) => match load_master_private_key(&cfg).and_then(|prk| envelope.bootstrap.session_key(&prk)) {
+                                            Ok((key, _client_pkey)) => {
+                                                let response = if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
+                                                    ConsoleResponse { ok: false, message: "Console client key is not authorised".to_string() }
+                                                } else {
+                                                    match envelope.sealed.open::<ConsoleQuery>(&key) {
+                                                        Ok(query) => {
+                                                            let msg = {
+                                                                let mut guard = master.lock().await;
+                                                                guard.msg_query_data(&query.model, &query.query, &query.traits, &query.mid, &query.context).await
+                                                            };
+                                                            if let Some(msg) = msg {
+                                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), Some(msg.clone())).await;
+                                                                let guard = master.lock().await;
+                                                                let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                guard.taskreg.lock().await.register(msg.cycle(), ids);
+                                                                ConsoleResponse { ok: true, message: format!("Accepted console command from {peer}") }
+                                                            } else {
+                                                                ConsoleResponse { ok: false, message: "No message constructed for the console query".to_string() }
+                                                            }
+                                                        }
+                                                        Err(err) => ConsoleResponse { ok: false, message: format!("Failed to open console query: {err}") },
+                                                    }
                                                 };
-
-                                                if msg.is_none() {
-                                                    log::warn!("No message constructed for the query: {}", payload.bright_yellow());
-                                                    continue;
-                                                }
-
-                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg.clone()).await;
-                                                {
-                                                    let guard = master.lock().await;
-                                                    let ids = guard.mreg.lock().await.get_targeted_minions(msg.as_ref().unwrap().target(), false).await;
-                                                    guard.taskreg.lock().await.register(msg.as_ref().unwrap().cycle(), ids);
-                                                }
+                                                ConsoleSealed::seal(&response, &key).ok().and_then(|sealed| serde_json::to_string(&sealed).ok())
                                             }
-                                            Ok(None) => break, // End of file, re-open the FIFO
-                                            Err(e) => {
-                                                log::error!("Error reading from FIFO: {e}");
-                                                break;
-                                            }
-                                        }
-                                    }
+                                            Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console bootstrap failed: {err}") }).ok(),
+                                        },
+                                        Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to parse console request: {err}") }).ok(),
+                                    },
+                                    Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to read console request: {err}") }).ok(),
+                                };
+
+                                if let Some(reply) = reply
+                                    && let Err(err) = write_half.write_all(format!("{reply}\n").as_bytes()).await
+                                {
+                                    log::error!("Failed to write console response: {err}");
                                 }
-                            }
+                            });
                         }
-                        Err(e) => {
-                            log::error!("Failed to open FIFO: {e}");
-                            sleep(Duration::from_secs(1)).await; // Retry after a sec
+                        Err(err) => {
+                            log::error!("Console listener accept error: {err}");
+                            sleep(Duration::from_secs(1)).await;
                         }
                     }
                 }
@@ -1006,9 +1020,8 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let scheduler = SysMaster::do_scheduler_service(Arc::clone(&master)).await;
     libtelemetry::init_otel_collector(cfg).await?;
 
-    // Task to read from the FIFO and broadcast messages to clients
-    SysMaster::do_fifo(Arc::clone(&master)).await;
-    log::info!("Local command channel initialized");
+    SysMaster::do_console(Arc::clone(&master)).await;
+    log::info!("Local console channel initialized");
 
     // Handle incoming messages from minions
     SysMaster::do_incoming(Arc::clone(&master), client_rx).await;

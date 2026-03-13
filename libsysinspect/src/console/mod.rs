@@ -1,17 +1,26 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use libcommon::SysinspectError;
-use rsa::RsaPublicKey;
-use serde::{Deserialize, Serialize};
-use sodiumoxide::crypto::secretbox::{self, Key};
-use std::fs;
+use rsa::{RsaPrivateKey, RsaPublicKey};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use crate::{
-    cfg::mmconf::MasterConfig,
+    cfg::mmconf::{CFG_CONSOLE_KEY_PRI, CFG_CONSOLE_KEY_PUB, MasterConfig},
     rsa::keys::{
         RsaKey::{Private, Public},
         decrypt, encrypt, key_from_file, key_to_file, keygen, sign_data, to_pem, verify_sign,
     },
 };
+
+#[cfg(test)]
+mod console_ut;
+
+static SODIUM_INIT: OnceLock<()> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleBootstrap {
@@ -20,84 +29,194 @@ pub struct ConsoleBootstrap {
     pub symkey_sign: String,
 }
 
-impl ConsoleBootstrap {
-    pub fn new(cfg: &MasterConfig) -> Result<Self, SysinspectError> {
-        let (client_prk, client_pbk) = ensure_console_keypair(cfg)?;
-        let master_pbk = load_master_public_key(cfg)?;
-        let symkey = secretbox::gen_key();
-        let symkey_cipher = encrypt(master_pbk, symkey.0.to_vec())
-            .map_err(|_| SysinspectError::RSAError("Failed to encrypt console session key".to_string()))?;
-        let symkey_sign = sign_data(client_prk, &symkey.0)
-            .map_err(|_| SysinspectError::RSAError("Failed to sign console session key".to_string()))?;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleSealed {
+    pub nonce: String,
+    pub payload: String,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleEnvelope {
+    pub bootstrap: ConsoleBootstrap,
+    pub sealed: ConsoleSealed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleQuery {
+    pub model: String,
+    pub query: String,
+    pub traits: String,
+    pub mid: String,
+    pub context: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleResponse {
+    pub ok: bool,
+    pub message: String,
+}
+
+fn sodium_ready() -> Result<(), SysinspectError> {
+    if SODIUM_INIT.get().is_some() {
+        return Ok(());
+    }
+    if sodiumoxide::init().is_err() {
+        return Err(SysinspectError::ConfigError("Failed to initialise libsodium".to_string()));
+    }
+    let _ = SODIUM_INIT.set(());
+    Ok(())
+}
+
+fn console_keypair(root: &Path) -> (PathBuf, PathBuf) {
+    (root.join(CFG_CONSOLE_KEY_PRI), root.join(CFG_CONSOLE_KEY_PUB))
+}
+
+pub fn ensure_console_keypair(root: &Path) -> Result<(RsaPrivateKey, RsaPublicKey), SysinspectError> {
+    let (prk_path, pbk_path) = console_keypair(root);
+    if prk_path.exists() && pbk_path.exists() {
+        return Ok((load_private_key(&prk_path)?, load_public_key(&pbk_path)?));
+    }
+
+    fs::create_dir_all(root).map_err(SysinspectError::IoErr)?;
+    let (prk, pbk) = keygen(crate::rsa::keys::DEFAULT_KEY_SIZE).map_err(|e| SysinspectError::RSAError(e.to_string()))?;
+    key_to_file(&Private(prk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PRI)?;
+    key_to_file(&Public(pbk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PUB)?;
+    Ok((prk, pbk))
+}
+
+pub fn load_master_public_key(cfg: &MasterConfig) -> Result<RsaPublicKey, SysinspectError> {
+    load_public_key(&cfg.root_dir().join(crate::cfg::mmconf::CFG_MASTER_KEY_PUB))
+}
+
+pub fn load_master_private_key(cfg: &MasterConfig) -> Result<RsaPrivateKey, SysinspectError> {
+    load_private_key(&cfg.root_dir().join(crate::cfg::mmconf::CFG_MASTER_KEY_PRI))
+}
+
+fn load_private_key(path: &Path) -> Result<RsaPrivateKey, SysinspectError> {
+    match key_from_file(path.to_str().unwrap_or_default())? {
+        Some(Private(prk)) => Ok(prk),
+        Some(_) => Err(SysinspectError::RSAError(format!("Expected private key at {}", path.display()))),
+        None => Err(SysinspectError::RSAError(format!("Private key not found at {}", path.display()))),
+    }
+}
+
+fn load_public_key(path: &Path) -> Result<RsaPublicKey, SysinspectError> {
+    match key_from_file(path.to_str().unwrap_or_default())? {
+        Some(Public(pbk)) => Ok(pbk),
+        Some(_) => Err(SysinspectError::RSAError(format!("Expected public key at {}", path.display()))),
+        None => Err(SysinspectError::RSAError(format!("Public key not found at {}", path.display()))),
+    }
+}
+
+impl ConsoleBootstrap {
+    pub fn new(client_prk: &RsaPrivateKey, client_pbk: &RsaPublicKey, master_pbk: &RsaPublicKey, symkey: &Key) -> Result<Self, SysinspectError> {
         Ok(Self {
-            client_pubkey: to_pem(None, Some(&client_pbk))
+            client_pubkey: to_pem(None, Some(client_pbk))
                 .map_err(|e| SysinspectError::RSAError(e.to_string()))?
                 .1
                 .unwrap_or_default(),
-            symkey_cipher: STANDARD.encode(symkey_cipher),
-            symkey_sign: STANDARD.encode(symkey_sign),
+            symkey_cipher: STANDARD.encode(
+                encrypt(master_pbk.clone(), symkey.0.to_vec())
+                    .map_err(|_| SysinspectError::RSAError("Failed to encrypt console session key".to_string()))?,
+            ),
+            symkey_sign: STANDARD.encode(
+                sign_data(client_prk.clone(), &symkey.0)
+                    .map_err(|_| SysinspectError::RSAError("Failed to sign console session key".to_string()))?,
+            ),
         })
     }
 
-    pub fn session_key(&self, cfg: &MasterConfig) -> Result<Key, SysinspectError> {
-        let master_prk = match key_from_file(cfg.root_dir().join(crate::cfg::mmconf::CFG_MASTER_KEY_PRI).to_str().unwrap_or_default())? {
-            Some(Private(prk)) => prk,
-            Some(_) => return Err(SysinspectError::RSAError("Expected master private key".to_string())),
-            None => return Err(SysinspectError::RSAError("Master private key not found".to_string())),
-        };
-        let client_pbk = match crate::rsa::keys::from_pem(None, Some(&self.client_pubkey))
+    pub fn session_key(&self, master_prk: &RsaPrivateKey) -> Result<(Key, RsaPublicKey), SysinspectError> {
+        let client_pbk = crate::rsa::keys::from_pem(None, Some(&self.client_pubkey))
             .map_err(|e| SysinspectError::RSAError(e.to_string()))?
             .1
-        {
-            Some(pbk) => pbk,
-            None => return Err(SysinspectError::RSAError("Client public key not found in bootstrap".to_string())),
-        };
+            .ok_or_else(|| SysinspectError::RSAError("Client public key missing from console bootstrap".to_string()))?;
         let symkey = decrypt(
-            master_prk,
+            master_prk.clone(),
             STANDARD
                 .decode(&self.symkey_cipher)
                 .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console session key: {e}")))?,
         )
         .map_err(|_| SysinspectError::RSAError("Failed to decrypt console session key".to_string()))?;
-        let symkey_sign = STANDARD
+        let signature = STANDARD
             .decode(&self.symkey_sign)
             .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console session signature: {e}")))?;
 
-        if !verify_sign(&client_pbk, &symkey, symkey_sign).map_err(|e| SysinspectError::RSAError(e.to_string()))? {
+        if !verify_sign(&client_pbk, &symkey, signature).map_err(|e| SysinspectError::RSAError(e.to_string()))? {
             return Err(SysinspectError::RSAError("Console session signature verification failed".to_string()));
         }
 
-        Key::from_slice(&symkey).ok_or_else(|| SysinspectError::RSAError("Console session key has invalid size".to_string()))
+        Ok((
+            Key::from_slice(&symkey).ok_or_else(|| SysinspectError::RSAError("Console session key has invalid size".to_string()))?,
+            client_pbk,
+        ))
     }
 }
 
-pub fn ensure_console_keypair(cfg: &MasterConfig) -> Result<(rsa::RsaPrivateKey, RsaPublicKey), SysinspectError> {
-    if cfg.console_privkey().exists() && cfg.console_pubkey().exists() {
-        let prk = match key_from_file(cfg.console_privkey().to_str().unwrap_or_default())? {
-            Some(Private(prk)) => prk,
-            Some(_) => return Err(SysinspectError::RSAError("Expected console private key".to_string())),
-            None => return Err(SysinspectError::RSAError("Console private key not found".to_string())),
-        };
-        let pbk = match key_from_file(cfg.console_pubkey().to_str().unwrap_or_default())? {
-            Some(Public(pbk)) => pbk,
-            Some(_) => return Err(SysinspectError::RSAError("Expected console public key".to_string())),
-            None => return Err(SysinspectError::RSAError("Console public key not found".to_string())),
-        };
-        return Ok((prk, pbk));
+impl ConsoleSealed {
+    pub fn seal<T: Serialize>(payload: &T, key: &Key) -> Result<Self, SysinspectError> {
+        sodium_ready()?;
+        let nonce = secretbox::gen_nonce();
+        Ok(Self {
+            nonce: STANDARD.encode(nonce.0),
+            payload: STANDARD.encode(secretbox::seal(
+                &serde_json::to_vec(payload).map_err(|e| SysinspectError::SerializationError(e.to_string()))?,
+                &nonce,
+                key,
+            )),
+        })
     }
 
-    fs::create_dir_all(cfg.root_dir()).map_err(SysinspectError::IoErr)?;
-    let (prk, pbk) = keygen(crate::rsa::keys::DEFAULT_KEY_SIZE).map_err(|e| SysinspectError::RSAError(e.to_string()))?;
-    key_to_file(&Private(prk.clone()), cfg.root_dir().to_str().unwrap_or_default(), crate::cfg::mmconf::CFG_CONSOLE_KEY_PRI)?;
-    key_to_file(&Public(pbk.clone()), cfg.root_dir().to_str().unwrap_or_default(), crate::cfg::mmconf::CFG_CONSOLE_KEY_PUB)?;
-    Ok((prk, pbk))
+    pub fn open<T: DeserializeOwned>(&self, key: &Key) -> Result<T, SysinspectError> {
+        sodium_ready()?;
+        let nonce = Nonce::from_slice(
+            &STANDARD
+                .decode(&self.nonce)
+                .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console nonce: {e}")))?,
+        )
+        .ok_or_else(|| SysinspectError::SerializationError("Console nonce has invalid size".to_string()))?;
+        let payload = secretbox::open(
+            &STANDARD
+                .decode(&self.payload)
+                .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console payload: {e}")))?,
+            &nonce,
+            key,
+        )
+        .map_err(|_| SysinspectError::RSAError("Failed to decrypt console payload".to_string()))?;
+        serde_json::from_slice(&payload).map_err(|e| SysinspectError::DeserializationError(e.to_string()))
+    }
 }
 
-pub fn load_master_public_key(cfg: &MasterConfig) -> Result<RsaPublicKey, SysinspectError> {
-    match key_from_file(cfg.root_dir().join(crate::cfg::mmconf::CFG_MASTER_KEY_PUB).to_str().unwrap_or_default())? {
-        Some(Public(pbk)) => Ok(pbk),
-        Some(_) => Err(SysinspectError::RSAError("Expected master public key".to_string())),
-        None => Err(SysinspectError::RSAError("Master public key not found".to_string())),
+pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result<bool, SysinspectError> {
+    if cfg.console_pubkey().exists() && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)? == client_pem {
+        return Ok(true);
     }
+
+    let root = cfg.console_keys_root();
+    if !root.exists() {
+        return Ok(false);
+    }
+
+    for entry in fs::read_dir(root).map_err(SysinspectError::IoErr)? {
+        let path = entry.map_err(SysinspectError::IoErr)?.path();
+        if path.is_file() && fs::read_to_string(&path).map_err(SysinspectError::IoErr)? == client_pem {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+pub fn build_console_query(root: &Path, cfg: &MasterConfig, query: &ConsoleQuery) -> Result<(ConsoleEnvelope, Key), SysinspectError> {
+    sodium_ready()?;
+    let (client_prk, client_pbk) = ensure_console_keypair(root)?;
+    let master_pbk = load_master_public_key(cfg)?;
+    let key = secretbox::gen_key();
+    Ok((
+        ConsoleEnvelope {
+            bootstrap: ConsoleBootstrap::new(&client_prk, &client_pbk, &master_pbk, &key)?,
+            sealed: ConsoleSealed::seal(query, &key)?,
+        },
+        key,
+    ))
 }
