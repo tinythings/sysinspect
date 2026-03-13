@@ -26,7 +26,7 @@ arguments:
 examples:
   - description: "Call a Lua script from model DSL with module `lua.hello_world` so it will greet Germany"
     code: |
-      module: lua.hello_world
+      { "module": "lua.hello_world", "args": { "name": "Germany" } }
 
 # Description of additional data format
 returns:

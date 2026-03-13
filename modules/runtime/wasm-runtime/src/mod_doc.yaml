@@ -31,7 +31,7 @@ arguments:
 examples:
   - description: "Call a Wasm runtime module from model DSL with module `wasm.hello_world`"
     code: |
-      module: wasm.hello_world
+      { "module": "wasm.hello_world", "args": { "name": "Germany" } }
 
 # Description of additional data format
 returns:
