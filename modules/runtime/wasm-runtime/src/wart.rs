@@ -100,13 +100,16 @@ impl WasmRuntime {
             return r;
         }
 
-        // `run` is async and returns a Future; we must drive it to completion.
-        let mut out = match executor::block_on(self.rt.run(
-            &mod_id,
-            self.rq.options().iter().map(|v| v.as_string().unwrap_or_default()).filter(|s| !s.is_empty()).collect(),
-            self.rq.args().into_iter().map(|(k, v)| (k, v.into())).collect(),
-            vec![], // This is incoming NDJSON (usually for databases). Unused in this scenario.
-        )) {
+        // Wasm guests read the request header from stdin, so pass the same
+        // stable runtime envelope used by the other dispatchers.
+        let header = serde_json::json!({
+            "opts": self.rq.options(),
+            "args": self.rq.args(),
+            "config": self.rq.config(),
+            "ext": self.rq.ext(),
+            "host": self.rq.host(),
+        });
+        let mut out = match executor::block_on(self.rt.run_with_header(&mod_id, header, vec![])) {
             Err(err) => {
                 r.set_message(&format!("Failed to run module \"{mod_id}\": {err}"));
                 r.set_retcode(5);
