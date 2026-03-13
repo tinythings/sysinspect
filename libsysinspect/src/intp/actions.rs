@@ -75,6 +75,12 @@ pub struct Action {
 }
 
 impl Action {
+    /// Resolve a virtual runtime namespace used in model DSL.
+    ///
+    /// This maps user-facing action module names like `lua.reader` or
+    /// `py3.nested.reader` to the installed dispatcher module
+    /// (`runtime.lua`, `runtime.py3`, `runtime.wasm`) plus the inner runtime
+    /// module name that will later be injected as `rt.mod`.
     pub(crate) fn runtime_dispatch(module: &str) -> Option<(&'static str, String)> {
         for (prefix, runtime) in [("lua.", "runtime.lua"), ("py3.", "runtime.py3"), ("wasm.", "runtime.wasm")] {
             if let Some(rest) = module.strip_prefix(prefix)

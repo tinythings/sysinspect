@@ -316,11 +316,20 @@ pub struct ModPakMetadata {
 }
 
 impl ModPakMetadata {
+    /// Construct minimal metadata for unit tests without exposing struct fields.
     #[cfg(test)]
     pub(crate) fn new_for_test(path: PathBuf, name: &str) -> Self {
         Self { path, name: name.to_string(), ..Default::default() }
     }
 
+    /// Validate module naming against reserved runtime namespaces.
+    ///
+    /// Rules:
+    /// - `runtime.*` is reserved for installed runtime dispatcher modules.
+    /// - only the matching dispatcher binary may use `runtime.lua`,
+    ///   `runtime.py3`, or `runtime.wasm`.
+    /// - virtual namespaces `lua.*`, `py3.*`, and `wasm.*` are not installable
+    ///   module names; they exist only in model DSL and are resolved at runtime.
     pub(crate) fn validate_name_for_path(&self) -> Result<(), SysinspectError> {
         let name = self.name.trim();
         let runtime_dispatchers = [("lua-runtime", "runtime.lua"), ("py3-runtime", "runtime.py3"), ("wasm-runtime", "runtime.wasm")];

@@ -2,6 +2,12 @@ use strum_macros::{Display, EnumString};
 
 /// RuntimeParams enum
 /// Holds runtime parameter names
+///
+/// NOTE:
+/// `rt.*` names are reserved internal runtime parameters.
+/// They are used by runtime dispatchers and low-level direct runtime calls.
+/// Model authors should prefer public virtual namespaces such as `lua.*`,
+/// `py3.*`, and `wasm.*` instead of relying on these names directly.
 #[derive(Debug, Display, EnumString)]
 pub enum RuntimeParams {
     #[strum(serialize = "rt.mod")]
