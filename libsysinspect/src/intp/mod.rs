@@ -10,3 +10,5 @@ pub mod relations;
 
 #[cfg(test)]
 mod actions_ut;
+#[cfg(test)]
+mod conf_ut;

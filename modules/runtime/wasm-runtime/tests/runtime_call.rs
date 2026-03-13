@@ -633,6 +633,33 @@ fn test_wasm_runtime_passes_host_context_to_guest() {
 }
 
 #[test]
+fn test_wasm_runtime_host_helper_tolerates_missing_data() {
+    let root = mk_tmp_runtime_root();
+    install_test_modules(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {},
+        "opts": [],
+        "args": { "rt.mod": "hostpeek" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(
+        out.get("data"),
+        Some(&json!({
+            "changed": false,
+            "has_host": false,
+            "has_missing": false,
+            "host_name_ok": false,
+            "sharelib_ok": false,
+            "paths_ok": false,
+            "__sysinspect-module-logs": []
+        }))
+    );
+}
+
+#[test]
 fn test_wasm_runtime_preserves_request_sections_and_contract_shape() {
     let root = mk_tmp_runtime_root();
     install_test_modules(root.path());

@@ -305,6 +305,24 @@ fn test_lua_runtime_passes_host_context_to_guest() {
 }
 
 #[test]
+fn test_lua_runtime_host_helper_tolerates_missing_data() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {},
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(out.pointer("/data/data/has_host"), Some(&json!(false)));
+    assert_eq!(out.pointer("/data/data/has_missing"), Some(&json!(false)));
+    assert_eq!(out.pointer("/data/data/paths"), Some(&json!({})));
+}
+
+#[test]
 fn test_lua_runtime_exposes_packagekit_helper() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());

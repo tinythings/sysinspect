@@ -290,6 +290,32 @@ fn test_python_runtime_passes_host_context_to_guest() {
 }
 
 #[test]
+fn test_python_runtime_host_helper_tolerates_missing_data() {
+    let root = mk_tmp_runtime_root();
+    write_test_module(root.path());
+
+    let out = run_runtime(&json!({
+        "config": { "path.sharelib": root.path().to_string_lossy() },
+        "host": {},
+        "opts": [],
+        "args": { "rt.mod": "hostecho" }
+    }));
+
+    assert_eq!(out.get("retcode"), Some(&json!(0)));
+    assert_eq!(
+        out.pointer("/data/data"),
+        Some(&json!({
+            "host": {},
+            "host_name": null,
+            "has_host": false,
+            "has_missing": false,
+            "sharelib": null,
+            "paths": {}
+        }))
+    );
+}
+
+#[test]
 fn test_python_runtime_lists_nested_modules() {
     let root = mk_tmp_runtime_root();
     write_test_module(root.path());
