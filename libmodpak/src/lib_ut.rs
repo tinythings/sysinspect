@@ -185,6 +185,22 @@ mod tests {
     }
 
     #[test]
+    fn add_library_indexes_elf_payload_as_binary_kind() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let src = tempfile::tempdir().expect("src tempdir should be created");
+        let payload = src.path().join("lib/runtime/native");
+        fs::create_dir_all(&payload).expect("binary payload dir should be created");
+        fs::copy("/bin/sh", payload.join("demo")).expect("binary payload should be copied");
+
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        repo.add_library(src.path().to_path_buf()).expect("library tree should be indexed");
+
+        let library = repo.idx.library();
+        let entry = library.get("lib/runtime/native/demo").expect("binary library entry should exist");
+        assert_eq!(entry.kind(), "binary");
+    }
+
+    #[test]
     fn add_module_installs_binary_under_namespace_path_not_source_filename() {
         let root = tempfile::tempdir().expect("repo tempdir should be created");
         let src = tempfile::tempdir().expect("src tempdir should be created");

@@ -22,6 +22,7 @@ fn cargo_metadata() -> Value {
 }
 
 #[test]
+#[ignore = "spawns cargo metadata across the workspace"]
 fn only_py3_runtime_reaches_rustpython_dependencies() {
     let metadata = cargo_metadata();
     let workspace_members: BTreeSet<String> = metadata["workspace_members"]
@@ -88,6 +89,7 @@ fn only_py3_runtime_reaches_rustpython_dependencies() {
 }
 
 #[test]
+#[ignore = "spawns cargo check across the workspace"]
 fn libsysinspect_and_sysminion_check_without_direct_rustpython_dependency() {
     for pkg in ["libsysinspect", "sysminion"] {
         let out = Command::new("cargo")

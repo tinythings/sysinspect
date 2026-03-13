@@ -99,3 +99,46 @@ fn mod_request_preserves_partial_host_payload_without_failing() {
     assert_eq!(rq.host().pointer("/paths/sharelib"), Some(&json!("/srv/share")));
     assert_eq!(rq.host().pointer("/traits/system.hostname"), None);
 }
+
+#[test]
+fn mod_request_accepts_explicit_ext_object() {
+    let rq: ModRequest = serde_json::from_value(json!({
+        "arguments": {
+            "name": "Germany"
+        },
+        "ext": {
+            "trace_id": "abc-123",
+            "payload": {
+                "mode": "demo"
+            }
+        }
+    }))
+    .unwrap_or_else(|err| panic!("failed to parse ModRequest: {err}"));
+
+    assert_eq!(rq.args().get("name").and_then(|v| v.as_string()), Some("Germany".to_string()));
+    assert_eq!(rq.ext().get("trace_id"), Some(&json!("abc-123")));
+    assert_eq!(rq.ext().get("payload"), Some(&json!({"mode": "demo"})));
+}
+
+#[test]
+fn mod_request_merges_explicit_ext_and_flat_passthrough_fields() {
+    let rq: ModRequest = serde_json::from_value(json!({
+        "args": {
+            "name": "Germany"
+        },
+        "ext": {
+            "trace_id": "nested",
+            "payload": {
+                "mode": "demo"
+            }
+        },
+        "trace_id": "flat",
+        "request_id": "req-42"
+    }))
+    .unwrap_or_else(|err| panic!("failed to parse ModRequest: {err}"));
+
+    assert_eq!(rq.args().get("name").and_then(|v| v.as_string()), Some("Germany".to_string()));
+    assert_eq!(rq.ext().get("trace_id"), Some(&json!("flat")));
+    assert_eq!(rq.ext().get("request_id"), Some(&json!("req-42")));
+    assert_eq!(rq.ext().get("payload"), Some(&json!({"mode": "demo"})));
+}
