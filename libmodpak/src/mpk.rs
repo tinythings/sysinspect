@@ -347,9 +347,7 @@ impl ModPakMetadata {
         }
 
         if name.starts_with("runtime.") {
-            return Err(SysinspectError::InvalidModuleName(format!(
-                "Namespace \"runtime.*\" is reserved for runtime dispatcher modules only"
-            )));
+            return Err(SysinspectError::InvalidModuleName("Namespace \"runtime.*\" is reserved for runtime dispatcher modules only".to_string()));
         }
 
         if virtual_prefixes.iter().any(|prefix| name.starts_with(prefix)) {
