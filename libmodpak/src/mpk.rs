@@ -1,11 +1,13 @@
 use anyhow::Context;
 use colored::Colorize;
+use goblin::Object;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libmodcore::modinit::{ModArgument, ModInterface, ModOption};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 static RE_NL: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s*\n\s*").unwrap()); // collapse newlines to single space
@@ -74,12 +76,14 @@ impl ModAttrs {
 pub struct ModPakRepoLibFile {
     file: PathBuf,
     checksum: String,
+    #[serde(default = "default_library_kind")]
+    kind: String,
 }
 
 impl ModPakRepoLibFile {
     /// Creates a new ModPakRepoLibFile with the given file and checksum.
-    pub fn new(file: PathBuf, checksum: &str) -> Self {
-        Self { file, checksum: checksum.to_string() }
+    pub fn new(file: PathBuf, checksum: &str, kind: &str) -> Self {
+        Self { file, checksum: checksum.to_string(), kind: kind.to_string() }
     }
 
     /// Returns the file of the library file.
@@ -91,6 +95,15 @@ impl ModPakRepoLibFile {
     pub fn checksum(&self) -> &str {
         &self.checksum
     }
+
+    /// Returns the detected library kind.
+    pub fn kind(&self) -> &str {
+        &self.kind
+    }
+}
+
+fn default_library_kind() -> String {
+    "script".to_string()
 }
 
 #[allow(clippy::type_complexity)]
@@ -119,10 +132,32 @@ impl ModPakRepoIndex {
         Self { platform: IndexMap::new(), library: IndexMap::new() }
     }
 
+    fn detect_library_kind(path: &Path) -> String {
+        if let Ok(buff) = fs::read(path) {
+            if buff.starts_with(b"\0asm") {
+                return "wasm".to_string();
+            }
+
+            if matches!(Object::parse(&buff), Ok(Object::Elf(_))) {
+                return "binary".to_string();
+            }
+        }
+
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("lua") => "lua".to_string(),
+            Some("py") => "python".to_string(),
+            Some("wasm") => "wasm".to_string(),
+            Some("so" | "dylib" | "dll") => "binary".to_string(),
+            _ => default_library_kind(),
+        }
+    }
+
     pub fn index_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
         for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.to_path_buf(), None) {
             log::debug!("Adding library file: {fname} with checksum: {cs}");
-            self.library.insert(fname.clone(), ModPakRepoLibFile::new(PathBuf::from(fname), &cs));
+            let path = p.join(&fname);
+            let kind = Self::detect_library_kind(&path);
+            self.library.insert(fname.clone(), ModPakRepoLibFile::new(PathBuf::from(fname), &cs, &kind));
         }
 
         Ok(())

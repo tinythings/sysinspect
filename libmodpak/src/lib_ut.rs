@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::SysInspectModPak;
+    use colored::control;
     use std::{fs, path::Path};
 
     /// Creates a minimal library tree under `src/lib`.
@@ -138,5 +139,48 @@ mod tests {
         let (_, mut repo) = seeded_module_repo();
 
         assert!(repo.remove_module(vec!["demo["]).is_err());
+    }
+
+    #[test]
+    fn format_library_name_highlights_runtime_filenames() {
+        control::set_override(true);
+
+        let lua = SysInspectModPak::format_library_name("runtime/lua/reader.lua");
+        let py3 = SysInspectModPak::format_library_name("runtime/python3/reader.py");
+        let wasm = SysInspectModPak::format_library_name("runtime/wasm/hellodude.wasm");
+
+        assert!(lua.contains("\u{1b}["));
+        assert!(lua.contains("reader.lua"));
+        assert!(py3.contains("\u{1b}["));
+        assert!(py3.contains("reader.py"));
+        assert!(wasm.contains("\u{1b}["));
+        assert!(wasm.contains("hellodude.wasm"));
+    }
+
+    #[test]
+    fn format_library_name_keeps_site_marker_bright_and_tail_dimmed() {
+        control::set_override(true);
+
+        let formatted = SysInspectModPak::format_library_name("runtime/python3/site-packages/mathx/__init__.py");
+
+        assert!(formatted.contains("\u{1b}["));
+        assert!(formatted.contains("site-packages/"));
+        assert!(formatted.contains("mathx/__init__.py"));
+    }
+
+    #[test]
+    fn add_library_indexes_wasm_payload_as_wasm_kind() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let src = tempfile::tempdir().expect("src tempdir should be created");
+        let payload = src.path().join("lib/runtime/wasm");
+        fs::create_dir_all(&payload).expect("wasm payload dir should be created");
+        fs::write(payload.join("demo.wasm"), b"\0asm\x01\0\0\0").expect("wasm payload should be written");
+
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        repo.add_library(src.path().to_path_buf()).expect("library tree should be indexed");
+
+        let library = repo.idx.library();
+        let entry = library.get("lib/runtime/wasm/demo.wasm").expect("wasm library entry should exist");
+        assert_eq!(entry.kind(), "wasm");
     }
 }

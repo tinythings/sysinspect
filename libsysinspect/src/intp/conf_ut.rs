@@ -3,8 +3,8 @@ use serde_yaml::Value;
 use std::fs;
 
 fn events_config_with_modules_path(path: &str) -> EventsConfig {
-    let cfg: Value = serde_yaml::from_str(&format!("modules: {path}\nevents: {{}}\n"))
-        .unwrap_or_else(|err| panic!("failed to build yaml config value: {err}"));
+    let cfg: Value =
+        serde_yaml::from_str(&format!("modules: {path}\nevents: {{}}\n")).unwrap_or_else(|err| panic!("failed to build yaml config value: {err}"));
 
     EventsConfig::new(&cfg).unwrap_or_else(|err| panic!("failed to build events config: {err}"))
 }
