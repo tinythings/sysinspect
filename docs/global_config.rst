@@ -129,28 +129,14 @@ Master
 Sysinspect Master configuration is located under earlier mentioned ``master`` section,
 and contains the following directives:
 
-``socket``
-##########
-
-    Type: **string**
-
-    Path for the current local FIFO socket used by the ``sysinspect`` command
-    to communicate with the local ``sysmaster`` instance.
-
-    If omitted, the default value is ``/var/run/sysinspect-master.socket``.
-
-    .. note::
-
-        This is the currently active local console transport. The newer
-        ``console.*`` settings below are already part of the configuration
-        surface, but the FIFO socket is still what ``sysinspect`` uses today.
-
 ``console.bind.ip``
 ###################
 
     Type: **string**
 
-    IPv4 address for the master's local console endpoint.
+    IPv4 address for the master's console endpoint used by ``sysinspect``.
+    This is the active command transport between ``sysinspect`` and
+    ``sysmaster``.
 
     If omitted, the default value is ``127.0.0.1``.
 
@@ -159,9 +145,22 @@ and contains the following directives:
 
     Type: **integer**
 
-    TCP port for the master's local console endpoint.
+    TCP port for the master's console endpoint used by ``sysinspect``.
 
     If omitted, the default value is ``4203``.
+
+``console`` key material
+########################
+
+    The console endpoint uses the master's RSA material under the master
+    root directory:
+
+    * ``console.rsa`` — console private key
+    * ``console.rsa.pub`` — console public key
+    * ``console-keys/`` — authorised client public keys
+
+    These are filesystem conventions under the master root, not YAML
+    configuration directives.
 
 ``bind.ip``
 ###########
@@ -458,7 +457,6 @@ Example configuration for the Sysinspect Master:
 
     config:
         master:
-            socket: /tmp/sysinspect-master.socket
             console.bind.ip: 127.0.0.1
             console.bind.port: 4203
             bind.ip: 0.0.0.0

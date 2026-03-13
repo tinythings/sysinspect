@@ -108,6 +108,19 @@ The ``sysinspect traits`` command updates only this file:
 After such update the minion immediately sends refreshed traits back to the
 master. Global ``sysinspect --sync`` also refreshes traits.
 
+Deployment profile assignment also uses this same mechanism. For example:
+
+.. code-block:: bash
+
+    sysinspect profile --tag "tiny-lua" --query "pi*"
+    sysinspect profile --untag "tiny-lua" --id 30006546535e428aba0a0caa6712e225
+
+This updates the master-managed ``minion.profile`` trait on the targeted
+minions.
+
+If ``minion.profile`` is not set, the minion falls back to the
+``default`` profile during sync.
+
 Dynamic Traits
 --------------
 

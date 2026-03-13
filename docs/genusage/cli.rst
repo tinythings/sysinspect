@@ -78,8 +78,7 @@ cluster:
 ``--sync`` instructs minions to refresh cluster artefacts and then report
 their current traits back to the master.
 
-``--online`` currently prints the result into the master's log, because the
-local control channel still has no response stream.
+``--online`` prints the current online-minion summary directly to stdout.
 
 Traits Management
 -----------------
@@ -102,6 +101,89 @@ The ``traits`` subcommand supports:
 * ``--id`` — target one minion by System Id
 * ``--query`` or trailing positional query — target minions by hostname glob
 * ``--traits`` — further narrow targeted minions by traits query
+
+Deployment Profiles
+-------------------
+
+Deployment profiles describe which modules and libraries a minion is allowed
+to sync. Profiles are assigned to minions through the ``minion.profile``
+static trait.
+
+Profile definitions:
+
+.. code-block:: bash
+
+    sysinspect profile --new --name Toto
+    sysinspect profile --delete --name Toto
+    sysinspect profile --list
+    sysinspect profile --list --name 'T*'
+
+Assign selectors to a profile:
+
+.. code-block:: bash
+
+    sysinspect profile -A --name Toto --match 'runtime.lua,net.*'
+    sysinspect profile -A --lib --name Toto --match 'runtime/lua/*.lua'
+    sysinspect profile -R --name Toto --match 'net.*'
+
+Assign or remove profiles on minions:
+
+.. code-block:: bash
+
+    sysinspect profile --tag 'Toto,Foo' --query 'web*'
+    sysinspect profile --tag 'Toto' --id 30006546535e428aba0a0caa6712e225
+    sysinspect profile --untag 'Foo' --traits 'system.hostname.fqdn:db01.example.net'
+
+Notes:
+
+* ``--name`` is an exact profile name for ``--new``, ``--delete``, ``-A``, and ``-R``
+* ``--name`` is a glob pattern for ``--list``
+* ``--match`` accepts comma-separated exact names or glob patterns
+* ``-l`` / ``--lib`` switches selector operations and listing to library selectors
+* ``--tag`` and ``--untag`` update ``minion.profile`` on the targeted minions
+* profile names are case-sensitive Unix-like names
+* each profile file carries its own canonical ``name`` field; the filename is only storage
+
+Profile Data Model
+------------------
+
+The master publishes a dedicated ``profiles.index`` next to ``mod.index``.
+Each profile entry points to one profile file plus its checksum:
+
+.. code-block:: yaml
+
+    profiles:
+      Toto:
+        file: totobullshit.profile
+        checksum: deadbeef
+
+Each profile file carries the actual profile identity and the allowed artefact
+selectors:
+
+.. code-block:: yaml
+
+    name: Toto
+    modules:
+      - runtime.lua
+      - net.*
+    libraries:
+      - lib/runtime/lua/*.lua
+
+The filename is only storage. The canonical profile identity is the
+case-sensitive ``name`` field inside the file.
+
+Sync Behavior
+-------------
+
+During minion sync:
+
+1. ``mod.index`` is downloaded from the fileserver
+2. ``profiles.index`` is downloaded from the fileserver
+3. the minion resolves its effective profiles from ``minion.profile``
+4. the selected profile files are refreshed into ``$SYSINSPECT/profiles``
+5. profile selectors are merged by union + dedup
+6. module and library sync is filtered by that merged selector set
+7. integrity cleanup removes now-forbidden artefacts
 
 Module Repository Management
 ----------------------------
