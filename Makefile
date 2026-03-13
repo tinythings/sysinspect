@@ -1,162 +1,10 @@
 .DEFAULT_GOAL := build
 
-ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
-ARC_NAME := sysinspect-${ARC_VERSION}
-PACK_LAYOUT_DIRS := sys net fs runtime cfg
-UNAME_S := $(shell uname -s)
-PKG_SPEC_FROM_TOML = $(shell awk 'BEGIN{name=""; version=""} /^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } /^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } END { if (name != "" && version != "") printf "%s@%s", name, version }' $(1))
-ALL_MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
-	awk 'BEGIN{name=""; version=""} \
-		/^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } \
-		/^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } \
-		END { if (name != "" && version != "") printf "%s@%s ", name, version }' "$$f"; \
-done)
-PY3_RUNTIME_SPEC := $(call PKG_SPEC_FROM_TOML,modules/runtime/py3-runtime/Cargo.toml)
-ifeq ($(UNAME_S),NetBSD)
-MODULE_PACKAGE_SPECS := $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
-PLATFORM_WORKSPACE_EXCLUDES := --exclude $(PY3_RUNTIME_SPEC)
-else
-MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
-PLATFORM_WORKSPACE_EXCLUDES :=
-endif
-SENSOR_PACKAGE_SPECS := $(foreach f,libsensors/Cargo.toml libmenotify/Cargo.toml,$(call PKG_SPEC_FROM_TOML,$(f)))
-CORE_PACKAGE_SPECS := $(strip \
-	$(call PKG_SPEC_FROM_TOML,Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libsysinspect/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libeventreg/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,sysmaster/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,sysminion/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libsetup/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libscheduler/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libmodpak/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libmodcore/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libtelemetry/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libwebapi/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,sysclient/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libdpq/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libsysproto/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libcommon/Cargo.toml) \
-	$(call PKG_SPEC_FROM_TOML,libdatastore/Cargo.toml))
-INTEGRATION_TEST_TARGETS := $(shell find . -path '*/tests/*.rs' | sort | while read f; do \
-	dir=$$(dirname "$$f"); \
-	base=$$(basename "$$f" .rs); \
-	crate_dir=$$(dirname "$$dir"); \
-	if [ -f "$$crate_dir/Cargo.toml" ]; then \
-		spec=$$(awk 'BEGIN{name=""; version=""} \
-			/^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } \
-			/^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } \
-			END { if (name != "" && version != "") printf "%s@%s", name, version }' "$$crate_dir/Cargo.toml"); \
-		if [ -n "$$spec" ]; then printf -- "-p %s --test %s " "$$spec" "$$base"; fi; \
-	fi; \
-done)
-INTEGRATION_TEST_TARGETS += -p $(call PKG_SPEC_FROM_TOML,libmenotify/Cargo.toml) --test githubissues_demo_it
-CORE_EXCLUDES := $(foreach pkg,$(ALL_MODULE_PACKAGE_SPECS),--exclude $(pkg))
-TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
-TEST_RUN_THREADS ?= 3
+include Makefile.in
 
 .PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel clean check fix setup \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar
-
-define deps
-	@need_apt=0; \
-	for cmd in pkg-config clang protoc; do \
-		command -v $$cmd >/dev/null 2>&1 || need_apt=1; \
-	done; \
-	if [ "$$need_apt" -eq 1 ]; then \
-		if ! command -v apt-get >/dev/null 2>&1; then \
-			echo "Missing required build tools (pkg-config/clang/protoc) and no apt-get is available to install them." >&2; \
-			exit 1; \
-		fi; \
-		SUDO=$$(command -v sudo >/dev/null 2>&1 && echo sudo || true); \
-		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev, libsodium-dev, libpam0g-dev, llvm-dev, libclang-dev, clang, protobuf-compiler"; \
-		$$SUDO apt-get update && $$SUDO apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev llvm-dev libclang-dev clang protobuf-compiler; \
-	fi; \
-	cargo nextest --version >/dev/null 2>&1 || cargo install cargo-nextest --locked; \
-	command -v tokei >/dev/null 2>&1 || cargo install tokei --locked
-endef
-
-define tgt
-	@t=$(1); \
-	rustup target list --installed | grep -qx "$$t" || { \
-		echo "Adding target $$t"; \
-		rustup target add $$t; \
-	}
-endef
-
-define check_present
-	@if ! command -v $(1) >/dev/null 2>&1; then \
-		echo "Error: '$(1)' is not found, aborting." >&2; \
-		exit 1; \
-	fi
-endef
-
-define prep_layout
-	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
-	for layout in $(PACK_LAYOUT_DIRS); do \
-		if [ -d $$dir/$$layout ]; then rm -rf $$dir/$$layout; fi; \
-	done
-endef
-
-
-define move_bin
-	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
-	echo "Moving binaries in $$dir"; \
-	if [ -f $$dir/net ]; then mv $$dir/net $$dir/.net.bin; fi; \
-	if [ -f $$dir/http ]; then mv $$dir/http $$dir/.http.bin; fi; \
-	rm -rf $$dir/sys; \
-	mkdir -p $$dir/sys; \
-	rm -rf $$dir/net; \
-	mkdir -p $$dir/net; \
-	rm -rf $$dir/fs; \
-	mkdir -p $$dir/fs; \
-	rm -rf $$dir/runtime; \
-	mkdir -p $$dir/runtime; \
-	rm -rf $$dir/cfg; \
-	mkdir -p $$dir/cfg; \
-	if [ -f $$dir/proc ]; then mv $$dir/proc $$dir/sys/; fi; \
-	if [ -f $$dir/.net.bin ]; then mv $$dir/.net.bin $$dir/sys/net; fi; \
-	if [ -f $$dir/run ]; then mv $$dir/run $$dir/sys/; fi; \
-	if [ -f $$dir/ssrun ]; then mv $$dir/ssrun $$dir/sys/; fi; \
-	if [ -f $$dir/.http.bin ]; then mv $$dir/.http.bin $$dir/net/http; fi; \
-	if [ -f $$dir/file ]; then mv $$dir/file $$dir/fs/; fi; \
-	if [ -f $$dir/lua-runtime ]; then mv $$dir/lua-runtime $$dir/runtime/; fi; \
-	if [ -f $$dir/py3-runtime ]; then mv $$dir/py3-runtime $$dir/runtime/; fi; \
-	if [ -f $$dir/wasm-runtime ]; then mv $$dir/wasm-runtime $$dir/runtime/; fi; \
-	if [ -f $$dir/resource ]; then mv $$dir/resource $$dir/cfg/; fi;
-endef
-
-define stage_modules_dist
-	@dist=target/modules-dist; \
-	rm -rf "$$dist"; \
-	mkdir -p "$$dist"; \
-	find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
-		pkg=$$(awk 'BEGIN{name=""} /^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } END { print name }' "$$f"); \
-		srcdir=$$(dirname "$$f"); \
-		bin=target/release/$$pkg; \
-		spec=$$srcdir/src/mod_doc.yaml; \
-		dstdir=$$dist/$$pkg; \
-		if [ ! -f "$$bin" ]; then echo "Missing built module binary: $$bin" >&2; exit 1; fi; \
-		if [ ! -f "$$spec" ]; then echo "Missing module spec source: $$spec" >&2; exit 1; fi; \
-		mkdir -p "$$dstdir"; \
-		cp "$$bin" "$$dstdir/$$pkg"; \
-		chmod +x "$$dstdir/$$pkg"; \
-		cp "$$spec" "$$dstdir/$$pkg.spec"; \
-	done
-endef
-
-define refresh_modules_repo
-	@sysbin=target/debug/sysinspect; \
-	if [ ! -x "$$sysbin" ]; then \
-		echo "Building debug sysinspect helper"; \
-		cargo build -v -p $(call PKG_SPEC_FROM_TOML,Cargo.toml); \
-	fi; \
-	"$$sysbin" module -R -n '*'; \
-	find target/modules-dist -mindepth 2 -maxdepth 2 -type f ! -name '*.spec' | sort | while read mod; do \
-		echo "Installing $$mod"; \
-		"$$sysbin" module -A --path "$$mod"; \
-	done
-endef
 
 setup:
 	$(call deps)
@@ -233,6 +81,7 @@ modules-dist-devel:
 	$(call stage_modules_dist)
 
 modules-refresh-devel: modules-dist-devel
+	$(call tgt,wasm32-wasip1)
 	$(call refresh_modules_repo)
 
 stats:
