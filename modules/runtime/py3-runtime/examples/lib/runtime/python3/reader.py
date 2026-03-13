@@ -8,7 +8,7 @@ doc = {
     "examples": [
         {
             "description": "Read OS version",
-            "code": 'module: py3.reader',
+            "code": '{ "module": "py3.reader", "opts": ["rt.logs"] }',
         }
     ],
     "returns": {

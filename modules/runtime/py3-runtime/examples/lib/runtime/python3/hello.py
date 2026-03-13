@@ -14,7 +14,7 @@ doc = {
     "examples": [
         {
             "description": "Add 2 and 5",
-            "code": 'module: py3.hello',
+            "code": '{ "module": "py3.hello", "args": { "a": 2, "b": 5 } }',
         }
     ],
     "returns": {
