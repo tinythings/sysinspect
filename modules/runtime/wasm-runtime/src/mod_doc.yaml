@@ -13,11 +13,6 @@ options:
 
 # Keyword arguments
 arguments:
-  - name: rt.mod
-    type: string
-    required: true
-    description: "The name of a Wasm binary to be executed. This binary will be looked up in the predefined configured scripts directory."
-
   - name: rt.rootfs
     type: string
     required: false
@@ -34,15 +29,9 @@ arguments:
       as global variables.
 
 examples:
-  - description: "Call a Wasm binary named 'hello_world.wasm' so it will greet Germany"
+  - description: "Call a Wasm runtime module from model DSL with module `wasm.hello_world`"
     code: |
-      {
-        "opts": [],
-        "arguments": {
-          "rt.mod": "hello_world",
-          "name": "Germany"
-        }
-      }
+      module: wasm.hello_world
 
 # Description of additional data format
 returns:

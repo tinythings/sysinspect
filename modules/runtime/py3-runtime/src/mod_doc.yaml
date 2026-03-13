@@ -11,11 +11,6 @@ options:
     description: "Enable logging from Python scripts to SysInspect logs."
 
 arguments:
-  - name: rt.mod
-    type: string
-    required: true
-    description: "The name of a Python script to be executed from the configured Python runtime directory."
-
   - name: "[ANY]"
     type: string
     required: false
@@ -23,15 +18,9 @@ arguments:
       Additional arguments that will be passed to the Python module being executed.
 
 examples:
-  - description: "Call a Python module named 'hello.py'"
+  - description: "Call a Python runtime module from model DSL with module `py3.hello`"
     code: |
-      {
-        "opts": ["rt.logs"],
-        "arguments": {
-          "rt.mod": "hello",
-          "name": "Germany"
-        }
-      }
+      module: py3.hello
 
 returns:
   fill:

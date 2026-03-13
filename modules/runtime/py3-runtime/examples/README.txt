@@ -92,32 +92,5 @@ reader.py
   3. Forwards logs back to SysInspect runtime output
 
 
-Call examples:
-
-$ echo '{"opts":[], "args":{"rt.mod":"hello", "a":2, "b":5}}' | ../../../../target/debug/runtime/py3-runtime | jq
-{
-  "retcode": 0,
-  "message": "Called Python module successfully.",
-  "data": {
-    "changed": true,
-    "data": {
-      "sum": 12
-    },
-    "__sysinspect-module-logs": []
-  }
-}
-
-$ echo '{"opts":["rt.logs"], "args":{"rt.mod":"reader"}}' | ../../../../target/debug/runtime/py3-runtime | jq
-{
-  "retcode": 0,
-  "message": "Called Python module successfully.",
-  "data": {
-    "changed": true,
-    "data": {
-      "version": "..."
-    },
-    "__sysinspect-module-logs": [
-      "[...] - INFO: [reader] Detected OS VERSION: ..."
-    ]
-  }
-}
+Call these from a model using namespaces such as ``py3.hello`` or
+``py3.reader``.
