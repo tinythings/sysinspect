@@ -34,7 +34,7 @@ use libsysinspect::{
         fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     },
     rsa,
-    traits::{self, TraitUpdateRequest, ensure_master_traits_file, systraits::SystemTraits},
+    traits::{self, TraitUpdateRequest, effective_profiles, ensure_master_traits_file, systraits::SystemTraits},
     util::{self, dataconv},
 };
 use libsysproto::{
@@ -185,11 +185,22 @@ impl SysMinion {
             fs::create_dir_all(self.cfg.sensors_dir())?;
         }
 
+        if !self.cfg.profiles_dir().exists() {
+            log::debug!("Creating directory for the synced profiles at {}", self.cfg.profiles_dir().as_os_str().to_str().unwrap_or_default());
+            fs::create_dir_all(self.cfg.profiles_dir())?;
+        }
+
         let mut out: Vec<String> = vec![];
         for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
+        let profiles = effective_profiles(&self.cfg);
+        log::info!(
+            "{} {}",
+            if profiles.len() == 1 { "Activating profile" } else { "Activating profiles" },
+            profiles.iter().map(|name| name.bright_yellow().to_string()).collect::<Vec<String>>().join(", ")
+        );
 
         Ok(())
     }

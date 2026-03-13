@@ -29,6 +29,9 @@ pub mod commands {
 
     // Update master-managed static traits on minions
     pub const CLUSTER_TRAITS_UPDATE: &str = "cluster/traits/update";
+
+    // Manage deployment profiles on the master
+    pub const CLUSTER_PROFILE: &str = "cluster/profile";
 }
 
 ///

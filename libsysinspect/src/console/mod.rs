@@ -1,3 +1,5 @@
+//! Encrypted console transport primitives shared by `sysinspect` and `sysmaster`.
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use libcommon::SysinspectError;
 use rsa::{RsaPrivateKey, RsaPublicKey};
@@ -22,40 +24,60 @@ mod console_ut;
 
 static SODIUM_INIT: OnceLock<()> = OnceLock::new();
 
+/// RSA-bootstrapped session bootstrap data sent before opening the sealed console payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleBootstrap {
+    /// Client console public key in PEM format.
     pub client_pubkey: String,
+    /// Session key encrypted to the master's RSA public key.
     pub symkey_cipher: String,
+    /// Signature over the raw session key bytes using the client RSA private key.
     pub symkey_sign: String,
 }
 
+/// Symmetrically encrypted console frame payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleSealed {
+    /// Base64-encoded libsodium nonce.
     pub nonce: String,
+    /// Base64-encoded libsodium `secretbox` payload.
     pub payload: String,
 }
 
+/// Full console request envelope containing the RSA bootstrap and sealed request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleEnvelope {
+    /// Bootstrap data used to derive the symmetric session key.
     pub bootstrap: ConsoleBootstrap,
+    /// Encrypted request payload.
     pub sealed: ConsoleSealed,
 }
 
+/// Structured console request sent from `sysinspect` to `sysmaster`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleQuery {
+    /// Requested model or command URI.
     pub model: String,
+    /// Target query string or hostname glob.
     pub query: String,
+    /// Optional traits selector expression.
     pub traits: String,
+    /// Optional direct minion System Id target.
     pub mid: String,
+    /// Optional JSON-encoded context payload.
     pub context: String,
 }
 
+/// Structured console response returned by `sysmaster`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleResponse {
+    /// Response success flag.
     pub ok: bool,
+    /// Human-readable response message or payload.
     pub message: String,
 }
 
+/// Ensure the local libsodium state is initialised once for console sealing operations.
 fn sodium_ready() -> Result<(), SysinspectError> {
     if SODIUM_INIT.get().is_some() {
         return Ok(());
@@ -71,6 +93,7 @@ fn console_keypair(root: &Path) -> (PathBuf, PathBuf) {
     (root.join(CFG_CONSOLE_KEY_PRI), root.join(CFG_CONSOLE_KEY_PUB))
 }
 
+/// Ensure a console RSA keypair exists under the given root and return it.
 pub fn ensure_console_keypair(root: &Path) -> Result<(RsaPrivateKey, RsaPublicKey), SysinspectError> {
     let (prk_path, pbk_path) = console_keypair(root);
     if prk_path.exists() && pbk_path.exists() {
@@ -84,10 +107,12 @@ pub fn ensure_console_keypair(root: &Path) -> Result<(RsaPrivateKey, RsaPublicKe
     Ok((prk, pbk))
 }
 
+/// Load the master's public RSA key used for console session bootstrap.
 pub fn load_master_public_key(cfg: &MasterConfig) -> Result<RsaPublicKey, SysinspectError> {
     load_public_key(&cfg.root_dir().join(crate::cfg::mmconf::CFG_MASTER_KEY_PUB))
 }
 
+/// Load the master's private RSA key used for console session bootstrap.
 pub fn load_master_private_key(cfg: &MasterConfig) -> Result<RsaPrivateKey, SysinspectError> {
     load_private_key(&cfg.root_dir().join(crate::cfg::mmconf::CFG_MASTER_KEY_PRI))
 }
@@ -109,6 +134,7 @@ fn load_public_key(path: &Path) -> Result<RsaPublicKey, SysinspectError> {
 }
 
 impl ConsoleBootstrap {
+    /// Build bootstrap material for a new console session.
     pub fn new(client_prk: &RsaPrivateKey, client_pbk: &RsaPublicKey, master_pbk: &RsaPublicKey, symkey: &Key) -> Result<Self, SysinspectError> {
         Ok(Self {
             client_pubkey: to_pem(None, Some(client_pbk))
@@ -126,6 +152,7 @@ impl ConsoleBootstrap {
         })
     }
 
+    /// Recover and verify the console session key from the bootstrap payload.
     pub fn session_key(&self, master_prk: &RsaPrivateKey) -> Result<(Key, RsaPublicKey), SysinspectError> {
         let client_pbk = crate::rsa::keys::from_pem(None, Some(&self.client_pubkey))
             .map_err(|e| SysinspectError::RSAError(e.to_string()))?
@@ -154,6 +181,7 @@ impl ConsoleBootstrap {
 }
 
 impl ConsoleSealed {
+    /// Seal a serializable console payload with the given symmetric session key.
     pub fn seal<T: Serialize>(payload: &T, key: &Key) -> Result<Self, SysinspectError> {
         sodium_ready()?;
         let nonce = secretbox::gen_nonce();
@@ -167,6 +195,7 @@ impl ConsoleSealed {
         })
     }
 
+    /// Open a sealed console payload with the given symmetric session key.
     pub fn open<T: DeserializeOwned>(&self, key: &Key) -> Result<T, SysinspectError> {
         sodium_ready()?;
         let nonce = Nonce::from_slice(
@@ -187,6 +216,7 @@ impl ConsoleSealed {
     }
 }
 
+/// Check whether the provided client console public key is authorised by the master.
 pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result<bool, SysinspectError> {
     if cfg.console_pubkey().exists() && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)? == client_pem {
         return Ok(true);
@@ -207,6 +237,7 @@ pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result
     Ok(false)
 }
 
+/// Build a fully bootstrapped encrypted console request envelope for the given query.
 pub fn build_console_query(root: &Path, cfg: &MasterConfig, query: &ConsoleQuery) -> Result<(ConsoleEnvelope, Key), SysinspectError> {
     sodium_ready()?;
     let (client_prk, client_pbk) = ensure_console_keypair(root)?;

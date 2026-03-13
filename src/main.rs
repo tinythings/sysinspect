@@ -16,7 +16,7 @@ use libsysinspect::{
 };
 use libsysproto::query::SCHEME_COMMAND;
 use libsysproto::query::commands::{
-    CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+    CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
 };
 use log::LevelFilter;
 use serde_json::json;
@@ -98,6 +98,71 @@ fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectEr
     Err(SysinspectError::InvalidQuery("Specify one of --set, --unset, or --reset".to_string()))
 }
 
+fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
+    let invalid_name = |name: &str| name.chars().any(|c| ['*', '?', '[', ']'].contains(&c));
+    if am.get_flag("new") {
+        if am.get_one::<String>("name").is_none() {
+            return Err(SysinspectError::InvalidQuery("Specify --name for --new".to_string()));
+        }
+        if invalid_name(am.get_one::<String>("name").unwrap()) {
+            return Err(SysinspectError::InvalidQuery("Profile names for --new must be exact names, not glob patterns".to_string()));
+        }
+        return Ok(Some(json!({"op": "new", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
+    }
+
+    if am.get_flag("delete") {
+        if am.get_one::<String>("name").is_none() {
+            return Err(SysinspectError::InvalidQuery("Specify --name for --delete".to_string()));
+        }
+        if invalid_name(am.get_one::<String>("name").unwrap()) {
+            return Err(SysinspectError::InvalidQuery("Profile names for --delete must be exact names, not glob patterns".to_string()));
+        }
+        return Ok(Some(json!({"op": "delete", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
+    }
+
+    if am.get_flag("list") {
+        return Ok(Some(
+            json!({"op": "list", "name": am.get_one::<String>("name").cloned().unwrap_or_default(), "library": am.get_flag("lib")}).to_string(),
+        ));
+    }
+
+    if am.get_flag("add") || am.get_flag("remove") {
+        if am.get_one::<String>("name").is_none() || am.get_one::<String>("match").is_none() {
+            return Err(SysinspectError::InvalidQuery("Specify both --name and --match for profile selector updates".to_string()));
+        }
+        if invalid_name(am.get_one::<String>("name").unwrap()) {
+            return Err(SysinspectError::InvalidQuery("Profile names for selector updates must be exact names, not glob patterns".to_string()));
+        }
+        if clidef::split_by(am, "match", None).is_empty() {
+            return Err(SysinspectError::InvalidQuery("At least one selector is required in --match".to_string()));
+        }
+        return Ok(Some(
+            json!({
+                "op": if am.get_flag("add") { "add" } else { "remove" },
+                "name": am.get_one::<String>("name").cloned().unwrap_or_default(),
+                "matches": clidef::split_by(am, "match", None),
+                "library": am.get_flag("lib"),
+            })
+            .to_string(),
+        ));
+    }
+
+    if am.get_one::<String>("tag").is_some() || am.get_one::<String>("untag").is_some() {
+        if clidef::split_by(am, if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" }, None).is_empty() {
+            return Err(SysinspectError::InvalidQuery("Specify at least one profile name for --tag or --untag".to_string()));
+        }
+        return Ok(Some(
+            json!({
+                "op": if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" },
+                "profiles": clidef::split_by(am, if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" }, None),
+            })
+            .to_string(),
+        ));
+    }
+
+    Err(SysinspectError::InvalidQuery("Specify one profile operation".to_string()))
+}
+
 /// Set logger
 fn set_logger(p: &ArgMatches) {
     let log: &'static dyn log::Log = if *p.get_one::<bool>("ui").unwrap_or(&false) {
@@ -137,6 +202,15 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         && sub.get_flag("help")
     {
         if let Some(s_cli) = cli.find_subcommand_mut("traits") {
+            _ = s_cli.print_help();
+            return true;
+        }
+        return false;
+    }
+    if let Some(sub) = params.subcommand_matches("profile")
+        && sub.get_flag("help")
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("profile") {
             _ = s_cli.print_help();
             return true;
         }
@@ -292,6 +366,33 @@ async fn main() {
 
         if let Err(err) = call_master_console(&cfg, &scheme, target_query, target_traits, target_id, context.as_ref()).await {
             log::error!("Cannot reach master: {err}");
+        }
+        exit(0);
+    }
+
+    if let Some(sub) = params.subcommand_matches("profile") {
+        let target_id = sub.get_one::<String>("id").map(String::as_str);
+        let target_query = sub
+            .get_one::<String>("query")
+            .or_else(|| sub.get_one::<String>("query-pos"))
+            .map(String::as_str)
+            .unwrap_or("*");
+        let target_traits = sub.get_one::<String>("select-traits");
+        let context = match profile_update_context(sub) {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                log::error!("{err}");
+                exit(1);
+            }
+        };
+
+        match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), target_query, target_traits, target_id, context.as_ref()).await {
+            Ok(resp) => {
+                if !resp.message.is_empty() {
+                    println!("{}", resp.message);
+                }
+            }
+            Err(err) => log::error!("Cannot reach master: {err}"),
         }
         exit(0);
     }

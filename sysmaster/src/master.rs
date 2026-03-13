@@ -17,9 +17,11 @@ use libeventreg::{
     ipcs::DbIPCService,
     kvdb::{EventMinion, EventsRegistry},
 };
+use libmodpak::SysInspectModPak;
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     console::{ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key},
+    context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     util::{self, iofs::scan_files_sha256, pad_visible},
 };
@@ -29,7 +31,7 @@ use libsysproto::{
     payload::{ModStatePayload, PingData},
     query::{
         SCHEME_COMMAND,
-        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
+        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
 };
@@ -729,6 +731,7 @@ impl SysMaster {
         }
     }
 
+    /// Build the formatted online-minion summary returned by the console `--online` command.
     async fn online_minions_summary(&mut self) -> Result<String, SysinspectError> {
         let mreg = self.mreg.lock().await;
         let mut session = self.session.lock().await;
@@ -787,6 +790,136 @@ impl SysMaster {
         Ok(out.join("\n"))
     }
 
+    /// Resolve target minions for console profile operations from id, traits query, or hostname query.
+    async fn selected_minions(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<crate::registry::rec::MinionRecord>, SysinspectError> {
+        let mut records = if !mid.is_empty() {
+            self.mreg.lock().await.get(mid)?.into_iter().collect::<Vec<_>>()
+        } else if !traits.trim().is_empty() {
+            self.mreg
+                .lock()
+                .await
+                .get_by_traits(get_context(traits).unwrap_or_default().into_iter().collect::<HashMap<_, _>>())?
+        } else {
+            self.mreg.lock().await.get_by_query(if query.trim().is_empty() { "*" } else { query })?
+        };
+        records.sort_by(|a, b| a.id().cmp(b.id()));
+        Ok(records)
+    }
+
+    /// Execute one profile console request and return its console response plus any outbound master messages to broadcast.
+    async fn profile_console_response(
+        &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
+    ) -> Result<(ConsoleResponse, Vec<MasterMessage>), SysinspectError> {
+        let repo = SysInspectModPak::new(self.cfg.get_mod_repo_root())?;
+
+        match request.op() {
+            "new" => Ok((
+                {
+                    repo.new_profile(request.name())?;
+                    ConsoleResponse { ok: true, message: format!("Created profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "delete" => Ok((
+                {
+                    repo.delete_profile(request.name())?;
+                    ConsoleResponse { ok: true, message: format!("Deleted profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "list" => Ok((
+                ConsoleResponse {
+                    ok: true,
+                    message: if request.name().is_empty() {
+                        repo.list_profiles(None)?.join("\n")
+                    } else {
+                        repo.list_profile_matches(Some(request.name()), request.library())?.join("\n")
+                    },
+                },
+                vec![],
+            )),
+            "add" => Ok((
+                {
+                    repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
+                    ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "remove" => Ok((
+                {
+                    repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
+                    ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "tag" | "untag" => {
+                let known_profiles = repo.list_profiles(None)?;
+                let missing = request.profiles().iter().filter(|name| !known_profiles.contains(name)).cloned().collect::<Vec<_>>();
+                if !missing.is_empty() {
+                    return Ok((
+                        ConsoleResponse {
+                            ok: false,
+                            message: format!("Unknown profile{}: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ").bright_yellow()),
+                        },
+                        vec![],
+                    ));
+                }
+
+                let mut msgs = Vec::new();
+                for minion in self.selected_minions(query, traits, mid).await? {
+                    let mut profiles = match minion.get_traits().get("minion.profile") {
+                        Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name.to_string()],
+                        Some(serde_json::Value::Array(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>(),
+                        _ => vec!["default".to_string()],
+                    };
+                    if request.op() == "tag" {
+                        for profile in request.profiles() {
+                            if !profiles.contains(profile) {
+                                profiles.push(profile.to_string());
+                            }
+                        }
+                    } else {
+                        profiles.retain(|profile| !request.profiles().contains(profile));
+                    }
+                    if profiles.is_empty() {
+                        profiles.push("default".to_string());
+                    }
+                    if let Some(msg) = self
+                        .msg_query_data(
+                            &format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}"),
+                            "",
+                            "",
+                            minion.id(),
+                            &json!({"op": "set", "traits": {"minion.profile": profiles}}).to_string(),
+                        )
+                        .await
+                    {
+                        msgs.push(msg);
+                    }
+                }
+
+                Ok((
+                    ConsoleResponse {
+                        ok: true,
+                        message: format!(
+                            "{} {} on {} minion{}",
+                            if request.op() == "tag" { "Applied profiles" } else { "Removed profiles" },
+                            request.profiles().join(", ").bright_yellow(),
+                            msgs.len(),
+                            if msgs.len() == 1 { "" } else { "s" }
+                        ),
+                    },
+                    msgs,
+                ))
+            }
+            _ => Ok((
+                ConsoleResponse { ok: false, message: format!("Unsupported profile operation {}", request.op().bright_yellow()) },
+                vec![],
+            )),
+        }
+    }
+
+    /// Start the encrypted TCP console listener used by `sysinspect` to talk to the master.
     pub async fn do_console(master: Arc<Mutex<Self>>) {
         log::trace!("Init local console channel");
         tokio::spawn({
@@ -828,6 +961,27 @@ impl SysMaster {
                                                                     Ok(summary) => ConsoleResponse { ok: true, message: summary },
                                                                     Err(err) => ConsoleResponse { ok: false, message: format!("Unable to get online minions: {err}") },
                                                                 }
+                                                            } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
+                                                                let (response, msgs) = match ProfileConsoleRequest::from_context(&query.context) {
+                                                                    Ok(request) => {
+                                                                        let mut guard = master.lock().await;
+                                                                        match guard.profile_console_response(&request, &query.query, &query.traits, &query.mid).await {
+                                                                            Ok(data) => data,
+                                                                            Err(err) => (ConsoleResponse { ok: false, message: err.to_string() }, vec![]),
+                                                                        }
+                                                                    }
+                                                                    Err(err) => (
+                                                                        ConsoleResponse { ok: false, message: format!("Failed to parse profile request: {err}") },
+                                                                        vec![],
+                                                                    ),
+                                                                };
+                                                                for msg in msgs {
+                                                                    SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), Some(msg.clone())).await;
+                                                                    let guard = master.lock().await;
+                                                                    let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                    guard.taskreg.lock().await.register(msg.cycle(), ids);
+                                                                }
+                                                                response
                                                             } else {
                                                             let msg = {
                                                                 let mut guard = master.lock().await;

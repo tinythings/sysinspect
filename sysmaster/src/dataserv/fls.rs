@@ -2,7 +2,7 @@ use actix_web::{App, HttpResponse, HttpServer, Responder, rt::System, web};
 use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::{
-    CFG_FILESERVER_ROOT, CFG_MODELS_ROOT, CFG_MODREPO_ROOT, CFG_SENSORS_ROOT, CFG_TRAIT_FUNCTIONS_ROOT, CFG_TRAITS_ROOT, MasterConfig,
+    CFG_FILESERVER_ROOT, CFG_MODELS_ROOT, CFG_MODREPO_ROOT, CFG_PROFILES_ROOT, CFG_SENSORS_ROOT, CFG_TRAIT_FUNCTIONS_ROOT, CFG_TRAITS_ROOT, MasterConfig,
 };
 use std::{fs, path::PathBuf, thread};
 
@@ -14,12 +14,16 @@ fn init_fs_env(cfg: &MasterConfig) -> Result<(), SysinspectError> {
         fs::create_dir_all(&root)?;
     }
 
-    for sub in [CFG_TRAIT_FUNCTIONS_ROOT, CFG_MODELS_ROOT, CFG_MODREPO_ROOT, CFG_TRAITS_ROOT, CFG_SENSORS_ROOT] {
+    for sub in [CFG_TRAIT_FUNCTIONS_ROOT, CFG_MODELS_ROOT, CFG_MODREPO_ROOT, CFG_PROFILES_ROOT, CFG_TRAITS_ROOT, CFG_SENSORS_ROOT] {
         let subdir = root.join(sub);
         if !subdir.exists() {
             log::info!("Created file server subdirectory at {}", subdir.display().to_string().bright_yellow());
             fs::create_dir_all(&subdir)?;
         }
+    }
+
+    if !root.join("profiles.index").exists() {
+        fs::write(root.join("profiles.index"), "profiles: {}\n")?;
     }
 
     Ok(())

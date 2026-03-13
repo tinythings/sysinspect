@@ -101,6 +101,7 @@ pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for sensors
 pub static CFG_SENSORS_ROOT: &str = "sensors";
+pub static CFG_PROFILES_ROOT: &str = "profiles";
 
 // Key names
 // ---------
@@ -465,6 +466,11 @@ impl MinionConfig {
         self.root = Some(dir.to_string());
     }
 
+    /// Set master fileserver port
+    pub fn set_master_fileserver_port(&mut self, port: u32) {
+        self.master_fileserver_port = Some(port);
+    }
+
     /// Set sharelib path
     pub fn set_sharelib_path(&mut self, p: &str) {
         self.sharelib_path = Some(p.to_string());
@@ -512,6 +518,11 @@ impl MinionConfig {
     /// Get root directory for sensors config
     pub fn sensors_dir(&self) -> PathBuf {
         self.root_dir().join(CFG_SENSORS_ROOT)
+    }
+
+    /// Get root directory for synced deployment profiles
+    pub fn profiles_dir(&self) -> PathBuf {
+        self.root_dir().join(CFG_PROFILES_ROOT)
     }
 
     /// Return machine Id path
@@ -1014,6 +1025,11 @@ impl MasterConfig {
         } else {
             self.fileserver_root().join(CFG_SENSORS_ROOT)
         }
+    }
+
+    /// Get deployment profiles root on the fileserver
+    pub fn fileserver_profiles_root(&self) -> PathBuf {
+        self.fileserver_root().join(CFG_PROFILES_ROOT)
     }
 
     /// Get default sysinspect root. For master it is always /etc/sysinspect
