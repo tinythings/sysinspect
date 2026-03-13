@@ -134,10 +134,34 @@ and contains the following directives:
 
     Type: **string**
 
-    Path for a FIFO socket to communicate with the ``sysinspect`` command,
-    which is issuing commands over the network.
+    Path for the current local FIFO socket used by the ``sysinspect`` command
+    to communicate with the local ``sysmaster`` instance.
 
-    Default value is ``/var/run/sysinspect-master.socket``.
+    If omitted, the default value is ``/var/run/sysinspect-master.socket``.
+
+    .. note::
+
+        This is the currently active local console transport. The newer
+        ``console.*`` settings below are already part of the configuration
+        surface, but the FIFO socket is still what ``sysinspect`` uses today.
+
+``console.bind.ip``
+###################
+
+    Type: **string**
+
+    IPv4 address for the master's local console endpoint.
+
+    If omitted, the default value is ``127.0.0.1``.
+
+``console.bind.port``
+#####################
+
+    Type: **integer**
+
+    TCP port for the master's local console endpoint.
+
+    If omitted, the default value is ``4203``.
 
 ``bind.ip``
 ###########
@@ -435,6 +459,8 @@ Example configuration for the Sysinspect Master:
     config:
         master:
             socket: /tmp/sysinspect-master.socket
+            console.bind.ip: 127.0.0.1
+            console.bind.port: 4203
             bind.ip: 0.0.0.0
             bind.port: 4200
 
