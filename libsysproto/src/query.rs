@@ -26,6 +26,9 @@ pub mod commands {
 
     // Get online minions
     pub const CLUSTER_ONLINE_MINIONS: &str = "cluster/minion/online";
+
+    // Update master-managed static traits on minions
+    pub const CLUSTER_TRAITS_UPDATE: &str = "cluster/traits/update";
 }
 
 ///

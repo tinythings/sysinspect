@@ -67,3 +67,8 @@ pub fn get_context(c: &str) -> Option<IndexMap<String, serde_json::Value>> {
 
     Some(c)
 }
+
+/// Parse comma-separated keys from a string.
+pub fn get_context_keys(c: &str) -> Vec<String> {
+    c.trim().split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+}

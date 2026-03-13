@@ -31,6 +31,16 @@ pub fn cli(version: &'static str) -> Command {
             .arg(Arg::new("arch").short('a').long("arch").help("Specify the module architecture (x86, x64, arm, arm64, noarch)").default_value("noarch"))
             .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help for this command"))
         )
+        .subcommand(Command::new("traits").about("Sync or update minion traits").styles(styles.clone()).disable_help_flag(true)
+            .arg(Arg::new("set").long("set").help("Set traits as comma-separated key:value pairs").conflicts_with_all(["unset", "reset"]))
+            .arg(Arg::new("unset").long("unset").help("Unset traits as comma-separated keys").conflicts_with_all(["set", "reset"]))
+            .arg(Arg::new("reset").long("reset").action(ArgAction::SetTrue).help("Reset all master-managed traits on targeted minions").conflicts_with_all(["set", "unset"]))
+            .arg(Arg::new("id").long("id").help("Target a specific minion by its system id").conflicts_with_all(["query", "query-pos"]))
+            .arg(Arg::new("query").long("query").help("Target minions by hostname glob or query").conflicts_with("query-pos"))
+            .arg(Arg::new("select-traits").long("traits").help("Target minions by traits query"))
+            .arg(Arg::new("query-pos").help("Target minions by hostname glob or query").required(false).index(1))
+            .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help for this command"))
+        )
 
         // Sysinspect
         .next_help_heading("Main")

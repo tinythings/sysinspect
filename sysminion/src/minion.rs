@@ -43,7 +43,7 @@ use libsysproto::{
     payload::{ModStatePayload, PayloadType},
     query::{
         MinionQuery, SCHEME_COMMAND,
-        commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
+        commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoValue, RequestType},
 };
@@ -487,7 +487,7 @@ impl SysMinion {
                                 let scheme = msg.target().scheme().to_string();
 
                                 if scheme.starts_with(SCHEME_COMMAND) {
-                                    this.as_ptr().call_internal_command(&scheme).await;
+                                    this.as_ptr().call_internal_command(&scheme, msg.target().context()).await;
                                     continue;
                                 }
 
@@ -823,7 +823,7 @@ impl SysMinion {
     }
 
     /// Calls internal command
-    async fn call_internal_command(self: Arc<Self>, cmd: &str) {
+    async fn call_internal_command(self: Arc<Self>, cmd: &str, context: &str) {
         let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
         match cmd {
             CLUSTER_SHUTDOWN => {
@@ -847,6 +847,9 @@ impl SysMinion {
                     log::error!("Failed to sync minion with master: {e}");
                 }
                 let _ = self.as_ptr().send_sensors_sync().await;
+            }
+            CLUSTER_TRAITS_UPDATE => {
+                log::error!("Received traits update payload: {}", context);
             }
             _ => {
                 log::warn!("Unknown command: {cmd}");
@@ -917,7 +920,7 @@ impl SysMinion {
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
                 if cmd.target().scheme().starts_with(SCHEME_COMMAND) {
-                    self.as_ptr().call_internal_command(cmd.target().scheme()).await;
+                    self.as_ptr().call_internal_command(cmd.target().scheme(), cmd.target().context()).await;
                 } else {
                     self.as_ptr().launch_sysinspect(cmd.cycle(), cmd.target().scheme(), &pld, cmd.target().context()).await;
                     log::debug!("Command dispatched");

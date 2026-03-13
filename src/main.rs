@@ -7,14 +7,18 @@ use libsysinspect::{
         mmconf::{MasterConfig, MinionConfig},
         select_config_path,
     },
+    context,
     inspector::SysInspectRunner,
     logger::{self, MemoryLogger, STDOUTLogger},
     reactor::handlers,
     traits::get_minion_traits,
 };
 use libsysproto::query::SCHEME_COMMAND;
-use libsysproto::query::commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC};
+use libsysproto::query::commands::{
+    CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+};
 use log::LevelFilter;
+use serde_json::json;
 use std::{
     env,
     fs::OpenOptions,
@@ -53,6 +57,32 @@ fn call_master_fifo(
     Ok(())
 }
 
+fn call_master_command(model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, fifo: &str, context: Option<String>) -> Result<(), SysinspectError> {
+    call_master_fifo(model, query, traits, mid, fifo, context.as_ref())
+}
+
+fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
+    if let Some(setv) = am.get_one::<String>("set") {
+        let traits = context::get_context(setv)
+            .ok_or_else(|| SysinspectError::InvalidQuery("Trait values must be in key:value format".to_string()))?;
+        return Ok(Some(json!({"op": "set", "traits": traits}).to_string()));
+    }
+
+    if let Some(keys) = am.get_one::<String>("unset") {
+        return Ok(Some(json!({
+            "op": "unset",
+            "traits": context::get_context_keys(keys).into_iter().map(|key| (key, serde_json::Value::Null)).collect::<serde_json::Map<String, serde_json::Value>>()
+        })
+        .to_string()));
+    }
+
+    if am.get_flag("reset") {
+        return Ok(Some(json!({"op": "reset", "traits": {}}).to_string()));
+    }
+
+    Err(SysinspectError::InvalidQuery("Specify one of --set, --unset, or --reset".to_string()))
+}
+
 /// Set logger
 fn set_logger(p: &ArgMatches) {
     let log: &'static dyn log::Log = if *p.get_one::<bool>("ui").unwrap_or(&false) {
@@ -83,6 +113,15 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         && sub.get_flag("help")
     {
         if let Some(s_cli) = cli.find_subcommand_mut("module") {
+            _ = s_cli.print_help();
+            return true;
+        }
+        return false;
+    }
+    if let Some(sub) = params.subcommand_matches("traits")
+        && sub.get_flag("help")
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("traits") {
             _ = s_cli.print_help();
             return true;
         }
@@ -216,6 +255,30 @@ async fn main() {
             }
         };
         exit(0)
+    }
+
+    if let Some(sub) = params.subcommand_matches("traits") {
+        let target_id = sub.get_one::<String>("id").map(String::as_str);
+        let target_query = sub
+            .get_one::<String>("query")
+            .or_else(|| sub.get_one::<String>("query-pos"))
+            .map(String::as_str)
+            .unwrap_or("*");
+        let target_traits = sub.get_one::<String>("select-traits");
+        let scheme = format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}");
+
+        let context = match traits_update_context(sub) {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                log::error!("{err}");
+                exit(1);
+            }
+        };
+
+        if let Err(err) = call_master_command(&scheme, target_query, target_traits, target_id, &cfg.socket(), context) {
+            log::error!("Cannot reach master: {err}");
+        }
+        exit(0);
     }
 
     if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
