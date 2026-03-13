@@ -21,6 +21,9 @@ pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
 /// Default API port for the web API
 pub static DEFAULT_API_PORT: u32 = 4202;
 
+/// Default port for the local console/control endpoint on the master
+pub static DEFAULT_CONSOLE_PORT: u32 = 4203;
+
 // Default directories
 // --------------------
 
@@ -103,6 +106,9 @@ pub static CFG_SENSORS_ROOT: &str = "sensors";
 // ---------
 pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
 pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
+pub static CFG_CONSOLE_KEY_PUB: &str = "console.rsa.pub";
+pub static CFG_CONSOLE_KEY_PRI: &str = "console.rsa";
+pub static CFG_CONSOLE_KEYS: &str = "console-keys";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
 pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
 
@@ -747,6 +753,12 @@ pub struct MasterConfig {
     // Path to FIFO socket. Default: /var/run/sysinspect-master.socket
     socket: Option<String>,
 
+    #[serde(rename = "console.bind.ip")]
+    console_ip: Option<String>,
+
+    #[serde(rename = "console.bind.port")]
+    console_port: Option<u32>,
+
     #[serde(rename = "fileserver.bind.ip")]
     fsr_ip: Option<String>,
 
@@ -913,6 +925,16 @@ impl MasterConfig {
         self.socket.to_owned().unwrap_or(DEFAULT_SOCKET.to_string())
     }
 
+    /// Return local console/control bind address
+    pub fn console_bind_addr(&self) -> String {
+        format!(
+            "{}:{}",
+            self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()),
+            self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
+        )
+    }
+
+
     /// Get API enabled status (default: true)
     pub fn api_enabled(&self) -> bool {
         self.api_enabled.unwrap_or(true)
@@ -1011,6 +1033,18 @@ impl MasterConfig {
 
     pub fn api_keys_root(&self) -> PathBuf {
         self.root_dir().join(CFG_API_KEYS)
+    }
+
+    pub fn console_keys_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_CONSOLE_KEYS)
+    }
+
+    pub fn console_privkey(&self) -> PathBuf {
+        self.root_dir().join(CFG_CONSOLE_KEY_PRI)
+    }
+
+    pub fn console_pubkey(&self) -> PathBuf {
+        self.root_dir().join(CFG_CONSOLE_KEY_PUB)
     }
 
     /// Return a pidfile. Either from config or default.
