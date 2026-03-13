@@ -40,3 +40,20 @@ fn modcall_protocol_payload_keeps_config_and_host_when_args_are_empty() {
     assert!(payload.get("host").is_some());
     assert!(payload.pointer("/host/traits").and_then(|v| v.as_object()).is_some());
 }
+
+#[test]
+fn modcall_protocol_payload_keeps_public_field_names_stable() {
+    init_runner();
+
+    let mut call = ModCall::default();
+    call.add_kwargs("name".to_string(), serde_yaml::to_value("Germany").unwrap_or_default());
+    call.add_opt("lines".to_string());
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&call.params_json_for_test()).unwrap_or_else(|err| panic!("failed to parse ModCall params JSON: {err}"));
+    let keys = payload.as_object().unwrap_or_else(|| panic!("expected object payload")).keys().cloned().collect::<Vec<String>>();
+
+    assert_eq!(keys, vec!["arguments".to_string(), "options".to_string(), "config".to_string(), "host".to_string()]);
+    assert!(payload.get("opts").is_none());
+    assert!(payload.get("args").is_none());
+}

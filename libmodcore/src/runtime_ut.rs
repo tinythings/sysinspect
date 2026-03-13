@@ -80,3 +80,22 @@ fn mod_request_accepts_arguments_and_options_legacy_shape() {
     assert_eq!(rq.args_all().get("rt.mod").and_then(|v| v.as_string()), Some("hello".to_string()));
     assert_eq!(rq.host().pointer("/traits/system.hostname"), Some(&json!("legacy-minion")));
 }
+
+#[test]
+fn mod_request_preserves_partial_host_payload_without_failing() {
+    let rq: ModRequest = serde_json::from_value(json!({
+        "arguments": {
+            "name": "Germany"
+        },
+        "host": {
+            "paths": {
+                "sharelib": "/srv/share"
+            }
+        }
+    }))
+    .unwrap_or_else(|err| panic!("failed to parse ModRequest: {err}"));
+
+    assert_eq!(rq.args().get("name").and_then(|v| v.as_string()), Some("Germany".to_string()));
+    assert_eq!(rq.host().pointer("/paths/sharelib"), Some(&json!("/srv/share")));
+    assert_eq!(rq.host().pointer("/traits/system.hostname"), None);
+}
