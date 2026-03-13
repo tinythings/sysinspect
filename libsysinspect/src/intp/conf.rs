@@ -101,11 +101,7 @@ impl EventsConfig {
             namespace.trim_start_matches('.').trim_end_matches('.').trim().split('.').map(|s| s.to_string()).collect::<Vec<String>>().join("/"),
         );
         if !modpath.exists() {
-            return Err(SysinspectError::ModuleError(format!(
-                "Missing module \"{}\" in \"{}\"",
-                namespace,
-                modpath.to_str().unwrap_or_default()
-            )));
+            return Err(SysinspectError::ModuleError(format!("Missing module \"{}\" in \"{}\"", namespace, modpath.to_str().unwrap_or_default())));
         }
 
         Ok(modpath)

@@ -63,7 +63,6 @@ impl ExtValue for YamlValue {
             _ => None,
         }
     }
-
 }
 
 impl ExtValue for JsonValue {
@@ -115,7 +114,6 @@ impl ExtValue for JsonValue {
             _ => None,
         }
     }
-
 }
 
 /// Get value as an optional string. If the value is not a string,
