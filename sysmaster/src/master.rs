@@ -56,6 +56,7 @@ use tokio::{
 // Session singleton
 pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
 
 #[derive(Debug)]
 pub struct SysMaster {
@@ -945,10 +946,18 @@ impl SysMaster {
                             tokio::spawn(async move {
                                 let (read_half, mut write_half) = stream.into_split();
                                 let mut reader = TokioBufReader::new(read_half);
-                                let mut line = String::new();
-                                let reply = match reader.read_line(&mut line).await {
+                                let mut frame = Vec::new();
+                                let reply = match reader.take((MAX_CONSOLE_FRAME_SIZE + 1) as u64).read_until(b'\n', &mut frame).await {
                                     Ok(0) => serde_json::to_string(&ConsoleResponse { ok: false, message: "Empty console request".to_string() }).ok(),
-                                    Ok(_) => match serde_json::from_str::<ConsoleEnvelope>(line.trim()) {
+                                    Ok(_) if frame.len() > MAX_CONSOLE_FRAME_SIZE || !frame.ends_with(b"\n") => {
+                                        serde_json::to_string(&ConsoleResponse {
+                                            ok: false,
+                                            message: format!("Console request exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE),
+                                        })
+                                        .ok()
+                                    }
+                                    Ok(_) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
+                                        Ok(line) => match serde_json::from_str::<ConsoleEnvelope>(&line) {
                                         Ok(envelope) => match load_master_private_key(&cfg).and_then(|prk| envelope.bootstrap.session_key(&prk)) {
                                             Ok((key, _client_pkey)) => {
                                                 let response = if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
@@ -1006,6 +1015,10 @@ impl SysMaster {
                                             Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console bootstrap failed: {err}") }).ok(),
                                         },
                                         Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to parse console request: {err}") }).ok(),
+                                        },
+                                        Err(err) => {
+                                            serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console request is not valid UTF-8: {err}") }).ok()
+                                        }
                                     },
                                     Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to read console request: {err}") }).ok(),
                                 };
