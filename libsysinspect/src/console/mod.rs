@@ -96,15 +96,28 @@ fn console_keypair(root: &Path) -> (PathBuf, PathBuf) {
 /// Ensure a console RSA keypair exists under the given root and return it.
 pub fn ensure_console_keypair(root: &Path) -> Result<(RsaPrivateKey, RsaPublicKey), SysinspectError> {
     let (prk_path, pbk_path) = console_keypair(root);
-    if prk_path.exists() && pbk_path.exists() {
-        return Ok((load_private_key(&prk_path)?, load_public_key(&pbk_path)?));
+    match (prk_path.exists(), pbk_path.exists()) {
+        (true, true) => Ok((load_private_key(&prk_path)?, load_public_key(&pbk_path)?)),
+        (true, false) => {
+            fs::create_dir_all(root).map_err(SysinspectError::IoErr)?;
+            let prk = load_private_key(&prk_path)?;
+            let pbk = RsaPublicKey::from(&prk);
+            key_to_file(&Public(pbk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PUB)?;
+            Ok((prk, pbk))
+        }
+        (false, true) => Err(SysinspectError::ConfigError(format!(
+            "Console public key exists at {} but private key is missing at {}. Remove the stale public key so a new console keypair can be generated.",
+            pbk_path.display(),
+            prk_path.display()
+        ))),
+        (false, false) => {
+            fs::create_dir_all(root).map_err(SysinspectError::IoErr)?;
+            let (prk, pbk) = keygen(crate::rsa::keys::DEFAULT_KEY_SIZE).map_err(|e| SysinspectError::RSAError(e.to_string()))?;
+            key_to_file(&Private(prk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PRI)?;
+            key_to_file(&Public(pbk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PUB)?;
+            Ok((prk, pbk))
+        }
     }
-
-    fs::create_dir_all(root).map_err(SysinspectError::IoErr)?;
-    let (prk, pbk) = keygen(crate::rsa::keys::DEFAULT_KEY_SIZE).map_err(|e| SysinspectError::RSAError(e.to_string()))?;
-    key_to_file(&Private(prk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PRI)?;
-    key_to_file(&Public(pbk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PUB)?;
-    Ok((prk, pbk))
 }
 
 /// Load the master's public RSA key used for console session bootstrap.
