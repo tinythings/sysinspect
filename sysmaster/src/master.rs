@@ -1010,7 +1010,19 @@ impl SysMaster {
                                                         Err(err) => ConsoleResponse { ok: false, message: format!("Failed to open console query: {err}") },
                                                     }
                                                 };
-                                                ConsoleSealed::seal(&response, &key).ok().and_then(|sealed| serde_json::to_string(&sealed).ok())
+                                                match ConsoleSealed::seal(&response, &key).and_then(|sealed| {
+                                                    serde_json::to_string(&sealed).map_err(|e| SysinspectError::SerializationError(e.to_string()))
+                                                }) {
+                                                    Ok(reply) => Some(reply),
+                                                    Err(err) => {
+                                                        log::error!("Failed to seal console response: {err}");
+                                                        serde_json::to_string(&ConsoleResponse {
+                                                            ok: false,
+                                                            message: format!("Failed to seal console response: {err}"),
+                                                        })
+                                                        .ok()
+                                                    }
+                                                }
                                             }
                                             Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console bootstrap failed: {err}") }).ok(),
                                         },
