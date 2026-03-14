@@ -949,7 +949,7 @@ impl SysMaster {
                             let bcast = bcast.clone();
                             tokio::spawn(async move {
                                 let (read_half, mut write_half) = stream.into_split();
-                                let mut reader = TokioBufReader::new(read_half);
+                                let reader = TokioBufReader::new(read_half);
                                 let mut frame = Vec::new();
                                 let reply = match reader.take((MAX_CONSOLE_FRAME_SIZE + 1) as u64).read_until(b'\n', &mut frame).await {
                                     Ok(0) => serde_json::to_string(&ConsoleResponse { ok: false, message: "Empty console request".to_string() }).ok(),
