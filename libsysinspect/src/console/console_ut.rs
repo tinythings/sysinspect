@@ -3,6 +3,7 @@ use crate::{
     cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB},
     rsa::keys::{RsaKey::{Private, Public}, key_to_file, keygen},
 };
+use rsa::traits::PublicKeyParts;
 use sodiumoxide::crypto::secretbox;
 use tempfile::tempdir;
 
@@ -37,4 +38,17 @@ fn console_sealed_roundtrips_payload() {
     assert_eq!(opened.model, payload.model);
     assert_eq!(opened.query, payload.query);
     assert_eq!(opened.context, payload.context);
+}
+
+#[test]
+fn ensure_console_keypair_recovers_missing_public_key_from_private_key() {
+    let root = tempdir().unwrap();
+    let (client_prk, _) = keygen(crate::rsa::keys::DEFAULT_KEY_SIZE).unwrap();
+    key_to_file(&Private(client_prk.clone()), root.path().to_str().unwrap_or_default(), crate::cfg::mmconf::CFG_CONSOLE_KEY_PRI).unwrap();
+
+    let (loaded_prk, loaded_pbk) = ensure_console_keypair(root.path()).unwrap();
+
+    assert_eq!(loaded_prk.n().to_bytes_be(), client_prk.n().to_bytes_be());
+    assert!(root.path().join(crate::cfg::mmconf::CFG_CONSOLE_KEY_PUB).exists());
+    assert_eq!(loaded_pbk.n().to_bytes_be(), client_prk.n().to_bytes_be());
 }
