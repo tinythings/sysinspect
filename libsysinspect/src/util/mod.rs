@@ -4,8 +4,12 @@ pub mod sys;
 pub mod tty;
 
 use libcommon::SysinspectError;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::{fs, io, path::PathBuf};
 use uuid::Uuid;
+
+static ANSI_ESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("ansi regex should compile"));
 
 /// The `/etc/machine-id` is not always present, especially
 /// on the custom embedded systems. However, this file is used
@@ -26,4 +30,9 @@ pub fn write_machine_id(p: Option<PathBuf>) -> Result<(), SysinspectError> {
     }
 
     Ok(())
+}
+
+pub fn pad_visible(text: &str, width: usize) -> String {
+    let visible = ANSI_ESCAPE_RE.replace_all(text, "").chars().count();
+    if visible >= width { text.to_string() } else { format!("{text}{}", " ".repeat(width - visible)) }
 }

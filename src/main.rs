@@ -7,21 +7,29 @@ use libsysinspect::{
         mmconf::{MasterConfig, MinionConfig},
         select_config_path,
     },
+    console::{ConsoleQuery, ConsoleResponse, ConsoleSealed, build_console_query},
+    context,
     inspector::SysInspectRunner,
     logger::{self, MemoryLogger, STDOUTLogger},
     reactor::handlers,
     traits::get_minion_traits,
 };
 use libsysproto::query::SCHEME_COMMAND;
-use libsysproto::query::commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC};
+use libsysproto::query::commands::{
+    CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+};
 use log::LevelFilter;
+use serde_json::json;
 use std::{
     env,
-    fs::OpenOptions,
-    io::{ErrorKind, Write},
+    io::ErrorKind,
     path::PathBuf,
     process::exit,
     sync::{Mutex, OnceLock},
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
 };
 
 mod clidef;
@@ -41,16 +49,118 @@ fn print_event_handlers() {
     println!();
 }
 
-/// Call master via FIFO
-fn call_master_fifo(
-    model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, fifo: &str, context: Option<&String>,
-) -> Result<(), SysinspectError> {
-    let payload =
-        format!("{model};{query};{};{};{}\n", traits.unwrap_or(&"".to_string()), mid.unwrap_or_default(), context.unwrap_or(&"".to_string()));
-    OpenOptions::new().write(true).open(fifo)?.write_all(payload.as_bytes())?;
+async fn call_master_console(
+    cfg: &MasterConfig, model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, context: Option<&String>,
+) -> Result<ConsoleResponse, SysinspectError> {
+    let request = ConsoleQuery {
+        model: model.to_string(),
+        query: query.to_string(),
+        traits: traits.cloned().unwrap_or_default(),
+        mid: mid.unwrap_or_default().to_string(),
+        context: context.cloned().unwrap_or_default(),
+    };
+    let (envelope, key) = build_console_query(&cfg.root_dir(), cfg, &request)?;
+    let mut stream = TcpStream::connect(cfg.console_bind_addr()).await?;
+    stream.write_all(format!("{}\n", serde_json::to_string(&envelope)?).as_bytes()).await?;
 
-    log::debug!("Message sent to the master via FIFO: {payload:?}");
-    Ok(())
+    let mut reader = BufReader::new(stream);
+    let mut reply = String::new();
+    reader.read_line(&mut reply).await?;
+    let response: ConsoleResponse = match serde_json::from_str::<ConsoleSealed>(reply.trim()) {
+        Ok(sealed) => sealed.open(&key)?,
+        Err(_) => serde_json::from_str(reply.trim())?,
+    };
+    if !response.ok {
+        return Err(SysinspectError::MasterGeneralError(response.message));
+    }
+    Ok(response)
+}
+
+fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
+    if let Some(setv) = am.get_one::<String>("set") {
+        let traits = context::get_context(setv)
+            .ok_or_else(|| SysinspectError::InvalidQuery("Trait values must be in key:value format".to_string()))?;
+        return Ok(Some(json!({"op": "set", "traits": traits}).to_string()));
+    }
+
+    if let Some(keys) = am.get_one::<String>("unset") {
+        return Ok(Some(json!({
+            "op": "unset",
+            "traits": context::get_context_keys(keys).into_iter().map(|key| (key, serde_json::Value::Null)).collect::<serde_json::Map<String, serde_json::Value>>()
+        })
+        .to_string()));
+    }
+
+    if am.get_flag("reset") {
+        return Ok(Some(json!({"op": "reset", "traits": {}}).to_string()));
+    }
+
+    Err(SysinspectError::InvalidQuery("Specify one of --set, --unset, or --reset".to_string()))
+}
+
+fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
+    let invalid_name = |name: &str| name.chars().any(|c| ['*', '?', '[', ']'].contains(&c));
+    if am.get_flag("new") {
+        if am.get_one::<String>("name").is_none() {
+            return Err(SysinspectError::InvalidQuery("Specify --name for --new".to_string()));
+        }
+        if invalid_name(am.get_one::<String>("name").unwrap()) {
+            return Err(SysinspectError::InvalidQuery("Profile names for --new must be exact names, not glob patterns".to_string()));
+        }
+        return Ok(Some(json!({"op": "new", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
+    }
+
+    if am.get_flag("delete") {
+        if am.get_one::<String>("name").is_none() {
+            return Err(SysinspectError::InvalidQuery("Specify --name for --delete".to_string()));
+        }
+        if invalid_name(am.get_one::<String>("name").unwrap()) {
+            return Err(SysinspectError::InvalidQuery("Profile names for --delete must be exact names, not glob patterns".to_string()));
+        }
+        return Ok(Some(json!({"op": "delete", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
+    }
+
+    if am.get_flag("list") {
+        return Ok(Some(
+            json!({"op": "list", "name": am.get_one::<String>("name").cloned().unwrap_or_default(), "library": am.get_flag("lib")}).to_string(),
+        ));
+    }
+
+    if am.get_flag("add") || am.get_flag("remove") {
+        if am.get_one::<String>("name").is_none() || am.get_one::<String>("match").is_none() {
+            return Err(SysinspectError::InvalidQuery("Specify both --name and --match for profile selector updates".to_string()));
+        }
+        if invalid_name(am.get_one::<String>("name").unwrap()) {
+            return Err(SysinspectError::InvalidQuery("Profile names for selector updates must be exact names, not glob patterns".to_string()));
+        }
+        if clidef::split_by(am, "match", None).is_empty() {
+            return Err(SysinspectError::InvalidQuery("At least one selector is required in --match".to_string()));
+        }
+        return Ok(Some(
+            json!({
+                "op": if am.get_flag("add") { "add" } else { "remove" },
+                "name": am.get_one::<String>("name").cloned().unwrap_or_default(),
+                "matches": clidef::split_by(am, "match", None),
+                "library": am.get_flag("lib"),
+            })
+            .to_string(),
+        ));
+    }
+
+    if am.get_one::<String>("tag").is_some() || am.get_one::<String>("untag").is_some() {
+        if clidef::split_by(am, if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" }, None).is_empty() {
+            return Err(SysinspectError::InvalidQuery("Specify at least one profile name for --tag or --untag".to_string()));
+        }
+        return Ok(Some(
+            json!({
+                "op": if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" },
+                "profiles": clidef::split_by(am, if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" }, None),
+            })
+            .to_string(),
+        ));
+    }
+
+    Err(SysinspectError::InvalidQuery("Specify one profile operation".to_string()))
 }
 
 /// Set logger
@@ -83,6 +193,24 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         && sub.get_flag("help")
     {
         if let Some(s_cli) = cli.find_subcommand_mut("module") {
+            _ = s_cli.print_help();
+            return true;
+        }
+        return false;
+    }
+    if let Some(sub) = params.subcommand_matches("traits")
+        && sub.get_flag("help")
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("traits") {
+            _ = s_cli.print_help();
+            return true;
+        }
+        return false;
+    }
+    if let Some(sub) = params.subcommand_matches("profile")
+        && sub.get_flag("help")
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("profile") {
             _ = s_cli.print_help();
             return true;
         }
@@ -218,6 +346,57 @@ async fn main() {
         exit(0)
     }
 
+    if let Some(sub) = params.subcommand_matches("traits") {
+        let target_id = sub.get_one::<String>("id").map(String::as_str);
+        let target_query = sub
+            .get_one::<String>("query")
+            .or_else(|| sub.get_one::<String>("query-pos"))
+            .map(String::as_str)
+            .unwrap_or("*");
+        let target_traits = sub.get_one::<String>("select-traits");
+        let scheme = format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}");
+
+        let context = match traits_update_context(sub) {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                log::error!("{err}");
+                exit(1);
+            }
+        };
+
+        if let Err(err) = call_master_console(&cfg, &scheme, target_query, target_traits, target_id, context.as_ref()).await {
+            log::error!("Cannot reach master: {err}");
+        }
+        exit(0);
+    }
+
+    if let Some(sub) = params.subcommand_matches("profile") {
+        let target_id = sub.get_one::<String>("id").map(String::as_str);
+        let target_query = sub
+            .get_one::<String>("query")
+            .or_else(|| sub.get_one::<String>("query-pos"))
+            .map(String::as_str)
+            .unwrap_or("*");
+        let target_traits = sub.get_one::<String>("select-traits");
+        let context = match profile_update_context(sub) {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                log::error!("{err}");
+                exit(1);
+            }
+        };
+
+        match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), target_query, target_traits, target_id, context.as_ref()).await {
+            Ok(resp) => {
+                if !resp.message.is_empty() {
+                    println!("{}", resp.message);
+                }
+            }
+            Err(err) => log::error!("Cannot reach master: {err}"),
+        }
+        exit(0);
+    }
+
     if *params.get_one::<bool>("list-handlers").unwrap_or(&false) {
         print_event_handlers();
         return;
@@ -241,26 +420,26 @@ async fn main() {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
         let context = params.get_one::<String>("context");
-        if let Err(err) = call_master_fifo(model, query.unwrap_or(&"".to_string()), traits, None, &cfg.socket(), context) {
+        if let Err(err) = call_master_console(&cfg, model, query.unwrap_or(&"".to_string()), traits, None, context).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("shutdown") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, &cfg.socket(), None) {
+        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("sync") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, &cfg.socket(), None) {
+        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if let Some(mid) = params.get_one::<String>("unregister") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), &cfg.socket(), None) {
+        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("online") {
-        if let Err(err) = call_master_fifo(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, &cfg.socket(), None) {
-            log::error!("Cannot reach master: {err}");
-        } else {
-            println!("Check the master's logs for online minions information. 😀");
+        match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, None).await {
+            Ok(response) if !response.message.is_empty() => println!("{}", response.message),
+            Ok(_) => {}
+            Err(err) => log::error!("Cannot reach master: {err}"),
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
         let mut sr = SysInspectRunner::new(&MinionConfig::default());

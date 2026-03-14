@@ -25,8 +25,8 @@ System Traits
 
     Definition and description of system traits and their purpose.
 
-Traits are essentially static attributes of a minion. They can be a literally anything
-in a form of key/value. There are different kinds of traits:
+Traits are essentially static attributes of a minion. They can be almost anything
+in a key/value form. There are different kinds of traits:
 
 **Common**
 
@@ -36,28 +36,16 @@ in a form of key/value. There are different kinds of traits:
 
 **Custom**
 
-   Custom traits are static data that set explicity onto a minion. Any data in
+   Custom traits are static data that are set explicitly onto a minion. Any data in
    key/value form. They are usually various labels, rack number, physical floor,
    Asset Tag, serial number etc.
 
 **Dynamic**
 
-   Dynamic traits are custom functions, where data obtained by relevant modules.
-   essentially, they are just like normal modules, except the resulting data is stored as
+   Dynamic traits are custom functions where data is obtained by relevant modules.
+   Essentially, they are just like normal modules, except the resulting data is stored as
    a criterion by which a specific minion is targeted. For example, *"memory less than X"*,
    or *"runs process Y"* etc.
-
-Listing Traits
---------------
-
-To list minion's traits, is enough to target a minion by its Id or hostname:
-
-.. code-block:: bash
-
-    $ sysinspect --minions
-    ...
-
-    $ sysinspect --info <minion-id-or-hostname>
 
 Using Traits in a Model
 -----------------------
@@ -68,86 +56,81 @@ Static Minion Traits
 --------------------
 
 Traits can be also custom static data, which is placed in a minion configuration. Traits are just
-YAML files with key/value format, placed in ``$SYSINSPECT/traits`` directory of a minion. The naming
-of those files is not important, they will be anyway merged into one tree. Important is to ensure
-that trait keys do not repeat, so they do not overwrite each other. The ``$SYSINSPECT`` directory
+YAML files with key/value format, placed in ``$SYSINSPECT/traits`` directory of a minion. Files
+ending in ``.cfg`` are loaded and merged into one tree. The ``$SYSINSPECT`` directory
 is ``/etc/sysinspect`` by default or is defined in the minion configuration.
+
+Load order is:
+
+1. discovered built-in traits
+2. local ``*.cfg`` files in alphabetical order, except ``master.cfg``
+3. trait functions from ``$SYSINSPECT/functions``
+4. ``master.cfg`` last, overriding all previous values
 
 Example of a trait file:
 
 .. code-block:: yaml
-    :caption: File: ``/etc/sysinspect/traits/example.trait``
+    :caption: File: ``/etc/sysinspect/traits/example.cfg``
 
-    traits:
-      name: Fred
+    name: Fred
+    rack: A3
 
-From now on, the minion can be targeded by the trait ``name``:
+From now on, the minion can be targeted by the trait ``name``:
 
 .. code-block:: bash
     :caption: Targeting a minion by a custom trait
 
-    sysinspect "my_model/my_entity name:Fred"
-
-.. code-block::
+    sysinspect "my_model/my_entity" "*" --traits "name:Fred"
 
 Populating Static Traits
 ------------------------
 
-Populating traits is done in two steps:
+Local static traits are simply written into separate ``*.cfg`` files by the
+operator or provisioning system.
 
-1. Writing a specific static trait in a trait description
-2. Populating the trait description to all targeted minions
-
-Synopsis of a trait description as follows:
+Master-managed static traits use a reserved file:
 
 .. code-block:: text
-    :caption: Synopsis
 
-    <query>:
-      [machine-id]:
-        - [list]
-      [hostname]:
-        - [list]
-      [traits]:
-        [key]: [value]
-    <traits>:
-      [key]: [value]
+    $SYSINSPECT/traits/master.cfg
 
-    # Only for dynamic traits (functions)
-    [functions]:
-      - [list]
+This file is created automatically by the minion and is reserved for updates
+coming from the master. It should not be edited manually.
 
-For example, to make an alias for all Ubuntu running machines, the following valid trait description:
-
-.. code-block:: yaml
-    :caption: An alias to a system trait
-
-    # This is to select what minions should have
-    # the following traits assigned
-    query:
-      traits:
-        - system.os.kernel.version: 6.*
-
-    # Actual traits to be assigned
-    traits:
-      kernel: six
-
-Now it is possible to call all minions with any kernel of major version 6 like so:
+The ``sysinspect traits`` command updates only this file:
 
 .. code-block:: bash
-    :caption: Target minions by own alias
 
-    sysinspect "my_model/my_entity kernel:six"
+    sysinspect traits --set "foo:bar" "web*"
+    sysinspect traits --unset "foo,baz" "web*"
+    sysinspect traits --reset --id 30006546535e428aba0a0caa6712e225
 
-The section ``functions`` is used for the dynamic traits, described below.
+After such update the minion immediately sends refreshed traits back to the
+master. Global ``sysinspect --sync`` also refreshes traits.
+
+Deployment profile assignment also uses this same mechanism. For example:
+
+.. code-block:: bash
+
+    sysinspect profile --tag "tiny-lua" --query "pi*"
+    sysinspect profile --untag "tiny-lua" --id 30006546535e428aba0a0caa6712e225
+
+This updates the master-managed ``minion.profile`` trait on the targeted
+minions.
+
+If ``minion.profile`` is not set, the minion falls back to the
+``default`` profile during sync.
 
 Dynamic Traits
 --------------
 
-Dynamic traits are functions that are doing something on the machine. Since those functions
-are standalone executables, they do not accept any parameters. Functions are the same modules
-like any other modules and using the same protocol with the JSON format. The difference is that
-the module should return key/value structure. For example:
+Function-based traits are standalone executables placed into
+``$SYSINSPECT/functions``. Since those functions are standalone executables,
+they do not accept any parameters. They use the same general JSON return
+shape as other modules, except that the output is merged into the minion's
+trait tree.
+
+The module should return a key/value structure. For example:
 
 .. code-block:: json
 
@@ -155,7 +138,7 @@ the module should return key/value structure. For example:
         "key": "value",
     }
 
-Example of using a custom module:
+Example of using a custom function:
 
 .. code-block:: bash
     :caption: File: ``my_trait.sh``
@@ -178,30 +161,11 @@ function module is actionable or not on a target system. I.e. user must ensure t
 system where the particular minion is running, should be equipped with Bash in ``/usr/bin``
 directory.
 
-Any modules that return non-zero return like system error more than ``1`` is simply ignored
-and error is logged.
+Any function that returns a non-zero result greater than ``1`` is ignored and
+an error is logged.
 
-Populating Dynamic Traits
--------------------------
-
-To populate dynamic trait there are three steps for this:
-
-1. Writing a specific trait in a Trait Description
-2. Placing the trait module to the file server so the minions can download it
-3. Populating the Trait Description to all targeted minions
-
-To write a specific trait in a Trait Description, the ``functions`` section must be specified.
-Example:
-
-.. code-block:: yaml
-
-    functions:
-      # Specify a relative path on the fileserver
-      - /functions/my_trait.sh
-
-The script ``my_trait.sh`` will be copied to ``$SYSINSPECT/functions``. When the minion starts,
-it will execute each function in alphabetical oder, read the JSON output and merge the result
-into the common traits tree. Then the traits tree will be synchronised with the Master.
+The script ``my_trait.sh`` will be executed when traits are loaded. The minion
+reads its JSON output and merges the result into the common traits tree.
 
 .. important::
 

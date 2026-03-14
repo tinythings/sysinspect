@@ -10,9 +10,218 @@ Overview
 
 Sysinspect consists of three main executables:
 
-1. ``sysinspect`` — a command to send remote commands to the cluster or run models locally.
-2. ``sysmaster`` — is a controller server for all the minion clients
-3. ``sysminion`` — a minion client, running as ``root`` on the target
+1. ``sysinspect`` — the operator-facing command-line tool
+2. ``sysmaster`` — the controller for connected minions
+3. ``sysminion`` — the agent running on the target host
+
+The rest of this page focuses on ``sysinspect`` itself.
+
+Running Models Remotely
+-----------------------
+
+The most common use of ``sysinspect`` is sending a model query to the
+master:
+
+.. code-block:: bash
+
+    sysinspect "my_model"
+    sysinspect "my_model/my_entity"
+    sysinspect "my_model/my_entity/my_state"
+
+The optional second positional argument targets minions:
+
+.. code-block:: bash
+
+    sysinspect "my_model" "*"
+    sysinspect "my_model" "web*"
+    sysinspect "my_model" "db01,db02"
+
+Use ``--traits`` to further narrow the target set:
+
+.. code-block:: bash
+
+    sysinspect "my_model" "*" --traits "system.os.name:Ubuntu"
+
+Use ``--context`` to pass comma-separated key/value data into the model call:
+
+.. code-block:: bash
+
+    sysinspect "my_model" "*" --context "foo:123,name:Fred"
+
+Running Models Locally
+----------------------
+
+``sysinspect`` can also execute a model locally without going through the
+master. Use ``--model`` and optionally limit the selection by entities,
+labels, and state:
+
+.. code-block:: bash
+
+    sysinspect --model ./my_model
+    sysinspect --model ./my_model --entities foo,bar
+    sysinspect --model ./my_model --labels os-check
+    sysinspect --model ./my_model --state online
+
+Cluster Commands
+----------------
+
+The following commands talk to the local master instance and affect the
+cluster:
+
+.. code-block:: bash
+
+    sysinspect --sync
+    sysinspect --online
+    sysinspect --shutdown
+    sysinspect --unregister 30006546535e428aba0a0caa6712e225
+
+``--sync`` instructs minions to refresh cluster artefacts and then report
+their current traits back to the master.
+
+``--online`` prints the current online-minion summary directly to stdout.
+
+Traits Management
+-----------------
+
+Master-managed static traits can be updated from the command line:
+
+.. code-block:: bash
+
+    sysinspect traits --set "foo:bar"
+    sysinspect traits --set "foo:bar,baz:qux" "web*"
+    sysinspect traits --set "foo:bar" --id 30006546535e428aba0a0caa6712e225
+    sysinspect traits --unset "foo,baz" "web*"
+    sysinspect traits --reset --id 30006546535e428aba0a0caa6712e225
+
+The ``traits`` subcommand supports:
+
+* ``--set`` — comma-separated ``key:value`` pairs
+* ``--unset`` — comma-separated keys
+* ``--reset`` — clear only master-managed traits
+* ``--id`` — target one minion by System Id
+* ``--query`` or trailing positional query — target minions by hostname glob
+* ``--traits`` — further narrow targeted minions by traits query
+
+Deployment Profiles
+-------------------
+
+Deployment profiles describe which modules and libraries a minion is allowed
+to sync. Profiles are assigned to minions through the ``minion.profile``
+static trait.
+
+Profile definitions:
+
+.. code-block:: bash
+
+    sysinspect profile --new --name Toto
+    sysinspect profile --delete --name Toto
+    sysinspect profile --list
+    sysinspect profile --list --name 'T*'
+
+Assign selectors to a profile:
+
+.. code-block:: bash
+
+    sysinspect profile -A --name Toto --match 'runtime.lua,net.*'
+    sysinspect profile -A --lib --name Toto --match 'runtime/lua/*.lua'
+    sysinspect profile -R --name Toto --match 'net.*'
+
+Assign or remove profiles on minions:
+
+.. code-block:: bash
+
+    sysinspect profile --tag 'Toto,Foo' --query 'web*'
+    sysinspect profile --tag 'Toto' --id 30006546535e428aba0a0caa6712e225
+    sysinspect profile --untag 'Foo' --traits 'system.hostname.fqdn:db01.example.net'
+
+Notes:
+
+* ``--name`` is an exact profile name for ``--new``, ``--delete``, ``-A``, and ``-R``
+* ``--name`` is a glob pattern for ``--list``
+* ``--match`` accepts comma-separated exact names or glob patterns
+* ``-l`` / ``--lib`` switches selector operations and listing to library selectors
+* ``--tag`` and ``--untag`` update ``minion.profile`` on the targeted minions
+* profile names are case-sensitive Unix-like names
+* each profile file carries its own canonical ``name`` field; the filename is only storage
+
+Profile Data Model
+------------------
+
+The master publishes a dedicated ``profiles.index`` next to ``mod.index``.
+Each profile entry points to one profile file plus its checksum:
+
+.. code-block:: yaml
+
+    profiles:
+      Toto:
+        file: totobullshit.profile
+        checksum: deadbeef
+
+Each profile file carries the actual profile identity and the allowed artefact
+selectors:
+
+.. code-block:: yaml
+
+    name: Toto
+    modules:
+      - runtime.lua
+      - net.*
+    libraries:
+      - lib/runtime/lua/*.lua
+
+The filename is only storage. The canonical profile identity is the
+case-sensitive ``name`` field inside the file.
+
+Sync Behavior
+-------------
+
+During minion sync:
+
+1. ``mod.index`` is downloaded from the fileserver
+2. ``profiles.index`` is downloaded from the fileserver
+3. the minion resolves its effective profiles from ``minion.profile``
+4. the selected profile files are refreshed into ``$SYSINSPECT/profiles``
+5. profile selectors are merged by union + dedup
+6. module and library sync is filtered by that merged selector set
+7. integrity cleanup removes now-forbidden artefacts
+
+Module Repository Management
+----------------------------
+
+The ``module`` subcommand manages the master's module repository:
+
+.. code-block:: bash
+
+    sysinspect module -A --name runtime.lua --path ./target/debug/runtime/lua
+    sysinspect module -A --path ./lib -l
+    sysinspect module -L
+    sysinspect module -Ll
+    sysinspect module -R --name runtime.lua
+    sysinspect module -R --name runtime/lua/reader.lua -l
+    sysinspect module -i --name runtime.lua
+
+Supported operations are:
+
+* ``-A`` / ``--add``
+* ``-R`` / ``--remove``
+* ``-L`` / ``--list``
+* ``-i`` / ``--info``
+
+Use ``-l`` / ``--lib`` when operating on library payloads instead of runnable
+modules.
+
+TUI and Utility Commands
+------------------------
+
+``sysinspect`` also exposes a few utility entrypoints:
+
+.. code-block:: bash
+
+    sysinspect --ui
+    sysinspect --list-handlers
+
+The terminal user interface is documented separately in
+:doc:`../uix/ui`.
 
 Starting a Master
 -----------------
@@ -88,21 +297,10 @@ If connection was established successfully, then the last message should be "Ehl
 
 To start/stop a Minion in daemon mode, use ``--daemon`` and ``--stop`` respectively.
 
-Minion can be also stopped remotely. However, to start it back, one needs to take care of the
-process themselves (either via ``systemd``, manually via SSH or any other means). To stop a minion
-remotely, use its System Id:
-
-.. code-block:: text
-
-    sysinspect --stop 30006546535e428aba0a0caa6712e225
-
-In this case a minion with the System Id above will be stopped, while the rest of the cluster will
-continue working.
-
 Removing a Minion
 -----------------
 
-To remove a Minion (unregister) use the following command, similar to stopping it by its System Id:
+To remove a Minion (unregister) use the following command by its System Id:
 
 .. code-block:: text
 

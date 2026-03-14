@@ -2,15 +2,15 @@ use colored::Colorize;
 use cruet::Inflector;
 use fs_extra::dir::CopyOptions;
 use goblin::Object;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_DIR;
-use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, DEFAULT_MODULES_LIB_DIR, MinionConfig};
-use libsysinspect::util::iofs::get_file_sha256;
-use mpk::{ModAttrs, ModPakMetadata, ModPakRepoIndex};
+use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, CFG_PROFILES_ROOT, DEFAULT_MODULES_LIB_DIR, MinionConfig};
+use libsysinspect::traits::effective_profiles;
+use libsysinspect::util::{iofs::get_file_sha256, pad_visible};
+use mpk::{ModAttrs, ModPakMetadata, ModPakProfile, ModPakProfilesIndex, ModPakRepoIndex};
 use once_cell::sync::Lazy;
 use prettytable::{Cell, Row, Table, format};
-use regex::Regex;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -30,9 +30,8 @@ their dependencies, and their architecture.
 */
 
 static REPO_MOD_INDEX: &str = "mod.index";
+static REPO_PROFILES_INDEX: &str = "profiles.index";
 static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
-static ANSI_ESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("ansi regex should compile"));
-
 pub struct ModPakSyncState {
     state: Arc<Mutex<bool>>,
 }
@@ -82,9 +81,81 @@ impl SysInspectModPakMinion {
             return Err(SysinspectError::MasterGeneralError(format!("Failed to get modpak index: {}", resp.status())));
         }
 
-        let buff = resp.bytes().await.unwrap();
+        let buff = resp
+            .bytes()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read modpak index response: {e}")))?;
         let idx = ModPakRepoIndex::from_yaml(&String::from_utf8_lossy(&buff))?;
         Ok(idx)
+    }
+
+    async fn get_profiles_idx(&self) -> Result<ModPakProfilesIndex, SysinspectError> {
+        let resp = reqwest::Client::new()
+            .get(format!("http://{}/{}", self.cfg.fileserver(), REPO_PROFILES_INDEX))
+            .send()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {e}")))?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(ModPakProfilesIndex::new());
+        }
+        if resp.status() != reqwest::StatusCode::OK {
+            return Err(SysinspectError::MasterGeneralError(format!("Failed to get profiles index: {}", resp.status())));
+        }
+
+        let buff = resp
+            .bytes()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read profiles index response: {e}")))?;
+        ModPakProfilesIndex::from_yaml(&String::from_utf8_lossy(&buff))
+    }
+
+    async fn sync_profiles(&self, profiles: &ModPakProfilesIndex, names: &[String]) -> Result<(), SysinspectError> {
+        if !self.cfg.profiles_dir().exists() {
+            fs::create_dir_all(self.cfg.profiles_dir())?;
+        }
+
+        for name in names {
+            if let Some(profile) = profiles.get(name) {
+                let dst = self.cfg.profiles_dir().join(profile.file());
+                let checksum = if dst.exists() { get_file_sha256(dst.clone()).ok() } else { None };
+                if checksum.as_deref() == Some(profile.checksum()) {
+                    continue;
+                }
+
+                let resp = reqwest::Client::new()
+                    .get(format!("http://{}/{}/{}", self.cfg.fileserver(), CFG_PROFILES_ROOT, profile.file().display()))
+                    .send()
+                    .await
+                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {e}")))?;
+                if resp.status() != reqwest::StatusCode::OK {
+                    return Err(SysinspectError::MasterGeneralError(format!("Failed to get profile {}: {}", name, resp.status())));
+                }
+                if let Some(parent) = dst.parent()
+                    && !parent.exists()
+                {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&dst, resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))? )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn filtered_repo_index(&self, ridx: ModPakRepoIndex, profiles: &ModPakProfilesIndex, names: &[String]) -> Result<ModPakRepoIndex, SysinspectError> {
+        if profiles.profiles().is_empty() {
+            return Ok(ridx);
+        }
+
+        let mut modules = IndexSet::new();
+        let mut libraries = IndexSet::new();
+        for name in names {
+            if let Some(profile) = profiles.get(name) {
+                ModPakProfile::from_yaml(&fs::read_to_string(self.cfg.profiles_dir().join(profile.file()))?)?.merge_into(&mut modules, &mut libraries);
+            }
+        }
+
+        Ok(ridx.retain_profiles(&modules, &libraries))
     }
 
     /// Verifies an artefact by its subpath and checksum.
@@ -122,7 +193,10 @@ impl SysInspectModPakMinion {
         }
 
         MODPAK_SYNC_STATE.set_syncing(true).await;
-        let ridx = self.get_modpak_idx().await?;
+        let profiles = self.get_profiles_idx().await?;
+        let names = effective_profiles(&self.cfg);
+        self.sync_profiles(&profiles, &names).await?;
+        let ridx = self.filtered_repo_index(self.get_modpak_idx().await?, &profiles, &names)?;
 
         self.sync_integrity(&ridx)?; // blocking
         self.sync_modules(&ridx).await?;
@@ -163,6 +237,9 @@ impl SysInspectModPakMinion {
         let mut shared = IndexMap::new();
         for sp in [DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR].iter() {
             let root = self.cfg.sharelib_dir().join(sp);
+            if !root.exists() {
+                continue;
+            }
             collect_files(&root, &root, &mut shared)?;
         }
 
@@ -331,6 +408,62 @@ pub struct SysInspectModPak {
 }
 
 impl SysInspectModPak {
+    /// Load the on-disk profiles index published next to the module repository.
+    fn get_profiles_index(&self) -> Result<ModPakProfilesIndex, SysinspectError> {
+        ModPakProfilesIndex::from_yaml(&fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX))?)
+    }
+
+    /// Persist the profiles index next to the module repository.
+    fn set_profiles_index(&self, index: &ModPakProfilesIndex) -> Result<(), SysinspectError> {
+        fs::write(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX), index.to_yaml()?)?;
+        Ok(())
+    }
+
+    /// Load one profile by canonical name and verify the file content name matches the index entry.
+    fn get_profile(&self, name: &str) -> Result<ModPakProfile, SysinspectError> {
+        let index = self.get_profiles_index()?;
+        let entry = index
+            .get(name)
+            .ok_or_else(|| SysinspectError::MasterGeneralError(format!("Profile {} was not found", name.bright_yellow())))?;
+        {
+            let profile =
+                ModPakProfile::from_yaml(&fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(entry.file()))?)?;
+            if profile.name() != name {
+                return Err(SysinspectError::MasterGeneralError(format!(
+                    "Profile {} does not match the file content name {}",
+                    name.bright_yellow(),
+                    profile.name().bright_yellow()
+                )));
+            }
+            Ok(profile)
+        }
+    }
+
+    /// Persist one profile file and refresh its `profiles.index` checksum entry.
+    fn set_profile(&self, name: &str, profile: &ModPakProfile) -> Result<(), SysinspectError> {
+        let mut index = self.get_profiles_index()?;
+        let file = PathBuf::from(format!("{name}.profile"));
+        let path = self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(&file);
+        if !self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).exists() {
+            fs::create_dir_all(self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT))?;
+        }
+        fs::write(&path, profile.to_yaml()?)?;
+        index.insert(name, file, &get_file_sha256(path)?);
+        self.set_profiles_index(&index)
+    }
+
+    /// Remove one profile file and its `profiles.index` entry.
+    fn remove_profile_entry(&self, name: &str) -> Result<(), SysinspectError> {
+        let mut index = self.get_profiles_index()?;
+        if let Some(entry) = index.profiles().get(name)
+            && self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(entry.file()).exists()
+        {
+            fs::remove_file(self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(entry.file()))?;
+        }
+        index.remove(name);
+        self.set_profiles_index(&index)
+    }
+
     /// Format a library path for `module -Ll` with runtime-aware filename colors.
     pub(crate) fn format_library_name(name: &str) -> String {
         for marker in ["site-lua/", "site-packages/"] {
@@ -354,23 +487,29 @@ impl SysInspectModPak {
         format!("{}{}", prefix.bright_white().bold(), file)
     }
 
-    fn pad_visible(text: &str, width: usize) -> String {
-        let visible = ANSI_ESCAPE_RE.replace_all(text, "").chars().count();
-        if visible >= width { text.to_string() } else { format!("{text}{}", " ".repeat(width - visible)) }
-    }
-
     /// Creates a new ModPakRepo with the given root path.
     pub fn new(root: PathBuf) -> Result<Self, SysinspectError> {
         if !root.exists() {
             log::info!("Creating module repository at {}", root.display());
             std::fs::create_dir_all(&root)?;
             fs::write(root.join(REPO_MOD_INDEX), ModPakRepoIndex::new().to_yaml()?)?; // XXX: needs flock
+            fs::create_dir_all(root.parent().unwrap_or(&root).join(CFG_PROFILES_ROOT))?;
+            fs::write(root.parent().unwrap_or(&root).join(REPO_PROFILES_INDEX), ModPakProfilesIndex::new().to_yaml()?)?;
         }
 
         let ridx = root.join(REPO_MOD_INDEX);
         if !ridx.exists() {
             log::info!("Creating module repository index at {}", ridx.display());
             fs::write(&ridx, ModPakRepoIndex::new().to_yaml()?)?;
+        }
+
+        if !root.parent().unwrap_or(&root).join(CFG_PROFILES_ROOT).exists() {
+            fs::create_dir_all(root.parent().unwrap_or(&root).join(CFG_PROFILES_ROOT))?;
+        }
+
+        let pidx = root.parent().unwrap_or(&root).join(REPO_PROFILES_INDEX);
+        if !pidx.exists() {
+            fs::write(&pidx, ModPakProfilesIndex::new().to_yaml()?)?;
         }
 
         Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(ridx)?)? })
@@ -585,11 +724,11 @@ impl SysInspectModPak {
 
         println!(
             "{}  {}  {}  {}  {}",
-            Self::pad_visible(&"Type".bright_yellow().to_string(), type_width),
-            Self::pad_visible(&"Name".bright_yellow().to_string(), name_width),
-            Self::pad_visible(&"OS".bright_yellow().to_string(), os_width),
-            Self::pad_visible(&"Arch".bright_yellow().to_string(), arch_width),
-            Self::pad_visible(&"SHA256".bright_yellow().to_string(), sha_width),
+            pad_visible(&"Type".bright_yellow().to_string(), type_width),
+            pad_visible(&"Name".bright_yellow().to_string(), name_width),
+            pad_visible(&"OS".bright_yellow().to_string(), os_width),
+            pad_visible(&"Arch".bright_yellow().to_string(), arch_width),
+            pad_visible(&"SHA256".bright_yellow().to_string(), sha_width),
         );
         println!(
             "{}  {}  {}  {}  {}",
@@ -603,11 +742,11 @@ impl SysInspectModPak {
         for (kind, name, os_name, arch, sha) in rows {
             println!(
                 "{}  {}  {}  {}  {}",
-                Self::pad_visible(&kind.bright_green().to_string(), type_width),
-                Self::pad_visible(&Self::format_library_name(&name), name_width),
-                Self::pad_visible(&os_name.bright_green().to_string(), os_width),
-                Self::pad_visible(&arch.bright_green().to_string(), arch_width),
-                Self::pad_visible(&sha.green().to_string(), sha_width),
+                pad_visible(&kind.bright_green().to_string(), type_width),
+                pad_visible(&Self::format_library_name(&name), name_width),
+                pad_visible(&os_name.bright_green().to_string(), os_width),
+                pad_visible(&arch.bright_green().to_string(), arch_width),
+                pad_visible(&sha.green().to_string(), sha_width),
             );
         }
 
@@ -630,6 +769,64 @@ impl SysInspectModPak {
         }
 
         Ok(())
+    }
+
+    /// List profile names filtered by an optional glob expression.
+    pub fn list_profiles(&self, expr: Option<&str>) -> Result<Vec<String>, SysinspectError> {
+        let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {e}")))?;
+        let mut profiles = self.get_profiles_index()?.profiles().keys().filter(|name| expr.matches(name)).map(|name| name.to_string()).collect::<Vec<_>>();
+        profiles.sort();
+        Ok(profiles)
+    }
+
+    /// Create a new empty profile with the given canonical name.
+    pub fn new_profile(&self, name: &str) -> Result<(), SysinspectError> {
+        if self.get_profiles_index()?.get(name).is_some() {
+            return Err(SysinspectError::MasterGeneralError(format!("Profile {} already exists", name.bright_yellow())));
+        }
+        self.set_profile(name, &ModPakProfile::new(name))
+    }
+
+    /// Delete one profile by canonical name.
+    pub fn delete_profile(&self, name: &str) -> Result<(), SysinspectError> {
+        if self.get_profiles_index()?.get(name).is_none() {
+            return Err(SysinspectError::MasterGeneralError(format!("Profile {} was not found", name.bright_yellow())));
+        }
+        self.remove_profile_entry(name)
+    }
+
+    /// Add module or library selectors to the named profile.
+    pub fn add_profile_matches(&self, name: &str, matches: Vec<String>, library: bool) -> Result<(), SysinspectError> {
+        let mut profile = self.get_profile(name)?;
+        if library {
+            profile.add_libraries(matches);
+        } else {
+            profile.add_modules(matches);
+        }
+        self.set_profile(name, &profile)
+    }
+
+    /// Remove module or library selectors from the named profile.
+    pub fn remove_profile_matches(&self, name: &str, matches: Vec<String>, library: bool) -> Result<(), SysinspectError> {
+        let mut profile = self.get_profile(name)?;
+        if library {
+            profile.remove_libraries(matches);
+        } else {
+            profile.remove_modules(matches);
+        }
+        self.set_profile(name, &profile)
+    }
+
+    /// List module or library selectors for profiles matching the optional glob expression.
+    pub fn list_profile_matches(&self, expr: Option<&str>, library: bool) -> Result<Vec<String>, SysinspectError> {
+        let mut out = Vec::new();
+        for profile in self.list_profiles(expr)? {
+            let data = self.get_profile(&profile)?;
+            for entry in if library { data.libraries() } else { data.modules() } {
+                out.push(format!("{profile}: {entry}"));
+            }
+        }
+        Ok(out)
     }
 
     /// Lists all modules in the repository.
