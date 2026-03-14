@@ -796,10 +796,14 @@ impl SysMaster {
         let mut records = if !mid.is_empty() {
             self.mreg.lock().await.get(mid)?.into_iter().collect::<Vec<_>>()
         } else if !traits.trim().is_empty() {
+            let traits = get_context(traits)
+                .ok_or_else(|| SysinspectError::InvalidQuery("Traits selector must be in key:value format".to_string()))?
+                .into_iter()
+                .collect::<HashMap<_, _>>();
             self.mreg
                 .lock()
                 .await
-                .get_by_traits(get_context(traits).unwrap_or_default().into_iter().collect::<HashMap<_, _>>())?
+                .get_by_traits(traits)?
         } else {
             self.mreg.lock().await.get_by_query(if query.trim().is_empty() { "*" } else { query })?
         };
