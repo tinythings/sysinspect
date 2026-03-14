@@ -81,7 +81,10 @@ impl SysInspectModPakMinion {
             return Err(SysinspectError::MasterGeneralError(format!("Failed to get modpak index: {}", resp.status())));
         }
 
-        let buff = resp.bytes().await.unwrap();
+        let buff = resp
+            .bytes()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read modpak index response: {e}")))?;
         let idx = ModPakRepoIndex::from_yaml(&String::from_utf8_lossy(&buff))?;
         Ok(idx)
     }
@@ -99,7 +102,11 @@ impl SysInspectModPakMinion {
             return Err(SysinspectError::MasterGeneralError(format!("Failed to get profiles index: {}", resp.status())));
         }
 
-        ModPakProfilesIndex::from_yaml(&String::from_utf8_lossy(&resp.bytes().await.unwrap()))
+        let buff = resp
+            .bytes()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read profiles index response: {e}")))?;
+        ModPakProfilesIndex::from_yaml(&String::from_utf8_lossy(&buff))
     }
 
     async fn sync_profiles(&self, profiles: &ModPakProfilesIndex, names: &[String]) -> Result<(), SysinspectError> {
