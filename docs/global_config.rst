@@ -134,9 +134,12 @@ and contains the following directives:
 
     Type: **string**
 
-    IPv4 address for the master's console endpoint used by ``sysinspect``.
-    This is the active command transport between ``sysinspect`` and
-    ``sysmaster``.
+    IPv4 address on which ``sysmaster`` listens for console connections from
+    ``sysinspect``. This is the active command transport between
+    ``sysinspect`` and ``sysmaster``.
+
+    When this value is ``0.0.0.0``, the local ``sysinspect`` client still
+    connects through ``127.0.0.1``.
 
     If omitted, the default value is ``127.0.0.1``.
 
