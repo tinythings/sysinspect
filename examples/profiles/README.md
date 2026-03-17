@@ -24,5 +24,7 @@ libraries:
 Notes:
 
 - profile identity comes from `name`, not the filename
+- new profiles are normally written with lowercase filenames
+- already indexed arbitrary or mixed-case filenames remain valid
 - selectors support exact names and glob patterns
 - effective minion selection is driven by the `minion.profile` trait
