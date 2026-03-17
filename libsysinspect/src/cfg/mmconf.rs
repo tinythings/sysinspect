@@ -254,7 +254,7 @@ impl TelemetryConfig {
             ("service.namespace", CFG_OTLP_SERVICE_NAME),
             ("service.version", CFG_OTLP_SERVICE_VERSION),
             ("host.name", sysinfo::System::host_name().unwrap_or_default().as_str()),
-            ("os.type", sysinfo::System::distribution_id().as_str()),
+            ("os.type", crate::traits::current_os_type()),
             ("deployment.environment", "production"),
             ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str()),
         ] {

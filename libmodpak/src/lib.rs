@@ -6,14 +6,14 @@ use indexmap::{IndexMap, IndexSet};
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::DEFAULT_MODULES_DIR;
 use libsysinspect::cfg::mmconf::{CFG_AUTOSYNC_FAST, CFG_AUTOSYNC_SHALLOW, CFG_PROFILES_ROOT, DEFAULT_MODULES_LIB_DIR, MinionConfig};
-use libsysinspect::traits::effective_profiles;
+use libsysinspect::traits::{current_os_type, effective_profiles, os_display_name};
 use libsysinspect::util::{iofs::get_file_sha256, pad_visible};
 use mpk::{ModAttrs, ModPakMetadata, ModPakProfile, ModPakProfilesIndex, ModPakRepoIndex};
 use once_cell::sync::Lazy;
 use prettytable::{Cell, Row, Table, format};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 use textwrap::{Options, wrap};
 use tokio::sync::Mutex;
 
@@ -69,20 +69,6 @@ impl ModPakSyncState {
 }
 
 pub static MODPAK_SYNC_STATE: Lazy<ModPakSyncState> = Lazy::new(ModPakSyncState::new);
-
-fn os_label(os: &str) -> &str {
-    HashMap::from([
-        ("sysv", "Linux"),
-        ("any", "Any"),
-        ("linux", "Linux"),
-        ("netbsd", "NetBSD"),
-        ("freebsd", "FreeBSD"),
-        ("openbsd", "OpenBSD"),
-    ])
-    .get(os)
-    .copied()
-    .unwrap_or(os)
-}
 
 pub struct SysInspectModPakMinion {
     cfg: MinionConfig,
@@ -364,7 +350,7 @@ impl SysInspectModPakMinion {
 
     /// Syncs modules from the fileserver.
     async fn sync_modules(&self, ridx: &ModPakRepoIndex) -> Result<(), SysinspectError> {
-        let ostype = env!("THIS_OS");
+        let ostype = current_os_type();
         let osarch = env!("THIS_ARCH");
 
         let modt = ridx.modules().len();
@@ -818,7 +804,7 @@ impl SysInspectModPak {
                 kind: "module".to_string(),
                 name: module.name().to_string(),
                 display_name: module.name().bright_cyan().bold().to_string(),
-                os: module.os().iter().map(|os| os_label(os).to_string()).collect::<Vec<String>>().join(", "),
+                os: module.os().iter().map(|os| os_display_name(os).to_string()).collect::<Vec<String>>().join(", "),
                 arch: module.arch().join(", "),
                 sha256: module
                         .checksums()
@@ -845,7 +831,7 @@ impl SysInspectModPak {
     pub fn module_info(&self, name: &str) -> Result<(), SysinspectError> {
         let mut found = false;
         for (p, archset) in self.idx.all_modules(None, Some(vec![name])) {
-            let p = os_label(&p);
+            let p = os_display_name(&p);
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
                 Self::print_table(&modules, true);
@@ -926,7 +912,7 @@ impl SysInspectModPak {
 
         for p in platforms {
             let archset = allmods.get(&p).unwrap(); // safe: iter above
-            let p = os_label(&p);
+            let p = os_display_name(&p);
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
                 Self::print_table(modules, false);

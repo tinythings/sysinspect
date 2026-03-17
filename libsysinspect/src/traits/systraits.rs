@@ -148,11 +148,8 @@ impl SystemTraits {
             self.put(SYS_OS_VERSION.to_string(), json!(v));
         }
 
-        if let Some(v) = sysinfo::System::name() {
-            self.put(SYS_OS_NAME.to_string(), json!(v));
-        }
-
-        self.put(SYS_OS_DISTRO.to_string(), json!(sysinfo::System::distribution_id()));
+        self.put(SYS_OS_NAME.to_string(), json!(super::os_display_name(super::current_os_type())));
+        self.put(SYS_OS_DISTRO.to_string(), json!(super::current_os_type()));
 
         // Machine Id (not always there)
         let mut mid = String::default();

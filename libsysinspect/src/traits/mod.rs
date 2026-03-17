@@ -139,6 +139,24 @@ pub fn get_minion_traits_nolog(cfg: Option<&MinionConfig>) -> SystemTraits {
     __get_minion_traits(cfg, true)
 }
 
+/// Return the canonical lowercase OS type for the current build target.
+pub fn current_os_type() -> &'static str {
+    std::env::consts::OS
+}
+
+/// Return a stable display label for a canonical lowercase OS type.
+pub fn os_display_name(os: &str) -> &str {
+    match os {
+        "android" => "Android",
+        "linux" | "sysv" => "Linux",
+        "any" => "Any",
+        "netbsd" => "NetBSD",
+        "freebsd" => "FreeBSD",
+        "openbsd" => "OpenBSD",
+        _ => os,
+    }
+}
+
 fn normalized_profiles(value: &Value) -> Vec<String> {
     let mut names = IndexSet::new();
     match value {
