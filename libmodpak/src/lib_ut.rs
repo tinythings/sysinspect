@@ -5,6 +5,7 @@ mod tests {
     use std::collections::HashSet;
     use colored::control;
     use std::{fs, path::Path};
+    use libsysinspect::cfg::mmconf::CFG_PROFILES_ROOT;
 
     /// Creates a minimal library tree under `src/lib`.
     ///
@@ -268,6 +269,45 @@ mod tests {
         assert!(repo.delete_profile("missing").is_err());
         repo.new_profile("toto").expect("profile should be created");
         assert!(repo.new_profile("toto").is_err());
+    }
+
+    #[test]
+    fn new_profiles_use_lowercase_filenames_without_changing_profile_name() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
+
+        repo.new_profile("Toto").expect("profile should be created");
+
+        let idx = repo.get_profiles_index().expect("profiles index should load");
+        let profile = repo.get_profile("Toto").expect("profile should load");
+        assert_eq!(idx.get("Toto").expect("profile ref should exist").file(), &std::path::PathBuf::from("toto.profile"));
+        assert_eq!(profile.name(), "Toto");
+    }
+
+    #[test]
+    fn existing_profile_keeps_arbitrary_indexed_filename() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
+        let profiles_root = root.path().join(CFG_PROFILES_ROOT);
+        fs::write(
+            profiles_root.join("totobullshit.profile"),
+            "name: Toto\nmodules:\n  - runtime.lua\n",
+        )
+        .expect("profile file should be written");
+        fs::write(
+            root.path().join("profiles.index"),
+            "profiles:\n  Toto:\n    file: totobullshit.profile\n    checksum: deadbeef\n",
+        )
+        .expect("profiles index should be written");
+
+        repo.add_profile_matches("Toto", vec!["net.*".to_string()], false).expect("profile should be updated");
+
+        let idx = repo.get_profiles_index().expect("profiles index should load");
+        let profile = repo.get_profile("Toto").expect("profile should load");
+        assert_eq!(idx.get("Toto").expect("profile ref should exist").file(), &std::path::PathBuf::from("totobullshit.profile"));
+        assert_eq!(profile.name(), "Toto");
+        assert!(profile.modules().contains(&"runtime.lua".to_string()));
+        assert!(profile.modules().contains(&"net.*".to_string()));
     }
 
     #[test]
