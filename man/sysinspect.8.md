@@ -111,6 +111,7 @@ Examples:
 | **sysinspect** **profile** **--delete** **--name** Toto
 | **sysinspect** **profile** **--list**
 | **sysinspect** **profile** **--list** **--name** 'T*'
+| **sysinspect** **profile** **--show** **--name** Toto
 | **sysinspect** **profile** **-A** **--name** Toto **--match** 'runtime.lua,net.*'
 | **sysinspect** **profile** **-A** **--lib** **--name** Toto **--match** 'runtime/lua/*.lua'
 | **sysinspect** **profile** **-R** **--name** Toto **--match** 'net.*'
@@ -120,7 +121,7 @@ Examples:
 Notes:
 
 - **--name** is an exact profile name for **--new**, **--delete**,
-  **-A**, and **-R**
+  **--show**, **-A**, and **-R**
 - **--name** is a glob pattern for **--list**
 - **--match** accepts comma-separated exact names or glob patterns
 - **-l** or **--lib** switches selector operations and listing to
@@ -128,6 +129,8 @@ Notes:
 - **--tag** and **--untag** update the **minion.profile** static trait
 - a profile file carries its own canonical **name** field; the filename
   is only storage
+- new profile files are written with lowercase filenames, but existing
+  indexed filenames remain valid as-is
 
 MODULE REPOSITORY
 =================
