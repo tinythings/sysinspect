@@ -843,6 +843,7 @@ impl SysMaster {
                 },
                 vec![],
             )),
+            "show" => Ok((ConsoleResponse { ok: true, message: repo.show_profile(request.name())? }, vec![])),
             "add" => Ok((
                 {
                     repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
@@ -875,8 +876,9 @@ impl SysMaster {
                     let mut profiles = match minion.get_traits().get("minion.profile") {
                         Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name.to_string()],
                         Some(serde_json::Value::Array(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>(),
-                        _ => vec!["default".to_string()],
+                        _ => vec![],
                     };
+                    profiles.retain(|profile| profile != "default");
                     if request.op() == "tag" {
                         for profile in request.profiles() {
                             if !profiles.contains(profile) {
@@ -886,16 +888,18 @@ impl SysMaster {
                     } else {
                         profiles.retain(|profile| !request.profiles().contains(profile));
                     }
-                    if profiles.is_empty() {
-                        profiles.push("default".to_string());
-                    }
                     if let Some(msg) = self
                         .msg_query_data(
                             &format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}"),
                             "",
                             "",
                             minion.id(),
-                            &json!({"op": "set", "traits": {"minion.profile": profiles}}).to_string(),
+                            &if profiles.is_empty() {
+                                json!({"op": "unset", "traits": {"minion.profile": null}})
+                            } else {
+                                json!({"op": "set", "traits": {"minion.profile": profiles}})
+                            }
+                            .to_string(),
                         )
                         .await
                     {

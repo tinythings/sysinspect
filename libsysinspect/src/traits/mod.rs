@@ -139,17 +139,13 @@ pub fn get_minion_traits_nolog(cfg: Option<&MinionConfig>) -> SystemTraits {
     __get_minion_traits(cfg, true)
 }
 
-/// Resolve the effective deployment profile names for a minion.
-///
-/// This reads the merged trait view fresh and interprets `minion.profile`
-/// as either a single string or an array of strings. Missing or empty values
-/// fall back to `default`. Duplicate profile names are removed while keeping
-/// the first-seen order.
-pub fn effective_profiles(cfg: &MinionConfig) -> Vec<String> {
-    match SystemTraits::new(cfg.clone(), true).get("minion.profile") {
-        Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name],
-        Some(serde_json::Value::Array(items)) => {
-            let mut names = IndexSet::new();
+fn normalized_profiles(value: &Value) -> Vec<String> {
+    let mut names = IndexSet::new();
+    match value {
+        Value::String(name) if !name.trim().is_empty() => {
+            names.insert(name.to_string());
+        }
+        Value::Array(items) => {
             for item in items {
                 if let Some(name) = item.as_str()
                     && !name.trim().is_empty()
@@ -157,10 +153,27 @@ pub fn effective_profiles(cfg: &MinionConfig) -> Vec<String> {
                     names.insert(name.to_string());
                 }
             }
-            if names.is_empty() { vec!["default".to_string()] } else { names.into_iter().collect() }
         }
-        _ => vec!["default".to_string()],
+        _ => {}
     }
+    if names.len() > 1 {
+        names.shift_remove("default");
+    }
+    names.into_iter().collect()
+}
+
+/// Resolve the effective deployment profile names for a minion.
+///
+/// This reads the merged trait view fresh and interprets `minion.profile`
+/// as either a single string or an array of strings. Missing or empty values
+/// fall back to `default`. Duplicate profile names are removed while keeping
+/// the first-seen order.
+pub fn effective_profiles(cfg: &MinionConfig) -> Vec<String> {
+    let names = match SystemTraits::new(cfg.clone(), true).get("minion.profile") {
+        Some(value) => normalized_profiles(&value),
+        _ => vec!["default".to_string()],
+    };
+    if names.is_empty() { vec!["default".to_string()] } else { names }
 }
 
 /// Get or initialise system traits
@@ -219,7 +232,16 @@ impl TraitUpdateRequest {
         match self.op.as_str() {
             "set" => {
                 for (key, value) in &self.traits {
-                    current.insert(key.to_string(), value.clone());
+                    if key == "minion.profile" {
+                        let profiles = normalized_profiles(value);
+                        if profiles.is_empty() {
+                            current.shift_remove(key);
+                        } else {
+                            current.insert(key.to_string(), serde_json::to_value(profiles)?);
+                        }
+                    } else {
+                        current.insert(key.to_string(), value.clone());
+                    }
                 }
             }
             "unset" => {

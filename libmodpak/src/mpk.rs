@@ -208,6 +208,55 @@ impl ModPakProfilesIndex {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+/// Aggregated repository view of one module across all matching platforms and architectures.
+pub struct ModPakRepoModuleView {
+    name: String,
+    os: Vec<String>,
+    arch: Vec<String>,
+    checksums: Vec<String>,
+}
+
+impl ModPakRepoModuleView {
+    /// Create an empty aggregated module view.
+    pub fn new(name: &str) -> Self {
+        Self { name: name.to_string(), ..Default::default() }
+    }
+
+    /// Return the module namespace name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Return the supported operating systems.
+    pub fn os(&self) -> &[String] {
+        &self.os
+    }
+
+    /// Return the supported architectures.
+    pub fn arch(&self) -> &[String] {
+        &self.arch
+    }
+
+    /// Return the checksums for the matched module variants.
+    pub fn checksums(&self) -> &[String] {
+        &self.checksums
+    }
+
+    /// Merge one platform, architecture, and checksum tuple into the aggregated view.
+    pub fn merge_variant(&mut self, os: &str, arch: &str, checksum: &str) {
+        if !self.os.contains(&os.to_string()) {
+            self.os.push(os.to_string());
+        }
+        if !self.arch.contains(&arch.to_string()) {
+            self.arch.push(arch.to_string());
+        }
+        if !self.checksums.contains(&checksum.to_string()) {
+            self.checksums.push(checksum.to_string());
+        }
+    }
+}
+
 impl ModPakProfile {
     /// Deserialize one profile file from YAML.
     pub fn from_yaml(yaml: &str) -> Result<Self, SysinspectError> {
@@ -434,6 +483,19 @@ impl ModPakRepoIndex {
         }
 
         index
+    }
+
+    /// Return aggregated module views matched by the given selector patterns.
+    pub fn match_modules(&self, patterns: &[String]) -> Vec<ModPakRepoModuleView> {
+        let mut views = IndexMap::<String, ModPakRepoModuleView>::new();
+        for (platform, archset) in &self.platform {
+            for (arch, entries) in archset {
+                for (name, attrs) in entries.iter().filter(|(name, _)| patterns.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name)))) {
+                    views.entry(name.to_string()).or_insert_with(|| ModPakRepoModuleView::new(name)).merge_variant(platform, arch, attrs.checksum());
+                }
+            }
+        }
+        views.into_values().collect()
     }
 
     /// Returns the modules in the index. Optionally filtered by architecture and names.

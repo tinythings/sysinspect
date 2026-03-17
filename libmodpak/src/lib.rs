@@ -32,6 +32,16 @@ their dependencies, and their architecture.
 static REPO_MOD_INDEX: &str = "mod.index";
 static REPO_PROFILES_INDEX: &str = "profiles.index";
 static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
+
+struct ArtefactRow {
+    kind: String,
+    name: String,
+    display_name: String,
+    os: String,
+    arch: String,
+    sha256: String,
+}
+
 pub struct ModPakSyncState {
     state: Arc<Mutex<bool>>,
 }
@@ -59,6 +69,20 @@ impl ModPakSyncState {
 }
 
 pub static MODPAK_SYNC_STATE: Lazy<ModPakSyncState> = Lazy::new(ModPakSyncState::new);
+
+fn os_label(os: &str) -> &str {
+    HashMap::from([
+        ("sysv", "Linux"),
+        ("any", "Any"),
+        ("linux", "Linux"),
+        ("netbsd", "NetBSD"),
+        ("freebsd", "FreeBSD"),
+        ("openbsd", "OpenBSD"),
+    ])
+    .get(os)
+    .copied()
+    .unwrap_or(os)
+}
 
 pub struct SysInspectModPakMinion {
     cfg: MinionConfig,
@@ -418,6 +442,45 @@ pub struct SysInspectModPak {
 }
 
 impl SysInspectModPak {
+    fn render_artefact_table(rows: Vec<ArtefactRow>) -> String {
+        let type_width = rows.iter().map(|row| row.kind.chars().count()).max().unwrap_or(4).max("Type".chars().count());
+        let name_width = rows.iter().map(|row| row.name.chars().count()).max().unwrap_or(4).max("Name".chars().count());
+        let os_width = rows.iter().map(|row| row.os.chars().count()).max().unwrap_or(2).max("OS".chars().count());
+        let arch_width = rows.iter().map(|row| row.arch.chars().count()).max().unwrap_or(4).max("Arch".chars().count());
+        let sha_width = rows.iter().map(|row| row.sha256.chars().count()).max().unwrap_or(6).max("SHA256".chars().count());
+        let mut out = vec![
+            format!(
+                "{}  {}  {}  {}  {}",
+                pad_visible(&"Type".bright_yellow().to_string(), type_width),
+                pad_visible(&"Name".bright_yellow().to_string(), name_width),
+                pad_visible(&"OS".bright_yellow().to_string(), os_width),
+                pad_visible(&"Arch".bright_yellow().to_string(), arch_width),
+                pad_visible(&"SHA256".bright_yellow().to_string(), sha_width),
+            ),
+            format!(
+                "{}  {}  {}  {}  {}",
+                "─".repeat(type_width),
+                "─".repeat(name_width),
+                "─".repeat(os_width),
+                "─".repeat(arch_width),
+                "─".repeat(sha_width),
+            ),
+        ];
+
+        for row in rows {
+            out.push(format!(
+                "{}  {}  {}  {}  {}",
+                pad_visible(&row.kind.bright_green().to_string(), type_width),
+                pad_visible(&row.display_name, name_width),
+                pad_visible(&row.os.bright_green().to_string(), os_width),
+                pad_visible(&row.arch.bright_green().to_string(), arch_width),
+                pad_visible(&row.sha256.green().to_string(), sha_width),
+            ));
+        }
+
+        out.join("\n")
+    }
+
     /// Load the on-disk profiles index published next to the module repository.
     fn get_profiles_index(&self) -> Result<ModPakProfilesIndex, SysinspectError> {
         ModPakProfilesIndex::from_yaml(&fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX))?)
@@ -682,7 +745,7 @@ impl SysInspectModPak {
     /// Lists all libraries in the repository.
     pub fn list_libraries(&self, expr: Option<&str>) -> Result<(), SysinspectError> {
         let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {e}")))?;
-        let mut rows = Vec::<(String, String, String, String, String)>::new();
+        let mut rows = Vec::<ArtefactRow>::new();
         for (_, mpklf) in self.idx.library() {
             if !expr.matches(&mpklf.file().display().to_string()) {
                 continue;
@@ -709,16 +772,17 @@ impl SysInspectModPak {
                 (mpklf.kind().to_string(), "noarch".to_string(), "any".to_string())
             };
 
-            rows.push((
-                match kind.as_str() {
+            rows.push(ArtefactRow {
+                kind: match kind.as_str() {
                     "wasm" | "binary" => "binary".to_string(),
                     _ => "script".to_string(),
                 },
-                mpklf.file().display().to_string(),
-                p.to_title_case(),
+                name: mpklf.file().display().to_string(),
+                display_name: Self::format_library_name(&mpklf.file().display().to_string()),
+                os: p.to_title_case(),
                 arch,
-                format!("{}...{}", &mpklf.checksum()[..4], &mpklf.checksum()[mpklf.checksum().len() - 4..]),
-            ));
+                sha256: format!("{}...{}", &mpklf.checksum()[..4], &mpklf.checksum()[mpklf.checksum().len() - 4..]),
+            });
         }
 
         if rows.is_empty() {
@@ -726,47 +790,62 @@ impl SysInspectModPak {
             return Ok(());
         }
 
-        let type_width = rows.iter().map(|r| r.0.chars().count()).max().unwrap_or(4).max("Type".chars().count());
-        let name_width = rows.iter().map(|r| r.1.chars().count()).max().unwrap_or(4).max("Name".chars().count());
-        let os_width = rows.iter().map(|r| r.2.chars().count()).max().unwrap_or(2).max("OS".chars().count());
-        let arch_width = rows.iter().map(|r| r.3.chars().count()).max().unwrap_or(4).max("Arch".chars().count());
-        let sha_width = rows.iter().map(|r| r.4.chars().count()).max().unwrap_or(6).max("SHA256".chars().count());
-
-        println!(
-            "{}  {}  {}  {}  {}",
-            pad_visible(&"Type".bright_yellow().to_string(), type_width),
-            pad_visible(&"Name".bright_yellow().to_string(), name_width),
-            pad_visible(&"OS".bright_yellow().to_string(), os_width),
-            pad_visible(&"Arch".bright_yellow().to_string(), arch_width),
-            pad_visible(&"SHA256".bright_yellow().to_string(), sha_width),
-        );
-        println!(
-            "{}  {}  {}  {}  {}",
-            "─".repeat(type_width),
-            "─".repeat(name_width),
-            "─".repeat(os_width),
-            "─".repeat(arch_width),
-            "─".repeat(sha_width),
-        );
-
-        for (kind, name, os_name, arch, sha) in rows {
-            println!(
-                "{}  {}  {}  {}  {}",
-                pad_visible(&kind.bright_green().to_string(), type_width),
-                pad_visible(&Self::format_library_name(&name), name_width),
-                pad_visible(&os_name.bright_green().to_string(), os_width),
-                pad_visible(&arch.bright_green().to_string(), arch_width),
-                pad_visible(&sha.green().to_string(), sha_width),
-            );
-        }
+        println!("{}", Self::render_artefact_table(rows));
 
         Ok(())
+    }
+
+    /// Render the expanded artefact content of one profile as a mixed modules/libraries table.
+    pub fn show_profile(&self, name: &str) -> Result<String, SysinspectError> {
+        let profile = self.get_profile(name)?;
+        let mut modules = self.idx.match_modules(profile.modules());
+        modules.sort_by(|a, b| a.name().cmp(b.name()));
+        let mut libraries = self
+            .idx
+            .library()
+            .into_iter()
+            .filter(|(name, _)| profile.libraries().iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name))))
+            .collect::<Vec<(String, mpk::ModPakRepoLibFile)>>();
+        libraries.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        if modules.is_empty() && libraries.is_empty() {
+            return Err(SysinspectError::MasterGeneralError(format!("Profile {} does not match any modules or libraries", name.bright_yellow())));
+        }
+
+        let mut rows = modules
+            .into_iter()
+            .map(|module| ArtefactRow {
+                kind: "module".to_string(),
+                name: module.name().to_string(),
+                display_name: module.name().bright_cyan().bold().to_string(),
+                os: module.os().iter().map(|os| os_label(os).to_string()).collect::<Vec<String>>().join(", "),
+                arch: module.arch().join(", "),
+                sha256: module
+                        .checksums()
+                        .iter()
+                        .map(|checksum| format!("{}...{}", &checksum[..4], &checksum[checksum.len() - 4..]))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+            })
+            .collect::<Vec<ArtefactRow>>();
+        rows.extend(libraries.into_iter().map(|(name, file)| ArtefactRow {
+                kind: match file.kind() {
+                    "wasm" | "binary" => "binary".to_string(),
+                    _ => "script".to_string(),
+                },
+                name: name.clone(),
+                display_name: Self::format_library_name(&name),
+                os: "Any".to_string(),
+                arch: "noarch".to_string(),
+                sha256: format!("{}...{}", &file.checksum()[..4], &file.checksum()[file.checksum().len() - 4..]),
+        }));
+        Ok(Self::render_artefact_table(rows))
     }
 
     pub fn module_info(&self, name: &str) -> Result<(), SysinspectError> {
         let mut found = false;
         for (p, archset) in self.idx.all_modules(None, Some(vec![name])) {
-            let p = if p.eq("sysv") { "Linux" } else { p.as_str() };
+            let p = os_label(&p);
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
                 Self::print_table(&modules, true);
@@ -841,22 +920,13 @@ impl SysInspectModPak {
 
     /// Lists all modules in the repository.
     pub fn list_modules(&self) -> Result<(), SysinspectError> {
-        let osn = HashMap::from([
-            ("sysv", "Linux"),
-            ("any", "Any"),
-            ("linux", "Linux"),
-            ("netbsd", "NetBSD"),
-            ("freebsd", "FreeBSD"),
-            ("openbsd", "OpenBSD"),
-        ]);
-
         let allmods = self.idx.all_modules(None, None);
         let mut platforms = allmods.iter().map(|(p, _)| p.to_string()).collect::<Vec<_>>();
         platforms.sort();
 
         for p in platforms {
             let archset = allmods.get(&p).unwrap(); // safe: iter above
-            let p = if osn.contains_key(p.as_str()) { osn.get(p.as_str()).unwrap() } else { p.as_str() };
+            let p = os_label(&p);
             for (arch, modules) in archset {
                 println!("{} ({}): ", p, arch.bright_green());
                 Self::print_table(modules, false);

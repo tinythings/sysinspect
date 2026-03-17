@@ -126,6 +126,16 @@ fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectE
         ));
     }
 
+    if am.get_flag("show") {
+        if am.get_one::<String>("name").is_none() {
+            return Err(SysinspectError::InvalidQuery("Specify --name for --show".to_string()));
+        }
+        if invalid_name(am.get_one::<String>("name").unwrap()) {
+            return Err(SysinspectError::InvalidQuery("Profile names for --show must be exact names, not glob patterns".to_string()));
+        }
+        return Ok(Some(json!({"op": "show", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
+    }
+
     if am.get_flag("add") || am.get_flag("remove") {
         if am.get_one::<String>("name").is_none() || am.get_one::<String>("match").is_none() {
             return Err(SysinspectError::InvalidQuery("Specify both --name and --match for profile selector updates".to_string()));
