@@ -271,6 +271,31 @@ mod tests {
     }
 
     #[test]
+    fn show_profile_renders_modules_first_and_libraries_after() {
+        control::set_override(true);
+
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let src = tempfile::tempdir().expect("src tempdir should be created");
+        let repo_root = root.path().join("repo");
+        let mut repo = SysInspectModPak::new(repo_root.clone()).expect("repo should be created");
+        write_library(src.path(), "runtime/lua/reader.lua");
+        repo.add_library(src.path().to_path_buf()).expect("library tree should be indexed");
+        write_module(&mut repo, "linux", "x86_64", "runtime.lua", "runtime/lua");
+        write_module(&mut repo, "netbsd", "noarch", "runtime.lua", "runtime/lua");
+        repo.new_profile("toto").expect("profile should be created");
+        repo.add_profile_matches("toto", vec!["runtime.lua".to_string()], false).expect("module selector should be added");
+        repo.add_profile_matches("toto", vec!["lib/runtime/lua/*.lua".to_string()], true).expect("library selector should be added");
+
+        let rendered = repo.show_profile("toto").expect("profile should render");
+        let module_pos = rendered.find("runtime.lua").expect("module row should exist");
+        let library_pos = rendered.find("reader.lua").expect("library row should exist");
+
+        assert!(rendered.contains("Linux, NetBSD") || rendered.contains("NetBSD, Linux"));
+        assert!(rendered.contains("x86_64, noarch") || rendered.contains("noarch, x86_64"));
+        assert!(module_pos < library_pos, "modules should be rendered before libraries");
+    }
+
+    #[test]
     fn effective_profile_names_fallback_to_default_and_accept_array() {
         let root = tempfile::tempdir().expect("root tempdir should be created");
         let share = tempfile::tempdir().expect("share tempdir should be created");

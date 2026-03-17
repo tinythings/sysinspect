@@ -100,3 +100,15 @@ fn effective_profiles_fallback_to_default_and_dedup_array_values() {
         .unwrap_or_else(|err| panic!("failed to write master traits file: {err}"));
     assert_eq!(effective_profiles(&cfg), vec!["Foo".to_string(), "Bar".to_string()]);
 }
+
+#[test]
+fn effective_profiles_drops_default_when_real_profiles_are_present() {
+    let root = tempfile::tempdir().unwrap_or_else(|err| panic!("failed to create tempdir: {err}"));
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir(root.path().to_str().unwrap_or_default());
+
+    ensure_master_traits_file(&cfg).unwrap_or_else(|err| panic!("failed to ensure master traits file: {err}"));
+    fs::write(cfg.traits_dir().join(MASTER_TRAITS_FILE), "minion.profile:\n  - default\n  - Runtimes\n")
+        .unwrap_or_else(|err| panic!("failed to write master traits file: {err}"));
+    assert_eq!(effective_profiles(&cfg), vec!["Runtimes".to_string()]);
+}
