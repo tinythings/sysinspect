@@ -515,7 +515,7 @@ impl SysInspectModPak {
     /// Persist one profile file and refresh its `profiles.index` checksum entry.
     fn set_profile(&self, name: &str, profile: &ModPakProfile) -> Result<(), SysinspectError> {
         let mut index = self.get_profiles_index()?;
-        let file = PathBuf::from(format!("{name}.profile"));
+        let file = index.get(name).map(|entry| entry.file().to_path_buf()).unwrap_or_else(|| PathBuf::from(format!("{}.profile", name.to_lowercase())));
         let path = self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(&file);
         if !self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).exists() {
             fs::create_dir_all(self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT))?;
