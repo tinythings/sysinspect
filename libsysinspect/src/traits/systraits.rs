@@ -220,12 +220,14 @@ impl SystemTraits {
             let content: Option<serde_json::Value> =
                 content.as_ref().and_then(|v| Self::proxy_log_error(serde_json::to_value(v), "Unable to convert existing YAML to JSON format"));
 
-            if content.is_none() {
-                log::error!("Unable to load custom traits from {}", f.file_name().to_str().unwrap_or_default());
+            if fname == MASTER_TRAITS_FILE
+                && content.as_ref().is_none_or(serde_json::Value::is_null)
+            {
                 continue;
             }
 
-            if fname == MASTER_TRAITS_FILE && content.as_ref().is_some_and(serde_json::Value::is_null) {
+            if content.is_none() {
+                log::error!("Unable to load custom traits from {}", f.file_name().to_str().unwrap_or_default());
                 continue;
             }
 

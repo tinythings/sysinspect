@@ -60,7 +60,7 @@ async fn call_master_console(
         context: context.cloned().unwrap_or_default(),
     };
     let (envelope, key) = build_console_query(&cfg.root_dir(), cfg, &request)?;
-    let mut stream = TcpStream::connect(cfg.console_bind_addr()).await?;
+    let mut stream = TcpStream::connect(cfg.console_connect_addr()).await?;
     stream.write_all(format!("{}\n", serde_json::to_string(&envelope)?).as_bytes()).await?;
 
     let mut reader = BufReader::new(stream);

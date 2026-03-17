@@ -115,28 +115,29 @@ impl SysInspectModPakMinion {
         }
 
         for name in names {
-            if let Some(profile) = profiles.get(name) {
-                let dst = self.cfg.profiles_dir().join(profile.file());
-                let checksum = if dst.exists() { get_file_sha256(dst.clone()).ok() } else { None };
-                if checksum.as_deref() == Some(profile.checksum()) {
-                    continue;
-                }
-
-                let resp = reqwest::Client::new()
-                    .get(format!("http://{}/{}/{}", self.cfg.fileserver(), CFG_PROFILES_ROOT, profile.file().display()))
-                    .send()
-                    .await
-                    .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {e}")))?;
-                if resp.status() != reqwest::StatusCode::OK {
-                    return Err(SysinspectError::MasterGeneralError(format!("Failed to get profile {}: {}", name, resp.status())));
-                }
-                if let Some(parent) = dst.parent()
-                    && !parent.exists()
-                {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::write(&dst, resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))? )?;
+            let profile = profiles
+                .get(name)
+                .ok_or_else(|| SysinspectError::MasterGeneralError(format!("Profile {} is missing from profiles.index", name.bright_yellow())))?;
+            let dst = self.cfg.profiles_dir().join(profile.file());
+            let checksum = if dst.exists() { get_file_sha256(dst.clone()).ok() } else { None };
+            if checksum.as_deref() == Some(profile.checksum()) {
+                continue;
             }
+
+            let resp = reqwest::Client::new()
+                .get(format!("http://{}/{}/{}", self.cfg.fileserver(), CFG_PROFILES_ROOT, profile.file().display()))
+                .send()
+                .await
+                .map_err(|e| SysinspectError::MasterGeneralError(format!("Request failed: {e}")))?;
+            if resp.status() != reqwest::StatusCode::OK {
+                return Err(SysinspectError::MasterGeneralError(format!("Failed to get profile {}: {}", name, resp.status())));
+            }
+            if let Some(parent) = dst.parent()
+                && !parent.exists()
+            {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&dst, resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))? )?;
         }
 
         Ok(())
@@ -147,10 +148,19 @@ impl SysInspectModPakMinion {
             return Ok(ridx);
         }
 
+        let found = names.iter().filter(|name| profiles.get(name).is_some()).cloned().collect::<Vec<_>>();
+        if found.is_empty() {
+            return Err(SysinspectError::MasterGeneralError(format!(
+                "None of the requested profile{} exist in profiles.index: {}",
+                if names.len() == 1 { "" } else { "s" },
+                names.join(", ").bright_yellow()
+            )));
+        }
+
         let mut modules = IndexSet::new();
         let mut libraries = IndexSet::new();
-        for name in names {
-            if let Some(profile) = profiles.get(name) {
+        for name in found {
+            if let Some(profile) = profiles.get(&name) {
                 ModPakProfile::from_yaml(&fs::read_to_string(self.cfg.profiles_dir().join(profile.file()))?)?.merge_into(&mut modules, &mut libraries);
             }
         }

@@ -936,11 +936,23 @@ impl MasterConfig {
         self.socket.to_owned().unwrap_or(DEFAULT_SOCKET.to_string())
     }
 
-    /// Return local console/control bind address
-    pub fn console_bind_addr(&self) -> String {
+    /// Return console listener address for `sysmaster`.
+    pub fn console_listen_addr(&self) -> String {
         format!(
             "{}:{}",
             self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()),
+            self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
+        )
+    }
+
+    /// Return console connect address for `sysinspect`.
+    ///
+    /// If the console listener is configured as `0.0.0.0`, clients still
+    /// connect through loopback.
+    pub fn console_connect_addr(&self) -> String {
+        format!(
+            "{}:{}",
+            if self.console_ip.as_deref() == Some("0.0.0.0") { "127.0.0.1".to_string() } else { self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()) },
             self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
         )
     }

@@ -934,7 +934,14 @@ impl SysMaster {
                     let guard = master.lock().await;
                     (guard.cfg(), guard.broadcast().clone())
                 };
-                let listener = match TcpListener::bind(cfg.console_bind_addr()).await {
+                let master_prk = match load_master_private_key(&cfg) {
+                    Ok(prk) => prk,
+                    Err(err) => {
+                        log::error!("Failed to load console private key: {err}");
+                        return;
+                    }
+                };
+                let listener = match TcpListener::bind(cfg.console_listen_addr()).await {
                     Ok(listener) => listener,
                     Err(err) => {
                         log::error!("Failed to bind console listener: {err}");
@@ -947,6 +954,7 @@ impl SysMaster {
                             let master = Arc::clone(&master);
                             let cfg = cfg.clone();
                             let bcast = bcast.clone();
+                            let master_prk = master_prk.clone();
                             tokio::spawn(async move {
                                 let (read_half, mut write_half) = stream.into_split();
                                 let reader = TokioBufReader::new(read_half);
@@ -962,7 +970,7 @@ impl SysMaster {
                                     }
                                     Ok(_) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
                                         Ok(line) => match serde_json::from_str::<ConsoleEnvelope>(&line) {
-                                        Ok(envelope) => match load_master_private_key(&cfg).and_then(|prk| envelope.bootstrap.session_key(&prk)) {
+                                        Ok(envelope) => match envelope.bootstrap.session_key(&master_prk) {
                                             Ok((key, _client_pkey)) => {
                                                 let response = if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
                                                     ConsoleResponse { ok: false, message: "Console client key is not authorised".to_string() }
