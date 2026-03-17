@@ -1,5 +1,5 @@
 use crate::cfg::mmconf::MinionConfig;
-use crate::traits::{MASTER_TRAITS_FILE, TraitUpdateRequest, effective_profiles, ensure_master_traits_file};
+use crate::traits::{MASTER_TRAITS_FILE, TraitUpdateRequest, current_os_type, effective_profiles, ensure_master_traits_file, os_display_name};
 use crate::traits::systraits::SystemTraits;
 use std::fs;
 
@@ -111,4 +111,11 @@ fn effective_profiles_drops_default_when_real_profiles_are_present() {
     fs::write(cfg.traits_dir().join(MASTER_TRAITS_FILE), "minion.profile:\n  - default\n  - Runtimes\n")
         .unwrap_or_else(|err| panic!("failed to write master traits file: {err}"));
     assert_eq!(effective_profiles(&cfg), vec!["Runtimes".to_string()]);
+}
+
+#[test]
+fn os_display_name_keeps_android_distinct_from_linux() {
+    assert_eq!(os_display_name("android"), "Android");
+    assert_eq!(os_display_name("linux"), "Linux");
+    assert!(!current_os_type().is_empty(), "current os type should be available");
 }
