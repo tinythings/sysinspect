@@ -117,6 +117,7 @@ Profile definitions:
     sysinspect profile --delete --name Toto
     sysinspect profile --list
     sysinspect profile --list --name 'T*'
+    sysinspect profile --show --name Toto
 
 Assign selectors to a profile:
 
@@ -136,7 +137,7 @@ Assign or remove profiles on minions:
 
 Notes:
 
-* ``--name`` is an exact profile name for ``--new``, ``--delete``, ``-A``, and ``-R``
+* ``--name`` is an exact profile name for ``--new``, ``--delete``, ``--show``, ``-A``, and ``-R``
 * ``--name`` is a glob pattern for ``--list``
 * ``--match`` accepts comma-separated exact names or glob patterns
 * ``-l`` / ``--lib`` switches selector operations and listing to library selectors

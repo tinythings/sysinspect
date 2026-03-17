@@ -96,6 +96,12 @@ Expected output:
 
     tiny-lua: runtime.lua
 
+Show the fully expanded profile content as a mixed modules/libraries table:
+
+.. code-block:: bash
+
+    sysinspect profile --show --name tiny-lua
+
 Adding Library Selectors
 ------------------------
 
@@ -224,6 +230,7 @@ Check the profile definition on the Master:
 
     sysinspect profile --list --name tiny-lua
     sysinspect profile --list --name tiny-lua --lib
+    sysinspect profile --show --name tiny-lua
 
 Check the minion logs:
 
