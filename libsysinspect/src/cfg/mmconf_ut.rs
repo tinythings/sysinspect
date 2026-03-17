@@ -17,7 +17,8 @@ fn write_master_cfg(contents: &str) -> std::path::PathBuf {
 fn master_console_defaults_are_used_when_not_configured() {
     let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
 
-    assert_eq!(cfg.console_bind_addr(), format!("127.0.0.1:{DEFAULT_CONSOLE_PORT}"));
+    assert_eq!(cfg.console_listen_addr(), format!("127.0.0.1:{DEFAULT_CONSOLE_PORT}"));
+    assert_eq!(cfg.console_connect_addr(), format!("127.0.0.1:{DEFAULT_CONSOLE_PORT}"));
 }
 
 #[test]
@@ -27,5 +28,17 @@ fn master_console_config_overrides_defaults() {
     ))
     .unwrap();
 
-    assert_eq!(cfg.console_bind_addr(), "127.0.0.1:5511");
+    assert_eq!(cfg.console_listen_addr(), "127.0.0.1:5511");
+    assert_eq!(cfg.console_connect_addr(), "127.0.0.1:5511");
+}
+
+#[test]
+fn master_console_connect_addr_rewrites_wildcard_bind_to_loopback() {
+    let cfg = MasterConfig::new(write_master_cfg(
+        "config:\n  master:\n    fileserver.models: []\n    console.bind.ip: 0.0.0.0\n    console.bind.port: 5511\n",
+    ))
+    .unwrap();
+
+    assert_eq!(cfg.console_listen_addr(), "0.0.0.0:5511");
+    assert_eq!(cfg.console_connect_addr(), "127.0.0.1:5511");
 }
