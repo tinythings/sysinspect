@@ -144,6 +144,7 @@ Notes:
 * ``--tag`` and ``--untag`` update ``minion.profile`` on the targeted minions
 * profile names are case-sensitive Unix-like names
 * each profile file carries its own canonical ``name`` field; the filename is only storage
+* new profile files are written with lowercase filenames, but existing indexed filenames remain valid even if they are mixed-case or arbitrary
 
 Profile Data Model
 ------------------
@@ -171,7 +172,9 @@ selectors:
       - lib/runtime/lua/*.lua
 
 The filename is only storage. The canonical profile identity is the
-case-sensitive ``name`` field inside the file.
+case-sensitive ``name`` field inside the file. Newly created profile files
+are written with lowercase filenames, but already indexed filenames are
+still honored as-is.
 
 Sync Behavior
 -------------

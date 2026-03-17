@@ -121,6 +121,9 @@ minions.
 If ``minion.profile`` is not set, the minion falls back to the
 ``default`` profile during sync.
 
+``default`` is fallback-only. Once one or more real profiles are assigned,
+``default`` is not kept alongside them as a stored assignment.
+
 Dynamic Traits
 --------------
 

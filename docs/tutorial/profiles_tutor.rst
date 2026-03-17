@@ -142,6 +142,10 @@ You can then add the correct selector again:
 Profile files have a canonical ``name`` inside the file. The filename is
 only storage.
 
+New profiles are written with lowercase filenames by default, but the index
+can still point at any existing filename and that filename will continue to
+work unchanged.
+
 For example, a profile file looks like this:
 
 .. code-block:: yaml
@@ -188,6 +192,9 @@ To remove one assigned profile from targeted minions:
 
 If all assigned profiles are removed, the minion falls back to the
 ``default`` profile during sync.
+
+``default`` is fallback-only. It is not stored together with real assigned
+profiles.
 
 Synchronising the Cluster
 -------------------------
