@@ -65,12 +65,22 @@ async fn call_master_console(
         context: context.cloned().unwrap_or_default(),
     };
     let (envelope, key) = build_console_query(&cfg.root_dir(), cfg, &request)?;
-    let mut stream = TcpStream::connect(cfg.console_connect_addr()).await?;
+    let mut stream = timeout(CONSOLE_CONNECT_TIMEOUT, TcpStream::connect(cfg.console_connect_addr()))
+        .await
+        .map_err(|_| std::io::Error::new(ErrorKind::TimedOut, "timeout while connecting to master console"))??;
     stream.write_all(format!("{}\n", serde_json::to_string(&envelope)?).as_bytes()).await?;
 
-    let mut reader = BufReader::new(stream);
+    let mut reader = BufReader::new(stream).take(MAX_CONSOLE_RESPONSE_SIZE + 1);
     let mut reply = String::new();
-    reader.read_line(&mut reply).await?;
+    timeout(CONSOLE_READ_TIMEOUT, reader.read_line(&mut reply))
+        .await
+        .map_err(|_| std::io::Error::new(ErrorKind::TimedOut, "timeout while reading response from master console"))??;
+    if reply.len() as u64 > MAX_CONSOLE_RESPONSE_SIZE || !reply.ends_with('\n') {
+        return Err(SysinspectError::SerializationError(format!(
+            "Console response exceeds {} bytes",
+            MAX_CONSOLE_RESPONSE_SIZE
+        )));
+    }
     let response: ConsoleResponse = match serde_json::from_str::<ConsoleSealed>(reply.trim()) {
         Ok(sealed) => sealed.open(&key)?,
         Err(_) => serde_json::from_str(reply.trim())?,
