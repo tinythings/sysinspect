@@ -65,3 +65,33 @@ library:
     assert!(libraries.contains_key("runtime/lua/reader.lua"));
     assert!(!libraries.contains_key("runtime/py3/reader.py"));
 }
+
+#[test]
+fn profile_library_filter_accepts_optional_lib_prefix() {
+    let mut modules = IndexSet::new();
+    let mut libraries = IndexSet::new();
+    ModPakProfile::from_yaml("name: default\nlibraries:\n  - lib/runtime/lua/reader.lua\n")
+        .expect("profile should deserialize")
+        .merge_into(&mut modules, &mut libraries);
+
+    let filtered = ModPakRepoIndex::from_yaml(
+        r#"
+platform: {}
+library:
+  runtime/lua/reader.lua:
+    file: runtime/lua/reader.lua
+    checksum: beadfeed
+    kind: lua
+  runtime/py3/reader.py:
+    file: runtime/py3/reader.py
+    checksum: facefeed
+    kind: python
+"#,
+    )
+    .expect("repo index should deserialize")
+    .retain_profiles(&modules, &libraries)
+    .library();
+
+    assert!(filtered.contains_key("runtime/lua/reader.lua"));
+    assert!(!filtered.contains_key("runtime/py3/reader.py"));
+}

@@ -357,6 +357,10 @@ impl ModPakRepoIndex {
         }
     }
 
+    fn library_selector_matches(pattern: &glob::Pattern, name: &str) -> bool {
+        pattern.matches(name) || pattern.matches(&format!("lib/{name}")) || name.strip_prefix("lib/").is_some_and(|rel| pattern.matches(rel))
+    }
+
     pub fn index_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
         for (fname, cs) in libsysinspect::util::iofs::scan_files_sha256(p.to_path_buf(), None) {
             log::debug!("Adding library file: {fname} with checksum: {cs}");
@@ -477,7 +481,7 @@ impl ModPakRepoIndex {
         }
 
         for (name, entry) in &self.library {
-            if libraries.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name))) {
+            if libraries.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| Self::library_selector_matches(&pattern, name))) {
                 index.library.insert(name.to_string(), entry.clone());
             }
         }
