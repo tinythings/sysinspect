@@ -104,13 +104,20 @@ fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectEr
 }
 
 fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
-    let invalid_name = |name: &str| name.chars().any(|c| ['*', '?', '[', ']'].contains(&c));
+    let invalid_name = |name: &str| {
+        let name = name.trim();
+        name.is_empty()
+            || matches!(name, "." | "..")
+            || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
     if am.get_flag("new") {
         if am.get_one::<String>("name").is_none() {
             return Err(SysinspectError::InvalidQuery("Specify --name for --new".to_string()));
         }
         if invalid_name(am.get_one::<String>("name").unwrap()) {
-            return Err(SysinspectError::InvalidQuery("Profile names for --new must be exact names, not glob patterns".to_string()));
+            return Err(SysinspectError::InvalidQuery(
+                "Profile names for --new must be exact names and may only contain letters, digits, '.', '_', or '-'".to_string(),
+            ));
         }
         return Ok(Some(json!({"op": "new", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
     }
@@ -120,7 +127,9 @@ fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectE
             return Err(SysinspectError::InvalidQuery("Specify --name for --delete".to_string()));
         }
         if invalid_name(am.get_one::<String>("name").unwrap()) {
-            return Err(SysinspectError::InvalidQuery("Profile names for --delete must be exact names, not glob patterns".to_string()));
+            return Err(SysinspectError::InvalidQuery(
+                "Profile names for --delete must be exact names and may only contain letters, digits, '.', '_', or '-'".to_string(),
+            ));
         }
         return Ok(Some(json!({"op": "delete", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
     }
@@ -136,7 +145,9 @@ fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectE
             return Err(SysinspectError::InvalidQuery("Specify --name for --show".to_string()));
         }
         if invalid_name(am.get_one::<String>("name").unwrap()) {
-            return Err(SysinspectError::InvalidQuery("Profile names for --show must be exact names, not glob patterns".to_string()));
+            return Err(SysinspectError::InvalidQuery(
+                "Profile names for --show must be exact names and may only contain letters, digits, '.', '_', or '-'".to_string(),
+            ));
         }
         return Ok(Some(json!({"op": "show", "name": am.get_one::<String>("name").cloned().unwrap_or_default()}).to_string()));
     }
@@ -146,7 +157,9 @@ fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectE
             return Err(SysinspectError::InvalidQuery("Specify both --name and --match for profile selector updates".to_string()));
         }
         if invalid_name(am.get_one::<String>("name").unwrap()) {
-            return Err(SysinspectError::InvalidQuery("Profile names for selector updates must be exact names, not glob patterns".to_string()));
+            return Err(SysinspectError::InvalidQuery(
+                "Profile names for selector updates must be exact names and may only contain letters, digits, '.', '_', or '-'".to_string(),
+            ));
         }
         if clidef::split_by(am, "match", None).is_empty() {
             return Err(SysinspectError::InvalidQuery("At least one selector is required in --match".to_string()));
