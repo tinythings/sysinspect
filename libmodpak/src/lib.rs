@@ -507,12 +507,32 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    fn validate_profile_name_and_file(name: &str, file: &Path) -> Result<(), SysinspectError> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err(SysinspectError::MasterGeneralError(format!(
+                "Invalid profile name {}",
+                name.bright_yellow()
+            )));
+        }
+
+        if file.components().all(|component| matches!(component, Component::Normal(_))) {
+            return Ok(());
+        }
+
+        Err(SysinspectError::MasterGeneralError(format!(
+            "Invalid profile file path for {}: {}",
+            name.bright_yellow(),
+            file.display()
+        )))
+    }
+
     /// Load one profile by canonical name and verify the file content name matches the index entry.
     fn get_profile(&self, name: &str) -> Result<ModPakProfile, SysinspectError> {
         let index = self.get_profiles_index()?;
         let entry = index
             .get(name)
             .ok_or_else(|| SysinspectError::MasterGeneralError(format!("Profile {} was not found", name.bright_yellow())))?;
+        Self::validate_profile_name_and_file(name, entry.file())?;
         {
             let profile =
                 ModPakProfile::from_yaml(&fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(entry.file()))?)?;
@@ -531,6 +551,7 @@ impl SysInspectModPak {
     fn set_profile(&self, name: &str, profile: &ModPakProfile) -> Result<(), SysinspectError> {
         let mut index = self.get_profiles_index()?;
         let file = index.get(name).map(|entry| entry.file().to_path_buf()).unwrap_or_else(|| PathBuf::from(format!("{}.profile", name.to_lowercase())));
+        Self::validate_profile_name_and_file(name, &file)?;
         let path = self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(&file);
         if !self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).exists() {
             fs::create_dir_all(self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT))?;
@@ -543,10 +564,12 @@ impl SysInspectModPak {
     /// Remove one profile file and its `profiles.index` entry.
     fn remove_profile_entry(&self, name: &str) -> Result<(), SysinspectError> {
         let mut index = self.get_profiles_index()?;
-        if let Some(entry) = index.profiles().get(name)
-            && self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(entry.file()).exists()
-        {
-            fs::remove_file(self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(entry.file()))?;
+        if let Some(entry) = index.profiles().get(name) {
+            Self::validate_profile_name_and_file(name, entry.file())?;
+            let path = self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(entry.file());
+            if path.exists() {
+                fs::remove_file(path)?;
+            }
         }
         index.remove(name);
         self.set_profiles_index(&index)

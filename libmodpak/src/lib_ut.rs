@@ -324,6 +324,14 @@ mod tests {
     }
 
     #[test]
+    fn new_profile_rejects_traversing_name() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
+
+        assert!(repo.new_profile("../escape").is_err());
+    }
+
+    #[test]
     fn show_profile_renders_modules_first_and_libraries_after() {
         control::set_override(true);
 
