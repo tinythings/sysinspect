@@ -186,13 +186,19 @@ fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectE
     }
 
     if am.get_one::<String>("tag").is_some() || am.get_one::<String>("untag").is_some() {
-        if clidef::split_by(am, if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" }, None).is_empty() {
+        let arg_name = if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" };
+        let profiles = clidef::split_by(am, arg_name, None)
+            .into_iter()
+            .map(|profile| profile.trim().to_string())
+            .filter(|profile| !profile.is_empty())
+            .collect::<Vec<_>>();
+        if profiles.is_empty() {
             return Err(SysinspectError::InvalidQuery("Specify at least one profile name for --tag or --untag".to_string()));
         }
         return Ok(Some(
             json!({
-                "op": if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" },
-                "profiles": clidef::split_by(am, if am.get_one::<String>("tag").is_some() { "tag" } else { "untag" }, None),
+                "op": arg_name,
+                "profiles": profiles,
             })
             .to_string(),
         ));
