@@ -1,6 +1,8 @@
+//! Module repository index, profile index, and package metadata types.
+
 use anyhow::Context;
 use colored::Colorize;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use libcommon::SysinspectError;
 use libmodcore::modinit::{ModArgument, ModInterface, ModOption};
 use once_cell::sync::Lazy;
@@ -106,6 +108,205 @@ fn default_library_kind() -> String {
     "script".to_string()
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Indexed profile reference stored in `profiles.index`.
+pub struct ModPakProfileRef {
+    file: PathBuf,
+    checksum: String,
+}
+
+impl ModPakProfileRef {
+    /// Create a new indexed profile reference.
+    pub fn new(file: PathBuf, checksum: &str) -> Self {
+        Self { file, checksum: checksum.to_string() }
+    }
+
+    /// Return the stored profile filename.
+    pub fn file(&self) -> &PathBuf {
+        &self.file
+    }
+
+    /// Return the stored profile checksum.
+    pub fn checksum(&self) -> &str {
+        &self.checksum
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+/// One deployment profile file with its canonical name and selector lists.
+pub struct ModPakProfile {
+    name: String,
+    #[serde(default)]
+    modules: Vec<String>,
+    #[serde(default)]
+    libraries: Vec<String>,
+}
+
+impl ModPakProfile {
+    /// Create a new empty profile with the given canonical name.
+    pub fn new(name: &str) -> Self {
+        Self { name: name.to_string(), ..Default::default() }
+    }
+
+    /// Return the canonical profile name from the profile file.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Return the module selector list.
+    pub fn modules(&self) -> &[String] {
+        &self.modules
+    }
+
+    /// Return the library selector list.
+    pub fn libraries(&self) -> &[String] {
+        &self.libraries
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+/// Top-level `profiles.index` structure published by the master.
+pub struct ModPakProfilesIndex {
+    #[serde(default)]
+    profiles: IndexMap<String, ModPakProfileRef>,
+}
+
+impl ModPakProfilesIndex {
+    /// Create an empty profiles index.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return all indexed profiles.
+    pub fn profiles(&self) -> &IndexMap<String, ModPakProfileRef> {
+        &self.profiles
+    }
+
+    /// Return one indexed profile reference by canonical name.
+    pub fn get(&self, name: &str) -> Option<&ModPakProfileRef> {
+        self.profiles.get(name)
+    }
+
+    /// Insert or replace one indexed profile reference.
+    pub fn insert(&mut self, name: &str, file: PathBuf, checksum: &str) {
+        self.profiles.insert(name.to_string(), ModPakProfileRef::new(file, checksum));
+    }
+
+    /// Remove one indexed profile reference by canonical name.
+    pub fn remove(&mut self, name: &str) {
+        self.profiles.shift_remove(name);
+    }
+
+    /// Serialize the profiles index to YAML.
+    pub fn to_yaml(&self) -> Result<String, SysinspectError> {
+        Ok(serde_yaml::to_string(self)?)
+    }
+
+    /// Deserialize the profiles index from YAML.
+    pub fn from_yaml(yaml: &str) -> Result<Self, SysinspectError> {
+        Ok(serde_yaml::from_str(yaml)?)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+/// Aggregated repository view of one module across all matching platforms and architectures.
+pub struct ModPakRepoModuleView {
+    name: String,
+    os: Vec<String>,
+    arch: Vec<String>,
+    checksums: Vec<String>,
+}
+
+impl ModPakRepoModuleView {
+    /// Create an empty aggregated module view.
+    pub fn new(name: &str) -> Self {
+        Self { name: name.to_string(), ..Default::default() }
+    }
+
+    /// Return the module namespace name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Return the supported operating systems.
+    pub fn os(&self) -> &[String] {
+        &self.os
+    }
+
+    /// Return the supported architectures.
+    pub fn arch(&self) -> &[String] {
+        &self.arch
+    }
+
+    /// Return the checksums for the matched module variants.
+    pub fn checksums(&self) -> &[String] {
+        &self.checksums
+    }
+
+    /// Merge one platform, architecture, and checksum tuple into the aggregated view.
+    pub fn merge_variant(&mut self, os: &str, arch: &str, checksum: &str) {
+        if !self.os.contains(&os.to_string()) {
+            self.os.push(os.to_string());
+        }
+        if !self.arch.contains(&arch.to_string()) {
+            self.arch.push(arch.to_string());
+        }
+        if !self.checksums.contains(&checksum.to_string()) {
+            self.checksums.push(checksum.to_string());
+        }
+    }
+}
+
+impl ModPakProfile {
+    /// Deserialize one profile file from YAML.
+    pub fn from_yaml(yaml: &str) -> Result<Self, SysinspectError> {
+        Ok(serde_yaml::from_str(yaml)?)
+    }
+
+    /// Merge this profile's selectors into the effective deduplicated selector sets.
+    pub fn merge_into(&self, modules: &mut IndexSet<String>, libraries: &mut IndexSet<String>) {
+        for module in &self.modules {
+            modules.insert(module.to_string());
+        }
+        for library in &self.libraries {
+            libraries.insert(library.to_string());
+        }
+    }
+
+    /// Add module selectors, keeping insertion order and skipping duplicates.
+    pub fn add_modules(&mut self, modules: Vec<String>) {
+        for module in modules {
+            if !self.modules.contains(&module) {
+                self.modules.push(module);
+            }
+        }
+    }
+
+    /// Add library selectors, keeping insertion order and skipping duplicates.
+    pub fn add_libraries(&mut self, libraries: Vec<String>) {
+        for library in libraries {
+            if !self.libraries.contains(&library) {
+                self.libraries.push(library);
+            }
+        }
+    }
+
+    /// Remove matching module selectors.
+    pub fn remove_modules(&mut self, modules: Vec<String>) {
+        self.modules.retain(|module| !modules.contains(module));
+    }
+
+    /// Remove matching library selectors.
+    pub fn remove_libraries(&mut self, libraries: Vec<String>) {
+        self.libraries.retain(|library| !libraries.contains(library));
+    }
+
+    /// Serialize one profile file to YAML.
+    pub fn to_yaml(&self) -> Result<String, SysinspectError> {
+        Ok(serde_yaml::to_string(self)?)
+    }
+}
+
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModPakRepoIndex {
@@ -154,6 +355,10 @@ impl ModPakRepoIndex {
             Some("so" | "dylib" | "dll") => "binary".to_string(),
             _ => default_library_kind(),
         }
+    }
+
+    fn library_selector_matches(pattern: &glob::Pattern, name: &str) -> bool {
+        pattern.matches(name) || pattern.matches(&format!("lib/{name}")) || name.strip_prefix("lib/").is_some_and(|rel| pattern.matches(rel))
     }
 
     pub fn index_library(&mut self, p: &Path) -> Result<(), SysinspectError> {
@@ -256,6 +461,45 @@ impl ModPakRepoIndex {
             }
         }
         modules
+    }
+
+    /// Return a filtered repository view that keeps only artefacts matched by the given profile selectors.
+    pub fn retain_profiles(&self, modules: &IndexSet<String>, libraries: &IndexSet<String>) -> Self {
+        let mut index = Self::new();
+        for (platform, archset) in &self.platform {
+            for (arch, entries) in archset {
+                for (name, attrs) in entries.iter().filter(|(name, _)| modules.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name)))) {
+                    index
+                        .platform
+                        .entry(platform.to_string())
+                        .or_default()
+                        .entry(arch.to_string())
+                        .or_default()
+                        .insert(name.to_string(), attrs.clone());
+                }
+            }
+        }
+
+        for (name, entry) in &self.library {
+            if libraries.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| Self::library_selector_matches(&pattern, name))) {
+                index.library.insert(name.to_string(), entry.clone());
+            }
+        }
+
+        index
+    }
+
+    /// Return aggregated module views matched by the given selector patterns.
+    pub fn match_modules(&self, patterns: &[String]) -> Vec<ModPakRepoModuleView> {
+        let mut views = IndexMap::<String, ModPakRepoModuleView>::new();
+        for (platform, archset) in &self.platform {
+            for (arch, entries) in archset {
+                for (name, attrs) in entries.iter().filter(|(name, _)| patterns.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name)))) {
+                    views.entry(name.to_string()).or_insert_with(|| ModPakRepoModuleView::new(name)).merge_variant(platform, arch, attrs.checksum());
+                }
+            }
+        }
+        views.into_values().collect()
     }
 
     /// Returns the modules in the index. Optionally filtered by architecture and names.
@@ -401,6 +645,7 @@ impl ModPakMetadata {
         Ok(())
     }
 
+    /// Set the module architecture label.
     pub fn set_arch(&mut self, arch: &str) {
         self.arch = arch.to_string();
     }
@@ -425,6 +670,7 @@ impl ModPakMetadata {
         &self.options
     }
 
+    /// Return the repository subpath derived from the module namespace.
     pub fn get_subpath(&self) -> PathBuf {
         let p = self.get_name().trim_start_matches('.').trim_end_matches('.').to_string().replace('.', "/");
         if self.arch.eq("noarch") { PathBuf::from(format!("{p}.py")) } else { PathBuf::from(p) }
@@ -456,6 +702,7 @@ impl ModPakMetadata {
         }
     }
 
+    /// Build module metadata from the `sysinspect module -A` CLI arguments and optional sidecar spec.
     pub fn from_cli_matches(matches: &clap::ArgMatches) -> Result<Self, SysinspectError> {
         let mut mpm = ModPakMetadata::default();
 

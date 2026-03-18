@@ -3,6 +3,8 @@ Config reader
  */
 
 pub mod mmconf;
+#[cfg(test)]
+mod mmconf_ut;
 
 use libcommon::SysinspectError;
 use mmconf::MinionConfig;

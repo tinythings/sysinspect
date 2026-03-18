@@ -17,10 +17,13 @@ use libeventreg::{
     ipcs::DbIPCService,
     kvdb::{EventMinion, EventsRegistry},
 };
+use libmodpak::SysInspectModPak;
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
+    console::{ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key},
+    context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
-    util::{self, iofs::scan_files_sha256},
+    util::{self, iofs::scan_files_sha256, pad_visible},
 };
 use libsysproto::{
     self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
@@ -28,7 +31,7 @@ use libsysproto::{
     payload::{ModStatePayload, PingData},
     query::{
         SCHEME_COMMAND,
-        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
+        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
 };
@@ -37,15 +40,14 @@ use serde_json::json;
 use std::time::Duration as StdDuration;
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Weak},
     vec,
 };
 use tokio::net::TcpListener;
-use tokio::select;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, sleep};
-use tokio::{fs::OpenOptions, sync::Mutex};
+use tokio::sync::Mutex;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader},
     time,
@@ -54,6 +56,8 @@ use tokio::{
 // Session singleton
 pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
+const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 
 #[derive(Debug)]
 pub struct SysMaster {
@@ -105,17 +109,6 @@ impl SysMaster {
         })
     }
 
-    /// Open FIFO socket for command-line communication
-    fn open_socket(&self, path: &str) -> Result<(), SysinspectError> {
-        if !Path::new(path).exists() {
-            if unsafe { libc::mkfifo(std::ffi::CString::new(path)?.as_ptr(), 0o600) } != 0 {
-                return Err(SysinspectError::ConfigError(format!("{}", std::io::Error::last_os_error())));
-            }
-            log::info!("Socket opened at {path}");
-        }
-        Ok(())
-    }
-
     /// Parse minion request
     fn to_request(&self, data: &str) -> Option<MinionMessage> {
         match serde_json::from_str::<MinionMessage>(data) {
@@ -133,7 +126,8 @@ impl SysMaster {
     /// Start sysmaster
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
         log::info!("Starting master at {}", self.cfg.bind_addr());
-        self.open_socket(&self.cfg.socket())?;
+        ensure_console_keypair(&self.cfg.root_dir())?;
+        std::fs::create_dir_all(self.cfg.console_keys_root()).map_err(SysinspectError::IoErr)?;
         self.vmcluster.init().await?;
         Ok(())
     }
@@ -241,84 +235,88 @@ impl SysMaster {
     pub(crate) async fn msg_query(&mut self, payload: &str) -> Option<MasterMessage> {
         let query = payload.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
         if let [querypath, query, traits, mid, context] = query.as_slice() {
-            let is_virtual = query.to_lowercase().starts_with("v:");
-            let query = query.to_lowercase().replace("v:", "");
-
-            log::debug!("Context: {context}");
-
-            let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
-            let mut tgt = MinionTarget::new(mid, "");
-            tgt.set_scheme(querypath);
-            tgt.set_context_query(context);
-
-            log::debug!(
-                "Querying minions for: {}, traits: {}, is virtual: {}",
-                query.bright_yellow(),
-                traits.bright_yellow(),
-                if is_virtual { "yes".bright_green() } else { "no".bright_red() }
-            );
-
-            let mut targeted = false;
-            if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
-                for hostname in decided.iter() {
-                    log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
-                    tgt.add_hostname(hostname);
-                    if !targeted {
-                        targeted = true;
-                    }
-                }
-            } else if !is_virtual {
-                for hostname in hostnames.iter() {
-                    tgt.add_hostname(hostname);
-                    if !targeted {
-                        targeted = true;
-                    }
-                }
-                tgt.set_traits_query(traits);
-            }
-
-            if !targeted {
-                log::warn!(
-                    "No suitable {}minion found for the query: {}, traits query: {}, context: {}",
-                    if is_virtual { "virtual " } else { "" },
-                    if query.is_empty() { "<N/A>".red() } else { query.bright_yellow() },
-                    if traits.is_empty() { "<N/A>".red() } else { traits.bright_yellow() },
-                    if context.is_empty() { "<N/A>".red() } else { context.bright_yellow() }
-                );
-                return None;
-            }
-            log::debug!("Target: {:#?}", tgt);
-
-            let mut out: IndexMap<String, String> = IndexMap::default();
-            for em in self.cfg.fileserver_models() {
-                for (n, cs) in scan_files_sha256(self.cfg.fileserver_models_root(false).join(em), Some(MODEL_FILE_EXT)) {
-                    out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_models_root(false).file_name().unwrap().to_str().unwrap()), cs);
-                }
-            }
-
-            let mut payload = String::from("");
-            if tgt.scheme().eq(SCHEME_COMMAND) {
-                payload = query.to_owned();
-            }
-
-            let mut msg = MasterMessage::new(
-                RequestType::Command,
-                json!(
-                    ModStatePayload::new(payload)
-                        .set_uri(querypath.to_string())
-                        .add_files(out)
-                        .set_models_root(self.cfg.fileserver_models_root(true).to_str().unwrap_or_default())
-                ), // TODO: SID part
-            );
-            msg.set_target(tgt);
-            msg.set_retcode(ProtoErrorCode::Success);
-
-            log::debug!("Constructed message: {:#?}", msg);
-
-            return Some(msg);
+            return self.msg_query_data(querypath, query, traits, mid, context).await;
         }
 
         None
+    }
+
+    async fn msg_query_data(&mut self, querypath: &str, query: &str, traits: &str, mid: &str, context: &str) -> Option<MasterMessage> {
+        let is_virtual = query.to_lowercase().starts_with("v:");
+        let query = query.to_lowercase().replace("v:", "");
+
+        log::debug!("Context: {context}");
+
+        let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
+        let mut tgt = MinionTarget::new(mid, "");
+        tgt.set_scheme(querypath);
+        tgt.set_context_query(context);
+
+        log::debug!(
+            "Querying minions for: {}, traits: {}, is virtual: {}",
+            query.bright_yellow(),
+            traits.bright_yellow(),
+            if is_virtual { "yes".bright_green() } else { "no".bright_red() }
+        );
+
+        let mut targeted = false;
+        if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
+            for hostname in decided.iter() {
+                log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
+                tgt.add_hostname(hostname);
+                if !targeted {
+                    targeted = true;
+                }
+            }
+        } else if !is_virtual {
+            for hostname in hostnames.iter() {
+                tgt.add_hostname(hostname);
+                if !targeted {
+                    targeted = true;
+                }
+            }
+            tgt.set_traits_query(traits);
+        }
+
+        if !targeted {
+            log::warn!(
+                "No suitable {}minion found for the query: {}, traits query: {}, context: {}",
+                if is_virtual { "virtual " } else { "" },
+                if query.is_empty() { "<N/A>".red() } else { query.bright_yellow() },
+                if traits.is_empty() { "<N/A>".red() } else { traits.bright_yellow() },
+                if context.is_empty() { "<N/A>".red() } else { context.bright_yellow() }
+            );
+            return None;
+        }
+        log::debug!("Target: {:#?}", tgt);
+
+        let mut out: IndexMap<String, String> = IndexMap::default();
+        for em in self.cfg.fileserver_models() {
+            for (n, cs) in scan_files_sha256(self.cfg.fileserver_models_root(false).join(em), Some(MODEL_FILE_EXT)) {
+                out.insert(format!("/{}/{em}/{n}", self.cfg.fileserver_models_root(false).file_name().unwrap().to_str().unwrap()), cs);
+            }
+        }
+
+        let mut payload = String::new();
+        if tgt.scheme().eq(SCHEME_COMMAND) {
+            payload = query.to_owned();
+        }
+
+        let mut msg = MasterMessage::new(
+            RequestType::Command,
+            json!(
+                ModStatePayload::new(payload)
+                    .set_uri(querypath.to_string())
+                    .add_files(out)
+                    .set_models_root(self.cfg.fileserver_models_root(true).to_str().unwrap_or_default())
+            ),
+        );
+        msg.set_target(tgt);
+        msg.set_retcode(ProtoErrorCode::Success);
+
+        log::debug!("Constructed message: {:#?}", msg);
+
+        Some(msg)
     }
 
     fn msg_sensors_files(&mut self) -> MasterMessage {
@@ -735,58 +733,402 @@ impl SysMaster {
         }
     }
 
-    pub async fn do_fifo(master: Arc<Mutex<Self>>) {
-        log::trace!("Init local command channel");
-        tokio::spawn({
-            let master = Arc::clone(&master); // Don't move master into the closure multiple times.
-            async move {
-                // Only lock to get broadcast and cfg, then drop immediately.
-                let (cfg, bcast) = {
-                    let master = master.lock().await;
-                    (master.cfg(), master.broadcast().clone())
-                };
-                loop {
-                    match OpenOptions::new().read(true).open(cfg.socket()).await {
-                        Ok(file) => {
-                            let reader = TokioBufReader::new(file);
-                            let mut lines = reader.lines();
+    /// Build the formatted online-minion summary returned by the console `--online` command.
+    async fn online_minions_summary(&mut self) -> Result<String, SysinspectError> {
+        let mreg = self.mreg.lock().await;
+        let mut session = self.session.lock().await;
+        let ids = mreg.get_registered_ids()?;
+        let mut rows: Vec<(String, String, String, String, String, String)> = vec![];
 
-                            loop {
-                                select! {
-                                    line = lines.next_line() => {
-                                        match line {
-                                            Ok(Some(payload)) => {
-                                                log::debug!("Querying minions: {payload}");
-                                                let msg = {
-                                                    let mut guard = master.lock().await;
-                                                    guard.msg_query(&payload).await
-                                                };
+        for mid in &ids {
+            let alive = session.alive(mid);
+            let traits = match mreg.get(mid) {
+                Ok(Some(mrec)) => mrec.get_traits().to_owned(),
+                _ => HashMap::new(),
+            };
+            let mut h = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown");
+            if h.is_empty() {
+                h = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
+            }
+            let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let mid_short = if mid.chars().count() > 8 {
+                format!("{}...{}", &mid[..4], &mid[mid.len() - 4..])
+            } else {
+                mid.to_string()
+            };
+            rows.push((
+                h.to_string(),
+                if alive { h.bright_green().to_string() } else { h.red().to_string() },
+                ip.to_string(),
+                if alive { ip.bright_blue().to_string() } else { ip.blue().to_string() },
+                mid_short.clone(),
+                if alive { mid_short.bright_green().to_string() } else { mid_short.green().to_string() },
+            ));
+        }
 
-                                                if msg.is_none() {
-                                                    log::warn!("No message constructed for the query: {}", payload.bright_yellow());
-                                                    continue;
-                                                }
+        let host_width = rows.iter().map(|r| r.0.chars().count()).max().unwrap_or(4).max("HOST".chars().count());
+        let ip_width = rows.iter().map(|r| r.2.chars().count()).max().unwrap_or(2).max("IP".chars().count());
+        let id_width = rows.iter().map(|r| r.4.chars().count()).max().unwrap_or(2).max("ID".chars().count());
 
-                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), msg.clone()).await;
-                                                {
-                                                    let guard = master.lock().await;
-                                                    let ids = guard.mreg.lock().await.get_targeted_minions(msg.as_ref().unwrap().target(), false).await;
-                                                    guard.taskreg.lock().await.register(msg.as_ref().unwrap().cycle(), ids);
-                                                }
-                                            }
-                                            Ok(None) => break, // End of file, re-open the FIFO
-                                            Err(e) => {
-                                                log::error!("Error reading from FIFO: {e}");
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
+        let mut out = vec![
+            format!(
+                "{}  {}  {}",
+                pad_visible(&"HOST".bright_yellow().to_string(), host_width),
+                pad_visible(&"IP".bright_yellow().to_string(), ip_width),
+                pad_visible(&"ID".bright_yellow().to_string(), id_width),
+            ),
+            format!("{}  {}  {}", "─".repeat(host_width), "─".repeat(ip_width), "─".repeat(id_width)),
+        ];
+
+        for (_, host, _, ip, _, mid) in rows {
+            out.push(format!(
+                "{}  {}  {}",
+                pad_visible(&host, host_width),
+                pad_visible(&ip, ip_width),
+                pad_visible(&mid, id_width),
+            ));
+        }
+
+        Ok(out.join("\n"))
+    }
+
+    /// Resolve target minions for console profile operations from id, traits query, or hostname query.
+    async fn selected_minions(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<crate::registry::rec::MinionRecord>, SysinspectError> {
+        let mut records = if !mid.is_empty() {
+            self.mreg.lock().await.get(mid)?.into_iter().collect::<Vec<_>>()
+        } else if !traits.trim().is_empty() {
+            let traits = get_context(traits)
+                .ok_or_else(|| SysinspectError::InvalidQuery("Traits selector must be in key:value format".to_string()))?
+                .into_iter()
+                .collect::<HashMap<_, _>>();
+            self.mreg
+                .lock()
+                .await
+                .get_by_traits(traits)?
+        } else {
+            self.mreg.lock().await.get_by_query(if query.trim().is_empty() { "*" } else { query })?
+        };
+        records.sort_by(|a, b| a.id().cmp(b.id()));
+        Ok(records)
+    }
+
+    /// Execute one profile console request and return its console response plus any outbound master messages to broadcast.
+    async fn profile_console_response(
+        &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
+    ) -> Result<(ConsoleResponse, Vec<MasterMessage>), SysinspectError> {
+        fn require_profile_name(request: &ProfileConsoleRequest) -> Result<(), SysinspectError> {
+            if !request.name().trim().is_empty() {
+                return Ok(());
+            }
+
+            Err(SysinspectError::InvalidQuery("Profile name cannot be empty".to_string()))
+        }
+
+        let repo = SysInspectModPak::new(self.cfg.get_mod_repo_root())?;
+
+        match request.op() {
+            "new" => Ok((
+                {
+                    require_profile_name(request)?;
+                    repo.new_profile(request.name())?;
+                    ConsoleResponse { ok: true, message: format!("Created profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "delete" => Ok((
+                {
+                    require_profile_name(request)?;
+                    repo.delete_profile(request.name())?;
+                    ConsoleResponse { ok: true, message: format!("Deleted profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "list" => Ok((
+                ConsoleResponse {
+                    ok: true,
+                    message: if request.name().is_empty() {
+                        repo.list_profiles(None)?.join("\n")
+                    } else {
+                        repo.list_profile_matches(Some(request.name()), request.library())?.join("\n")
+                    },
+                },
+                vec![],
+            )),
+            "show" => Ok((
+                {
+                    require_profile_name(request)?;
+                    ConsoleResponse { ok: true, message: repo.show_profile(request.name())? }
+                },
+                vec![],
+            )),
+            "add" => Ok((
+                {
+                    require_profile_name(request)?;
+                    repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
+                    ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "remove" => Ok((
+                {
+                    require_profile_name(request)?;
+                    repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
+                    ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
+                },
+                vec![],
+            )),
+            "tag" | "untag" => {
+                let known_profiles = repo.list_profiles(None)?;
+                let missing = request.profiles().iter().filter(|name| !known_profiles.contains(name)).cloned().collect::<Vec<_>>();
+                if !missing.is_empty() {
+                    return Ok((
+                        ConsoleResponse {
+                            ok: false,
+                            message: format!("Unknown profile{}: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ").bright_yellow()),
+                        },
+                        vec![],
+                    ));
+                }
+
+                let mut msgs = Vec::new();
+                for minion in self.selected_minions(query, traits, mid).await? {
+                    let mut profiles = match minion.get_traits().get("minion.profile") {
+                        Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name.to_string()],
+                        Some(serde_json::Value::Array(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>(),
+                        _ => vec![],
+                    };
+                    profiles.retain(|profile| profile != "default");
+                    if request.op() == "tag" {
+                        for profile in request.profiles() {
+                            if !profiles.contains(profile) {
+                                profiles.push(profile.to_string());
                             }
                         }
-                        Err(e) => {
-                            log::error!("Failed to open FIFO: {e}");
-                            sleep(Duration::from_secs(1)).await; // Retry after a sec
+                    } else {
+                        profiles.retain(|profile| !request.profiles().contains(profile));
+                    }
+                    if let Some(msg) = self
+                        .msg_query_data(
+                            &format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}"),
+                            "",
+                            "",
+                            minion.id(),
+                            &if profiles.is_empty() {
+                                json!({"op": "unset", "traits": {"minion.profile": null}})
+                            } else {
+                                json!({"op": "set", "traits": {"minion.profile": profiles}})
+                            }
+                            .to_string(),
+                        )
+                        .await
+                    {
+                        msgs.push(msg);
+                    }
+                }
+
+                Ok((
+                    ConsoleResponse {
+                        ok: true,
+                        message: format!(
+                            "{} {} on {} minion{}",
+                            if request.op() == "tag" { "Applied profiles" } else { "Removed profiles" },
+                            request.profiles().join(", ").bright_yellow(),
+                            msgs.len(),
+                            if msgs.len() == 1 { "" } else { "s" }
+                        ),
+                    },
+                    msgs,
+                ))
+            }
+            _ => Ok((
+                ConsoleResponse { ok: false, message: format!("Unsupported profile operation {}", request.op().bright_yellow()) },
+                vec![],
+            )),
+        }
+    }
+
+    /// Start the encrypted TCP console listener used by `sysinspect` to talk to the master.
+    pub async fn do_console(master: Arc<Mutex<Self>>) {
+        log::trace!("Init local console channel");
+        tokio::spawn({
+            let master = Arc::clone(&master);
+            async move {
+                let (cfg, bcast) = {
+                    let guard = master.lock().await;
+                    (guard.cfg(), guard.broadcast().clone())
+                };
+                let master_prk = match load_master_private_key(&cfg) {
+                    Ok(prk) => prk,
+                    Err(err) => {
+                        log::error!("Failed to load console private key: {err}");
+                        return;
+                    }
+                };
+                let listener = match TcpListener::bind(cfg.console_listen_addr()).await {
+                    Ok(listener) => listener,
+                    Err(err) => {
+                        log::error!("Failed to bind console listener: {err}");
+                        return;
+                    }
+                };
+                loop {
+                    match listener.accept().await {
+                        Ok((stream, peer)) => {
+                            let master = Arc::clone(&master);
+                            let cfg = cfg.clone();
+                            let bcast = bcast.clone();
+                            let master_prk = master_prk.clone();
+                            tokio::spawn(async move {
+                                let (read_half, mut write_half) = stream.into_split();
+                                let reader = TokioBufReader::new(read_half);
+                                let mut frame = Vec::new();
+                                let mut reader = reader.take((MAX_CONSOLE_FRAME_SIZE + 1) as u64);
+                                let reply = match time::timeout(CONSOLE_READ_TIMEOUT, reader.read_until(b'\n', &mut frame)).await {
+                                    Err(_) => serde_json::to_string(&ConsoleResponse {
+                                        ok: false,
+                                        message: format!("Console request timed out after {} seconds", CONSOLE_READ_TIMEOUT.as_secs()),
+                                    })
+                                    .ok(),
+                                    Ok(Ok(0)) => {
+                                        serde_json::to_string(&ConsoleResponse { ok: false, message: "Empty console request".to_string() }).ok()
+                                    }
+                                    Ok(Ok(_)) if frame.len() > MAX_CONSOLE_FRAME_SIZE || !frame.ends_with(b"\n") => {
+                                        serde_json::to_string(&ConsoleResponse {
+                                            ok: false,
+                                            message: format!("Console request exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE),
+                                        })
+                                        .ok()
+                                    }
+                                    Ok(Ok(_)) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
+                                        Ok(line) => match serde_json::from_str::<ConsoleEnvelope>(&line) {
+                                            Ok(envelope) => {
+                                                if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
+                                                    serde_json::to_string(&ConsoleResponse {
+                                                        ok: false,
+                                                        message: "Console client key is not authorised".to_string(),
+                                                    })
+                                                    .ok()
+                                                } else {
+                                                    match envelope.bootstrap.session_key(&master_prk) {
+                                                        Ok((key, _client_pkey)) => {
+                                                            let response = match envelope.sealed.open::<ConsoleQuery>(&key) {
+                                                                Ok(query) => {
+                                                                    if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}")) {
+                                                                        match master.lock().await.online_minions_summary().await {
+                                                                            Ok(summary) => ConsoleResponse { ok: true, message: summary },
+                                                                            Err(err) => ConsoleResponse {
+                                                                                ok: false,
+                                                                                message: format!("Unable to get online minions: {err}"),
+                                                                            },
+                                                                        }
+                                                                    } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
+                                                                        let (response, msgs) = match ProfileConsoleRequest::from_context(&query.context) {
+                                                                            Ok(request) => {
+                                                                                let mut guard = master.lock().await;
+                                                                                match guard.profile_console_response(&request, &query.query, &query.traits, &query.mid).await {
+                                                                                    Ok(data) => data,
+                                                                                    Err(err) => (ConsoleResponse { ok: false, message: err.to_string() }, vec![]),
+                                                                                }
+                                                                            }
+                                                                            Err(err) => (
+                                                                                ConsoleResponse {
+                                                                                    ok: false,
+                                                                                    message: format!("Failed to parse profile request: {err}"),
+                                                                                },
+                                                                                vec![],
+                                                                            ),
+                                                                        };
+                                                                        for msg in msgs {
+                                                                            SysMaster::bcast_master_msg(
+                                                                                &bcast,
+                                                                                cfg.telemetry_enabled(),
+                                                                                Arc::clone(&master),
+                                                                                Some(msg.clone()),
+                                                                            )
+                                                                            .await;
+                                                                            let guard = master.lock().await;
+                                                                            let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
+                                                                        }
+                                                                        response
+                                                                    } else {
+                                                                        let msg = {
+                                                                            let mut guard = master.lock().await;
+                                                                            guard.msg_query_data(&query.model, &query.query, &query.traits, &query.mid, &query.context).await
+                                                                        };
+                                                                        if let Some(msg) = msg {
+                                                                            SysMaster::bcast_master_msg(
+                                                                                &bcast,
+                                                                                cfg.telemetry_enabled(),
+                                                                                Arc::clone(&master),
+                                                                                Some(msg.clone()),
+                                                                            )
+                                                                            .await;
+                                                                            let guard = master.lock().await;
+                                                                            let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
+                                                                            ConsoleResponse { ok: true, message: format!("Accepted console command from {peer}") }
+                                                                        } else {
+                                                                            ConsoleResponse {
+                                                                                ok: false,
+                                                                                message: "No message constructed for the console query".to_string(),
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Err(err) => ConsoleResponse {
+                                                                    ok: false,
+                                                                    message: format!("Failed to open console query: {err}"),
+                                                                },
+                                                            };
+                                                            match ConsoleSealed::seal(&response, &key).and_then(|sealed| {
+                                                                serde_json::to_string(&sealed)
+                                                                    .map_err(|e| SysinspectError::SerializationError(e.to_string()))
+                                                            }) {
+                                                                Ok(reply) => Some(reply),
+                                                                Err(err) => {
+                                                                    log::error!("Failed to seal console response: {err}");
+                                                                    serde_json::to_string(&ConsoleResponse {
+                                                                        ok: false,
+                                                                        message: format!("Failed to seal console response: {err}"),
+                                                                    })
+                                                                    .ok()
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(err) => serde_json::to_string(&ConsoleResponse {
+                                                            ok: false,
+                                                            message: format!("Console bootstrap failed: {err}"),
+                                                        })
+                                                        .ok(),
+                                                    }
+                                                }
+                                            }
+                                            Err(err) => {
+                                                serde_json::to_string(&ConsoleResponse {
+                                                    ok: false,
+                                                    message: format!("Failed to parse console request: {err}"),
+                                                })
+                                                .ok()
+                                            }
+                                        },
+                                        Err(err) => {
+                                            serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console request is not valid UTF-8: {err}") }).ok()
+                                        }
+                                    },
+                                    Ok(Err(err)) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to read console request: {err}") }).ok(),
+                                };
+
+                                if let Some(reply) = reply
+                                    && let Err(err) = write_half.write_all(format!("{reply}\n").as_bytes()).await
+                                {
+                                    log::error!("Failed to write console response: {err}");
+                                }
+                            });
+                        }
+                        Err(err) => {
+                            log::error!("Console listener accept error: {err}");
+                            sleep(Duration::from_secs(1)).await;
                         }
                     }
                 }
@@ -1006,9 +1348,8 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     let scheduler = SysMaster::do_scheduler_service(Arc::clone(&master)).await;
     libtelemetry::init_otel_collector(cfg).await?;
 
-    // Task to read from the FIFO and broadcast messages to clients
-    SysMaster::do_fifo(Arc::clone(&master)).await;
-    log::info!("Local command channel initialized");
+    SysMaster::do_console(Arc::clone(&master)).await;
+    log::info!("Local console channel initialized");
 
     // Handle incoming messages from minions
     SysMaster::do_incoming(Arc::clone(&master), client_rx).await;

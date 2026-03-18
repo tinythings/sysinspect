@@ -21,6 +21,9 @@ pub static DEFAULT_FILESERVER_PORT: u32 = 4201;
 /// Default API port for the web API
 pub static DEFAULT_API_PORT: u32 = 4202;
 
+/// Default port for the local console/control endpoint on the master
+pub static DEFAULT_CONSOLE_PORT: u32 = 4203;
+
 // Default directories
 // --------------------
 
@@ -98,11 +101,15 @@ pub static CFG_TRAIT_FUNCTIONS_ROOT: &str = "functions";
 
 /// Directory within the `DEFAULT_MODULES_SHARELIB` for sensors
 pub static CFG_SENSORS_ROOT: &str = "sensors";
+pub static CFG_PROFILES_ROOT: &str = "profiles";
 
 // Key names
 // ---------
 pub static CFG_MASTER_KEY_PUB: &str = "master.rsa.pub";
 pub static CFG_MASTER_KEY_PRI: &str = "master.rsa";
+pub static CFG_CONSOLE_KEY_PUB: &str = "console.rsa.pub";
+pub static CFG_CONSOLE_KEY_PRI: &str = "console.rsa";
+pub static CFG_CONSOLE_KEYS: &str = "console-keys";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
 pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
 
@@ -247,7 +254,7 @@ impl TelemetryConfig {
             ("service.namespace", CFG_OTLP_SERVICE_NAME),
             ("service.version", CFG_OTLP_SERVICE_VERSION),
             ("host.name", sysinfo::System::host_name().unwrap_or_default().as_str()),
-            ("os.type", sysinfo::System::distribution_id().as_str()),
+            ("os.type", crate::traits::current_os_type()),
             ("deployment.environment", "production"),
             ("os.version", sysinfo::System::kernel_version().unwrap_or_default().as_str()),
         ] {
@@ -459,6 +466,11 @@ impl MinionConfig {
         self.root = Some(dir.to_string());
     }
 
+    /// Set master fileserver port
+    pub fn set_master_fileserver_port(&mut self, port: u32) {
+        self.master_fileserver_port = Some(port);
+    }
+
     /// Set sharelib path
     pub fn set_sharelib_path(&mut self, p: &str) {
         self.sharelib_path = Some(p.to_string());
@@ -506,6 +518,11 @@ impl MinionConfig {
     /// Get root directory for sensors config
     pub fn sensors_dir(&self) -> PathBuf {
         self.root_dir().join(CFG_SENSORS_ROOT)
+    }
+
+    /// Get root directory for synced deployment profiles
+    pub fn profiles_dir(&self) -> PathBuf {
+        self.root_dir().join(CFG_PROFILES_ROOT)
     }
 
     /// Return machine Id path
@@ -747,6 +764,12 @@ pub struct MasterConfig {
     // Path to FIFO socket. Default: /var/run/sysinspect-master.socket
     socket: Option<String>,
 
+    #[serde(rename = "console.bind.ip")]
+    console_ip: Option<String>,
+
+    #[serde(rename = "console.bind.port")]
+    console_port: Option<u32>,
+
     #[serde(rename = "fileserver.bind.ip")]
     fsr_ip: Option<String>,
 
@@ -913,6 +936,28 @@ impl MasterConfig {
         self.socket.to_owned().unwrap_or(DEFAULT_SOCKET.to_string())
     }
 
+    /// Return console listener address for `sysmaster`.
+    pub fn console_listen_addr(&self) -> String {
+        format!(
+            "{}:{}",
+            self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()),
+            self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
+        )
+    }
+
+    /// Return console connect address for `sysinspect`.
+    ///
+    /// If the console listener is configured as `0.0.0.0`, clients still
+    /// connect through loopback.
+    pub fn console_connect_addr(&self) -> String {
+        format!(
+            "{}:{}",
+            if self.console_ip.as_deref() == Some("0.0.0.0") { "127.0.0.1".to_string() } else { self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()) },
+            self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
+        )
+    }
+
+
     /// Get API enabled status (default: true)
     pub fn api_enabled(&self) -> bool {
         self.api_enabled.unwrap_or(true)
@@ -994,6 +1039,11 @@ impl MasterConfig {
         }
     }
 
+    /// Get deployment profiles root on the fileserver
+    pub fn fileserver_profiles_root(&self) -> PathBuf {
+        self.fileserver_root().join(CFG_PROFILES_ROOT)
+    }
+
     /// Get default sysinspect root. For master it is always /etc/sysinspect
     pub fn root_dir(&self) -> PathBuf {
         PathBuf::from(DEFAULT_SYSINSPECT_ROOT.to_string())
@@ -1011,6 +1061,18 @@ impl MasterConfig {
 
     pub fn api_keys_root(&self) -> PathBuf {
         self.root_dir().join(CFG_API_KEYS)
+    }
+
+    pub fn console_keys_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_CONSOLE_KEYS)
+    }
+
+    pub fn console_privkey(&self) -> PathBuf {
+        self.root_dir().join(CFG_CONSOLE_KEY_PRI)
+    }
+
+    pub fn console_pubkey(&self) -> PathBuf {
+        self.root_dir().join(CFG_CONSOLE_KEY_PUB)
     }
 
     /// Return a pidfile. Either from config or default.

@@ -34,7 +34,7 @@ use libsysinspect::{
         fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     },
     rsa,
-    traits::{self},
+    traits::{self, TraitUpdateRequest, effective_profiles, ensure_master_traits_file, systraits::SystemTraits},
     util::{self, dataconv},
 };
 use libsysproto::{
@@ -43,7 +43,7 @@ use libsysproto::{
     payload::{ModStatePayload, PayloadType},
     query::{
         MinionQuery, SCHEME_COMMAND,
-        commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC},
+        commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoValue, RequestType},
 };
@@ -171,6 +171,7 @@ impl SysMinion {
             log::debug!("Creating directory for the drop-in traits at {}", self.cfg.traits_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.traits_dir())?;
         }
+        ensure_master_traits_file(&self.cfg)?;
 
         // Place for trait functions
         if !self.cfg.functions_dir().exists() {
@@ -184,11 +185,22 @@ impl SysMinion {
             fs::create_dir_all(self.cfg.sensors_dir())?;
         }
 
+        if !self.cfg.profiles_dir().exists() {
+            log::debug!("Creating directory for the synced profiles at {}", self.cfg.profiles_dir().as_os_str().to_str().unwrap_or_default());
+            fs::create_dir_all(self.cfg.profiles_dir())?;
+        }
+
         let mut out: Vec<String> = vec![];
         for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
+        let profiles = effective_profiles(&self.cfg);
+        log::info!(
+            "{} {}",
+            if profiles.len() == 1 { "Activating profile" } else { "Activating profiles" },
+            profiles.iter().map(|name| name.bright_yellow().to_string()).collect::<Vec<String>>().join(", ")
+        );
 
         Ok(())
     }
@@ -487,7 +499,7 @@ impl SysMinion {
                                 let scheme = msg.target().scheme().to_string();
 
                                 if scheme.starts_with(SCHEME_COMMAND) {
-                                    this.as_ptr().call_internal_command(&scheme).await;
+                                    this.as_ptr().call_internal_command(&scheme, msg.target().context()).await;
                                     continue;
                                 }
 
@@ -621,7 +633,8 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, traits::get_minion_traits(None).to_json_value()?);
+        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_json_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -633,10 +646,11 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
+        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
         let mut r = MinionMessage::new(
-            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            dataconv::as_str(fresh_traits.get(traits::SYS_ID)),
             RequestType::Ehlo,
-            traits::get_minion_traits(None).to_json_value()?,
+            fresh_traits.to_json_value()?,
         );
         r.set_sid(MINION_SID.to_string());
 
@@ -823,7 +837,7 @@ impl SysMinion {
     }
 
     /// Calls internal command
-    async fn call_internal_command(self: Arc<Self>, cmd: &str) {
+    async fn call_internal_command(self: Arc<Self>, cmd: &str, context: &str) {
         let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
         match cmd {
             CLUSTER_SHUTDOWN => {
@@ -843,10 +857,48 @@ impl SysMinion {
             }
             CLUSTER_SYNC => {
                 log::info!("Syncing the minion with the master");
+                if let Err(e) = ensure_master_traits_file(&self.cfg) {
+                    log::error!("Failed to ensure master-managed traits file: {e}");
+                }
                 if let Err(e) = SysInspectModPakMinion::new(self.cfg.clone()).sync().await {
                     log::error!("Failed to sync minion with master: {e}");
                 }
+                if let Err(e) = self.as_ptr().send_traits().await {
+                    log::error!("Failed to sync traits with master: {e}");
+                }
                 let _ = self.as_ptr().send_sensors_sync().await;
+            }
+            CLUSTER_TRAITS_UPDATE => {
+                match TraitUpdateRequest::from_context(context) {
+                    Ok(update) => match update.apply(&self.cfg) {
+                        Ok(_) => {
+                            let summary = if update.op() == "reset" {
+                                "all master-managed traits".bright_yellow().to_string()
+                            } else if update.op() == "unset" {
+                                update.traits().keys().map(|key| key.yellow().to_string()).collect::<Vec<String>>().join(", ")
+                            } else {
+                                update
+                                    .traits()
+                                    .iter()
+                                    .map(|(key, value)| format!("{}: {}", key.yellow(), dataconv::to_string(Some(value.clone())).unwrap_or_default().bright_yellow()))
+                                    .collect::<Vec<String>>()
+                                    .join(", ")
+                            };
+                            let label = match update.op() {
+                                "set" => "Set traits",
+                                "unset" => "Unset traits",
+                                "reset" => "Reset traits",
+                                _ => "Updated traits",
+                            };
+                            log::info!("{}: {}", label, summary);
+                            if let Err(err) = self.as_ptr().send_traits().await {
+                                log::error!("Failed to sync traits with master: {err}");
+                            }
+                        }
+                        Err(err) => log::error!("Failed to apply traits update: {err}"),
+                    },
+                    Err(err) => log::error!("Failed to parse traits update payload: {err}"),
+                }
             }
             _ => {
                 log::warn!("Unknown command: {cmd}");
@@ -917,7 +969,7 @@ impl SysMinion {
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
                 if cmd.target().scheme().starts_with(SCHEME_COMMAND) {
-                    self.as_ptr().call_internal_command(cmd.target().scheme()).await;
+                    self.as_ptr().call_internal_command(cmd.target().scheme(), cmd.target().context()).await;
                 } else {
                     self.as_ptr().launch_sysinspect(cmd.cycle(), cmd.target().scheme(), &pld, cmd.target().context()).await;
                     log::debug!("Command dispatched");

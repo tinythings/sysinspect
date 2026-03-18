@@ -1,4 +1,5 @@
 pub mod cfg;
+pub mod console;
 pub mod context;
 pub mod inspector;
 pub mod intp;

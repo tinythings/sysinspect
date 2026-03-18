@@ -47,6 +47,7 @@ welcome—see the section on contributing for how to get involved.
    tutorial/checkbook_tutor
    tutorial/action_chain_tutor
    tutorial/module_management
+   tutorial/profiles_tutor
    tutorial/wasm_modules_tutor
    tutorial/lua_modules_tutor
    tutorial/menotify_tutor

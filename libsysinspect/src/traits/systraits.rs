@@ -1,8 +1,8 @@
 use crate::{
     cfg::mmconf::MinionConfig,
     traits::{
-        HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, SYS_ID, SYS_NET_HOSTNAME, SYS_NET_HOSTNAME_FQDN,
-        SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+        HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, MASTER_TRAITS_FILE, SYS_ID, SYS_NET_HOSTNAME,
+        SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
     },
     util::sys::to_fqdn_ip,
 };
@@ -148,11 +148,8 @@ impl SystemTraits {
             self.put(SYS_OS_VERSION.to_string(), json!(v));
         }
 
-        if let Some(v) = sysinfo::System::name() {
-            self.put(SYS_OS_NAME.to_string(), json!(v));
-        }
-
-        self.put(SYS_OS_DISTRO.to_string(), json!(sysinfo::System::distribution_id()));
+        self.put(SYS_OS_NAME.to_string(), json!(super::os_display_name(super::current_os_type())));
+        self.put(SYS_OS_DISTRO.to_string(), json!(super::current_os_type()));
 
         // Machine Id (not always there)
         let mut mid = String::default();
@@ -196,38 +193,50 @@ impl SystemTraits {
             log::info!("Loading defined/custom traits");
         }
 
-        for f in fs::read_dir(self.cfg.traits_dir())?.flatten() {
+        let mut files = fs::read_dir(self.cfg.traits_dir())?
+            .flatten()
+            .filter(|f| f.file_name().to_str().unwrap_or_default().ends_with(".cfg"))
+            .collect::<Vec<_>>();
+        files.sort_by_key(|f| {
+            let name = f.file_name().to_str().unwrap_or_default().to_string();
+            (name == MASTER_TRAITS_FILE, name)
+        });
+
+        for f in files {
             let fname = f.file_name();
             let fname = fname.to_str().unwrap_or_default();
-            if fname.ends_with(".cfg") {
-                let content = Self::proxy_log_error(fs::read_to_string(f.path()), format!("Unable to read custom trait file at {fname}").as_str())
-                    .unwrap_or_default();
+            let content = Self::proxy_log_error(fs::read_to_string(f.path()), format!("Unable to read custom trait file at {fname}").as_str())
+                .unwrap_or_default();
 
-                if content.is_empty() {
-                    continue;
+            if content.is_empty() {
+                continue;
+            }
+
+            let content: Option<serde_yaml::Value> = Self::proxy_log_error(serde_yaml::from_str(&content), "Custom trait file has broken YAML");
+
+            let content: Option<serde_json::Value> =
+                content.as_ref().and_then(|v| Self::proxy_log_error(serde_json::to_value(v), "Unable to convert existing YAML to JSON format"));
+
+            if fname == MASTER_TRAITS_FILE
+                && content.as_ref().is_none_or(serde_json::Value::is_null)
+            {
+                continue;
+            }
+
+            if content.is_none() {
+                log::error!("Unable to load custom traits from {}", f.file_name().to_str().unwrap_or_default());
+                continue;
+            }
+
+            let content =
+                content.as_ref().and_then(|v| Self::proxy_log_error(serde_json::from_value::<IndexMap<String, serde_json::Value>>(v.clone()), "Unable to parse JSON"));
+
+            if let Some(content) = content {
+                for (k, v) in content {
+                    self.put(k, json!(v));
                 }
-
-                let content: Option<serde_yaml::Value> = Self::proxy_log_error(serde_yaml::from_str(&content), "Custom trait file has broken YAML");
-
-                let content: Option<serde_json::Value> =
-                    content.as_ref().and_then(|v| Self::proxy_log_error(serde_json::to_value(v), "Unable to convert existing YAML to JSON format"));
-
-                if content.is_none() {
-                    log::error!("Unable to load custom traits from {}", f.file_name().to_str().unwrap_or_default());
-                    continue;
-                }
-
-                let content = content.as_ref().and_then(|v| {
-                    Self::proxy_log_error(serde_json::from_value::<IndexMap<String, serde_json::Value>>(v.clone()), "Unable to parse JSON")
-                });
-
-                if let Some(content) = content {
-                    for (k, v) in content {
-                        self.put(k, json!(v));
-                    }
-                } else {
-                    log::error!("Custom traits data is empty or in a wrong format");
-                }
+            } else {
+                log::error!("Custom traits data is empty or in a wrong format");
             }
         }
         Ok(())
