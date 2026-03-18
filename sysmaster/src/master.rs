@@ -836,6 +836,7 @@ impl SysMaster {
             )),
             "delete" => Ok((
                 {
+                    require_profile_name(request)?;
                     repo.delete_profile(request.name())?;
                     ConsoleResponse { ok: true, message: format!("Deleted profile {}", request.name().bright_yellow()) }
                 },
@@ -852,9 +853,16 @@ impl SysMaster {
                 },
                 vec![],
             )),
-            "show" => Ok((ConsoleResponse { ok: true, message: repo.show_profile(request.name())? }, vec![])),
+            "show" => Ok((
+                {
+                    require_profile_name(request)?;
+                    ConsoleResponse { ok: true, message: repo.show_profile(request.name())? }
+                },
+                vec![],
+            )),
             "add" => Ok((
                 {
+                    require_profile_name(request)?;
                     repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
                     ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
                 },
@@ -862,6 +870,7 @@ impl SysMaster {
             )),
             "remove" => Ok((
                 {
+                    require_profile_name(request)?;
                     repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
                     ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
                 },
