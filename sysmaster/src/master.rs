@@ -1001,75 +1001,116 @@ impl SysMaster {
                                     }
                                     Ok(Ok(_)) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
                                         Ok(line) => match serde_json::from_str::<ConsoleEnvelope>(&line) {
-                                        Ok(envelope) => match envelope.bootstrap.session_key(&master_prk) {
-                                            Ok((key, _client_pkey)) => {
-                                                let response = if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
-                                                    ConsoleResponse { ok: false, message: "Console client key is not authorised".to_string() }
+                                            Ok(envelope) => {
+                                                if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
+                                                    serde_json::to_string(&ConsoleResponse {
+                                                        ok: false,
+                                                        message: "Console client key is not authorised".to_string(),
+                                                    })
+                                                    .ok()
                                                 } else {
-                                                    match envelope.sealed.open::<ConsoleQuery>(&key) {
-                                                        Ok(query) => {
-                                                            if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}")) {
-                                                                match master.lock().await.online_minions_summary().await {
-                                                                    Ok(summary) => ConsoleResponse { ok: true, message: summary },
-                                                                    Err(err) => ConsoleResponse { ok: false, message: format!("Unable to get online minions: {err}") },
-                                                                }
-                                                            } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
-                                                                let (response, msgs) = match ProfileConsoleRequest::from_context(&query.context) {
-                                                                    Ok(request) => {
-                                                                        let mut guard = master.lock().await;
-                                                                        match guard.profile_console_response(&request, &query.query, &query.traits, &query.mid).await {
-                                                                            Ok(data) => data,
-                                                                            Err(err) => (ConsoleResponse { ok: false, message: err.to_string() }, vec![]),
+                                                    match envelope.bootstrap.session_key(&master_prk) {
+                                                        Ok((key, _client_pkey)) => {
+                                                            let response = match envelope.sealed.open::<ConsoleQuery>(&key) {
+                                                                Ok(query) => {
+                                                                    if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}")) {
+                                                                        match master.lock().await.online_minions_summary().await {
+                                                                            Ok(summary) => ConsoleResponse { ok: true, message: summary },
+                                                                            Err(err) => ConsoleResponse {
+                                                                                ok: false,
+                                                                                message: format!("Unable to get online minions: {err}"),
+                                                                            },
+                                                                        }
+                                                                    } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
+                                                                        let (response, msgs) = match ProfileConsoleRequest::from_context(&query.context) {
+                                                                            Ok(request) => {
+                                                                                let mut guard = master.lock().await;
+                                                                                match guard.profile_console_response(&request, &query.query, &query.traits, &query.mid).await {
+                                                                                    Ok(data) => data,
+                                                                                    Err(err) => (ConsoleResponse { ok: false, message: err.to_string() }, vec![]),
+                                                                                }
+                                                                            }
+                                                                            Err(err) => (
+                                                                                ConsoleResponse {
+                                                                                    ok: false,
+                                                                                    message: format!("Failed to parse profile request: {err}"),
+                                                                                },
+                                                                                vec![],
+                                                                            ),
+                                                                        };
+                                                                        for msg in msgs {
+                                                                            SysMaster::bcast_master_msg(
+                                                                                &bcast,
+                                                                                cfg.telemetry_enabled(),
+                                                                                Arc::clone(&master),
+                                                                                Some(msg.clone()),
+                                                                            )
+                                                                            .await;
+                                                                            let guard = master.lock().await;
+                                                                            let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
+                                                                        }
+                                                                        response
+                                                                    } else {
+                                                                        let msg = {
+                                                                            let mut guard = master.lock().await;
+                                                                            guard.msg_query_data(&query.model, &query.query, &query.traits, &query.mid, &query.context).await
+                                                                        };
+                                                                        if let Some(msg) = msg {
+                                                                            SysMaster::bcast_master_msg(
+                                                                                &bcast,
+                                                                                cfg.telemetry_enabled(),
+                                                                                Arc::clone(&master),
+                                                                                Some(msg.clone()),
+                                                                            )
+                                                                            .await;
+                                                                            let guard = master.lock().await;
+                                                                            let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
+                                                                            ConsoleResponse { ok: true, message: format!("Accepted console command from {peer}") }
+                                                                        } else {
+                                                                            ConsoleResponse {
+                                                                                ok: false,
+                                                                                message: "No message constructed for the console query".to_string(),
+                                                                            }
                                                                         }
                                                                     }
-                                                                    Err(err) => (
-                                                                        ConsoleResponse { ok: false, message: format!("Failed to parse profile request: {err}") },
-                                                                        vec![],
-                                                                    ),
-                                                                };
-                                                                for msg in msgs {
-                                                                    SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), Some(msg.clone())).await;
-                                                                    let guard = master.lock().await;
-                                                                    let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
-                                                                    guard.taskreg.lock().await.register(msg.cycle(), ids);
                                                                 }
-                                                                response
-                                                            } else {
-                                                            let msg = {
-                                                                let mut guard = master.lock().await;
-                                                                guard.msg_query_data(&query.model, &query.query, &query.traits, &query.mid, &query.context).await
+                                                                Err(err) => ConsoleResponse {
+                                                                    ok: false,
+                                                                    message: format!("Failed to open console query: {err}"),
+                                                                },
                                                             };
-                                                            if let Some(msg) = msg {
-                                                                SysMaster::bcast_master_msg(&bcast, cfg.telemetry_enabled(), Arc::clone(&master), Some(msg.clone())).await;
-                                                                let guard = master.lock().await;
-                                                                let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
-                                                                guard.taskreg.lock().await.register(msg.cycle(), ids);
-                                                                ConsoleResponse { ok: true, message: format!("Accepted console command from {peer}") }
-                                                            } else {
-                                                                ConsoleResponse { ok: false, message: "No message constructed for the console query".to_string() }
-                                                            }
+                                                            match ConsoleSealed::seal(&response, &key).and_then(|sealed| {
+                                                                serde_json::to_string(&sealed)
+                                                                    .map_err(|e| SysinspectError::SerializationError(e.to_string()))
+                                                            }) {
+                                                                Ok(reply) => Some(reply),
+                                                                Err(err) => {
+                                                                    log::error!("Failed to seal console response: {err}");
+                                                                    serde_json::to_string(&ConsoleResponse {
+                                                                        ok: false,
+                                                                        message: format!("Failed to seal console response: {err}"),
+                                                                    })
+                                                                    .ok()
+                                                                }
                                                             }
                                                         }
-                                                        Err(err) => ConsoleResponse { ok: false, message: format!("Failed to open console query: {err}") },
-                                                    }
-                                                };
-                                                match ConsoleSealed::seal(&response, &key).and_then(|sealed| {
-                                                    serde_json::to_string(&sealed).map_err(|e| SysinspectError::SerializationError(e.to_string()))
-                                                }) {
-                                                    Ok(reply) => Some(reply),
-                                                    Err(err) => {
-                                                        log::error!("Failed to seal console response: {err}");
-                                                        serde_json::to_string(&ConsoleResponse {
+                                                        Err(err) => serde_json::to_string(&ConsoleResponse {
                                                             ok: false,
-                                                            message: format!("Failed to seal console response: {err}"),
+                                                            message: format!("Console bootstrap failed: {err}"),
                                                         })
-                                                        .ok()
+                                                        .ok(),
                                                     }
                                                 }
                                             }
-                                            Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console bootstrap failed: {err}") }).ok(),
-                                        },
-                                        Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to parse console request: {err}") }).ok(),
+                                            Err(err) => {
+                                                serde_json::to_string(&ConsoleResponse {
+                                                    ok: false,
+                                                    message: format!("Failed to parse console request: {err}"),
+                                                })
+                                                .ok()
+                                            }
                                         },
                                         Err(err) => {
                                             serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console request is not valid UTF-8: {err}") }).ok()
