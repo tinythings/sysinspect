@@ -815,11 +815,20 @@ impl SysMaster {
     async fn profile_console_response(
         &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
     ) -> Result<(ConsoleResponse, Vec<MasterMessage>), SysinspectError> {
+        fn require_profile_name(request: &ProfileConsoleRequest) -> Result<(), SysinspectError> {
+            if !request.name().trim().is_empty() {
+                return Ok(());
+            }
+
+            Err(SysinspectError::InvalidQuery("Profile name cannot be empty".to_string()))
+        }
+
         let repo = SysInspectModPak::new(self.cfg.get_mod_repo_root())?;
 
         match request.op() {
             "new" => Ok((
                 {
+                    require_profile_name(request)?;
                     repo.new_profile(request.name())?;
                     ConsoleResponse { ok: true, message: format!("Created profile {}", request.name().bright_yellow()) }
                 },
