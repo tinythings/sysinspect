@@ -211,3 +211,35 @@ async fn sync_rejects_profile_paths_with_traversal_components() {
 
     server.abort();
 }
+
+#[tokio::test]
+async fn sync_fails_if_downloaded_profile_checksum_does_not_match_index() {
+    let master = tempfile::tempdir().expect("master tempdir should be created");
+    let repo = SysInspectModPak::new(master.path().join("data/repo")).expect("repo should be created");
+    add_script_module(&master.path().join("data/repo"), "alpha.demo", "# alpha");
+    set_script_modules(&master.path().join("data/repo"), &["alpha.demo"]);
+    repo.new_profile("Broken").expect("Broken should be created");
+    repo.add_profile_matches("Broken", vec!["alpha.demo".to_string()], false)
+        .expect("Broken selector should be added");
+    fs::write(
+        master.path().join("data/profiles.index"),
+        "profiles:\n  Broken:\n    file: broken.profile\n    checksum: deadbeef\n",
+    )
+    .expect("profiles index should be overwritten");
+
+    let (port, server) = start_fileserver(master.path().join("data")).await;
+    let minion = tempfile::tempdir().expect("minion tempdir should be created");
+    let share = tempfile::tempdir().expect("share tempdir should be created");
+    let cfg = configured_minion(minion.path(), share.path(), port);
+    fs::create_dir_all(cfg.traits_dir()).expect("traits dir should be created");
+    ensure_master_traits_file(&cfg).expect("master traits file should exist");
+    TraitUpdateRequest::from_context(r#"{"op":"set","traits":{"minion.profile":["Broken"]}}"#)
+        .expect("set request should parse")
+        .apply(&cfg)
+        .expect("set request should apply");
+
+    let err = SysInspectModPakMinion::new(cfg).sync().await.expect_err("sync should fail on profile checksum mismatch");
+    assert!(err.to_string().contains("Checksum mismatch for profile"));
+
+    server.abort();
+}

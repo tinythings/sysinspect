@@ -132,8 +132,7 @@ impl SysInspectModPakMinion {
                 .get(name)
                 .ok_or_else(|| SysinspectError::MasterGeneralError(format!("Profile {} is missing from profiles.index", name.bright_yellow())))?;
             let dst = self.cfg.profiles_dir().join(profile.file());
-            let checksum = if dst.exists() { get_file_sha256(dst.clone()).ok() } else { None };
-            if checksum.as_deref() == Some(profile.checksum()) {
+            if dst.exists() && get_file_sha256(dst.clone())?.eq(profile.checksum()) {
                 continue;
             }
 
@@ -151,6 +150,12 @@ impl SysInspectModPakMinion {
                 fs::create_dir_all(parent)?;
             }
             fs::write(&dst, resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))? )?;
+            if !get_file_sha256(dst.clone())?.eq(profile.checksum()) {
+                return Err(SysinspectError::MasterGeneralError(format!(
+                    "Checksum mismatch for profile {}",
+                    name.bright_yellow()
+                )));
+            }
         }
 
         Ok(())
