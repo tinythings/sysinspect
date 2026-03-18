@@ -57,6 +57,7 @@ use tokio::{
 pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
+const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 
 #[derive(Debug)]
 pub struct SysMaster {
@@ -981,16 +982,24 @@ impl SysMaster {
                                 let (read_half, mut write_half) = stream.into_split();
                                 let reader = TokioBufReader::new(read_half);
                                 let mut frame = Vec::new();
-                                let reply = match reader.take((MAX_CONSOLE_FRAME_SIZE + 1) as u64).read_until(b'\n', &mut frame).await {
-                                    Ok(0) => serde_json::to_string(&ConsoleResponse { ok: false, message: "Empty console request".to_string() }).ok(),
-                                    Ok(_) if frame.len() > MAX_CONSOLE_FRAME_SIZE || !frame.ends_with(b"\n") => {
+                                let mut reader = reader.take((MAX_CONSOLE_FRAME_SIZE + 1) as u64);
+                                let reply = match time::timeout(CONSOLE_READ_TIMEOUT, reader.read_until(b'\n', &mut frame)).await {
+                                    Err(_) => serde_json::to_string(&ConsoleResponse {
+                                        ok: false,
+                                        message: format!("Console request timed out after {} seconds", CONSOLE_READ_TIMEOUT.as_secs()),
+                                    })
+                                    .ok(),
+                                    Ok(Ok(0)) => {
+                                        serde_json::to_string(&ConsoleResponse { ok: false, message: "Empty console request".to_string() }).ok()
+                                    }
+                                    Ok(Ok(_)) if frame.len() > MAX_CONSOLE_FRAME_SIZE || !frame.ends_with(b"\n") => {
                                         serde_json::to_string(&ConsoleResponse {
                                             ok: false,
                                             message: format!("Console request exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE),
                                         })
                                         .ok()
                                     }
-                                    Ok(_) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
+                                    Ok(Ok(_)) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
                                         Ok(line) => match serde_json::from_str::<ConsoleEnvelope>(&line) {
                                         Ok(envelope) => match envelope.bootstrap.session_key(&master_prk) {
                                             Ok((key, _client_pkey)) => {
@@ -1066,7 +1075,7 @@ impl SysMaster {
                                             serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console request is not valid UTF-8: {err}") }).ok()
                                         }
                                     },
-                                    Err(err) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to read console request: {err}") }).ok(),
+                                    Ok(Err(err)) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to read console request: {err}") }).ok(),
                                 };
 
                                 if let Some(reply) = reply
