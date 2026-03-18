@@ -311,6 +311,19 @@ mod tests {
     }
 
     #[test]
+    fn profiles_index_rejects_parent_dir_traversal() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
+        fs::write(
+            root.path().join("profiles.index"),
+            "profiles:\n  Toto:\n    file: ../escape.profile\n    checksum: deadbeef\n",
+        )
+        .expect("profiles index should be written");
+
+        assert!(repo.get_profiles_index().is_err());
+    }
+
+    #[test]
     fn show_profile_renders_modules_first_and_libraries_after() {
         control::set_override(true);
 

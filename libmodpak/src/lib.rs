@@ -13,7 +13,10 @@ use once_cell::sync::Lazy;
 use prettytable::{Cell, Row, Table, format};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+};
 use textwrap::{Options, wrap};
 use tokio::sync::Mutex;
 
@@ -116,7 +119,7 @@ impl SysInspectModPakMinion {
             .bytes()
             .await
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read profiles index response: {e}")))?;
-        ModPakProfilesIndex::from_yaml(&String::from_utf8_lossy(&buff))
+        Self::validate_profiles_index(ModPakProfilesIndex::from_yaml(&String::from_utf8_lossy(&buff))?)
     }
 
     async fn sync_profiles(&self, profiles: &ModPakProfilesIndex, names: &[String]) -> Result<(), SysinspectError> {
@@ -151,6 +154,25 @@ impl SysInspectModPakMinion {
         }
 
         Ok(())
+    }
+
+    fn validate_profile_path(path: &Path) -> Result<(), SysinspectError> {
+        if path.components().all(|component| matches!(component, Component::Normal(_))) {
+            return Ok(());
+        }
+
+        Err(SysinspectError::MasterGeneralError(format!(
+            "Invalid profile path in profiles.index: {}",
+            path.display()
+        )))
+    }
+
+    fn validate_profiles_index(index: ModPakProfilesIndex) -> Result<ModPakProfilesIndex, SysinspectError> {
+        for profile in index.profiles().values() {
+            Self::validate_profile_path(profile.file())?;
+        }
+
+        Ok(index)
     }
 
     fn filtered_repo_index(&self, ridx: ModPakRepoIndex, profiles: &ModPakProfilesIndex, names: &[String]) -> Result<ModPakRepoIndex, SysinspectError> {
@@ -469,7 +491,9 @@ impl SysInspectModPak {
 
     /// Load the on-disk profiles index published next to the module repository.
     fn get_profiles_index(&self) -> Result<ModPakProfilesIndex, SysinspectError> {
-        ModPakProfilesIndex::from_yaml(&fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX))?)
+        SysInspectModPakMinion::validate_profiles_index(ModPakProfilesIndex::from_yaml(
+            &fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX))?,
+        )?)
     }
 
     /// Persist the profiles index next to the module repository.

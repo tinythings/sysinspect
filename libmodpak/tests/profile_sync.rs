@@ -184,3 +184,30 @@ async fn sync_fails_if_effective_profiles_are_missing_from_profiles_index() {
 
     server.abort();
 }
+
+#[tokio::test]
+async fn sync_rejects_profile_paths_with_traversal_components() {
+    let master = tempfile::tempdir().expect("master tempdir should be created");
+    fs::create_dir_all(master.path().join("data")).expect("data dir should be created");
+    fs::write(
+        master.path().join("data/profiles.index"),
+        "profiles:\n  Escape:\n    file: ../escape.profile\n    checksum: deadbeef\n",
+    )
+    .expect("profiles index should be written");
+
+    let (port, server) = start_fileserver(master.path().join("data")).await;
+    let minion = tempfile::tempdir().expect("minion tempdir should be created");
+    let share = tempfile::tempdir().expect("share tempdir should be created");
+    let cfg = configured_minion(minion.path(), share.path(), port);
+    fs::create_dir_all(cfg.traits_dir()).expect("traits dir should be created");
+    ensure_master_traits_file(&cfg).expect("master traits file should exist");
+    TraitUpdateRequest::from_context(r#"{"op":"set","traits":{"minion.profile":["Escape"]}}"#)
+        .expect("set request should parse")
+        .apply(&cfg)
+        .expect("set request should apply");
+
+    let err = SysInspectModPakMinion::new(cfg).sync().await.expect_err("sync should fail on path traversal");
+    assert!(err.to_string().contains("Invalid profile path"));
+
+    server.abort();
+}
