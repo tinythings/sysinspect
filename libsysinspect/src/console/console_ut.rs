@@ -52,3 +52,22 @@ fn ensure_console_keypair_recovers_missing_public_key_from_private_key() {
     assert!(root.path().join(crate::cfg::mmconf::CFG_CONSOLE_KEY_PUB).exists());
     assert_eq!(loaded_pbk.n().to_bytes_be(), client_prk.n().to_bytes_be());
 }
+
+#[cfg(unix)]
+#[test]
+fn ensure_console_keypair_sets_restrictive_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempdir().unwrap();
+    let _ = ensure_console_keypair(root.path()).unwrap();
+
+    let dir_mode = std::fs::metadata(root.path()).unwrap().permissions().mode() & 0o777;
+    let key_mode = std::fs::metadata(root.path().join(crate::cfg::mmconf::CFG_CONSOLE_KEY_PRI))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+
+    assert_eq!(dir_mode, 0o700);
+    assert_eq!(key_mode, 0o600);
+}

@@ -23,6 +23,7 @@ use crate::{
 mod console_ut;
 
 static SODIUM_INIT: OnceLock<()> = OnceLock::new();
+const CONSOLE_KEY_SIZE: usize = 2048;
 
 /// RSA-bootstrapped session bootstrap data sent before opening the sealed console payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,16 +94,41 @@ fn console_keypair(root: &Path) -> (PathBuf, PathBuf) {
     (root.join(CFG_CONSOLE_KEY_PRI), root.join(CFG_CONSOLE_KEY_PUB))
 }
 
+fn ensure_console_permissions(root: &Path, prk_path: &Path) -> Result<(), SysinspectError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut root_perms = fs::metadata(root).map_err(SysinspectError::IoErr)?.permissions();
+        root_perms.set_mode(0o700);
+        fs::set_permissions(root, root_perms).map_err(SysinspectError::IoErr)?;
+
+        if prk_path.exists() {
+            let mut prk_perms = fs::metadata(prk_path).map_err(SysinspectError::IoErr)?.permissions();
+            prk_perms.set_mode(0o600);
+            fs::set_permissions(prk_path, prk_perms).map_err(SysinspectError::IoErr)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Ensure a console RSA keypair exists under the given root and return it.
 pub fn ensure_console_keypair(root: &Path) -> Result<(RsaPrivateKey, RsaPublicKey), SysinspectError> {
     let (prk_path, pbk_path) = console_keypair(root);
     match (prk_path.exists(), pbk_path.exists()) {
-        (true, true) => Ok((load_private_key(&prk_path)?, load_public_key(&pbk_path)?)),
+        (true, true) => {
+            let prk = load_private_key(&prk_path)?;
+            let pbk = load_public_key(&pbk_path)?;
+            ensure_console_permissions(root, &prk_path)?;
+            Ok((prk, pbk))
+        }
         (true, false) => {
             fs::create_dir_all(root).map_err(SysinspectError::IoErr)?;
             let prk = load_private_key(&prk_path)?;
             let pbk = RsaPublicKey::from(&prk);
             key_to_file(&Public(pbk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PUB)?;
+            ensure_console_permissions(root, &prk_path)?;
             Ok((prk, pbk))
         }
         (false, true) => Err(SysinspectError::ConfigError(format!(
@@ -112,9 +138,10 @@ pub fn ensure_console_keypair(root: &Path) -> Result<(RsaPrivateKey, RsaPublicKe
         ))),
         (false, false) => {
             fs::create_dir_all(root).map_err(SysinspectError::IoErr)?;
-            let (prk, pbk) = keygen(crate::rsa::keys::DEFAULT_KEY_SIZE).map_err(|e| SysinspectError::RSAError(e.to_string()))?;
+            let (prk, pbk) = keygen(CONSOLE_KEY_SIZE).map_err(|e| SysinspectError::RSAError(e.to_string()))?;
             key_to_file(&Private(prk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PRI)?;
             key_to_file(&Public(pbk.clone()), root.to_str().unwrap_or_default(), CFG_CONSOLE_KEY_PUB)?;
+            ensure_console_permissions(root, &prk_path)?;
             Ok((prk, pbk))
         }
     }
