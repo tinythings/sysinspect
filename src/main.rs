@@ -26,10 +26,12 @@ use std::{
     path::PathBuf,
     process::exit,
     sync::{Mutex, OnceLock},
+    time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
+    time::timeout,
 };
 
 mod clidef;
@@ -38,6 +40,9 @@ mod ui;
 static VERSION: &str = "0.4.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
+const CONSOLE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const CONSOLE_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_CONSOLE_RESPONSE_SIZE: u64 = 64 * 1024;
 
 /// Display event handlers
 fn print_event_handlers() {
