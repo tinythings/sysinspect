@@ -231,7 +231,10 @@ impl ConsoleSealed {
 
 /// Check whether the provided client console public key is authorised by the master.
 pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result<bool, SysinspectError> {
-    if cfg.console_pubkey().exists() && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)? == client_pem {
+    let client_pem = client_pem.trim();
+    if cfg.console_pubkey().exists()
+        && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)?.trim() == client_pem
+    {
         return Ok(true);
     }
 
@@ -242,7 +245,9 @@ pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result
 
     for entry in fs::read_dir(root).map_err(SysinspectError::IoErr)? {
         let path = entry.map_err(SysinspectError::IoErr)?.path();
-        if path.is_file() && fs::read_to_string(&path).map_err(SysinspectError::IoErr)? == client_pem {
+        if path.is_file()
+            && fs::read_to_string(&path).map_err(SysinspectError::IoErr)?.trim() == client_pem
+        {
             return Ok(true);
         }
     }
