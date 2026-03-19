@@ -57,6 +57,68 @@ In normal use, Sysinspect handles:
 
 You do not need to create or copy transport secrets yourself.
 
+How It Works On The Master
+--------------------------
+
+In simple terms, the Master side works like this:
+
+1. The Master has its own RSA identity keypair.
+2. When you register a Minion, the Master stores that Minion's public RSA key.
+3. The Master also creates managed transport state for that Minion under
+   ``transport/minions/<minion-id>/state.json``.
+4. When the Minion connects, it starts a secure bootstrap using the already
+   trusted identities.
+5. The Master checks that the Minion is known, that the fingerprints match,
+   and that the bootstrap request belongs to this protocol version.
+6. If everything matches, the Master accepts the bootstrap and creates a secure
+   session for that TCP connection.
+7. After that point, normal Master-to-Minion traffic is sent through the secure
+   session instead of plain JSON frames.
+8. If the bootstrap is broken, unsupported, or duplicated, the Master rejects
+   it and drops the connection.
+
+What this means for an operator:
+
+- registration prepares the trust relationship
+- reconnects can create a fresh secure session
+- one broken connection does not require you to rebuild keys by hand
+
+How It Works On The Minion
+--------------------------
+
+The Minion side follows the same trust relationship from the other direction:
+
+1. The Minion has its own RSA identity keypair.
+2. During registration, the Minion learns the Master's public RSA key.
+3. The Minion stores managed transport state under
+   ``transport/master/state.json``.
+4. On normal startup, the Minion loads that managed state and starts a secure
+   bootstrap before it begins processing normal Master commands.
+5. If the Master accepts the bootstrap, the Minion switches the connection to a
+   secure session.
+6. Commands, pings, trait updates, events, and other normal traffic then use
+   that secure session automatically.
+7. If the secure bootstrap fails, the Minion reconnects instead of silently
+   continuing on an insecure path.
+
+What this means for an operator:
+
+- a healthy Minion should secure the connection automatically on startup
+- replacing or re-registering a Minion may require a fresh trust relationship
+- if trust data is stale, recovery should use re-bootstrap or re-registration,
+  not hand-edited files
+
+What Actually Protects The Traffic
+----------------------------------
+
+The protection happens in two steps:
+
+1. RSA identity keys prove who the Master and Minion are.
+2. A short-lived secure session protects the normal traffic after bootstrap.
+
+So the long-term trust comes from the registered identities, while everyday
+traffic is protected by a fresh session created when the connection starts.
+
 What Operators Should Do
 ------------------------
 
