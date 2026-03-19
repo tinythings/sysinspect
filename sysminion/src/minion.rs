@@ -34,6 +34,11 @@ use libsysinspect::{
         fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     },
     rsa,
+    transport::{
+        TransportStore,
+        secure_bootstrap::SecureBootstrapSession,
+        secure_channel::{SecureChannel, SecurePeerRole},
+    },
     traits::{self, TraitUpdateRequest, effective_profiles, ensure_master_traits_file, systraits::SystemTraits},
     util::{self, dataconv},
 };
@@ -46,7 +51,7 @@ use libsysproto::{
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoValue, RequestType},
-    secure::SecureDiagnosticCode,
+    secure::{SecureDiagnosticCode, SecureFrame},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -87,6 +92,7 @@ pub struct SysMinion {
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
     connected: AtomicBool,
+    secure: Mutex<Option<SecureChannel>>,
 
     minion_id: String,
 
@@ -137,6 +143,7 @@ impl SysMinion {
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
             connected: AtomicBool::new(false),
+            secure: Mutex::new(None),
             minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
             sensors_task: Mutex::new(None),
             sensors_pump: Mutex::new(None),
@@ -276,27 +283,73 @@ impl SysMinion {
 
     /// Talk-back to the master
     pub(crate) async fn request(&self, msg: Vec<u8>) {
-        fn trigger_reconnect(context: &str, err: &std::io::Error) {
-            log::warn!("{context}: {err}; triggering reconnect");
+        let payload = match self.secure.lock().await.as_mut().map(|secure| secure.seal_bytes(&msg)).transpose() {
+            Ok(Some(msg)) => msg,
+            Ok(None) => msg,
+            Err(err) => {
+                log::error!("Failed to encode secure payload to master: {err}");
+                let _ = CONNECTION_TX.send(());
+                return;
+            }
+        };
+
+        if let Err(err) = self.write_frame(&payload).await {
+            log::warn!("Failed to send message to master: {err}; triggering reconnect");
             let _ = CONNECTION_TX.send(());
-        }
-
-        let mut stm = self.wstm.lock().await;
-
-        if let Err(e) = stm.write_all(&(msg.len() as u32).to_be_bytes()).await {
-            trigger_reconnect("Failed to send message length to master", &e);
-            return;
-        }
-
-        if let Err(e) = stm.write_all(&msg).await {
-            trigger_reconnect("Failed to send message to master", &e);
-            return;
-        }
-
-        if let Err(e) = stm.flush().await {
-            trigger_reconnect("Failed to flush writer to master", &e);
         } else {
-            log::trace!("To master: {}", String::from_utf8_lossy(&msg));
+            log::trace!("To master: {}", String::from_utf8_lossy(&payload));
+        }
+    }
+
+    /// Write one length-prefixed transport frame to the master connection.
+    async fn write_frame(&self, frame: &[u8]) -> Result<(), SysinspectError> {
+        let mut stm = self.wstm.lock().await;
+        stm.write_all(&(frame.len() as u32).to_be_bytes()).await?;
+        stm.write_all(frame).await?;
+        stm.flush().await?;
+        Ok(())
+    }
+
+    /// Read one length-prefixed transport frame from the master connection.
+    async fn read_frame(&self) -> Result<Vec<u8>, SysinspectError> {
+        let mut len = [0u8; 4];
+        self.rstm.lock().await.read_exact(&mut len).await?;
+        let mut frame = vec![0u8; u32::from_be_bytes(len) as usize];
+        self.rstm.lock().await.read_exact(&mut frame).await?;
+        Ok(frame)
+    }
+
+    /// Bootstrap a secure session with the master when managed transport state already exists locally.
+    async fn bootstrap_secure(&self) -> Result<bool, SysinspectError> {
+        let store = TransportStore::for_minion(&self.cfg)?;
+        let mut state = match store.load()? {
+            Some(state) => state,
+            None => return Ok(false),
+        };
+        let master_pbk = match self.kman.master_public_key()? {
+            Some(key) => key,
+            None => return Ok(false),
+        };
+        let (opening, hello) = SecureBootstrapSession::open(&state, &self.kman.private_key()?, &master_pbk)?;
+        self.write_frame(
+            &serde_json::to_vec(&hello)
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode secure bootstrap hello: {err}")))?,
+        )
+        .await?;
+        match serde_json::from_slice::<SecureFrame>(&self.read_frame().await?)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to decode secure bootstrap reply: {err}")))? {
+            SecureFrame::BootstrapAck(ack) => {
+                let session = opening.verify_ack(&state, &ack, &master_pbk)?;
+                state.upsert_key(session.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
+                store.save(&state)?;
+                *self.secure.lock().await = Some(SecureChannel::new(SecurePeerRole::Minion, &session)?);
+                Ok(true)
+            }
+            SecureFrame::BootstrapDiagnostic(diag) => Err(SysinspectError::ProtoError(format!(
+                "Master rejected secure bootstrap with {:?}: {}",
+                diag.code, diag.message
+            ))),
+            _ => Err(SysinspectError::ProtoError("Master replied with a non-bootstrap frame during secure bootstrap".to_string())),
         }
     }
 
@@ -467,6 +520,16 @@ impl SysMinion {
                     let _ = CONNECTION_TX.send(());
                     break;
                 }
+
+                let msg = match this.secure.lock().await.as_mut().map(|secure| secure.open_bytes(&msg)).transpose() {
+                    Ok(Some(msg)) => msg,
+                    Ok(None) => msg,
+                    Err(err) => {
+                        log::error!("Failed to decode secure frame from master: {err}");
+                        let _ = CONNECTION_TX.send(());
+                        break;
+                    }
+                };
 
                 let msg = match proto::msg::payload_to_msg(msg.clone()) {
                     Ok(msg) => msg,
@@ -1001,6 +1064,12 @@ impl SysMinion {
     pub fn set_ping_timeout(&mut self, d: Duration) {
         self.ping_timeout = d;
     }
+
+    /// Install a secure steady-state channel for tests that exercise encrypted transport writes.
+    #[cfg(test)]
+    pub async fn set_secure_channel(&self, channel: SecureChannel) {
+        *self.secure.lock().await = Some(channel);
+    }
 }
 
 /// Constructs and starts an actual minion
@@ -1032,13 +1101,16 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
     });
 
-    minion.as_ptr().do_proto().await?;
-
     // Messages
     if minion.fingerprint.is_some() {
+        minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_registration(minion.kman.get_pubkey_pem()).await?;
     } else {
-        // ehlo
+        if let Err(err) = minion.bootstrap_secure().await {
+            log::error!("Unable to bootstrap secure transport: {err}");
+            return Err(err);
+        }
+        minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_ehlo().await?;
         if cfg.autosync_startup() {
             tokio::select! {

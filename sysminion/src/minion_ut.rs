@@ -3,12 +3,66 @@ mod tests {
     use crate::minion::{_minion_instance, MINION_SID, SysMinion};
     use crate::proto::msg::{CONNECTION_TX, ExitState};
     use libdpq::DiskPersistentQueue;
-    use libsysinspect::cfg::mmconf::MinionConfig;
+    use libsysinspect::{
+        cfg::mmconf::MinionConfig,
+        transport::{
+            TransportKeyExchangeModel, TransportPeerState, TransportProvisioningMode, TransportRotationStatus,
+            secure_bootstrap::SecureBootstrapSession,
+            secure_channel::{SecureChannel, SecurePeerRole},
+        },
+    };
+    use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
     use once_cell::sync::Lazy;
+    use rsa::RsaPublicKey;
     use std::sync::Arc;
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
     use tokio::time::{Duration, timeout};
+    use crate::rsa::MinionRSAKeyManager;
+
+    fn secure_state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
+        let mut state = TransportPeerState::new(
+            "mid-1".to_string(),
+            libsysinspect::rsa::keys::get_fingerprint(master_pbk).unwrap(),
+            libsysinspect::rsa::keys::get_fingerprint(minion_pbk).unwrap(),
+            SECURE_PROTOCOL_VERSION,
+        );
+        state.key_exchange = TransportKeyExchangeModel::EphemeralSessionKeys;
+        state.provisioning = TransportProvisioningMode::Automatic;
+        state.rotation = TransportRotationStatus::Idle;
+        state.active_key_id = Some("kid-1".to_string());
+        state.last_key_id = Some("kid-1".to_string());
+        state
+    }
+
+    fn secure_channels(root: &std::path::Path) -> (SecureChannel, SecureChannel) {
+        let keyman = MinionRSAKeyManager::new(root.to_path_buf()).unwrap();
+        let (master_prk, master_pbk) = libsysinspect::rsa::keys::keygen(2048).unwrap();
+        let (_, minion_pbk) = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem())).unwrap();
+        let state = secure_state(&master_pbk, &minion_pbk.unwrap());
+        let (opening, hello) = SecureBootstrapSession::open(&state, &keyman.private_key().unwrap(), &master_pbk).unwrap();
+        let accepted = SecureBootstrapSession::accept(
+            &state,
+            match &hello {
+                SecureFrame::BootstrapHello(hello) => hello,
+                _ => panic!("expected bootstrap hello"),
+            },
+            &master_prk,
+            &libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem())).unwrap().1.unwrap(),
+            Some("sid-1".to_string()),
+            Some("kid-1".to_string()),
+            None,
+        )
+        .unwrap();
+
+        (
+            SecureChannel::new(SecurePeerRole::Master, &accepted.0).unwrap(),
+            SecureChannel::new(SecurePeerRole::Minion, &opening.verify_ack(&state, match &accepted.1 {
+                SecureFrame::BootstrapAck(ack) => ack,
+                _ => panic!("expected bootstrap ack"),
+            }, &master_pbk).unwrap()).unwrap(),
+        )
+    }
 
     static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
@@ -191,6 +245,39 @@ mod tests {
         let (n, msg) = server.await.unwrap();
         assert_eq!(n, payload.len());
         assert_eq!(msg, payload);
+    }
+
+    #[tokio::test]
+    async fn request_seals_payload_when_secure_channel_is_active() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::io::AsyncReadExt;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut lenb = [0u8; 4];
+            sock.read_exact(&mut lenb).await.unwrap();
+            let mut msg = vec![0u8; u32::from_be_bytes(lenb) as usize];
+            sock.read_exact(&mut msg).await.unwrap();
+            msg
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        let (mut master_channel, minion_channel) = secure_channels(tmp.path());
+        minion.set_secure_channel(minion_channel).await;
+
+        minion.request(br#"{"r":"ping"}"#.to_vec()).await;
+
+        assert_eq!(master_channel.open_bytes(&server.await.unwrap()).unwrap(), br#"{"r":"ping"}"#.to_vec());
     }
 
     #[tokio::test]

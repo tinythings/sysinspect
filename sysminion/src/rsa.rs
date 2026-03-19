@@ -90,6 +90,22 @@ impl MinionRSAKeyManager {
         .map_err(|err| SysinspectError::RSAError(err.to_string()))
     }
 
+    /// Return the trusted master RSA public key when it is already present on disk.
+    pub fn master_public_key(&self) -> Result<Option<RsaPublicKey>, SysinspectError> {
+        let master_pem_path = self.root.join(CFG_MASTER_KEY_PUB);
+        if !master_pem_path.exists() {
+            return Ok(None);
+        }
+        Ok(libsysinspect::rsa::keys::from_pem(None, Some(&fs::read_to_string(master_pem_path)?))?.1)
+    }
+
+    /// Return the loaded minion RSA private key used for secure bootstrap creation.
+    pub fn private_key(&self) -> Result<RsaPrivateKey, SysinspectError> {
+        self.mn_prk
+            .clone()
+            .ok_or_else(|| SysinspectError::RSAError("Minion private key is not loaded".to_string()))
+    }
+
     pub fn ensure_transport_state(&self, minion_id: &str) -> Result<bool, SysinspectError> {
         let master_pem_path = self.root.join(CFG_MASTER_KEY_PUB);
         if !master_pem_path.exists() {

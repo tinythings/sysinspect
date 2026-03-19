@@ -97,6 +97,13 @@ impl MinionsKeyRegistry {
         &self.ms_pbk_pem
     }
 
+    /// Return the loaded master RSA private key used for secure bootstrap acceptance.
+    pub fn master_private_key(&self) -> Result<RsaPrivateKey, SysinspectError> {
+        self.ms_prk
+            .clone()
+            .ok_or_else(|| SysinspectError::MasterGeneralError("Master RSA private key is not loaded".to_string()))
+    }
+
     pub fn get_master_key_fingerprint(&self) -> Result<String, SysinspectError> {
         rsa::keys::get_fingerprint(
             self.ms_pbk
@@ -127,6 +134,12 @@ impl MinionsKeyRegistry {
                 .ok_or_else(|| SysinspectError::MasterGeneralError(format!("RSA public key for minion {mid} is not loaded")))?,
         )
         .map_err(|err| SysinspectError::RSAError(err.to_string()))
+    }
+
+    /// Return the loaded minion RSA public key used for secure bootstrap verification.
+    pub fn minion_public_key(&mut self, mid: &str) -> Result<RsaPublicKey, SysinspectError> {
+        self.get_mn_key(mid)
+            .ok_or_else(|| SysinspectError::MasterGeneralError(format!("RSA public key for minion {mid} is not loaded")))
     }
 
     /// Lazy-load minion key. By start all keys are only containing minion Ids.

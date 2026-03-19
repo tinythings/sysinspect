@@ -23,7 +23,11 @@ use libsysinspect::{
     console::{ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key},
     context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
-    transport::secure_bootstrap::SecureBootstrapDiagnostics,
+    transport::{
+        TransportStore,
+        secure_bootstrap::{SecureBootstrapDiagnostics, SecureBootstrapSession},
+        secure_channel::{SecureChannel, SecurePeerRole},
+    },
     util::{self, iofs::scan_files_sha256, pad_visible},
 };
 use libsysproto::{
@@ -35,7 +39,7 @@ use libsysproto::{
         commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
-    secure::SecureFrame,
+    secure::{SecureBootstrapHello, SecureFrame},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -62,9 +66,28 @@ static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
 const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 
 #[derive(Debug)]
+struct SecurePeerConnection {
+    minion_id: String,
+    channel: SecureChannel,
+}
+
+#[derive(Debug)]
+enum IncomingPeerFrame {
+    Forward(Vec<u8>),
+    Reply(Vec<u8>),
+    Drop,
+}
+
+#[derive(Debug)]
+enum OutgoingPeerFrame {
+    Broadcast(MasterMessage),
+    Direct(Vec<u8>),
+}
+
+#[derive(Debug)]
 pub struct SysMaster {
     cfg: MasterConfig,
-    broadcast: broadcast::Sender<Vec<u8>>,
+    broadcast: broadcast::Sender<MasterMessage>,
     mkr: MinionsKeyRegistry,
     mreg: Arc<Mutex<MinionRegistry>>,
     taskreg: Arc<Mutex<TaskRegistry>>,
@@ -74,6 +97,7 @@ pub struct SysMaster {
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
+    secure_peers: HashMap<String, SecurePeerConnection>,
     secure_bootstrap_failures: HashMap<String, (Instant, u32)>,
     datastore: Arc<Mutex<DataStorage>>,
 }
@@ -82,7 +106,7 @@ impl SysMaster {
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let _ = crate::util::log_sensors_export(&cfg, true);
 
-        let (tx, _) = broadcast::channel::<Vec<u8>>(100);
+        let (tx, _) = broadcast::channel::<MasterMessage>(100);
         let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
         let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
         let taskreg = Arc::new(Mutex::new(TaskRegistry::new()));
@@ -108,6 +132,7 @@ impl SysMaster {
             ptr: None,
             vmcluster,
             conn_to_mid: HashMap::new(),
+            secure_peers: HashMap::new(),
             secure_bootstrap_failures: HashMap::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
@@ -173,6 +198,74 @@ impl SysMaster {
         SecureBootstrapDiagnostics::malformed("Malformed secure bootstrap frame")
     }
 
+    /// Encode a logical master message for one peer, sealing it when that peer already has a secure session.
+    fn encode_peer_message(&mut self, peer_addr: &str, msg: &MasterMessage) -> Result<Vec<u8>, SysinspectError> {
+        if let Some(peer) = self.secure_peers.get_mut(peer_addr) {
+            return peer.channel.seal(msg);
+        }
+        msg.sendable()
+    }
+
+    /// Decode a raw inbound peer frame, handling bootstrap establishment and secure steady-state decryption.
+    fn decode_peer_frame(&mut self, peer_addr: &str, raw: &[u8]) -> Result<IncomingPeerFrame, SysinspectError> {
+        if self.secure_peers.contains_key(peer_addr) {
+            let decoded = self
+                .secure_peers
+                .get_mut(peer_addr)
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Secure peer state for {peer_addr} disappeared")))? 
+                .channel
+                .open_bytes(raw);
+            if decoded.is_err() {
+                self.secure_peers.remove(peer_addr);
+            }
+            return decoded.map(IncomingPeerFrame::Forward);
+        }
+        if let Ok(SecureFrame::BootstrapHello(hello)) = serde_json::from_slice::<SecureFrame>(raw) {
+            return self.accept_bootstrap(peer_addr, &hello).map(IncomingPeerFrame::Reply);
+        }
+        if let Some(diag) = self.secure_peer_diag(peer_addr, raw) {
+            return Ok(IncomingPeerFrame::Reply(diag));
+        }
+        Ok(IncomingPeerFrame::Forward(raw.to_vec()))
+    }
+
+    /// Accept a bootstrap hello from a registered minion and store the resulting secure channel for that peer.
+    fn accept_bootstrap(&mut self, peer_addr: &str, hello: &SecureBootstrapHello) -> Result<Vec<u8>, SysinspectError> {
+        if self
+            .secure_peers
+            .iter()
+            .any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id)
+        {
+            return serde_json::to_vec(&SecureBootstrapDiagnostics::duplicate_session(format!(
+                "Secure session for {} already exists",
+                hello.binding.minion_id
+            )))
+            .map_err(SysinspectError::from);
+        }
+        let mut state = TransportStore::for_master_minion(&self.cfg, &hello.binding.minion_id)?
+            .load()?
+            .ok_or_else(|| SysinspectError::ProtoError(format!("No managed transport state exists for {}", hello.binding.minion_id)))?;
+        let (bootstrap, ack) = SecureBootstrapSession::accept(
+            &state,
+            hello,
+            &self.mkr.master_private_key()?,
+            &self.mkr.minion_public_key(&hello.binding.minion_id)?,
+            None,
+            state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
+            None,
+        )?;
+        state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
+        TransportStore::for_master_minion(&self.cfg, &hello.binding.minion_id)?.save(&state)?;
+        self.secure_peers.insert(
+            peer_addr.to_string(),
+            SecurePeerConnection {
+                minion_id: hello.binding.minion_id.clone(),
+                channel: SecureChannel::new(SecurePeerRole::Master, &bootstrap)?,
+            },
+        );
+        serde_json::to_vec(&ack).map_err(SysinspectError::from)
+    }
+
     /// Start sysmaster
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
         log::info!("Starting master at {}", self.cfg.bind_addr());
@@ -191,7 +284,7 @@ impl SysMaster {
     }
 
     /// Get broadcast sender for master messages
-    pub fn broadcast(&self) -> broadcast::Sender<Vec<u8>> {
+    pub fn broadcast(&self) -> broadcast::Sender<MasterMessage> {
         self.broadcast.clone()
     }
 
@@ -467,8 +560,10 @@ impl SysMaster {
                             if let Some(mid) = guard.conn_to_mid.remove(&minion_addr) {
                                 log::info!("Minion connection {} dropped; clearing session for {}", minion_addr, mid);
                                 guard.get_session().lock().await.remove(&mid);
+                                guard.secure_peers.remove(&minion_addr);
                             } else {
                                 log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
+                                guard.secure_peers.remove(&minion_addr);
                             }
                         });
                         continue;
@@ -498,7 +593,7 @@ impl SysMaster {
                                         resp_msg = "Minion already registered";
                                         log::warn!("Minion {minion_addr} ({c_mid}) is already registered");
                                     }
-                                    _ = c_bcast.send(guard.msg_registered(req.id().to_string(), resp_msg).sendable().unwrap());
+                                    _ = c_bcast.send(guard.msg_registered(req.id().to_string(), resp_msg));
                                 });
                             }
 
@@ -518,16 +613,16 @@ impl SysMaster {
                                     if !guard.mkr().is_registered(&c_id) {
                                         log::info!("Minion at {minion_addr} ({}) is not registered", req.id());
                                         guard.to_drop.insert(minion_addr);
-                                        _ = c_bcast.send(guard.msg_not_registered(req.id().to_string()).sendable().unwrap());
+                                        _ = c_bcast.send(guard.msg_not_registered(req.id().to_string()));
                                     } else if guard.get_session().lock().await.exists(&c_id) {
                                         log::info!("Minion at {minion_addr} ({}) is already connected", req.id());
                                         guard.to_drop.insert(minion_addr);
-                                        _ = c_bcast.send(guard.msg_already_connected(req.id().to_string(), c_payload).sendable().unwrap());
+                                        _ = c_bcast.send(guard.msg_already_connected(req.id().to_string(), c_payload));
                                     } else {
                                         log::info!("{c_id} connected successfully");
                                         guard.conn_to_mid.insert(minion_addr.clone(), c_id.clone());
                                         guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
-                                        _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload).sendable().unwrap());
+                                        _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload));
                                         log::info!("Syncing traits with minion at {c_id}");
                                     }
                                 });
@@ -581,8 +676,9 @@ impl SysMaster {
                                     let mut guard = c_master.lock().await;
                                     guard.conn_to_mid.remove(&minion_addr);
                                     guard.get_session().lock().await.remove(req.id());
+                                    guard.secure_peers.remove(&minion_addr);
                                     let m = guard.msg_bye_ack(req.id().to_string(), req.payload().to_string());
-                                    _ = c_bcast.send(m.sendable().unwrap());
+                                    _ = c_bcast.send(m);
                                 });
                             }
 
@@ -700,7 +796,7 @@ impl SysMaster {
                                 let c_bcast = bcast.clone();
                                 tokio::spawn(async move {
                                     let mut guard = c_master.lock().await;
-                                    _ = c_bcast.send(guard.msg_sensors_files().sendable().unwrap());
+                                    _ = c_bcast.send(guard.msg_sensors_files());
                                 });
                             }
 
@@ -1187,8 +1283,9 @@ impl SysMaster {
     }
 
     /// Broadcast a message to all minions
+    /// Broadcast a logical master message so each connected peer can encode it with its own transport state.
     pub async fn bcast_master_msg(
-        bcast: &broadcast::Sender<Vec<u8>>, use_telemetry: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
+        bcast: &broadcast::Sender<MasterMessage>, use_telemetry: bool, master: Arc<Mutex<SysMaster>>, msg: Option<MasterMessage>,
     ) {
         if msg.is_none() {
             log::error!("No message to broadcast");
@@ -1215,8 +1312,8 @@ impl SysMaster {
             log::debug!("Telemetry enabled, fired a task");
         }
 
-        let _ = bcast.send(msg.sendable().unwrap());
         log::debug!("Message broadcasted: {}", msg.target().scheme());
+        let _ = bcast.send(msg);
     }
 
     pub async fn do_heartbeat(master: Arc<Mutex<Self>>) {
@@ -1229,7 +1326,7 @@ impl SysMaster {
                 let mut t = MinionTarget::default();
                 t.add_hostname("*");
                 p.set_target(t);
-                let _ = bcast.send(p.sendable().unwrap());
+                let _ = bcast.send(p);
             }
         });
     }
@@ -1254,16 +1351,29 @@ impl SysMaster {
                         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
                         let cancel_writer = cancel_tx.clone();
 
-                        // Task to send messages to the client
+                        // Task to send direct and broadcast messages to the client
                         tokio::spawn(async move {
                             let mut writer = writer;
                             log::info!("Minion {peer_addr} connected. Ready to send messages.");
 
                             loop {
-                                let msg = tokio::select! {
-                                    Ok(msg) = bcast_sub.recv() => msg,
-                                    Some(msg) = direct_rx.recv() => msg,
+                                let msg = match tokio::select! {
+                                    Ok(msg) = bcast_sub.recv() => Some(OutgoingPeerFrame::Broadcast(msg)),
+                                    Some(msg) = direct_rx.recv() => Some(OutgoingPeerFrame::Direct(msg)),
                                     else => return,
+                                } {
+                                    Some(OutgoingPeerFrame::Broadcast(msg)) => {
+                                        match c_master_writer.lock().await.encode_peer_message(&peer_addr.to_string(), &msg) {
+                                            Ok(msg) => msg,
+                                            Err(err) => {
+                                                log::error!("Failed to encode outbound message for {peer_addr}: {err}");
+                                                let _ = cancel_writer.send(true);
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    Some(OutgoingPeerFrame::Direct(msg)) => msg,
+                                    None => return,
                                 };
 
                                 log::trace!("Sending message to minion at {} length of {}", peer_addr, msg.len());
@@ -1315,17 +1425,26 @@ impl SysMaster {
                                     return;
                                 }
 
-                                if let Some(diag) = c_master.lock().await.secure_peer_diag(&peer_addr.to_string(), &msg) {
-                                    log::warn!("Bouncing unsupported or malformed secure peer at {}", peer_addr);
-                                    let _ = direct_tx.send(diag).await;
-                                    let _ = cancel_tx.send(true);
-                                    return;
+                                match c_master.lock().await.decode_peer_frame(&peer_addr.to_string(), &msg) {
+                                    Ok(IncomingPeerFrame::Forward(msg)) => {
+                                        if client_tx.send((msg, peer_addr.to_string())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Ok(IncomingPeerFrame::Reply(msg)) => {
+                                        let _ = direct_tx.send(msg).await;
+                                    }
+                                    Ok(IncomingPeerFrame::Drop) => {
+                                        let _ = cancel_tx.send(true);
+                                        return;
+                                    }
+                                    Err(err) => {
+                                        log::error!("Failed to decode frame from {peer_addr}: {err}");
+                                        let _ = cancel_tx.send(true);
+                                        let _ = client_tx.send((Vec::new(), peer_addr.to_string())).await;
+                                        return;
+                                    }
                                 }
-
-                                if client_tx.send((msg, peer_addr.to_string())).await.is_err() {
-                                    break;
-                                }
-
                             }
                         });
                     }
