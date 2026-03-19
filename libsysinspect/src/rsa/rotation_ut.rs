@@ -161,6 +161,43 @@ fn signed_rotation_intent_verifies_against_master_trust_anchor() {
 }
 
 #[test]
+fn minion_side_signed_rotation_intent_verifies_against_master_trust_anchor() {
+    let (_tmp, rotator) = init_rotator();
+    let (master_prk, master_pbk) = keygen(2048).unwrap();
+    let (_minion_prk, minion_pbk) = keygen(2048).unwrap();
+
+    let master_fp = crate::rsa::keys::get_fingerprint(&master_pbk).unwrap();
+    let minion_fp = crate::rsa::keys::get_fingerprint(&minion_pbk).unwrap();
+    let mut state = rotator.state().clone();
+    state.master_rsa_fingerprint = master_fp.clone();
+    state.minion_rsa_fingerprint = minion_fp.clone();
+    TransportStore::new(_tmp.path().join("transport/minions/mid-1/state.json")).unwrap().save(&state).unwrap();
+
+    let master_rotator = RsaTransportRotator::new(
+        RotationActor::Master,
+        TransportStore::new(_tmp.path().join("transport/minions/mid-1/state.json")).unwrap(),
+        "mid-1",
+        &master_fp,
+        &minion_fp,
+        1,
+    )
+    .unwrap();
+    let signed = master_rotator.sign_plan(&master_rotator.plan("manual"), &master_prk).unwrap();
+
+    let minion_rotator = RsaTransportRotator::new(
+        RotationActor::Minion,
+        TransportStore::new(_tmp.path().join("transport/minions/mid-1/state.json")).unwrap(),
+        "mid-1",
+        &master_fp,
+        &minion_fp,
+        1,
+    )
+    .unwrap();
+
+    minion_rotator.verify_signed_intent(&signed, &master_pbk).unwrap();
+}
+
+#[test]
 fn signed_rotation_intent_rejects_wrong_signer() {
     let (_tmp, rotator) = init_rotator();
     let (master_prk, master_pbk) = keygen(2048).unwrap();

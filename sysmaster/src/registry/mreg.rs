@@ -262,3 +262,39 @@ impl MinionRegistry {
         vec![]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::MinionRegistry;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn registry_with_one_minion() -> MinionRegistry {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+        let mut traits = HashMap::new();
+        traits.insert("system.hostname".to_string(), json!("alien"));
+        traits.insert("system.hostname.fqdn".to_string(), json!("alien.lab"));
+        traits.insert("system.hostname.ip".to_string(), json!("192.168.2.186"));
+        registry.refresh("30006546535e428aba0a0caa6712e225", traits).unwrap();
+        registry
+    }
+
+    #[test]
+    fn get_by_hostname_or_ip_matches_plain_hostname() {
+        let mut registry = registry_with_one_minion();
+        let records = registry.get_by_hostname_or_ip("alien").unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id(), "30006546535e428aba0a0caa6712e225");
+    }
+
+    #[test]
+    fn get_by_query_matches_plain_hostname() {
+        let registry = registry_with_one_minion();
+        let records = registry.get_by_query("alien").unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id(), "30006546535e428aba0a0caa6712e225");
+    }
+}
