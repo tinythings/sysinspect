@@ -15,6 +15,9 @@ mod minion_ut;
 #[cfg(test)]
 mod proto_ut;
 
+#[cfg(test)]
+mod rsa_ut;
+
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;

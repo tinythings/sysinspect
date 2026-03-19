@@ -83,9 +83,7 @@ impl MinionRSAKeyManager {
 
     pub fn get_pubkey_fingerprint(&self) -> Result<String, SysinspectError> {
         libsysinspect::rsa::keys::get_fingerprint(
-            self.mn_pbk
-                .as_ref()
-                .ok_or_else(|| SysinspectError::RSAError("Minion public key is not loaded".to_string()))?,
+            self.mn_pbk.as_ref().ok_or_else(|| SysinspectError::RSAError("Minion public key is not loaded".to_string()))?,
         )
         .map_err(|err| SysinspectError::RSAError(err.to_string()))
     }
@@ -101,9 +99,7 @@ impl MinionRSAKeyManager {
 
     /// Return the loaded minion RSA private key used for secure bootstrap creation.
     pub fn private_key(&self) -> Result<RsaPrivateKey, SysinspectError> {
-        self.mn_prk
-            .clone()
-            .ok_or_else(|| SysinspectError::RSAError("Minion private key is not loaded".to_string()))
+        self.mn_prk.clone().ok_or_else(|| SysinspectError::RSAError("Minion private key is not loaded".to_string()))
     }
 
     pub fn ensure_transport_state(&self, minion_id: &str) -> Result<bool, SysinspectError> {
@@ -118,42 +114,7 @@ impl MinionRSAKeyManager {
         )
         .map_err(|err| SysinspectError::RSAError(err.to_string()))?;
         let store = TransportStore::new(self.root.join("transport/master/state.json"))?;
-        let _ = store.ensure_automatic_peer(
-            minion_id,
-            &master_fingerprint,
-            &self.get_pubkey_fingerprint()?,
-            SECURE_PROTOCOL_VERSION,
-        )?;
+        let _ = store.ensure_automatic_peer(minion_id, &master_fingerprint, &self.get_pubkey_fingerprint()?, SECURE_PROTOCOL_VERSION)?;
         Ok(true)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::MinionRSAKeyManager;
-    use libsysinspect::{
-        cfg::mmconf::CFG_MASTER_KEY_PUB,
-        rsa::keys::{RsaKey::Public, key_to_file, keygen},
-    };
-
-    #[test]
-    fn ensure_transport_state_is_noop_without_master_key() {
-        let root = tempfile::tempdir().unwrap();
-        let keyman = MinionRSAKeyManager::new(root.path().to_path_buf()).unwrap();
-
-        assert!(!keyman.ensure_transport_state("mid-1").unwrap());
-        assert!(!root.path().join("transport/master/state.json").exists());
-    }
-
-    #[test]
-    fn ensure_transport_state_writes_managed_state_when_master_key_exists() {
-        let root = tempfile::tempdir().unwrap();
-        let keyman = MinionRSAKeyManager::new(root.path().to_path_buf()).unwrap();
-        let (_, master_pbk) = keygen(2048).unwrap();
-
-        key_to_file(&Public(master_pbk), root.path().to_str().unwrap(), CFG_MASTER_KEY_PUB).unwrap();
-
-        assert!(keyman.ensure_transport_state("mid-1").unwrap());
-        assert!(root.path().join("transport/master/state.json").exists());
     }
 }
