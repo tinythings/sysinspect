@@ -150,3 +150,82 @@ If a Minion can no longer establish a secure connection, the usual causes are:
 
 In those cases, prefer the supported recovery path such as re-registration or
 re-bootstrap instead of editing transport files manually.
+
+Transport Rotation Workflow
+---------------------------
+
+Sysinspect supports managed transport-key rotation from the Master control
+plane.
+
+For operators, this means:
+
+- you can rotate one target in one command path
+- online Minions receive a signed rotation intent immediately
+- offline Minions are marked as pending and receive rotation on next reconnect
+- old key material is kept briefly as ``retiring`` and then removed after the
+  grace overlap window
+
+Typical usage:
+
+- rotate a specific minion id: ``sysinspect --rotate <minion-id>``
+- rotate by selector query: ``sysinspect --rotate '<glob>'``
+- inspect transport status: ``sysinspect --transport-status <minion-id|glob>``
+
+The status view includes:
+
+- active transport key id
+- key age
+- last successful handshake timestamp
+- current rotation state
+- ``security.transport.last-rotated-at`` value
+
+Rotation Safety Model
+---------------------
+
+Rotation intents are signed by the Master RSA trust anchor and verified by the
+Minion before any transport-state changes are applied.
+
+If message construction fails after state staging on the Master, the Master
+restores the previous state automatically. This provides a safe automatic
+rollback path without requiring operators to perform manual state surgery.
+
+Unregister Cleanup
+------------------
+
+Removing a Minion from the Master removes both:
+
+- the Minion registration RSA artifact
+- the Minion managed transport state directory
+
+This keeps registration lifecycle and transport lifecycle consistent.
+
+Disaster Recovery
+-----------------
+
+Use managed recovery flows for key loss or metadata corruption.
+
+Lost or Corrupted Minion Transport State
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Recreate trust from the Master side by rotating (or re-registering if
+   needed).
+2. Restart the Minion to force a fresh secure bootstrap.
+3. Confirm status via ``sysinspect --transport-status <minion-id>``.
+
+Lost Master-Side Transport Metadata For One Minion
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Keep the Minion registration key if still valid.
+2. Trigger ``sysinspect --rotate <minion-id>`` to stage a new signed intent.
+3. Let the Minion reconnect and apply the new state.
+
+Master Rebuild Scenario
+~~~~~~~~~~~~~~~~~~~~~~~
+
+If the Master identity changes, existing trust bindings are no longer valid.
+In that case:
+
+1. Re-establish Master RSA trust according to the registration workflow.
+2. Re-register Minions to bind them to the rebuilt Master identity.
+3. Run rotation/status checks to verify all nodes have fresh managed transport
+   state.
