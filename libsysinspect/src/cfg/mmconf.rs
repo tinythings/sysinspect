@@ -112,6 +112,10 @@ pub static CFG_CONSOLE_KEY_PRI: &str = "console.rsa";
 pub static CFG_CONSOLE_KEYS: &str = "console-keys";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
 pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
+pub static CFG_TRANSPORT_ROOT: &str = "transport";
+pub static CFG_TRANSPORT_MASTER: &str = "master";
+pub static CFG_TRANSPORT_MINIONS: &str = "minions";
+pub static CFG_TRANSPORT_STATE: &str = "state.json";
 
 // Sync
 // ----
@@ -523,6 +527,21 @@ impl MinionConfig {
     /// Get root directory for synced deployment profiles
     pub fn profiles_dir(&self) -> PathBuf {
         self.root_dir().join(CFG_PROFILES_ROOT)
+    }
+
+    /// Root for managed secure transport metadata on the minion.
+    pub fn transport_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_TRANSPORT_ROOT)
+    }
+
+    /// Managed transport metadata for the current master/minion relationship.
+    pub fn transport_master_root(&self) -> PathBuf {
+        self.transport_root().join(CFG_TRANSPORT_MASTER)
+    }
+
+    /// Managed transport state file for the current master/minion relationship.
+    pub fn transport_state_file(&self) -> PathBuf {
+        self.transport_master_root().join(CFG_TRANSPORT_STATE)
     }
 
     /// Return machine Id path
@@ -1065,6 +1084,16 @@ impl MasterConfig {
 
     pub fn console_keys_root(&self) -> PathBuf {
         self.root_dir().join(CFG_CONSOLE_KEYS)
+    }
+
+    /// Root for managed secure transport metadata on the master.
+    pub fn transport_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_TRANSPORT_ROOT)
+    }
+
+    /// Root for per-minion managed secure transport metadata on the master.
+    pub fn transport_minions_root(&self) -> PathBuf {
+        self.transport_root().join(CFG_TRANSPORT_MINIONS)
     }
 
     pub fn console_privkey(&self) -> PathBuf {

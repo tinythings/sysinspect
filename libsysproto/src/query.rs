@@ -38,8 +38,10 @@ pub mod commands {
 /// Query parser (scheme).
 /// It has the following format:
 ///
-///     <model>/[entity]/[state]
-///     <model>:[checkbook labels]
+/// ```text
+/// <model>/[entity]/[state]
+/// <model>:[checkbook labels]
+/// ```
 ///
 /// If `"entity"` and/or `"state"` are omitted, they are globbed to `"$"` (all).
 #[derive(Debug, Clone, Default)]

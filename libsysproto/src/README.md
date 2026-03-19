@@ -2,6 +2,128 @@
 
 Protocol description about message exchange between master and a minion.
 
+## Secure transport design
+
+This document is the Phase 1 source of truth for the secure Master/Minion transport.
+The concrete shared protocol types live in `libsysproto::secure`.
+
+### Transport goals
+
+The secure Master/Minion transport must:
+
+- avoid TLS for Master/Minion links
+- avoid DNS assumptions
+- tolerate reconnects, address changes, and unstable embedded networks
+- keep frames bounded
+- reject replayed frames
+- support explicit key rotation
+- keep only the minimum bootstrap metadata in plaintext
+- reject every non-bootstrap plaintext frame once secure transport exists
+- allow only one active secure session per minion at a time
+
+### Wire shape
+
+The outer wire shape stays length-prefixed, matching the current transport:
+
+1. write a big-endian `u32` frame length
+2. write one serialized secure frame
+
+The secure frame itself is versioned JSON and uses one of four shapes:
+
+- `bootstrap_hello`
+- `bootstrap_ack`
+- `bootstrap_diagnostic`
+- `data`
+
+### Identity binding
+
+Every secure session is bound to all of the following:
+
+- minion id
+- minion RSA fingerprint
+- master RSA fingerprint
+- secure protocol version
+- connection id
+- client nonce
+- master nonce
+
+This binding is represented by `SecureSessionBinding` and must be authenticated during bootstrap.
+
+### Plaintext bootstrap frames
+
+Only these frames may ever be plaintext:
+
+#### `bootstrap_hello`
+
+Sent by the minion to begin a new secure session.
+
+Fields:
+
+- `binding`: initial `SecureSessionBinding`
+- `session_key_cipher`: fresh symmetric session key encrypted to the master's registered RSA key
+- `binding_signature`: minion RSA signature over the binding and raw session key
+- `key_id`: optional transport key identifier for reconnect or rotation continuity
+
+#### `bootstrap_ack`
+
+Sent by the master after validating the registered minion RSA identity and accepting the new secure session.
+
+Fields:
+
+- `binding`: completed `SecureSessionBinding` with the master nonce filled in
+- `session_id`: master-assigned secure session id
+- `key_id`: accepted transport key id
+- `rotation`: `none`, `rekey`, or `reregister`
+- `binding_signature`: master RSA signature over the completed binding and accepted session id
+
+#### `bootstrap_diagnostic`
+
+Plaintext rejection or negotiation failure emitted before a secure session exists.
+
+Fields:
+
+- `code`: `unsupported_version`, `bootstrap_rejected`, `replay_rejected`, `rate_limited`, `malformed_frame`, or `duplicate_session`
+- `message`: human-readable diagnostic
+- `failure`: retry and disconnect semantics
+
+### Encrypted steady-state frame
+
+After bootstrap succeeds, every Master/Minion frame must use `data`.
+No other plaintext frame is valid anymore on that connection.
+
+#### `data`
+
+Fields:
+
+- `protocol_version`: secure transport version
+- `session_id`: established secure session id
+- `key_id`: active transport key id
+- `counter`: monotonic per-direction counter
+- `nonce`: libsodium nonce for the sealed payload
+- `payload`: authenticated encrypted payload
+
+### Failure semantics
+
+Unsupported or malformed peers must not silently fall back to plaintext behavior.
+
+Rules:
+
+- if it is safe to do so, emit `bootstrap_diagnostic`
+- disconnect after the diagnostic
+- rate-limit malformed bootstrap attempts
+- reject duplicate active sessions for the same minion
+- reject any post-bootstrap plaintext frame immediately
+
+### Session semantics
+
+Rules:
+
+- only one active secure session may exist per minion
+- reconnects must create a new connection id and fresh nonces
+- replay protection is per direction and tied to the session id and active key id
+- RSA remains only the bootstrap and rotation trust anchor
+- steady-state traffic uses libsodium-protected frames only
+
 ## Message Structure
 
 ### Master message structure
