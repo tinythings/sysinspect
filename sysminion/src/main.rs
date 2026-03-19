@@ -12,6 +12,9 @@ mod filedata_ut;
 #[cfg(test)]
 mod minion_ut;
 
+#[cfg(test)]
+mod proto_ut;
+
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;

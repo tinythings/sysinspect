@@ -46,6 +46,7 @@ use libsysproto::{
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoValue, RequestType},
+    secure::SecureDiagnosticCode,
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -188,6 +189,9 @@ impl SysMinion {
         if !self.cfg.profiles_dir().exists() {
             log::debug!("Creating directory for the synced profiles at {}", self.cfg.profiles_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.profiles_dir())?;
+        }
+        if let Err(err) = self.kman.ensure_transport_state(self.get_minion_id()) {
+            log::warn!("Unable to refresh local transport state from RSA identity: {err}");
         }
 
         let mut out: Vec<String> = vec![];
@@ -464,9 +468,17 @@ impl SysMinion {
                     break;
                 }
 
-                let msg = match proto::msg::payload_to_msg(msg) {
+                let msg = match proto::msg::payload_to_msg(msg.clone()) {
                     Ok(msg) => msg,
                     Err(err) => {
+                        if let Ok(diag) = proto::msg::payload_to_diag(&msg) {
+                            log::warn!("Master rejected secure bootstrap: {}", diag.message);
+                            if matches!(diag.code, SecureDiagnosticCode::UnsupportedVersion) {
+                                let _ = CONNECTION_TX.send(());
+                                break;
+                            }
+                            continue;
+                        }
                         log::error!("Error getting network payload as message: {err}");
                         continue;
                     }

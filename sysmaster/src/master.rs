@@ -23,6 +23,7 @@ use libsysinspect::{
     console::{ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key},
     context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
+    transport::secure_bootstrap::SecureBootstrapDiagnostics,
     util::{self, iofs::scan_files_sha256, pad_visible},
 };
 use libsysproto::{
@@ -34,10 +35,11 @@ use libsysproto::{
         commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
+    secure::SecureFrame,
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
-use std::time::Duration as StdDuration;
+use std::time::{Duration as StdDuration, Instant};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -72,6 +74,7 @@ pub struct SysMaster {
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
+    secure_bootstrap_failures: HashMap<String, (Instant, u32)>,
     datastore: Arc<Mutex<DataStorage>>,
 }
 
@@ -105,6 +108,7 @@ impl SysMaster {
             ptr: None,
             vmcluster,
             conn_to_mid: HashMap::new(),
+            secure_bootstrap_failures: HashMap::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
     }
@@ -121,6 +125,52 @@ impl SysMaster {
         }
 
         None
+    }
+
+    /// Build a plaintext bootstrap diagnostic when a peer speaks secure transport to a plaintext-only runtime path.
+    pub(crate) fn secure_peer_diag(&mut self, peer_addr: &str, data: &[u8]) -> Option<Vec<u8>> {
+        Self::secure_peer_diag_with_state(&mut self.secure_bootstrap_failures, peer_addr, data)
+    }
+
+    /// Build a plaintext bootstrap diagnostic from the shared malformed-attempt state kept for secure bootstrap probes.
+    pub(crate) fn secure_peer_diag_with_state(
+        failures: &mut HashMap<String, (Instant, u32)>, peer_addr: &str, data: &[u8],
+    ) -> Option<Vec<u8>> {
+        match serde_json::from_slice::<SecureFrame>(data) {
+            Ok(SecureFrame::BootstrapHello(_) | SecureFrame::BootstrapAck(_) | SecureFrame::Data(_)) => {
+                failures.remove(peer_addr);
+                serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version("Secure transport is not enabled on this master yet")).ok()
+            }
+            Err(_) if std::str::from_utf8(data).ok().map(|text| text.contains("\"kind\"")).unwrap_or(false) => {
+                serde_json::to_vec(&Self::secure_malformed_diag(failures, peer_addr)).ok()
+            }
+            _ => None,
+        }
+    }
+
+    /// Rate-limit repeated malformed secure bootstrap attempts from the same peer before the secure transport is enabled.
+    fn secure_malformed_diag(failures: &mut HashMap<String, (Instant, u32)>, peer_addr: &str) -> SecureFrame {
+        let now = Instant::now();
+        let count = match failures.get_mut(peer_addr) {
+            Some((seen_at, count)) if now.duration_since(*seen_at) <= StdDuration::from_secs(30) => {
+                *count += 1;
+                *seen_at = now;
+                *count
+            }
+            Some(entry) => {
+                *entry = (now, 1);
+                1
+            }
+            None => {
+                failures.insert(peer_addr.to_string(), (now, 1));
+                1
+            }
+        };
+
+        if count >= 3 {
+            return SecureBootstrapDiagnostics::rate_limited("Repeated malformed secure bootstrap frames");
+        }
+        SecureBootstrapDiagnostics::malformed("Malformed secure bootstrap frame")
     }
 
     /// Start sysmaster
@@ -1199,7 +1249,10 @@ impl SysMaster {
                         let peer_addr = socket.peer_addr().unwrap();
                         let (reader, writer) = socket.into_split();
                         let c_master = Arc::clone(&master);
+                        let c_master_writer = Arc::clone(&master);
+                        let (direct_tx, mut direct_rx) = mpsc::channel::<Vec<u8>>(8);
                         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+                        let cancel_writer = cancel_tx.clone();
 
                         // Task to send messages to the client
                         tokio::spawn(async move {
@@ -1207,31 +1260,35 @@ impl SysMaster {
                             log::info!("Minion {peer_addr} connected. Ready to send messages.");
 
                             loop {
-                                if let Ok(msg) = bcast_sub.recv().await {
-                                    log::trace!("Sending message to minion at {} length of {}", peer_addr, msg.len());
-                                    let mut guard = c_master.lock().await;
-                                    if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
-                                        || writer.write_all(&msg).await.is_err()
-                                        || writer.flush().await.is_err()
-                                    {
-                                        if let Err(err) = cancel_tx.send(true) {
-                                            log::debug!("Error sending cancel notification: {err}");
-                                        }
-                                        break;
+                                let msg = tokio::select! {
+                                    Ok(msg) = bcast_sub.recv() => msg,
+                                    Some(msg) = direct_rx.recv() => msg,
+                                    else => return,
+                                };
+
+                                log::trace!("Sending message to minion at {} length of {}", peer_addr, msg.len());
+                                let mut guard = c_master_writer.lock().await;
+                                if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
+                                    || writer.write_all(&msg).await.is_err()
+                                    || writer.flush().await.is_err()
+                                {
+                                    if let Err(err) = cancel_writer.send(true) {
+                                        log::debug!("Error sending cancel notification: {err}");
+                                    }
+                                    break;
+                                }
+
+                                if guard.to_drop.contains(&peer_addr.to_string()) {
+                                    guard.to_drop.remove(&peer_addr.to_string());
+                                    log::info!("Dropping minion: {}", &peer_addr.to_string());
+                                    if let Err(err) = writer.shutdown().await {
+                                        log::error!("Error shutting down outgoing: {err}");
+                                    }
+                                    if let Err(err) = cancel_writer.send(true) {
+                                        log::debug!("Error sending cancel notification: {err}");
                                     }
 
-                                    if guard.to_drop.contains(&peer_addr.to_string()) {
-                                        guard.to_drop.remove(&peer_addr.to_string());
-                                        log::info!("Dropping minion: {}", &peer_addr.to_string());
-                                        if let Err(err) = writer.shutdown().await {
-                                            log::error!("Error shutting down outgoing: {err}");
-                                        }
-                                        if let Err(err) = cancel_tx.send(true) {
-                                            log::debug!("Error sending cancel notification: {err}");
-                                        }
-
-                                        return;
-                                    }
+                                    return;
                                 }
                             }
                         });
@@ -1255,6 +1312,13 @@ impl SysMaster {
                                 let mut msg = vec![0u8; msg_len];
                                 if reader.read_exact(&mut msg).await.is_err() {
                                     let _ = client_tx.send((Vec::new(), peer_addr.to_string())).await;
+                                    return;
+                                }
+
+                                if let Some(diag) = c_master.lock().await.secure_peer_diag(&peer_addr.to_string(), &msg) {
+                                    log::warn!("Bouncing unsupported or malformed secure peer at {}", peer_addr);
+                                    let _ = direct_tx.send(diag).await;
+                                    let _ = cancel_tx.send(true);
                                     return;
                                 }
 
