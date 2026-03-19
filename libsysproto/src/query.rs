@@ -18,8 +18,10 @@ pub mod commands {
     pub const CLUSTER_REBOOT: &str = "cluster/reboot";
 
     // Rotate RSA/AES on the entire cluster
-    // TODO: Not implemented yet
     pub const CLUSTER_ROTATE: &str = "cluster/rotate";
+
+    // Report transport status for one or more minions
+    pub const CLUSTER_TRANSPORT_STATUS: &str = "cluster/transport/status";
 
     // Remove minion (unregister)
     pub const CLUSTER_REMOVE_MINION: &str = "cluster/minion/remove";

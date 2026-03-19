@@ -7852,6 +7852,7 @@ name = "sysminion"
 version = "0.4.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "clap",
  "colored",
  "daemonize",

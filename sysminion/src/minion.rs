@@ -8,6 +8,7 @@ use crate::{
     ptcounter::PTCounter,
     rsa::MinionRSAKeyManager,
 };
+use chrono::{Duration as ChronoDuration, Utc};
 use clap::ArgMatches;
 use colored::Colorize;
 use indexmap::IndexMap;
@@ -33,13 +34,16 @@ use libsysinspect::{
         evtproc::EventProcessor,
         fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     },
-    rsa,
+    rsa::{
+        self,
+        rotation::{RotationActor, RsaTransportRotator, SignedRotationIntent},
+    },
+    traits::{self, TraitUpdateRequest, effective_profiles, ensure_master_traits_file, systraits::SystemTraits},
     transport::{
         TransportStore,
         secure_bootstrap::SecureBootstrapSession,
         secure_channel::{SecureChannel, SecurePeerRole},
     },
-    traits::{self, TraitUpdateRequest, effective_profiles, ensure_master_traits_file, systraits::SystemTraits},
     util::{self, dataconv},
 };
 use libsysproto::{
@@ -54,6 +58,7 @@ use libsysproto::{
     secure::{SecureDiagnosticCode, SecureFrame},
 };
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_yaml::Value as YamlValue;
 use std::{
@@ -75,6 +80,16 @@ use uuid::Uuid;
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RotationCommandPayload {
+    op: String,
+    reason: String,
+    grace_seconds: u64,
+    reconnect: bool,
+    reregister: bool,
+    intent: SignedRotationIntent,
+}
 #[derive(Debug)]
 pub struct SysMinion {
     cfg: MinionConfig,
@@ -367,7 +382,8 @@ impl SysMinion {
         )
         .await?;
         match serde_json::from_slice::<SecureFrame>(&self.read_frame().await?)
-            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to decode secure bootstrap reply: {err}")))? {
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to decode secure bootstrap reply: {err}")))?
+        {
             SecureFrame::BootstrapAck(ack) => {
                 let session = match opening.verify_ack(&state, &ack, &master_pbk) {
                     Ok(session) => session,
@@ -388,10 +404,7 @@ impl SysMinion {
             }
             SecureFrame::BootstrapDiagnostic(diag) => {
                 self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
-                Err(SysinspectError::ProtoError(format!(
-                    "Master rejected secure bootstrap with {:?}: {}",
-                    diag.code, diag.message
-                )))
+                Err(SysinspectError::ProtoError(format!("Master rejected secure bootstrap with {:?}: {}", diag.code, diag.message)))
             }
             _ => {
                 self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
@@ -769,11 +782,7 @@ impl SysMinion {
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
         let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
-        let mut r = MinionMessage::new(
-            dataconv::as_str(fresh_traits.get(traits::SYS_ID)),
-            RequestType::Ehlo,
-            fresh_traits.to_json_value()?,
-        );
+        let mut r = MinionMessage::new(dataconv::as_str(fresh_traits.get(traits::SYS_ID)), RequestType::Ehlo, fresh_traits.to_json_value()?);
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
@@ -826,6 +835,53 @@ impl SysMinion {
             Ok(msg) => self.request(msg).await,
             Err(e) => log::error!("Failed to send bye message: {e}"),
         }
+    }
+
+    async fn apply_rotation_command(self: Arc<Self>, context: &str) -> Result<(), SysinspectError> {
+        let payload: RotationCommandPayload =
+            serde_json::from_str(context).map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse rotate payload: {err}")))?;
+        if payload.op != "rotate" {
+            return Err(SysinspectError::InvalidQuery(format!("Unsupported rotate operation {}", payload.op)));
+        }
+
+        let master_pbk = self.kman.master_public_key()?.ok_or_else(|| {
+            SysinspectError::ConfigError(format!(
+                "Trusted master RSA key is missing at {}; rotate cannot proceed",
+                self.cfg.root_dir().join(CFG_MASTER_KEY_PUB).display()
+            ))
+        })?;
+        let master_fp = rsa::keys::get_fingerprint(&master_pbk).map_err(|err| SysinspectError::RSAError(err.to_string()))?;
+        let minion_fp = self.kman.get_pubkey_fingerprint()?;
+        let mut rotator = RsaTransportRotator::new(
+            RotationActor::Minion,
+            TransportStore::for_minion(&self.cfg)?,
+            self.get_minion_id(),
+            &master_fp,
+            &minion_fp,
+            libsysproto::secure::SECURE_PROTOCOL_VERSION,
+        )?;
+
+        let overlap = ChronoDuration::seconds(payload.grace_seconds as i64);
+        let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
+        let ticket = rotator.execute_signed_intent_with_overlap(&payload.intent, &master_pbk, overlap)?;
+        let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
+
+        if payload.reregister {
+            let _ = self.kman.ensure_transport_state(self.get_minion_id())?;
+        }
+
+        log::info!(
+            "Applied transport rotation {} for {} at {}",
+            ticket.result().active_key_id().bright_yellow(),
+            self.get_minion_id().bright_green(),
+            ticket.result().rotated_at().to_rfc3339().bright_blue()
+        );
+
+        if payload.reconnect {
+            self.send_bye().await;
+        }
+
+        Ok(())
     }
 
     /// Download a file from master
@@ -970,9 +1026,14 @@ impl SysMinion {
             CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
             }
-            CLUSTER_ROTATE => {
-                log::warn!("Command \"rotate\" is not implemented yet");
-            }
+            CLUSTER_ROTATE => match self.clone().apply_rotation_command(context).await {
+                Ok(_) => {
+                    if !context.is_empty() {
+                        let _ = CONNECTION_TX.send(());
+                    }
+                }
+                Err(err) => log::error!("Failed to apply rotate command: {err}"),
+            },
             CLUSTER_REMOVE_MINION => {
                 log::info!("{} from the master", "Unregistering".bright_red().bold());
                 self.as_ptr().send_bye().await;
@@ -990,38 +1051,38 @@ impl SysMinion {
                 }
                 let _ = self.as_ptr().send_sensors_sync().await;
             }
-            CLUSTER_TRAITS_UPDATE => {
-                match TraitUpdateRequest::from_context(context) {
-                    Ok(update) => match update.apply(&self.cfg) {
-                        Ok(_) => {
-                            let summary = if update.op() == "reset" {
-                                "all master-managed traits".bright_yellow().to_string()
-                            } else if update.op() == "unset" {
-                                update.traits().keys().map(|key| key.yellow().to_string()).collect::<Vec<String>>().join(", ")
-                            } else {
-                                update
-                                    .traits()
-                                    .iter()
-                                    .map(|(key, value)| format!("{}: {}", key.yellow(), dataconv::to_string(Some(value.clone())).unwrap_or_default().bright_yellow()))
-                                    .collect::<Vec<String>>()
-                                    .join(", ")
-                            };
-                            let label = match update.op() {
-                                "set" => "Set traits",
-                                "unset" => "Unset traits",
-                                "reset" => "Reset traits",
-                                _ => "Updated traits",
-                            };
-                            log::info!("{}: {}", label, summary);
-                            if let Err(err) = self.as_ptr().send_traits().await {
-                                log::error!("Failed to sync traits with master: {err}");
-                            }
+            CLUSTER_TRAITS_UPDATE => match TraitUpdateRequest::from_context(context) {
+                Ok(update) => match update.apply(&self.cfg) {
+                    Ok(_) => {
+                        let summary = if update.op() == "reset" {
+                            "all master-managed traits".bright_yellow().to_string()
+                        } else if update.op() == "unset" {
+                            update.traits().keys().map(|key| key.yellow().to_string()).collect::<Vec<String>>().join(", ")
+                        } else {
+                            update
+                                .traits()
+                                .iter()
+                                .map(|(key, value)| {
+                                    format!("{}: {}", key.yellow(), dataconv::to_string(Some(value.clone())).unwrap_or_default().bright_yellow())
+                                })
+                                .collect::<Vec<String>>()
+                                .join(", ")
+                        };
+                        let label = match update.op() {
+                            "set" => "Set traits",
+                            "unset" => "Unset traits",
+                            "reset" => "Reset traits",
+                            _ => "Updated traits",
+                        };
+                        log::info!("{}: {}", label, summary);
+                        if let Err(err) = self.as_ptr().send_traits().await {
+                            log::error!("Failed to sync traits with master: {err}");
                         }
-                        Err(err) => log::error!("Failed to apply traits update: {err}"),
-                    },
-                    Err(err) => log::error!("Failed to parse traits update payload: {err}"),
-                }
-            }
+                    }
+                    Err(err) => log::error!("Failed to apply traits update: {err}"),
+                },
+                Err(err) => log::error!("Failed to parse traits update payload: {err}"),
+            },
             _ => {
                 log::warn!("Unknown command: {cmd}");
             }

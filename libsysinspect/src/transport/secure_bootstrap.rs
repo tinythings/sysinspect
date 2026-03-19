@@ -6,6 +6,7 @@ use libsysproto::secure::{
     SecureFrame, SecureRotationMode, SecureSessionBinding,
 };
 use rsa::{RsaPrivateKey, RsaPublicKey};
+use sha2::{Digest, Sha256};
 use sodiumoxide::crypto::secretbox::{self, Key};
 use std::sync::OnceLock;
 use uuid::Uuid;
@@ -32,16 +33,22 @@ impl SecureBootstrapSession {
         sodium_ready()?;
         Self::ready(state)?;
         Self::fingerprint("master", master_pbk, &state.master_rsa_fingerprint)?;
+        let key_id = state.active_key_id.clone().or_else(|| state.last_key_id.clone()).unwrap_or_else(|| Uuid::new_v4().to_string());
+        let binding = SecureSessionBinding::bootstrap_opening(
+            state.minion_id.clone(),
+            state.minion_rsa_fingerprint.clone(),
+            state.master_rsa_fingerprint.clone(),
+            Uuid::new_v4().to_string(),
+            Uuid::new_v4().to_string(),
+        );
         Self::hello(
-            SecureSessionBinding::bootstrap_opening(
-                state.minion_id.clone(),
-                state.minion_rsa_fingerprint.clone(),
-                state.master_rsa_fingerprint.clone(),
-                Uuid::new_v4().to_string(),
-                Uuid::new_v4().to_string(),
-            ),
-            secretbox::gen_key(),
-            state.active_key_id.clone().or_else(|| state.last_key_id.clone()).unwrap_or_else(|| Uuid::new_v4().to_string()),
+            binding.clone(),
+            state
+                .key_material(&key_id)
+                .as_deref()
+                .map(|material| Self::derive_session_key(material, &binding))
+                .unwrap_or_else(secretbox::gen_key),
+            key_id,
             minion_prk,
             master_pbk,
         )
@@ -59,7 +66,8 @@ impl SecureBootstrapSession {
         Self::ack(
             hello.binding.clone(),
             Self::verify_hello(hello, minion_pbk, master_prk)?,
-            hello.key_id
+            hello
+                .key_id
                 .clone()
                 .or_else(|| key_id.clone())
                 .or_else(|| state.active_key_id.clone())
@@ -144,7 +152,8 @@ impl SecureBootstrapSession {
 
     /// Encode the master's bootstrap acknowledgement after the hello was authenticated successfully.
     fn ack(
-        mut binding: SecureSessionBinding, session_key: Key, key_id: String, master_prk: &RsaPrivateKey, session_id: String, rotation: SecureRotationMode,
+        mut binding: SecureSessionBinding, session_key: Key, key_id: String, master_prk: &RsaPrivateKey, session_id: String,
+        rotation: SecureRotationMode,
     ) -> Result<(Self, SecureFrame), SysinspectError> {
         binding.master_nonce = Uuid::new_v4().to_string();
         let binding_signature = STANDARD.encode(
@@ -153,13 +162,7 @@ impl SecureBootstrapSession {
         );
         Ok((
             Self { binding: binding.clone(), session_key, key_id: key_id.clone(), session_id: Some(session_id.clone()) },
-            SecureFrame::BootstrapAck(SecureBootstrapAck {
-                binding,
-                session_id: session_id.clone(),
-                key_id,
-                rotation,
-                binding_signature,
-            }),
+            SecureFrame::BootstrapAck(SecureBootstrapAck { binding, session_id: session_id.clone(), key_id, rotation, binding_signature }),
         ))
     }
 
@@ -180,10 +183,7 @@ impl SecureBootstrapSession {
     /// Verify that an opening bootstrap binding matches the trusted peer state before accepting it.
     fn opening(state: &TransportPeerState, binding: &SecureSessionBinding) -> Result<(), SysinspectError> {
         if binding.protocol_version != SECURE_PROTOCOL_VERSION {
-            return Err(SysinspectError::ProtoError(format!(
-                "Unsupported secure bootstrap version {}",
-                binding.protocol_version
-            )));
+            return Err(SysinspectError::ProtoError(format!("Unsupported secure bootstrap version {}", binding.protocol_version)));
         }
         if binding.master_nonce.is_empty()
             && binding.minion_id == state.minion_id
@@ -200,10 +200,7 @@ impl SecureBootstrapSession {
     /// Verify that an acknowledgement binding is still tied to the same handshake attempt and peer identities.
     fn accepted(state: &TransportPeerState, opening: &SecureSessionBinding, binding: &SecureSessionBinding) -> Result<(), SysinspectError> {
         if binding.protocol_version != SECURE_PROTOCOL_VERSION {
-            return Err(SysinspectError::ProtoError(format!(
-                "Unsupported secure bootstrap ack version {}",
-                binding.protocol_version
-            )));
+            return Err(SysinspectError::ProtoError(format!("Unsupported secure bootstrap ack version {}", binding.protocol_version)));
         }
         if binding.master_nonce.trim().is_empty() {
             return Err(SysinspectError::ProtoError("Secure bootstrap ack is missing the master nonce".to_string()));
@@ -248,6 +245,21 @@ impl SecureBootstrapSession {
             .map_err(|_| SysinspectError::RSAError("Failed to decrypt secure bootstrap session key".to_string()))?,
         )
         .ok_or_else(|| SysinspectError::RSAError("Secure bootstrap session key has invalid size".to_string()))
+    }
+
+    /// Derive a fresh bootstrap session key from persisted transport material and the opening handshake tuple.
+    /// Derive a per-bootstrap session key from persisted transport material and the unique opening binding.
+    fn derive_session_key(material: &[u8], binding: &SecureSessionBinding) -> Key {
+        let mut digest = Sha256::new();
+        digest.update(b"sysinspect-secure-bootstrap");
+        digest.update(material);
+        digest.update(binding.minion_id.as_bytes());
+        digest.update(binding.minion_rsa_fingerprint.as_bytes());
+        digest.update(binding.master_rsa_fingerprint.as_bytes());
+        digest.update(binding.connection_id.as_bytes());
+        digest.update(binding.client_nonce.as_bytes());
+        digest.update(binding.protocol_version.to_be_bytes());
+        Key::from_slice(&digest.finalize()).unwrap_or_else(secretbox::gen_key)
     }
 
     /// Build the signed material for a bootstrap hello from the binding and raw session key bytes.

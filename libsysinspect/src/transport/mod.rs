@@ -3,13 +3,16 @@
 pub mod secure_bootstrap;
 pub mod secure_channel;
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
 use libcommon::SysinspectError;
 use serde::{Deserialize, Serialize};
+use sodiumoxide::crypto::secretbox;
 use std::{
     fs,
     path::{Component, Path, PathBuf},
 };
+use uuid::Uuid;
 
 use crate::cfg::mmconf::{CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_STATE, MasterConfig, MinionConfig};
 
@@ -63,6 +66,8 @@ pub struct TransportKeyRecord {
     pub created_at: DateTime<Utc>,
     pub activated_at: Option<DateTime<Utc>>,
     pub retired_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub material_b64: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +83,8 @@ pub struct TransportPeerState {
     pub last_key_id: Option<String>,
     pub last_handshake_at: Option<DateTime<Utc>>,
     pub rotation: TransportRotationStatus,
+    #[serde(default)]
+    pub pending_rotation_context: Option<String>,
     pub updated_at: DateTime<Utc>,
     pub keys: Vec<TransportKeyRecord>,
 }
@@ -97,6 +104,7 @@ impl TransportPeerState {
             last_key_id: None,
             last_handshake_at: None,
             rotation: TransportRotationStatus::Idle,
+            pending_rotation_context: None,
             updated_at: Utc::now(),
             keys: Vec::new(),
         }
@@ -104,6 +112,11 @@ impl TransportPeerState {
 
     /// Insert or update one tracked transport key and refresh the relationship metadata around it.
     pub fn upsert_key(&mut self, key_id: &str, status: TransportKeyStatus) {
+        self.upsert_key_with_material(key_id, status, None)
+    }
+
+    /// Insert or update one tracked transport key and optionally refresh its persisted key material.
+    pub fn upsert_key_with_material(&mut self, key_id: &str, status: TransportKeyStatus, material: Option<&[u8]>) {
         self.last_key_id = Some(key_id.to_string());
         self.updated_at = Utc::now();
         if matches!(status, TransportKeyStatus::Active) {
@@ -114,6 +127,9 @@ impl TransportPeerState {
         }
         if let Some(key) = self.keys.iter_mut().find(|key| key.key_id.eq(key_id)) {
             key.status = status.clone();
+            if let Some(material) = material {
+                key.material_b64 = Some(STANDARD.encode(material));
+            }
             if matches!(status, TransportKeyStatus::Active) && key.activated_at.is_none() {
                 key.activated_at = Some(self.updated_at);
             }
@@ -129,7 +145,33 @@ impl TransportPeerState {
             created_at: self.updated_at,
             activated_at: matches!(status, TransportKeyStatus::Active).then_some(self.updated_at),
             retired_at: None,
+            material_b64: material.map(|m| STANDARD.encode(m)),
         });
+    }
+
+    /// Read decoded material bytes for a specific key id if managed secret material exists.
+    pub fn key_material(&self, key_id: &str) -> Option<Vec<u8>> {
+        self.keys
+            .iter()
+            .find(|record| record.key_id == key_id)
+            .and_then(|record| record.material_b64.as_ref())
+            .and_then(|encoded| STANDARD.decode(encoded).ok())
+    }
+
+    /// Read decoded material bytes for the currently active key.
+    pub fn active_key_material(&self) -> Option<Vec<u8>> {
+        self.active_key_id.as_deref().and_then(|key_id| self.key_material(key_id))
+    }
+
+    /// Persist one staged rotation command context to keep operator intent across reconnects.
+    pub fn set_pending_rotation_context(&mut self, context: Option<String>) {
+        self.pending_rotation_context = context;
+        self.updated_at = Utc::now();
+        if self.pending_rotation_context.is_some() {
+            self.rotation = TransportRotationStatus::Pending;
+        } else if !matches!(self.rotation, TransportRotationStatus::InProgress) {
+            self.rotation = TransportRotationStatus::Idle;
+        }
     }
 
     /// Mark the currently tracked transport key as broken after a failed secure bootstrap or session validation.
@@ -181,9 +223,11 @@ impl TransportStore {
 
     /// Create a transport store rooted at the provided managed state path.
     pub fn new(state_path: PathBuf) -> Result<Self, SysinspectError> {
-        ensure_secure_parent(state_path.parent().ok_or_else(|| {
-            SysinspectError::ConfigError(format!("Transport state path {} has no parent", state_path.display()))
-        })?)?;
+        ensure_secure_parent(
+            state_path
+                .parent()
+                .ok_or_else(|| SysinspectError::ConfigError(format!("Transport state path {} has no parent", state_path.display())))?,
+        )?;
         Ok(Self { state_path })
     }
 
@@ -199,12 +243,7 @@ impl TransportStore {
         }
         serde_json::from_str::<TransportPeerState>(&fs::read_to_string(&self.state_path)?)
             .map(Some)
-            .map_err(|err| {
-                SysinspectError::DeserializationError(format!(
-                    "Failed to read transport state from {}: {err}",
-                    self.state_path.display()
-                ))
-            })
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to read transport state from {}: {err}", self.state_path.display())))
     }
 
     /// Save the transport state to disk with private filesystem permissions.
@@ -228,12 +267,7 @@ impl TransportStore {
         &self, minion_id: &str, master_rsa_fingerprint: &str, minion_rsa_fingerprint: &str, protocol_version: u16,
     ) -> Result<TransportPeerState, SysinspectError> {
         let mut state = self.load_or_init(|| {
-            TransportPeerState::new(
-                minion_id.to_string(),
-                master_rsa_fingerprint.to_string(),
-                minion_rsa_fingerprint.to_string(),
-                protocol_version,
-            )
+            TransportPeerState::new(minion_id.to_string(), master_rsa_fingerprint.to_string(), minion_rsa_fingerprint.to_string(), protocol_version)
         })?;
 
         state.minion_id = minion_id.to_string();
@@ -244,6 +278,11 @@ impl TransportStore {
         if matches!(state.provisioning, TransportProvisioningMode::Automatic) {
             state.approved_at.get_or_insert_with(Utc::now);
             state.updated_at = Utc::now();
+        }
+        if state.active_key_id.is_none() {
+            let key_id = format!("trk-{}", Uuid::new_v4());
+            let material = secretbox::gen_key();
+            state.upsert_key_with_material(&key_id, TransportKeyStatus::Active, Some(&material.0));
         }
         self.save(&state)?;
         Ok(state)
@@ -261,9 +300,8 @@ impl TransportStore {
 
     /// Mark the stored peer state as approved for secure bootstrap.
     pub fn approve_peer(&self) -> Result<TransportPeerState, SysinspectError> {
-        let mut state = self.load()?.ok_or_else(|| {
-            SysinspectError::ConfigError(format!("Transport state does not exist at {}", self.state_path.display()))
-        })?;
+        let mut state =
+            self.load()?.ok_or_else(|| SysinspectError::ConfigError(format!("Transport state does not exist at {}", self.state_path.display())))?;
         state.approve();
         self.save(&state)?;
         Ok(state)
@@ -276,9 +314,7 @@ impl TransportStore {
             || matches!(peer_id, "." | "..")
             || peer_id.contains('/')
             || peer_id.contains('\\')
-            || !peer_id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            || !peer_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
         {
             return Err(SysinspectError::ConfigError(format!("Invalid transport peer id: {peer_id}")));
         }

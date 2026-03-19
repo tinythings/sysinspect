@@ -179,6 +179,12 @@ impl MinionsKeyRegistry {
             return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::NotFound, format!("No RSA public key found for {mid}"))));
         }
 
+        // Keep registration cleanup symmetric by removing managed transport metadata too.
+        let transport_root = transport_minion_root(&self.root.parent().unwrap().join("transport"), mid)?;
+        if transport_root.exists() {
+            fs::remove_dir_all(transport_root)?;
+        }
+
         Ok(())
     }
 

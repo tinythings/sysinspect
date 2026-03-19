@@ -4,6 +4,7 @@ version = "0.4.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4.43"
 clap = { version = "4.5.54", features = ["unstable-styles"] }
 colored = "3.1.1"
 ed25519-dalek = { version = "2.2.0", features = [

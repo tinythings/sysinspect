@@ -7,6 +7,7 @@ use crate::rsa::keys::{get_fingerprint, keygen};
 use chrono::Utc;
 use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
 use rsa::RsaPublicKey;
+use sodiumoxide::crypto::secretbox;
 
 fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
     TransportPeerState {
@@ -21,6 +22,7 @@ fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerS
         last_key_id: Some("kid-1".to_string()),
         last_handshake_at: None,
         rotation: TransportRotationStatus::Idle,
+        pending_rotation_context: None,
         updated_at: Utc::now(),
         keys: vec![],
     }
@@ -65,10 +67,7 @@ fn channels() -> (SecureChannel, SecureChannel) {
     .unwrap()
     .0;
 
-    (
-        SecureChannel::new(SecurePeerRole::Master, &master).unwrap(),
-        SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap(),
-    )
+    (SecureChannel::new(SecurePeerRole::Master, &master).unwrap(), SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap())
 }
 
 #[test]
@@ -103,4 +102,68 @@ fn secure_channel_rejects_oversized_payloads() {
     let (_, mut minion) = channels();
 
     assert!(minion.seal_bytes(&vec![0u8; SECURE_MAX_PAYLOAD_SIZE + 1]).is_err());
+}
+
+#[test]
+fn secure_channel_first_frame_differs_across_reconnects_with_same_persisted_material() {
+    let (master_prk, master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let mut state = state(&master_pbk, &minion_pbk);
+    let material = secretbox::gen_key();
+    state.upsert_key_with_material("kid-1", super::TransportKeyStatus::Active, Some(&material.0));
+
+    let (opening_one, hello_one) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+    let ack_one = match SecureBootstrapSession::accept(
+        &state,
+        match &hello_one {
+            SecureFrame::BootstrapHello(hello) => hello,
+            _ => panic!("expected bootstrap hello"),
+        },
+        &master_prk,
+        &minion_pbk,
+        Some("sid-1".to_string()),
+        Some("kid-1".to_string()),
+        None,
+    )
+    .unwrap()
+    .1
+    {
+        SecureFrame::BootstrapAck(ack) => ack,
+        _ => panic!("expected bootstrap ack"),
+    };
+    let (opening_two, hello_two) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+    let ack_two = match SecureBootstrapSession::accept(
+        &state,
+        match &hello_two {
+            SecureFrame::BootstrapHello(hello) => hello,
+            _ => panic!("expected bootstrap hello"),
+        },
+        &master_prk,
+        &minion_pbk,
+        Some("sid-2".to_string()),
+        Some("kid-1".to_string()),
+        None,
+    )
+    .unwrap()
+    .1
+    {
+        SecureFrame::BootstrapAck(ack) => ack,
+        _ => panic!("expected bootstrap ack"),
+    };
+
+    let mut minion_one = SecureChannel::new(
+        SecurePeerRole::Minion,
+        &opening_one.verify_ack(&state, &ack_one, &master_pbk).unwrap(),
+    )
+    .unwrap();
+    let mut minion_two = SecureChannel::new(
+        SecurePeerRole::Minion,
+        &opening_two.verify_ack(&state, &ack_two, &master_pbk).unwrap(),
+    )
+    .unwrap();
+
+    let frame_one = minion_one.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    let frame_two = minion_two.seal(&serde_json::json!({"hello":"world"})).unwrap();
+
+    assert_ne!(frame_one, frame_two);
 }

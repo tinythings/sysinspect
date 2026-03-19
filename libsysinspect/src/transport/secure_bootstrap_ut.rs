@@ -6,6 +6,7 @@ use crate::rsa::keys::{get_fingerprint, keygen};
 use chrono::Utc;
 use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureDiagnosticCode, SecureFrame, SecureRotationMode};
 use rsa::RsaPublicKey;
+use sodiumoxide::crypto::secretbox;
 
 fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
     TransportPeerState {
@@ -20,6 +21,7 @@ fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerS
         last_key_id: Some("kid-1".to_string()),
         last_handshake_at: None,
         rotation: TransportRotationStatus::Idle,
+        pending_rotation_context: None,
         updated_at: Utc::now(),
         keys: vec![],
     }
@@ -43,7 +45,9 @@ fn open_rejects_unapproved_state() {
     let (_, master_pbk) = keygen(2048).unwrap();
     let (_, minion_pbk) = keygen(2048).unwrap();
 
-    assert!(SecureBootstrapSession::open(&TransportPeerState { approved_at: None, ..state(&master_pbk, &minion_pbk) }, &minion_prk, &master_pbk).is_err());
+    assert!(
+        SecureBootstrapSession::open(&TransportPeerState { approved_at: None, ..state(&master_pbk, &minion_pbk) }, &minion_prk, &master_pbk).is_err()
+    );
 }
 
 #[test]
@@ -77,4 +81,19 @@ fn hello_and_ack_complete_a_bound_session() {
     assert_eq!(established.session_id(), Some("sid-1"));
     assert_eq!(established.key_id(), "kid-1");
     assert!(!established.binding().master_nonce.is_empty());
+}
+
+#[test]
+fn persisted_material_derives_distinct_session_keys_for_distinct_openings() {
+    let (_, master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let mut state = state(&master_pbk, &minion_pbk);
+    let material = secretbox::gen_key();
+    state.upsert_key_with_material("kid-1", super::TransportKeyStatus::Active, Some(&material.0));
+
+    let first = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap().0;
+    let second = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap().0;
+
+    assert_ne!(first.binding().connection_id, second.binding().connection_id);
+    assert_ne!(first.session_key().0.to_vec(), second.session_key().0.to_vec());
 }

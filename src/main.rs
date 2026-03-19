@@ -16,7 +16,8 @@ use libsysinspect::{
 };
 use libsysproto::query::SCHEME_COMMAND;
 use libsysproto::query::commands::{
-    CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+    CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+    CLUSTER_TRANSPORT_STATUS,
 };
 use log::LevelFilter;
 use serde_json::json;
@@ -76,10 +77,7 @@ async fn call_master_console(
         .await
         .map_err(|_| std::io::Error::new(ErrorKind::TimedOut, "timeout while reading response from master console"))??;
     if reply.len() as u64 > MAX_CONSOLE_RESPONSE_SIZE || !reply.ends_with('\n') {
-        return Err(SysinspectError::SerializationError(format!(
-            "Console response exceeds {} bytes",
-            MAX_CONSOLE_RESPONSE_SIZE
-        )));
+        return Err(SysinspectError::SerializationError(format!("Console response exceeds {} bytes", MAX_CONSOLE_RESPONSE_SIZE)));
     }
     let response: ConsoleResponse = match serde_json::from_str::<ConsoleSealed>(reply.trim()) {
         Ok(sealed) => sealed.open(&key)?,
@@ -93,8 +91,8 @@ async fn call_master_console(
 
 fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
     if let Some(setv) = am.get_one::<String>("set") {
-        let traits = context::get_context(setv)
-            .ok_or_else(|| SysinspectError::InvalidQuery("Trait values must be in key:value format".to_string()))?;
+        let traits =
+            context::get_context(setv).ok_or_else(|| SysinspectError::InvalidQuery("Trait values must be in key:value format".to_string()))?;
         return Ok(Some(json!({"op": "set", "traits": traits}).to_string()));
     }
 
@@ -116,9 +114,7 @@ fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectEr
 fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
     let invalid_name = |name: &str| {
         let name = name.trim();
-        name.is_empty()
-            || matches!(name, "." | "..")
-            || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        name.is_empty() || matches!(name, "." | "..") || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
     };
     if am.get_flag("new") {
         if am.get_one::<String>("name").is_none() {
@@ -392,11 +388,7 @@ async fn main() {
 
     if let Some(sub) = params.subcommand_matches("traits") {
         let target_id = sub.get_one::<String>("id").map(String::as_str);
-        let target_query = sub
-            .get_one::<String>("query")
-            .or_else(|| sub.get_one::<String>("query-pos"))
-            .map(String::as_str)
-            .unwrap_or("*");
+        let target_query = sub.get_one::<String>("query").or_else(|| sub.get_one::<String>("query-pos")).map(String::as_str).unwrap_or("*");
         let target_traits = sub.get_one::<String>("select-traits");
         let scheme = format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}");
 
@@ -416,11 +408,7 @@ async fn main() {
 
     if let Some(sub) = params.subcommand_matches("profile") {
         let target_id = sub.get_one::<String>("id").map(String::as_str);
-        let target_query = sub
-            .get_one::<String>("query")
-            .or_else(|| sub.get_one::<String>("query-pos"))
-            .map(String::as_str)
-            .unwrap_or("*");
+        let target_query = sub.get_one::<String>("query").or_else(|| sub.get_one::<String>("query-pos")).map(String::as_str).unwrap_or("*");
         let target_traits = sub.get_one::<String>("select-traits");
         let context = match profile_update_context(sub) {
             Ok(ctx) => ctx,
@@ -430,7 +418,8 @@ async fn main() {
             }
         };
 
-        match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), target_query, target_traits, target_id, context.as_ref()).await {
+        match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), target_query, target_traits, target_id, context.as_ref()).await
+        {
             Ok(resp) => {
                 if !resp.message.is_empty() {
                     println!("{}", resp.message);
@@ -475,9 +464,49 @@ async fn main() {
         if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
+    } else if let Some(target) = params.get_one::<String>("rotate") {
+        let by_query = target.contains('*') || target.contains(',');
+        let overlap = params.get_one::<String>("rotate-overlap").and_then(|v| v.parse::<u64>().ok()).unwrap_or(900);
+        let reason = params.get_one::<String>("rotate-reason").cloned().unwrap_or_else(|| "manual".to_string());
+        let context = json!({
+            "op": "rotate",
+            "reason": reason,
+            "grace_seconds": overlap,
+            "reconnect": true,
+            "reregister": true,
+        })
+        .to_string();
+        if let Err(err) = call_master_console(
+            &cfg,
+            &format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}"),
+            if by_query { target } else { "*" },
+            params.get_one::<String>("traits"),
+            if by_query { None } else { Some(target.as_str()) },
+            Some(&context),
+        )
+        .await
+        {
+            log::error!("Cannot reach master: {err}");
+        }
     } else if let Some(mid) = params.get_one::<String>("unregister") {
         if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), None).await {
             log::error!("Cannot reach master: {err}");
+        }
+    } else if let Some(target) = params.get_one::<String>("transport-status") {
+        let by_query = target.contains('*') || target.contains(',');
+        match call_master_console(
+            &cfg,
+            &format!("{SCHEME_COMMAND}{CLUSTER_TRANSPORT_STATUS}"),
+            if by_query { target } else { "*" },
+            params.get_one::<String>("traits"),
+            if by_query { None } else { Some(target.as_str()) },
+            None,
+        )
+        .await
+        {
+            Ok(response) if !response.message.is_empty() => println!("{}", response.message),
+            Ok(_) => {}
+            Err(err) => log::error!("Cannot reach master: {err}"),
         }
     } else if params.get_flag("online") {
         match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, None).await {

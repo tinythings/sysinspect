@@ -146,6 +146,28 @@ pub fn cli(version: &'static str) -> Command {
                 .help(format!("Sync the {} for all artefacts (modules, libraries, traits etc)", "entire cluster".bright_red()))
         )
         .arg(
+            Arg::new("rotate")
+                .long("rotate")
+                .help("Rotate managed transport keys for a target minion id or query")
+        )
+        .arg(
+            Arg::new("rotate-overlap")
+                .long("rotate-overlap")
+                .help("Rotation grace overlap in seconds before retiring old keys")
+                .default_value("900")
+        )
+        .arg(
+            Arg::new("rotate-reason")
+                .long("rotate-reason")
+                .help("Operator-visible reason attached to rotation intents")
+                .default_value("manual")
+        )
+        .arg(
+            Arg::new("transport-status")
+                .long("transport-status")
+                .help("Show managed transport key status for a target minion id or query")
+        )
+        .arg(
             Arg::new("shutdown")
                 .long("shutdown")
                 .action(ArgAction::SetTrue)

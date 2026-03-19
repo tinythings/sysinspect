@@ -23,6 +23,7 @@ fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerS
         last_key_id: Some("kid-1".to_string()),
         last_handshake_at: None,
         rotation: TransportRotationStatus::Idle,
+        pending_rotation_context: None,
         updated_at: Utc::now(),
         keys: vec![],
     }

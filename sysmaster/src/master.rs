@@ -9,6 +9,7 @@ use crate::{
     },
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
 };
+use chrono::{Duration as ChronoDuration, Utc};
 use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -25,6 +26,7 @@ use libsysinspect::{
     },
     context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
+    rsa::rotation::{RotationActor, RsaTransportRotator, SignedRotationIntent},
     transport::{
         TransportStore,
         secure_bootstrap::{SecureBootstrapDiagnostics, SecureBootstrapSession},
@@ -38,12 +40,14 @@ use libsysproto::{
     payload::{ModStatePayload, PingData},
     query::{
         SCHEME_COMMAND,
-        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_TRAITS_UPDATE},
+        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS},
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
-    secure::{SecureBootstrapHello, SecureFrame, SecureSessionBinding},
+    secure::{SECURE_PROTOCOL_VERSION, SecureBootstrapHello, SecureFrame, SecureSessionBinding},
 };
 use once_cell::sync::Lazy;
+use rsa::RsaPublicKey;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::{Duration as StdDuration, Instant};
 use std::{
@@ -68,6 +72,61 @@ static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
 const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 const SECURE_BOOTSTRAP_MALFORMED_WINDOW: StdDuration = StdDuration::from_secs(30);
 const SECURE_BOOTSTRAP_REPLAY_WINDOW: StdDuration = StdDuration::from_secs(300);
+const DEFAULT_ROTATION_OVERLAP_SECONDS: u64 = 900;
+
+#[derive(Debug, Clone, Deserialize)]
+struct RotationConsoleRequest {
+    op: Option<String>,
+    reason: Option<String>,
+    grace_seconds: Option<u64>,
+    reconnect: Option<bool>,
+    reregister: Option<bool>,
+}
+
+impl RotationConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Ok(Self {
+                op: Some("rotate".to_string()),
+                reason: Some("manual".to_string()),
+                grace_seconds: Some(DEFAULT_ROTATION_OVERLAP_SECONDS),
+                reconnect: Some(true),
+                reregister: Some(true),
+            });
+        }
+        serde_json::from_str(context).map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse rotate request context: {err}")))
+    }
+
+    fn reason(&self) -> &str {
+        self.reason.as_deref().unwrap_or("manual")
+    }
+
+    fn grace_seconds(&self) -> u64 {
+        self.grace_seconds.unwrap_or(DEFAULT_ROTATION_OVERLAP_SECONDS)
+    }
+
+    fn reconnect(&self) -> bool {
+        self.reconnect.unwrap_or(true)
+    }
+
+    fn reregister(&self) -> bool {
+        self.reregister.unwrap_or(true)
+    }
+
+    fn op(&self) -> &str {
+        self.op.as_deref().unwrap_or("rotate")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RotationCommandPayload {
+    op: String,
+    reason: String,
+    grace_seconds: u64,
+    reconnect: bool,
+    reregister: bool,
+    intent: SignedRotationIntent,
+}
 
 #[derive(Debug)]
 struct SecurePeerConnection {
@@ -294,7 +353,28 @@ impl SysMaster {
             .map_err(SysinspectError::from);
         }
 
-        state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
+        if let Some(context) = state.pending_rotation_context.clone() {
+            if let Ok(payload) = serde_json::from_str::<RotationCommandPayload>(&context) {
+                if payload.intent.intent().next_key_id() == bootstrap.key_id() {
+                    let overlap = ChronoDuration::seconds(payload.grace_seconds as i64);
+                    let mut rotator = self.master_rotator(&hello.binding.minion_id)?;
+                    let _ = rotator.execute_signed_intent_with_overlap(
+                        &payload.intent,
+                        &RsaPublicKey::from(&self.mkr.master_private_key()?),
+                        overlap,
+                    )?;
+                    let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
+                    state = rotator.state().clone();
+                    state.set_pending_rotation_context(None);
+                } else {
+                    state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
+                }
+            } else {
+                state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
+            }
+        } else {
+            state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
+        }
         TransportStore::for_master_minion(&self.cfg, &hello.binding.minion_id)?.save(&state)?;
         log::info!(
             "Secure session established for minion {} from {} using key {} and protocol v{}",
@@ -731,6 +811,17 @@ impl SysMaster {
                                         guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
                                         _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload));
                                         log::info!("Syncing traits with minion at {c_id}");
+
+                                        match guard.pending_rotation_message_for(&c_id).await {
+                                            Ok(Some(msg)) => {
+                                                log::info!("Dispatching deferred rotation to {} after reconnect", c_id.bright_yellow());
+                                                _ = c_bcast.send(msg);
+                                            }
+                                            Ok(None) => {}
+                                            Err(err) => {
+                                                log::error!("Unable to dispatch deferred rotation for {}: {err}", c_id);
+                                            }
+                                        }
                                     }
                                 });
                             }
@@ -1188,6 +1279,151 @@ impl SysMaster {
         }
     }
 
+    fn master_rotator(&mut self, minion_id: &str) -> Result<RsaTransportRotator, SysinspectError> {
+        let master_fp = self.mkr().get_master_key_fingerprint()?;
+        let minion_fp = self.mkr().get_mn_key_fingerprint(minion_id)?;
+        let store = TransportStore::for_master_minion(&self.cfg, minion_id)?;
+        RsaTransportRotator::new(RotationActor::Master, store, minion_id, &master_fp, &minion_fp, SECURE_PROTOCOL_VERSION)
+    }
+
+    fn stage_rotation_context(&mut self, minion_id: &str, request: &RotationConsoleRequest) -> Result<String, SysinspectError> {
+        let rotator = self.master_rotator(minion_id)?;
+        let plan = rotator.plan(request.reason());
+        let signed = rotator.sign_plan(&plan, &self.mkr().master_private_key()?)?;
+        serde_json::to_string(&RotationCommandPayload {
+            op: "rotate".to_string(),
+            reason: request.reason().to_string(),
+            grace_seconds: request.grace_seconds(),
+            reconnect: request.reconnect(),
+            reregister: request.reregister(),
+            intent: signed,
+        })
+        .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode rotate payload: {err}")))
+    }
+
+    fn persist_pending_rotation_context(&mut self, minion_id: &str, context: Option<String>) -> Result<(), SysinspectError> {
+        let store = TransportStore::for_master_minion(&self.cfg, minion_id)?;
+        let mut state = store.load()?.ok_or_else(|| SysinspectError::ProtoError(format!("No managed transport state exists for {minion_id}")))?;
+        state.set_pending_rotation_context(context);
+        store.save(&state)
+    }
+
+    async fn build_rotation_message(
+        &mut self, minion_id: &str, request: &RotationConsoleRequest, reason_suffix: Option<&str>,
+    ) -> Result<Option<MasterMessage>, SysinspectError> {
+        if !self.mkr().is_registered(minion_id) {
+            return Ok(None);
+        }
+
+        let mut requested = request.clone();
+        if let Some(suffix) = reason_suffix {
+            requested.reason = Some(format!("{}:{suffix}", request.reason()));
+        }
+        let context = self.stage_rotation_context(minion_id, &requested)?;
+        self.persist_pending_rotation_context(minion_id, Some(context.clone()))?;
+        let msg = self.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}"), "", "", minion_id, &context).await;
+        if msg.is_none() {
+            self.persist_pending_rotation_context(minion_id, None)?;
+        }
+        Ok(msg)
+    }
+
+    async fn rotate_console_response(
+        &mut self, request: &RotationConsoleRequest, query: &str, traits: &str, mid: &str,
+    ) -> Result<(ConsoleResponse, Vec<MasterMessage>), SysinspectError> {
+        if request.op() != "rotate" {
+            return Ok((ConsoleResponse { ok: false, message: format!("Unsupported rotate operation {}", request.op().bright_yellow()) }, vec![]));
+        }
+
+        let mut online_msgs = Vec::new();
+        let mut online_count = 0usize;
+        let mut queued_count = 0usize;
+
+        let targets = self.selected_minions(query, traits, mid).await?;
+        for minion in targets {
+            let minion_id = minion.id().to_string();
+            let online = self.session.lock().await.alive(&minion_id);
+            if online {
+                if let Some(msg) = self.build_rotation_message(&minion_id, request, None).await? {
+                    online_msgs.push(msg);
+                    online_count += 1;
+                }
+            } else {
+                let context = self.stage_rotation_context(&minion_id, request)?;
+                self.persist_pending_rotation_context(&minion_id, Some(context))?;
+                queued_count += 1;
+            }
+        }
+
+        Ok((
+            ConsoleResponse {
+                ok: true,
+                message: format!(
+                    "Rotation staged: {} online dispatch{}, {} pending for offline minion{}",
+                    online_count,
+                    if online_count == 1 { "" } else { "es" },
+                    queued_count,
+                    if queued_count == 1 { "" } else { "s" }
+                ),
+            },
+            online_msgs,
+        ))
+    }
+
+    async fn transport_status_summary(&mut self, query: &str, traits: &str, mid: &str) -> Result<String, SysinspectError> {
+        let targets = self.selected_minions(query, traits, mid).await?;
+        let mut lines = vec![
+            "MINION  ACTIVE_KEY  KEY_AGE  LAST_HANDSHAKE  ROTATION  security.transport.last-rotated-at".to_string(),
+            "------  ----------  -------  --------------  --------  ----------------------------------".to_string(),
+        ];
+
+        let now = Utc::now();
+        for minion in targets {
+            let minion_id = minion.id().to_string();
+            let state = TransportStore::for_master_minion(&self.cfg, &minion_id)?.load()?;
+            if let Some(state) = state {
+                let active = state.active_key_id.clone().unwrap_or_else(|| "-".to_string());
+                let mut age = "-".to_string();
+                let mut last_rotated = "-".to_string();
+                if let Some(record) = state.keys.iter().find(|key| key.key_id == active) {
+                    let base = record.activated_at.unwrap_or(record.created_at);
+                    age = format!("{}s", (now - base).num_seconds().max(0));
+                    last_rotated = base.to_rfc3339();
+                }
+                let handshake = state.last_handshake_at.map(|d| d.to_rfc3339()).unwrap_or_else(|| "-".to_string());
+                lines.push(format!("{}  {}  {}  {}  {:?}  {}", minion_id, active, age, handshake, state.rotation, last_rotated));
+            } else {
+                lines.push(format!("{}  -  -  -  missing  -", minion_id));
+            }
+        }
+
+        Ok(lines.join("\n"))
+    }
+
+    async fn pending_rotation_message_for(&mut self, minion_id: &str) -> Result<Option<MasterMessage>, SysinspectError> {
+        let store = TransportStore::for_master_minion(&self.cfg, minion_id)?;
+        let state = match store.load()? {
+            Some(state) => state,
+            None => return Ok(None),
+        };
+        if !matches!(state.rotation, libsysinspect::transport::TransportRotationStatus::Pending)
+            || state.pending_rotation_context.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true)
+        {
+            return Ok(None);
+        }
+
+        self.msg_query_data(
+            &format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}"),
+            "",
+            "",
+            minion_id,
+            state.pending_rotation_context.as_deref().unwrap_or_default(),
+        )
+        .await
+        .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct deferred rotation message for {minion_id}")))
+        .map(Some)
+    }
+
     /// Start the encrypted TCP console listener used by `sysinspect` to talk to the master.
     pub async fn do_console(master: Arc<Mutex<Self>>) {
         log::trace!("Init local console channel");
@@ -1262,6 +1498,66 @@ impl SysMaster {
                                                                                 message: format!("Unable to get online minions: {err}"),
                                                                             },
                                                                         }
+                                                                    } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_TRANSPORT_STATUS}")) {
+                                                                        match master
+                                                                            .lock()
+                                                                            .await
+                                                                            .transport_status_summary(&query.query, &query.traits, &query.mid)
+                                                                            .await
+                                                                        {
+                                                                            Ok(summary) => ConsoleResponse { ok: true, message: summary },
+                                                                            Err(err) => ConsoleResponse {
+                                                                                ok: false,
+                                                                                message: format!("Unable to get transport status: {err}"),
+                                                                            },
+                                                                        }
+                                                                    } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}")) {
+                                                                        let (response, msgs) =
+                                                                            match RotationConsoleRequest::from_context(&query.context) {
+                                                                                Ok(request) => {
+                                                                                    let mut guard = master.lock().await;
+                                                                                    match guard
+                                                                                        .rotate_console_response(
+                                                                                            &request,
+                                                                                            &query.query,
+                                                                                            &query.traits,
+                                                                                            &query.mid,
+                                                                                        )
+                                                                                        .await
+                                                                                    {
+                                                                                        Ok(data) => data,
+                                                                                        Err(err) => (
+                                                                                            ConsoleResponse { ok: false, message: err.to_string() },
+                                                                                            vec![],
+                                                                                        ),
+                                                                                    }
+                                                                                }
+                                                                                Err(err) => (
+                                                                                    ConsoleResponse {
+                                                                                        ok: false,
+                                                                                        message: format!("Failed to parse rotate request: {err}"),
+                                                                                    },
+                                                                                    vec![],
+                                                                                ),
+                                                                            };
+                                                                        for msg in msgs {
+                                                                            SysMaster::bcast_master_msg(
+                                                                                &bcast,
+                                                                                cfg.telemetry_enabled(),
+                                                                                Arc::clone(&master),
+                                                                                Some(msg.clone()),
+                                                                            )
+                                                                            .await;
+                                                                            let guard = master.lock().await;
+                                                                            let ids = guard
+                                                                                .mreg
+                                                                                .lock()
+                                                                                .await
+                                                                                .get_targeted_minions(msg.target(), false)
+                                                                                .await;
+                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
+                                                                        }
+                                                                        response
                                                                     } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
                                                                         let (response, msgs) =
                                                                             match ProfileConsoleRequest::from_context(&query.context) {
