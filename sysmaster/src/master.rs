@@ -80,7 +80,7 @@ enum IncomingPeerFrame {
 
 #[derive(Debug)]
 enum OutgoingPeerFrame {
-    Broadcast(MasterMessage),
+    Broadcast(Box<MasterMessage>),
     Direct(Vec<u8>),
 }
 
@@ -216,6 +216,7 @@ impl SysMaster {
                 .channel
                 .open_bytes(raw);
             if decoded.is_err() {
+                log::warn!("Secure session for peer {} became invalid; dropping channel state", peer_addr);
                 self.secure_peers.remove(peer_addr);
             }
             return decoded.map(IncomingPeerFrame::Forward);
@@ -236,6 +237,11 @@ impl SysMaster {
             .iter()
             .any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id)
         {
+            log::warn!(
+                "Rejecting duplicate secure bootstrap for minion {} from {}",
+                hello.binding.minion_id,
+                peer_addr
+            );
             return serde_json::to_vec(&SecureBootstrapDiagnostics::duplicate_session(format!(
                 "Secure session for {} already exists",
                 hello.binding.minion_id
@@ -256,6 +262,13 @@ impl SysMaster {
         )?;
         state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
         TransportStore::for_master_minion(&self.cfg, &hello.binding.minion_id)?.save(&state)?;
+        log::info!(
+            "Secure session established for minion {} from {} using key {} and protocol v{}",
+            hello.binding.minion_id,
+            peer_addr,
+            bootstrap.key_id(),
+            hello.binding.protocol_version
+        );
         self.secure_peers.insert(
             peer_addr.to_string(),
             SecurePeerConnection {
@@ -1358,7 +1371,7 @@ impl SysMaster {
 
                             loop {
                                 let msg = match tokio::select! {
-                                    Ok(msg) = bcast_sub.recv() => Some(OutgoingPeerFrame::Broadcast(msg)),
+                                    Ok(msg) = bcast_sub.recv() => Some(OutgoingPeerFrame::Broadcast(Box::new(msg))),
                                     Some(msg) = direct_rx.recv() => Some(OutgoingPeerFrame::Direct(msg)),
                                     else => return,
                                 } {

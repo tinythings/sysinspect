@@ -343,6 +343,11 @@ impl SysMinion {
                 state.upsert_key(session.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
                 store.save(&state)?;
                 *self.secure.lock().await = Some(SecureChannel::new(SecurePeerRole::Minion, &session)?);
+                log::info!(
+                    "Secure session established with master using key {} and session {}",
+                    session.key_id(),
+                    session.session_id().unwrap_or_default()
+                );
                 Ok(true)
             }
             SecureFrame::BootstrapDiagnostic(diag) => Err(SysinspectError::ProtoError(format!(
