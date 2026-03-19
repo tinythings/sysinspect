@@ -47,6 +47,7 @@ sections:
 
    cli
    distributed_model
+   secure_transport
    systraits
    targeting
    virtual_minions

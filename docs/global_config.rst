@@ -129,6 +129,29 @@ Master
 Sysinspect Master configuration is located under earlier mentioned ``master`` section,
 and contains the following directives:
 
+``socket``
+##########
+
+    Type: **string**
+
+    Path to the local Unix socket that the ``sysinspect`` CLI uses to talk to
+    the running Sysinspect Master process.
+
+    In practice, this is the control socket on the master host itself. When you
+    run a command such as ``sysinspect apply ...``, the CLI writes the request to
+    this socket and the master daemon forwards the work to minions over the
+    network. This setting does **not** change the network listener for minions;
+    that is controlled by ``bind.ip`` and ``bind.port``.
+
+    Default value is ``/var/run/sysinspect-master.socket``.
+
+    Change this value only if you need the socket in a different location, for
+    example because ``/var/run`` is not writable in your environment or you want
+    to keep runtime files under another service directory. If you change it,
+    make sure both the master service and the ``sysinspect`` command use the
+    same configuration file, otherwise the CLI will not be able to reach the
+    master.
+
 ``console.bind.ip``
 ###################
 
@@ -460,6 +483,7 @@ Example configuration for the Sysinspect Master:
 
     config:
         master:
+            socket: /var/run/sysinspect-master.socket
             console.bind.ip: 127.0.0.1
             console.bind.port: 4203
             bind.ip: 0.0.0.0
