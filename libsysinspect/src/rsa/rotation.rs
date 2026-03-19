@@ -423,7 +423,7 @@ impl RsaTransportRotator {
     fn expected_signer_fingerprint(&self) -> &str {
         match self.actor {
             RotationActor::Master => &self.state.master_rsa_fingerprint,
-            RotationActor::Minion => &self.state.minion_rsa_fingerprint,
+            RotationActor::Minion => &self.state.master_rsa_fingerprint,
         }
     }
 

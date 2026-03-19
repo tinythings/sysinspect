@@ -10,7 +10,7 @@ use crate::{
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
     transport::{IncomingFrame, OutgoingFrame, PeerTransport},
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -163,59 +163,178 @@ impl RotationDispatchSummary {
 /// One rendered row of transport status data shown in the console summary.
 #[derive(Debug)]
 struct TransportStatusRow {
-    minion_id: String,
+    host: String,
     active_key: String,
     key_age: String,
     last_handshake: String,
-    rotation: String,
     last_rotated: String,
+    rotation: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TransportStatusWidths {
+    host: usize,
+    active_key: usize,
+    key_age: usize,
+    last_handshake: usize,
+    last_rotated: usize,
+    rotation: usize,
 }
 
 impl TransportStatusRow {
-    /// Return the fixed header rows used by the transport status table.
-    fn header() -> [String; 2] {
+    const HOST_HEADER: &'static str = "HOST";
+    const KEY_HEADER: &'static str = "KEY";
+    const AGE_HEADER: &'static str = "AGE";
+    const SEEN_HEADER: &'static str = "SEEN";
+    const ROTATED_HEADER: &'static str = "ROTATED";
+    const ROTATION_HEADER: &'static str = "ROTATION";
+
+    fn widths(rows: &[Self]) -> TransportStatusWidths {
+        TransportStatusWidths {
+            host: rows.iter().map(|row| row.host.chars().count()).max().unwrap_or(0).max(Self::HOST_HEADER.chars().count()),
+            active_key: rows.iter().map(|row| row.active_key.chars().count()).max().unwrap_or(0).max(Self::KEY_HEADER.chars().count()),
+            key_age: rows.iter().map(|row| row.key_age.chars().count()).max().unwrap_or(0).max(Self::AGE_HEADER.chars().count()),
+            last_handshake: rows.iter().map(|row| row.last_handshake.chars().count()).max().unwrap_or(0).max(Self::SEEN_HEADER.chars().count()),
+            last_rotated: rows.iter().map(|row| row.last_rotated.chars().count()).max().unwrap_or(0).max(Self::ROTATED_HEADER.chars().count()),
+            rotation: rows.iter().map(|row| row.rotation.chars().count()).max().unwrap_or(0).max(Self::ROTATION_HEADER.chars().count()),
+        }
+    }
+
+    fn header(widths: TransportStatusWidths) -> [String; 2] {
         [
-            "MINION  ACTIVE_KEY  KEY_AGE  LAST_HANDSHAKE  ROTATION  security.transport.last-rotated-at".to_string(),
-            "------  ----------  -------  --------------  --------  ----------------------------------".to_string(),
+            format!(
+                "{}  {}  {}  {}  {}  {}",
+                pad_visible(&Self::HOST_HEADER.bright_yellow().to_string(), widths.host),
+                pad_visible(&Self::KEY_HEADER.bright_yellow().to_string(), widths.active_key),
+                pad_visible(&Self::AGE_HEADER.bright_yellow().to_string(), widths.key_age),
+                pad_visible(&Self::SEEN_HEADER.bright_yellow().to_string(), widths.last_handshake),
+                pad_visible(&Self::ROTATED_HEADER.bright_yellow().to_string(), widths.last_rotated),
+                pad_visible(&Self::ROTATION_HEADER.bright_yellow().to_string(), widths.rotation),
+            ),
+            format!(
+                "{}  {}  {}  {}  {}  {}",
+                "─".repeat(widths.host),
+                "─".repeat(widths.active_key),
+                "─".repeat(widths.key_age),
+                "─".repeat(widths.last_handshake),
+                "─".repeat(widths.last_rotated),
+                "─".repeat(widths.rotation),
+            ),
         ]
     }
 
+    fn host_for_minion(minion: &crate::registry::rec::MinionRecord) -> String {
+        let traits = minion.get_traits();
+        let fqdn = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default();
+        if !fqdn.is_empty() {
+            return fqdn.to_string();
+        }
+
+        let hostname = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or_default();
+        if !hostname.is_empty() {
+            return hostname.to_string();
+        }
+
+        minion.id().to_string()
+    }
+
+    fn shorten_middle(value: &str) -> String {
+        let chars: Vec<char> = value.chars().collect();
+        if chars.len() <= 9 {
+            return value.to_string();
+        }
+
+        let prefix: String = chars.iter().take(3).collect();
+        let suffix: String = chars[chars.len().saturating_sub(3)..].iter().collect();
+        format!("{prefix}...{suffix}")
+    }
+
+    fn relative_label(ts: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
+        let Some(ts) = ts else {
+            return "-".to_string();
+        };
+
+        let seconds = (now - ts).num_seconds().max(0);
+        if seconds < 60 {
+            return format!("{seconds}s");
+        }
+
+        let minutes = seconds / 60;
+        if minutes < 60 {
+            return format!("{minutes}m");
+        }
+
+        let hours = minutes / 60;
+        if hours < 24 {
+            return format!("{hours}h");
+        }
+
+        let days = hours / 24;
+        if days < 7 {
+            return format!("{days}d");
+        }
+
+        format!("{}w", days / 7)
+    }
+
+    fn color_rotation(&self) -> String {
+        match self.rotation.as_str() {
+            "Idle" => self.rotation.bright_green().to_string(),
+            "Pending" => self.rotation.yellow().to_string(),
+            "InProgress" => self.rotation.bright_yellow().to_string(),
+            "RollbackReady" => self.rotation.bright_blue().to_string(),
+            "Missing" => self.rotation.red().to_string(),
+            _ => self.rotation.clone(),
+        }
+    }
+
     /// Build the fallback row for a minion with no managed transport state.
-    fn missing(minion_id: &str) -> Self {
+    fn missing(minion: &crate::registry::rec::MinionRecord) -> Self {
         Self {
-            minion_id: minion_id.to_string(),
+            host: Self::host_for_minion(minion),
             active_key: "-".to_string(),
             key_age: "-".to_string(),
             last_handshake: "-".to_string(),
-            rotation: "missing".to_string(),
             last_rotated: "-".to_string(),
+            rotation: "Missing".to_string(),
         }
     }
 
     /// Build one transport status row from persisted managed transport state.
-    fn from_state(minion_id: &str, state: &TransportPeerState, now: chrono::DateTime<Utc>) -> Self {
+    fn from_state(minion: &crate::registry::rec::MinionRecord, state: &TransportPeerState, now: DateTime<Utc>) -> Self {
         let active_key = state.active_key_id.clone().unwrap_or_else(|| "-".to_string());
         let mut key_age = "-".to_string();
         let mut last_rotated = "-".to_string();
         if let Some(record) = state.keys.iter().find(|key| key.key_id == active_key) {
             let base = record.activated_at.unwrap_or(record.created_at);
-            key_age = format!("{}s", (now - base).num_seconds().max(0));
-            last_rotated = base.to_rfc3339();
+            key_age = Self::relative_label(Some(base), now);
+            last_rotated = Self::relative_label(Some(base), now);
         }
 
         Self {
-            minion_id: minion_id.to_string(),
-            active_key,
+            host: Self::host_for_minion(minion),
+            active_key: if active_key == "-" { active_key } else { Self::shorten_middle(&active_key) },
             key_age,
-            last_handshake: state.last_handshake_at.map(|d| d.to_rfc3339()).unwrap_or_else(|| "-".to_string()),
+            last_handshake: Self::relative_label(state.last_handshake_at, now),
             rotation: format!("{:?}", state.rotation),
             last_rotated,
         }
     }
 
     /// Render this row for the console table.
-    fn render(&self) -> String {
-        format!("{}  {}  {}  {}  {}  {}", self.minion_id, self.active_key, self.key_age, self.last_handshake, self.rotation, self.last_rotated)
+    fn render(&self, widths: TransportStatusWidths) -> String {
+        let host = self.host.bright_green().to_string();
+        let active_key = if self.active_key == "-" { self.active_key.clone() } else { self.active_key.green().to_string() };
+
+        format!(
+            "{}  {}  {}  {}  {}  {}",
+            pad_visible(&host, widths.host),
+            pad_visible(&active_key, widths.active_key),
+            pad_visible(&self.key_age, widths.key_age),
+            pad_visible(&self.last_handshake, widths.last_handshake),
+            pad_visible(&self.last_rotated, widths.last_rotated),
+            pad_visible(&self.color_rotation(), widths.rotation),
+        )
     }
 }
 
@@ -1016,7 +1135,15 @@ impl SysMaster {
     /// Resolve target minions for console profile operations from id, traits query, or hostname query.
     async fn selected_minions(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<crate::registry::rec::MinionRecord>, SysinspectError> {
         let mut records = if !mid.is_empty() {
-            self.mreg.lock().await.get(mid)?.into_iter().collect::<Vec<_>>()
+            let mut registry = self.mreg.lock().await;
+            let mut records = registry.get(mid)?.into_iter().collect::<Vec<_>>();
+            if records.is_empty() {
+                records = registry.get_by_hostname_or_ip(mid)?;
+            }
+            if records.is_empty() {
+                records = registry.get_by_query(mid)?;
+            }
+            records
         } else if !traits.trim().is_empty() {
             let traits = get_context(traits)
                 .ok_or_else(|| SysinspectError::InvalidQuery("Traits selector must be in key:value format".to_string()))?
@@ -1249,17 +1376,23 @@ impl SysMaster {
 
     async fn transport_status_summary(&mut self, query: &str, traits: &str, mid: &str) -> Result<String, SysinspectError> {
         let targets = self.selected_minions(query, traits, mid).await?;
-        let mut lines = TransportStatusRow::header().into_iter().collect::<Vec<_>>();
+        let mut rows = Vec::with_capacity(targets.len());
 
         let now = Utc::now();
         for minion in targets {
             let minion_id = minion.id().to_string();
             let state = TransportStore::for_master_minion(&self.cfg, &minion_id)?.load()?;
             if let Some(state) = state {
-                lines.push(TransportStatusRow::from_state(&minion_id, &state, now).render());
+                rows.push(TransportStatusRow::from_state(&minion, &state, now));
             } else {
-                lines.push(TransportStatusRow::missing(&minion_id).render());
+                rows.push(TransportStatusRow::missing(&minion));
             }
+        }
+
+        let widths = TransportStatusRow::widths(&rows);
+        let mut lines = TransportStatusRow::header(widths).into_iter().collect::<Vec<_>>();
+        for row in rows {
+            lines.push(row.render(widths));
         }
 
         Ok(lines.join("\n"))
