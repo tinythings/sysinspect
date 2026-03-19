@@ -83,6 +83,7 @@ pub struct TransportPeerState {
 }
 
 impl TransportPeerState {
+    /// Create a new managed transport state record for one master/minion relationship.
     pub fn new(minion_id: String, master_rsa_fingerprint: String, minion_rsa_fingerprint: String, protocol_version: u16) -> Self {
         Self {
             minion_id,
@@ -101,12 +102,15 @@ impl TransportPeerState {
         }
     }
 
+    /// Insert or update one tracked transport key and refresh the relationship metadata around it.
     pub fn upsert_key(&mut self, key_id: &str, status: TransportKeyStatus) {
         self.last_key_id = Some(key_id.to_string());
         self.updated_at = Utc::now();
         if matches!(status, TransportKeyStatus::Active) {
             self.active_key_id = Some(key_id.to_string());
             self.last_handshake_at = Some(self.updated_at);
+        } else if self.active_key_id.as_deref() == Some(key_id) {
+            self.active_key_id = None;
         }
         if let Some(key) = self.keys.iter_mut().find(|key| key.key_id.eq(key_id)) {
             key.status = status.clone();
@@ -128,6 +132,16 @@ impl TransportPeerState {
         });
     }
 
+    /// Mark the currently tracked transport key as broken after a failed secure bootstrap or session validation.
+    pub fn mark_current_key_broken(&mut self) -> bool {
+        if let Some(key_id) = self.active_key_id.clone().or_else(|| self.last_key_id.clone()) {
+            self.upsert_key(&key_id, TransportKeyStatus::Broken);
+            return true;
+        }
+        false
+    }
+
+    /// Set the provisioning mode used for this relationship.
     pub fn set_provisioning(&mut self, provisioning: TransportProvisioningMode) {
         self.provisioning = provisioning.clone();
         self.updated_at = Utc::now();
@@ -137,11 +151,13 @@ impl TransportPeerState {
         };
     }
 
+    /// Approve this peer for secure bootstrap.
     pub fn approve(&mut self) {
         self.updated_at = Utc::now();
         self.approved_at = Some(self.updated_at);
     }
 
+    /// Record which transport key-exchange model this relationship uses.
     pub fn set_key_exchange(&mut self, key_exchange: TransportKeyExchangeModel) {
         self.key_exchange = key_exchange;
         self.updated_at = Utc::now();
@@ -153,14 +169,17 @@ pub struct TransportStore {
 }
 
 impl TransportStore {
+    /// Open the managed transport state store for a minion's trusted master relationship.
     pub fn for_minion(cfg: &MinionConfig) -> Result<Self, SysinspectError> {
         Self::new(cfg.transport_master_root().join(CFG_TRANSPORT_STATE))
     }
 
+    /// Open the managed transport state store for one registered minion on the master.
     pub fn for_master_minion(cfg: &MasterConfig, minion_id: &str) -> Result<Self, SysinspectError> {
         Self::new(cfg.transport_minions_root().join(Self::safe_peer_dir(minion_id)?).join(CFG_TRANSPORT_STATE))
     }
 
+    /// Create a transport store rooted at the provided managed state path.
     pub fn new(state_path: PathBuf) -> Result<Self, SysinspectError> {
         ensure_secure_parent(state_path.parent().ok_or_else(|| {
             SysinspectError::ConfigError(format!("Transport state path {} has no parent", state_path.display()))
@@ -168,10 +187,12 @@ impl TransportStore {
         Ok(Self { state_path })
     }
 
+    /// Return the managed state file path used by this store.
     pub fn state_path(&self) -> &Path {
         &self.state_path
     }
 
+    /// Load the transport state from disk when it exists.
     pub fn load(&self) -> Result<Option<TransportPeerState>, SysinspectError> {
         if !self.state_path.exists() {
             return Ok(None);
@@ -186,6 +207,7 @@ impl TransportStore {
             })
     }
 
+    /// Save the transport state to disk with private filesystem permissions.
     pub fn save(&self, state: &TransportPeerState) -> Result<(), SysinspectError> {
         ensure_secure_parent(self.state_path.parent().unwrap_or_else(|| Path::new(".")))?;
         let tmp = self.state_path.with_extension("json.tmp");
@@ -196,10 +218,12 @@ impl TransportStore {
         Ok(())
     }
 
+    /// Load the transport state or create a new one from the provided initializer.
     pub fn load_or_init(&self, init: impl FnOnce() -> TransportPeerState) -> Result<TransportPeerState, SysinspectError> {
         self.load().map(|state| state.unwrap_or_else(init))
     }
 
+    /// Ensure that an automatically provisioned peer state exists and matches the current trusted RSA identities.
     pub fn ensure_automatic_peer(
         &self, minion_id: &str, master_rsa_fingerprint: &str, minion_rsa_fingerprint: &str, protocol_version: u16,
     ) -> Result<TransportPeerState, SysinspectError> {
@@ -225,6 +249,7 @@ impl TransportStore {
         Ok(state)
     }
 
+    /// Convert the current peer state to explicit approval mode after initial provisioning.
     pub fn require_explicit_approval(
         &self, minion_id: &str, master_rsa_fingerprint: &str, minion_rsa_fingerprint: &str, protocol_version: u16,
     ) -> Result<TransportPeerState, SysinspectError> {
@@ -234,6 +259,7 @@ impl TransportStore {
         Ok(state)
     }
 
+    /// Mark the stored peer state as approved for secure bootstrap.
     pub fn approve_peer(&self) -> Result<TransportPeerState, SysinspectError> {
         let mut state = self.load()?.ok_or_else(|| {
             SysinspectError::ConfigError(format!("Transport state does not exist at {}", self.state_path.display()))
@@ -243,6 +269,7 @@ impl TransportStore {
         Ok(state)
     }
 
+    /// Validate and normalize a transport peer identifier before it is used as a directory name.
     pub fn safe_peer_dir(peer_id: &str) -> Result<String, SysinspectError> {
         let peer_id = peer_id.trim();
         if peer_id.is_empty()

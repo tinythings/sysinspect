@@ -20,7 +20,7 @@ use libsetup::get_ssh_client_ip;
 use libsysinspect::{
     cfg::{
         get_minion_config,
-        mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
+        mmconf::{CFG_MASTER_KEY_PUB, DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
     context,
     inspector::SysInspectRunner,
@@ -319,18 +319,48 @@ impl SysMinion {
         Ok(frame)
     }
 
-    /// Bootstrap a secure session with the master when managed transport state already exists locally.
-    async fn bootstrap_secure(&self) -> Result<bool, SysinspectError> {
-        let store = TransportStore::for_minion(&self.cfg)?;
-        let mut state = match store.load()? {
-            Some(state) => state,
-            None => return Ok(false),
+    /// Mark the specified transport key, or the current managed key, as broken after a failed secure bootstrap.
+    fn mark_broken_transport(&self, store: &TransportStore, state: &mut libsysinspect::transport::TransportPeerState, key_id: Option<&str>) {
+        let changed = if let Some(key_id) = key_id {
+            state.upsert_key(key_id, libsysinspect::transport::TransportKeyStatus::Broken);
+            true
+        } else {
+            state.mark_current_key_broken()
         };
+        if changed && let Err(err) = store.save(state) {
+            log::warn!("Unable to persist broken transport state: {err}");
+        }
+    }
+
+    /// Bootstrap a secure session with the master before any normal protocol traffic is allowed.
+    pub(crate) async fn bootstrap_secure(&self) -> Result<(), SysinspectError> {
+        let store = TransportStore::for_minion(&self.cfg)?;
         let master_pbk = match self.kman.master_public_key()? {
             Some(key) => key,
-            None => return Ok(false),
+            None => {
+                return Err(SysinspectError::ConfigError(format!(
+                    "Trusted master RSA key is missing at {}; secure bootstrap cannot continue",
+                    self.cfg.root_dir().join(CFG_MASTER_KEY_PUB).display()
+                )));
+            }
         };
-        let (opening, hello) = SecureBootstrapSession::open(&state, &self.kman.private_key()?, &master_pbk)?;
+        let mut state = match store.load()? {
+            Some(state) => state,
+            None => {
+                return Err(SysinspectError::ConfigError(format!(
+                    "Managed transport state is missing at {}; secure bootstrap cannot continue",
+                    store.state_path().display()
+                )));
+            }
+        };
+        let (opening, hello) = match SecureBootstrapSession::open(&state, &self.kman.private_key()?, &master_pbk) {
+            Ok(opening) => opening,
+            Err(err) => {
+                self.mark_broken_transport(&store, &mut state, None);
+                return Err(err);
+            }
+        };
+        let opening_key_id = opening.key_id().to_string();
         self.write_frame(
             &serde_json::to_vec(&hello)
                 .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode secure bootstrap hello: {err}")))?,
@@ -339,7 +369,13 @@ impl SysMinion {
         match serde_json::from_slice::<SecureFrame>(&self.read_frame().await?)
             .map_err(|err| SysinspectError::DeserializationError(format!("Failed to decode secure bootstrap reply: {err}")))? {
             SecureFrame::BootstrapAck(ack) => {
-                let session = opening.verify_ack(&state, &ack, &master_pbk)?;
+                let session = match opening.verify_ack(&state, &ack, &master_pbk) {
+                    Ok(session) => session,
+                    Err(err) => {
+                        self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
+                        return Err(err);
+                    }
+                };
                 state.upsert_key(session.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
                 store.save(&state)?;
                 *self.secure.lock().await = Some(SecureChannel::new(SecurePeerRole::Minion, &session)?);
@@ -348,13 +384,19 @@ impl SysMinion {
                     session.key_id(),
                     session.session_id().unwrap_or_default()
                 );
-                Ok(true)
+                Ok(())
             }
-            SecureFrame::BootstrapDiagnostic(diag) => Err(SysinspectError::ProtoError(format!(
-                "Master rejected secure bootstrap with {:?}: {}",
-                diag.code, diag.message
-            ))),
-            _ => Err(SysinspectError::ProtoError("Master replied with a non-bootstrap frame during secure bootstrap".to_string())),
+            SecureFrame::BootstrapDiagnostic(diag) => {
+                self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
+                Err(SysinspectError::ProtoError(format!(
+                    "Master rejected secure bootstrap with {:?}: {}",
+                    diag.code, diag.message
+                )))
+            }
+            _ => {
+                self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
+                Err(SysinspectError::ProtoError("Master replied with a non-bootstrap frame during secure bootstrap".to_string()))
+            }
         }
     }
 
