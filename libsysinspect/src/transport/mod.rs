@@ -1,6 +1,7 @@
 #![doc = include_str!("README.txt")]
 
 pub mod secure_bootstrap;
+pub mod secure_channel;
 
 use chrono::{DateTime, Utc};
 use libcommon::SysinspectError;
@@ -11,6 +12,9 @@ use std::{
 };
 
 use crate::cfg::mmconf::{CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_STATE, MasterConfig, MinionConfig};
+
+#[cfg(test)]
+mod secure_channel_ut;
 
 #[cfg(test)]
 mod secure_bootstrap_ut;
