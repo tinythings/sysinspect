@@ -171,6 +171,212 @@ Typical usage:
 - rotate by selector query: ``sysinspect --rotate '<glob>'``
 - inspect transport status: ``sysinspect --transport-status <minion-id|glob>``
 
+Practical Rotation Procedure
+----------------------------
+
+For day-to-day operation, the usual workflow is:
+
+1. Check which Minions are online.
+2. Inspect current transport state.
+3. Run rotation for one Minion or a selected group.
+4. Wait for reconnect/bootstrap.
+5. Confirm the new active key and ``last-rotated`` timestamp.
+
+In practice this looks like:
+
+1. Show online Minions:
+
+   .. code-block:: bash
+
+      sysinspect --online
+
+2. Inspect one Minion before rotation:
+
+   .. code-block:: bash
+
+      sysinspect --transport-status <minion-id>
+
+3. Rotate that Minion with the default overlap window:
+
+   .. code-block:: bash
+
+      sysinspect --rotate <minion-id>
+
+4. Inspect it again after it reconnects:
+
+   .. code-block:: bash
+
+      sysinspect --transport-status <minion-id>
+
+If the Minion is online, Sysinspect sends the signed rotation intent
+immediately.
+
+If the Minion is offline, Sysinspect stores the exact requested rotation as a
+pending action and sends it when that Minion reconnects later.
+
+What Each Rotation Option Does
+------------------------------
+
+The current operator-facing rotation options are:
+
+``--rotate <target>``
+~~~~~~~~~~~~~~~~~~~~~
+
+Starts a managed transport rotation.
+
+- If ``<target>`` looks like a plain Minion id, Sysinspect targets that exact
+  Minion.
+- If ``<target>`` contains glob characters such as ``*`` or a comma-separated
+  selector list, Sysinspect treats it as a query target.
+
+Examples:
+
+.. code-block:: bash
+
+   sysinspect --rotate minion-42
+   sysinspect --rotate 'edge-*'
+   sysinspect --rotate 'edge-1,edge-2'
+
+``--rotate-overlap <seconds>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Controls how long the old key remains in ``retiring`` state before it is
+removed.
+
+- Default: ``900`` seconds
+- Purpose: give unstable or slow-to-reconnect systems a grace window during
+  cutover
+
+Example:
+
+.. code-block:: bash
+
+   sysinspect --rotate minion-42 --rotate-overlap 1800
+
+That keeps the previous key material around for 30 minutes before retirement
+cleanup removes it.
+
+``--rotate-reason <text>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Adds operator-visible context to the signed rotation intent.
+
+- This is recorded in the staged rotation request.
+- If the Minion is offline, the same reason is preserved and replayed later.
+
+Example:
+
+.. code-block:: bash
+
+   sysinspect --rotate minion-42 --rotate-reason quarterly-maintenance
+
+``--transport-status <target>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Shows current managed transport state for one Minion or a selected set.
+
+The status output includes:
+
+- active transport key id
+- key age
+- last successful handshake time
+- current rotation state
+- ``security.transport.last-rotated-at``
+
+Examples:
+
+.. code-block:: bash
+
+   sysinspect --transport-status minion-42
+   sysinspect --transport-status 'edge-*'
+
+Related Operational Options
+---------------------------
+
+These options are not rotation-specific, but they are commonly used together
+with transport-key rotation:
+
+``--online``
+~~~~~~~~~~~~
+
+Shows which registered Minions are currently online.
+
+Use this before rotation to decide whether the request is likely to be applied
+immediately or deferred until reconnect.
+
+.. code-block:: bash
+
+   sysinspect --online
+
+``--sync``
+~~~~~~~~~~
+
+Synchronises modules, libraries, profiles, and related managed artefacts
+across the cluster.
+
+This is separate from transport-key rotation, but operators often run it after
+maintenance work when they want Minions to be both current and reconnected.
+
+.. code-block:: bash
+
+   sysinspect --sync
+
+``--unregister <minion-id>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Removes a Minion's registration and its managed transport metadata from the
+Master.
+
+Use this only when you intend to force a fresh trust relationship.
+
+.. code-block:: bash
+
+   sysinspect --unregister minion-42
+
+After unregistering, the Minion must be registered again before normal secure
+bootstrap can continue.
+
+What Actually Happens During Rotation
+-------------------------------------
+
+From an operator point of view, a rotation request does the following:
+
+1. The Master creates a new managed transport key record with fresh secret
+   material.
+2. The Master signs a rotation intent with its RSA identity.
+3. The Minion verifies that signed intent against the trusted Master RSA key.
+4. The Minion updates its managed transport state and reconnects.
+5. The next secure bootstrap uses the new managed transport key material.
+6. After the overlap window expires, the old key is retired and removed.
+
+This means rotation changes real managed transport secret material, not only a
+label or identifier.
+
+Recommended Operator Patterns
+-----------------------------
+
+For one Minion:
+
+.. code-block:: bash
+
+   sysinspect --transport-status minion-42
+   sysinspect --rotate minion-42 --rotate-reason planned-maintenance
+   sysinspect --transport-status minion-42
+
+For a group with a longer grace window:
+
+.. code-block:: bash
+
+   sysinspect --online
+   sysinspect --rotate 'edge-*' --rotate-overlap 3600 --rotate-reason staged-rollout
+   sysinspect --transport-status 'edge-*'
+
+For offline or unstable Minions:
+
+- issue the same rotation command normally
+- let Sysinspect keep the request pending
+- verify the result after the Minion reconnects with ``--transport-status``
+
 The status view includes:
 
 - active transport key id
