@@ -20,7 +20,9 @@ use libeventreg::{
 use libmodpak::SysInspectModPak;
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
-    console::{ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key},
+    console::{
+        ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key,
+    },
     context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     transport::{
@@ -39,7 +41,7 @@ use libsysproto::{
         commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
-    secure::{SecureBootstrapHello, SecureFrame},
+    secure::{SecureBootstrapHello, SecureFrame, SecureSessionBinding},
 };
 use once_cell::sync::Lazy;
 use serde_json::json;
@@ -51,9 +53,9 @@ use std::{
     vec,
 };
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, sleep};
-use tokio::sync::Mutex;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader},
     time,
@@ -64,6 +66,8 @@ pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::n
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
 const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
+const SECURE_BOOTSTRAP_MALFORMED_WINDOW: StdDuration = StdDuration::from_secs(30);
+const SECURE_BOOTSTRAP_REPLAY_WINDOW: StdDuration = StdDuration::from_secs(300);
 
 #[derive(Debug)]
 struct SecurePeerConnection {
@@ -100,6 +104,7 @@ pub struct SysMaster {
     secure_peers: HashMap<String, SecurePeerConnection>,
     plaintext_peers: HashSet<String>,
     secure_bootstrap_failures: HashMap<String, (Instant, u32)>,
+    secure_bootstrap_replay_cache: HashMap<String, Instant>,
     datastore: Arc<Mutex<DataStorage>>,
 }
 
@@ -136,6 +141,7 @@ impl SysMaster {
             secure_peers: HashMap::new(),
             plaintext_peers: HashSet::new(),
             secure_bootstrap_failures: HashMap::new(),
+            secure_bootstrap_replay_cache: HashMap::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
     }
@@ -160,16 +166,15 @@ impl SysMaster {
     }
 
     /// Build a plaintext bootstrap diagnostic from the shared malformed-attempt state kept for secure bootstrap probes.
-    pub(crate) fn secure_peer_diag_with_state(
-        failures: &mut HashMap<String, (Instant, u32)>, peer_addr: &str, data: &[u8],
-    ) -> Option<Vec<u8>> {
+    pub(crate) fn secure_peer_diag_with_state(failures: &mut HashMap<String, (Instant, u32)>, peer_addr: &str, data: &[u8]) -> Option<Vec<u8>> {
+        let peer_key = Self::peer_rate_limit_key(peer_addr);
         match serde_json::from_slice::<SecureFrame>(data) {
             Ok(SecureFrame::BootstrapHello(_) | SecureFrame::BootstrapAck(_) | SecureFrame::Data(_)) => {
-                failures.remove(peer_addr);
+                failures.remove(&peer_key);
                 serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version("Secure transport is not enabled on this master yet")).ok()
             }
             Err(_) if std::str::from_utf8(data).ok().map(|text| text.contains("\"kind\"")).unwrap_or(false) => {
-                serde_json::to_vec(&Self::secure_malformed_diag(failures, peer_addr)).ok()
+                serde_json::to_vec(&Self::secure_malformed_diag(failures, &peer_key)).ok()
             }
             _ => None,
         }
@@ -194,17 +199,14 @@ impl SysMaster {
 
     /// Return whether this connection may receive the next outbound broadcast frame.
     fn peer_can_receive_broadcast(&self, peer_addr: &str) -> bool {
-        Self::peer_can_receive_broadcast_state(
-            self.secure_peers.contains_key(peer_addr),
-            self.plaintext_peers.contains(peer_addr),
-        )
+        Self::peer_can_receive_broadcast_state(self.secure_peers.contains_key(peer_addr), self.plaintext_peers.contains(peer_addr))
     }
 
     /// Rate-limit repeated malformed secure bootstrap attempts from the same peer before the secure transport is enabled.
-    fn secure_malformed_diag(failures: &mut HashMap<String, (Instant, u32)>, peer_addr: &str) -> SecureFrame {
+    fn secure_malformed_diag(failures: &mut HashMap<String, (Instant, u32)>, peer_key: &str) -> SecureFrame {
         let now = Instant::now();
-        let count = match failures.get_mut(peer_addr) {
-            Some((seen_at, count)) if now.duration_since(*seen_at) <= StdDuration::from_secs(30) => {
+        let count = match failures.get_mut(peer_key) {
+            Some((seen_at, count)) if now.duration_since(*seen_at) <= SECURE_BOOTSTRAP_MALFORMED_WINDOW => {
                 *count += 1;
                 *seen_at = now;
                 *count
@@ -214,7 +216,7 @@ impl SysMaster {
                 1
             }
             None => {
-                failures.insert(peer_addr.to_string(), (now, 1));
+                failures.insert(peer_key.to_string(), (now, 1));
                 1
             }
         };
@@ -239,7 +241,7 @@ impl SysMaster {
             let decoded = self
                 .secure_peers
                 .get_mut(peer_addr)
-                .ok_or_else(|| SysinspectError::ProtoError(format!("Secure peer state for {peer_addr} disappeared")))? 
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Secure peer state for {peer_addr} disappeared")))?
                 .channel
                 .open_bytes(raw);
             if decoded.is_err() {
@@ -262,16 +264,8 @@ impl SysMaster {
 
     /// Accept a bootstrap hello from a registered minion and store the resulting secure channel for that peer.
     fn accept_bootstrap(&mut self, peer_addr: &str, hello: &SecureBootstrapHello) -> Result<Vec<u8>, SysinspectError> {
-        if self
-            .secure_peers
-            .iter()
-            .any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id)
-        {
-            log::warn!(
-                "Rejecting duplicate secure bootstrap for minion {} from {}",
-                hello.binding.minion_id,
-                peer_addr
-            );
+        if self.secure_peers.iter().any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id) {
+            log::warn!("Rejecting duplicate secure bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
             return serde_json::to_vec(&SecureBootstrapDiagnostics::duplicate_session(format!(
                 "Secure session for {} already exists",
                 hello.binding.minion_id
@@ -290,6 +284,16 @@ impl SysMaster {
             state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
             None,
         )?;
+
+        if Self::reject_bootstrap_replay(&mut self.secure_bootstrap_replay_cache, &hello.binding, Instant::now()) {
+            log::warn!("Rejecting replayed secure bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
+            return serde_json::to_vec(&SecureBootstrapDiagnostics::replay_rejected(format!(
+                "Secure bootstrap replay rejected for {}",
+                hello.binding.minion_id
+            )))
+            .map_err(SysinspectError::from);
+        }
+
         state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
         TransportStore::for_master_minion(&self.cfg, &hello.binding.minion_id)?.save(&state)?;
         log::info!(
@@ -301,12 +305,69 @@ impl SysMaster {
         );
         self.secure_peers.insert(
             peer_addr.to_string(),
-            SecurePeerConnection {
-                minion_id: hello.binding.minion_id.clone(),
-                channel: SecureChannel::new(SecurePeerRole::Master, &bootstrap)?,
-            },
+            SecurePeerConnection { minion_id: hello.binding.minion_id.clone(), channel: SecureChannel::new(SecurePeerRole::Master, &bootstrap)? },
         );
         serde_json::to_vec(&ack).map_err(SysinspectError::from)
+    }
+
+    /// Normalize peer address for rate-limiting so reconnects from new source ports cannot evade limits.
+    fn peer_rate_limit_key(peer_addr: &str) -> String {
+        peer_addr.parse::<std::net::SocketAddr>().map(|addr| addr.ip().to_string()).unwrap_or_else(|_| peer_addr.to_string())
+    }
+
+    /// Return replay-cache key for one secure bootstrap opening attempt.
+    fn replay_cache_key(binding: &SecureSessionBinding) -> String {
+        format!("{}:{}:{}", binding.minion_id, binding.connection_id, binding.client_nonce)
+    }
+
+    /// Record opening bootstrap tuples and reject duplicates within the replay window.
+    fn reject_bootstrap_replay(cache: &mut HashMap<String, Instant>, binding: &SecureSessionBinding, now: Instant) -> bool {
+        cache.retain(|_, seen_at| now.duration_since(*seen_at) <= SECURE_BOOTSTRAP_REPLAY_WINDOW);
+        let key = Self::replay_cache_key(binding);
+        if cache.contains_key(&key) {
+            return true;
+        }
+        cache.insert(key, now);
+        false
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replay_cache_key_for_test(binding: &SecureSessionBinding) -> String {
+        Self::replay_cache_key(binding)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn peer_rate_limit_key_for_test(peer_addr: &str) -> String {
+        Self::peer_rate_limit_key(peer_addr)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reject_bootstrap_replay_with_state_for_test(
+        cache: &mut HashMap<String, Instant>, binding: &SecureSessionBinding, now: Instant,
+    ) -> bool {
+        Self::reject_bootstrap_replay(cache, binding, now)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn accept_bootstrap_auth_then_replay_for_test(
+        cache: &mut HashMap<String, Instant>, state: &libsysinspect::transport::TransportPeerState, hello: &SecureBootstrapHello,
+        master_prk: &rsa::RsaPrivateKey, minion_pbk: &rsa::RsaPublicKey, now: Instant,
+    ) -> Result<SecureFrame, SysinspectError> {
+        let (_, ack) = SecureBootstrapSession::accept(
+            state,
+            hello,
+            master_prk,
+            minion_pbk,
+            None,
+            state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
+            None,
+        )?;
+
+        if Self::reject_bootstrap_replay(cache, &hello.binding, now) {
+            return Ok(SecureBootstrapDiagnostics::replay_rejected(format!("Secure bootstrap replay rejected for {}", hello.binding.minion_id)));
+        }
+
+        Ok(ack)
     }
 
     /// Start sysmaster
@@ -944,11 +1005,7 @@ impl SysMaster {
                 h = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
             }
             let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let mid_short = if mid.chars().count() > 8 {
-                format!("{}...{}", &mid[..4], &mid[mid.len() - 4..])
-            } else {
-                mid.to_string()
-            };
+            let mid_short = if mid.chars().count() > 8 { format!("{}...{}", &mid[..4], &mid[mid.len() - 4..]) } else { mid.to_string() };
             rows.push((
                 h.to_string(),
                 if alive { h.bright_green().to_string() } else { h.red().to_string() },
@@ -974,12 +1031,7 @@ impl SysMaster {
         ];
 
         for (_, host, _, ip, _, mid) in rows {
-            out.push(format!(
-                "{}  {}  {}",
-                pad_visible(&host, host_width),
-                pad_visible(&ip, ip_width),
-                pad_visible(&mid, id_width),
-            ));
+            out.push(format!("{}  {}  {}", pad_visible(&host, host_width), pad_visible(&ip, ip_width), pad_visible(&mid, id_width),));
         }
 
         Ok(out.join("\n"))
@@ -994,10 +1046,7 @@ impl SysMaster {
                 .ok_or_else(|| SysinspectError::InvalidQuery("Traits selector must be in key:value format".to_string()))?
                 .into_iter()
                 .collect::<HashMap<_, _>>();
-            self.mreg
-                .lock()
-                .await
-                .get_by_traits(traits)?
+            self.mreg.lock().await.get_by_traits(traits)?
         } else {
             self.mreg.lock().await.get_by_query(if query.trim().is_empty() { "*" } else { query })?
         };
@@ -1087,7 +1136,9 @@ impl SysMaster {
                 for minion in self.selected_minions(query, traits, mid).await? {
                     let mut profiles = match minion.get_traits().get("minion.profile") {
                         Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name.to_string()],
-                        Some(serde_json::Value::Array(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>(),
+                        Some(serde_json::Value::Array(names)) => {
+                            names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>()
+                        }
                         _ => vec![],
                     };
                     profiles.retain(|profile| profile != "default");
@@ -1133,10 +1184,7 @@ impl SysMaster {
                     msgs,
                 ))
             }
-            _ => Ok((
-                ConsoleResponse { ok: false, message: format!("Unsupported profile operation {}", request.op().bright_yellow()) },
-                vec![],
-            )),
+            _ => Ok((ConsoleResponse { ok: false, message: format!("Unsupported profile operation {}", request.op().bright_yellow()) }, vec![])),
         }
     }
 
@@ -1215,22 +1263,34 @@ impl SysMaster {
                                                                             },
                                                                         }
                                                                     } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
-                                                                        let (response, msgs) = match ProfileConsoleRequest::from_context(&query.context) {
-                                                                            Ok(request) => {
-                                                                                let mut guard = master.lock().await;
-                                                                                match guard.profile_console_response(&request, &query.query, &query.traits, &query.mid).await {
-                                                                                    Ok(data) => data,
-                                                                                    Err(err) => (ConsoleResponse { ok: false, message: err.to_string() }, vec![]),
+                                                                        let (response, msgs) =
+                                                                            match ProfileConsoleRequest::from_context(&query.context) {
+                                                                                Ok(request) => {
+                                                                                    let mut guard = master.lock().await;
+                                                                                    match guard
+                                                                                        .profile_console_response(
+                                                                                            &request,
+                                                                                            &query.query,
+                                                                                            &query.traits,
+                                                                                            &query.mid,
+                                                                                        )
+                                                                                        .await
+                                                                                    {
+                                                                                        Ok(data) => data,
+                                                                                        Err(err) => (
+                                                                                            ConsoleResponse { ok: false, message: err.to_string() },
+                                                                                            vec![],
+                                                                                        ),
+                                                                                    }
                                                                                 }
-                                                                            }
-                                                                            Err(err) => (
-                                                                                ConsoleResponse {
-                                                                                    ok: false,
-                                                                                    message: format!("Failed to parse profile request: {err}"),
-                                                                                },
-                                                                                vec![],
-                                                                            ),
-                                                                        };
+                                                                                Err(err) => (
+                                                                                    ConsoleResponse {
+                                                                                        ok: false,
+                                                                                        message: format!("Failed to parse profile request: {err}"),
+                                                                                    },
+                                                                                    vec![],
+                                                                                ),
+                                                                            };
                                                                         for msg in msgs {
                                                                             SysMaster::bcast_master_msg(
                                                                                 &bcast,
@@ -1240,14 +1300,27 @@ impl SysMaster {
                                                                             )
                                                                             .await;
                                                                             let guard = master.lock().await;
-                                                                            let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                            let ids = guard
+                                                                                .mreg
+                                                                                .lock()
+                                                                                .await
+                                                                                .get_targeted_minions(msg.target(), false)
+                                                                                .await;
                                                                             guard.taskreg.lock().await.register(msg.cycle(), ids);
                                                                         }
                                                                         response
                                                                     } else {
                                                                         let msg = {
                                                                             let mut guard = master.lock().await;
-                                                                            guard.msg_query_data(&query.model, &query.query, &query.traits, &query.mid, &query.context).await
+                                                                            guard
+                                                                                .msg_query_data(
+                                                                                    &query.model,
+                                                                                    &query.query,
+                                                                                    &query.traits,
+                                                                                    &query.mid,
+                                                                                    &query.context,
+                                                                                )
+                                                                                .await
                                                                         };
                                                                         if let Some(msg) = msg {
                                                                             SysMaster::bcast_master_msg(
@@ -1258,9 +1331,17 @@ impl SysMaster {
                                                                             )
                                                                             .await;
                                                                             let guard = master.lock().await;
-                                                                            let ids = guard.mreg.lock().await.get_targeted_minions(msg.target(), false).await;
+                                                                            let ids = guard
+                                                                                .mreg
+                                                                                .lock()
+                                                                                .await
+                                                                                .get_targeted_minions(msg.target(), false)
+                                                                                .await;
                                                                             guard.taskreg.lock().await.register(msg.cycle(), ids);
-                                                                            ConsoleResponse { ok: true, message: format!("Accepted console command from {peer}") }
+                                                                            ConsoleResponse {
+                                                                                ok: true,
+                                                                                message: format!("Accepted console command from {peer}"),
+                                                                            }
                                                                         } else {
                                                                             ConsoleResponse {
                                                                                 ok: false,
@@ -1297,19 +1378,23 @@ impl SysMaster {
                                                     }
                                                 }
                                             }
-                                            Err(err) => {
-                                                serde_json::to_string(&ConsoleResponse {
-                                                    ok: false,
-                                                    message: format!("Failed to parse console request: {err}"),
-                                                })
-                                                .ok()
-                                            }
+                                            Err(err) => serde_json::to_string(&ConsoleResponse {
+                                                ok: false,
+                                                message: format!("Failed to parse console request: {err}"),
+                                            })
+                                            .ok(),
                                         },
-                                        Err(err) => {
-                                            serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Console request is not valid UTF-8: {err}") }).ok()
-                                        }
+                                        Err(err) => serde_json::to_string(&ConsoleResponse {
+                                            ok: false,
+                                            message: format!("Console request is not valid UTF-8: {err}"),
+                                        })
+                                        .ok(),
                                     },
-                                    Ok(Err(err)) => serde_json::to_string(&ConsoleResponse { ok: false, message: format!("Failed to read console request: {err}") }).ok(),
+                                    Ok(Err(err)) => serde_json::to_string(&ConsoleResponse {
+                                        ok: false,
+                                        message: format!("Failed to read console request: {err}"),
+                                    })
+                                    .ok(),
                                 };
 
                                 if let Some(reply) = reply
