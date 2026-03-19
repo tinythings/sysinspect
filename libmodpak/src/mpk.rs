@@ -468,7 +468,9 @@ impl ModPakRepoIndex {
         let mut index = Self::new();
         for (platform, archset) in &self.platform {
             for (arch, entries) in archset {
-                for (name, attrs) in entries.iter().filter(|(name, _)| modules.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name)))) {
+                for (name, attrs) in
+                    entries.iter().filter(|(name, _)| modules.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name))))
+                {
                     index
                         .platform
                         .entry(platform.to_string())
@@ -494,7 +496,9 @@ impl ModPakRepoIndex {
         let mut views = IndexMap::<String, ModPakRepoModuleView>::new();
         for (platform, archset) in &self.platform {
             for (arch, entries) in archset {
-                for (name, attrs) in entries.iter().filter(|(name, _)| patterns.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name)))) {
+                for (name, attrs) in
+                    entries.iter().filter(|(name, _)| patterns.iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name))))
+                {
                     views.entry(name.to_string()).or_insert_with(|| ModPakRepoModuleView::new(name)).merge_variant(platform, arch, attrs.checksum());
                 }
             }

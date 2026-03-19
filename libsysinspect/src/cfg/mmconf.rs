@@ -957,11 +957,7 @@ impl MasterConfig {
 
     /// Return console listener address for `sysmaster`.
     pub fn console_listen_addr(&self) -> String {
-        format!(
-            "{}:{}",
-            self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()),
-            self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
-        )
+        format!("{}:{}", self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()), self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT))
     }
 
     /// Return console connect address for `sysinspect`.
@@ -971,11 +967,14 @@ impl MasterConfig {
     pub fn console_connect_addr(&self) -> String {
         format!(
             "{}:{}",
-            if self.console_ip.as_deref() == Some("0.0.0.0") { "127.0.0.1".to_string() } else { self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()) },
+            if self.console_ip.as_deref() == Some("0.0.0.0") {
+                "127.0.0.1".to_string()
+            } else {
+                self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string())
+            },
             self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
         )
     }
-
 
     /// Get API enabled status (default: true)
     pub fn api_enabled(&self) -> bool {

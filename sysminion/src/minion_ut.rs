@@ -2,6 +2,7 @@
 mod tests {
     use crate::minion::{_minion_instance, MINION_SID, SysMinion};
     use crate::proto::msg::{CONNECTION_TX, ExitState};
+    use crate::rsa::MinionRSAKeyManager;
     use libdpq::DiskPersistentQueue;
     use libsysinspect::{
         cfg::mmconf::{CFG_MASTER_KEY_PUB, MinionConfig},
@@ -19,7 +20,6 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
     use tokio::time::{Duration, timeout};
-    use crate::rsa::MinionRSAKeyManager;
 
     fn secure_state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
         let mut state = TransportPeerState::new(
@@ -58,10 +58,20 @@ mod tests {
 
         (
             SecureChannel::new(SecurePeerRole::Master, &accepted.0).unwrap(),
-            SecureChannel::new(SecurePeerRole::Minion, &opening.verify_ack(&state, match &accepted.1 {
-                SecureFrame::BootstrapAck(ack) => ack,
-                _ => panic!("expected bootstrap ack"),
-            }, &master_pbk).unwrap()).unwrap(),
+            SecureChannel::new(
+                SecurePeerRole::Minion,
+                &opening
+                    .verify_ack(
+                        &state,
+                        match &accepted.1 {
+                            SecureFrame::BootstrapAck(ack) => ack,
+                            _ => panic!("expected bootstrap ack"),
+                        },
+                        &master_pbk,
+                    )
+                    .unwrap(),
+            )
+            .unwrap(),
         )
     }
 
@@ -308,8 +318,8 @@ mod tests {
     #[tokio::test]
     async fn bootstrap_secure_marks_transport_state_broken_on_diagnostic_reply() {
         let _guard = TEST_LOCK.lock().await;
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use libsysproto::secure::{SecureBootstrapDiagnostic, SecureDiagnosticCode, SecureFailureSemantics, SecureFrame};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

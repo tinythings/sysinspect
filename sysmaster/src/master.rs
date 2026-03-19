@@ -8,8 +8,9 @@ use crate::{
         taskreg::TaskRegistry,
     },
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
+    transport::{IncomingFrame, OutgoingFrame, PeerTransport},
 };
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::Utc;
 use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -27,15 +28,11 @@ use libsysinspect::{
     context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     rsa::rotation::{RotationActor, RsaTransportRotator, SignedRotationIntent},
-    transport::{
-        TransportStore,
-        secure_bootstrap::{SecureBootstrapDiagnostics, SecureBootstrapSession},
-        secure_channel::{SecureChannel, SecurePeerRole},
-    },
+    transport::{TransportPeerState, TransportStore},
     util::{self, iofs::scan_files_sha256, pad_visible},
 };
 use libsysproto::{
-    self, MasterMessage, MinionMessage, MinionTarget, ProtoConversion,
+    self, MasterMessage, MinionMessage, MinionTarget,
     errcodes::ProtoErrorCode,
     payload::{ModStatePayload, PingData},
     query::{
@@ -43,20 +40,22 @@ use libsysproto::{
         commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS},
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
-    secure::{SECURE_PROTOCOL_VERSION, SecureBootstrapHello, SecureFrame, SecureSessionBinding},
+    secure::SECURE_PROTOCOL_VERSION,
 };
 use once_cell::sync::Lazy;
-use rsa::RsaPublicKey;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::time::{Duration as StdDuration, Instant};
+use std::time::Duration as StdDuration;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Weak},
     vec,
 };
-use tokio::net::TcpListener;
+use tokio::net::{
+    TcpListener,
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
+};
 use tokio::sync::Mutex;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, sleep};
@@ -70,8 +69,6 @@ pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::n
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
 const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
-const SECURE_BOOTSTRAP_MALFORMED_WINDOW: StdDuration = StdDuration::from_secs(30);
-const SECURE_BOOTSTRAP_REPLAY_WINDOW: StdDuration = StdDuration::from_secs(300);
 const DEFAULT_ROTATION_OVERLAP_SECONDS: u64 = 900;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,32 +116,107 @@ impl RotationConsoleRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct RotationCommandPayload {
-    op: String,
-    reason: String,
-    grace_seconds: u64,
-    reconnect: bool,
-    reregister: bool,
-    intent: SignedRotationIntent,
+pub(crate) struct RotationCommandPayload {
+    pub(crate) op: String,
+    pub(crate) reason: String,
+    pub(crate) grace_seconds: u64,
+    pub(crate) reconnect: bool,
+    pub(crate) reregister: bool,
+    pub(crate) intent: SignedRotationIntent,
 }
 
+type ConsoleOutcome = (ConsoleResponse, Vec<MasterMessage>);
+
+/// Summary of how many rotation commands were dispatched immediately versus staged for offline peers.
+#[derive(Debug, Default)]
+struct RotationDispatchSummary {
+    online_count: usize,
+    queued_count: usize,
+}
+
+impl RotationDispatchSummary {
+    /// Record one successful online rotation dispatch.
+    fn note_online_dispatch(&mut self) {
+        self.online_count += 1;
+    }
+
+    /// Record one offline peer whose rotation was queued for later reconnect.
+    fn note_queued_dispatch(&mut self) {
+        self.queued_count += 1;
+    }
+
+    /// Render the operator-facing console response for the staged rotation summary.
+    fn response(&self) -> ConsoleResponse {
+        ConsoleResponse {
+            ok: true,
+            message: format!(
+                "Rotation staged: {} online dispatch{}, {} pending for offline minion{}",
+                self.online_count,
+                if self.online_count == 1 { "" } else { "es" },
+                self.queued_count,
+                if self.queued_count == 1 { "" } else { "s" }
+            ),
+        }
+    }
+}
+
+/// One rendered row of transport status data shown in the console summary.
 #[derive(Debug)]
-struct SecurePeerConnection {
+struct TransportStatusRow {
     minion_id: String,
-    channel: SecureChannel,
+    active_key: String,
+    key_age: String,
+    last_handshake: String,
+    rotation: String,
+    last_rotated: String,
 }
 
-#[derive(Debug)]
-enum IncomingPeerFrame {
-    Forward(Vec<u8>),
-    Reply(Vec<u8>),
-    Drop,
-}
+impl TransportStatusRow {
+    /// Return the fixed header rows used by the transport status table.
+    fn header() -> [String; 2] {
+        [
+            "MINION  ACTIVE_KEY  KEY_AGE  LAST_HANDSHAKE  ROTATION  security.transport.last-rotated-at".to_string(),
+            "------  ----------  -------  --------------  --------  ----------------------------------".to_string(),
+        ]
+    }
 
-#[derive(Debug)]
-enum OutgoingPeerFrame {
-    Broadcast(Box<MasterMessage>),
-    Direct(Vec<u8>),
+    /// Build the fallback row for a minion with no managed transport state.
+    fn missing(minion_id: &str) -> Self {
+        Self {
+            minion_id: minion_id.to_string(),
+            active_key: "-".to_string(),
+            key_age: "-".to_string(),
+            last_handshake: "-".to_string(),
+            rotation: "missing".to_string(),
+            last_rotated: "-".to_string(),
+        }
+    }
+
+    /// Build one transport status row from persisted managed transport state.
+    fn from_state(minion_id: &str, state: &TransportPeerState, now: chrono::DateTime<Utc>) -> Self {
+        let active_key = state.active_key_id.clone().unwrap_or_else(|| "-".to_string());
+        let mut key_age = "-".to_string();
+        let mut last_rotated = "-".to_string();
+        if let Some(record) = state.keys.iter().find(|key| key.key_id == active_key) {
+            let base = record.activated_at.unwrap_or(record.created_at);
+            key_age = format!("{}s", (now - base).num_seconds().max(0));
+            last_rotated = base.to_rfc3339();
+        }
+
+        Self {
+            minion_id: minion_id.to_string(),
+            active_key,
+            key_age,
+            last_handshake: state.last_handshake_at.map(|d| d.to_rfc3339()).unwrap_or_else(|| "-".to_string()),
+            rotation: format!("{:?}", state.rotation),
+            last_rotated,
+        }
+    }
+
+    /// Render this row for the console table.
+    fn render(&self) -> String {
+        format!("{}  {}  {}  {}  {}  {}", self.minion_id, self.active_key, self.key_age, self.last_handshake, self.rotation, self.last_rotated)
+    }
 }
 
 #[derive(Debug)]
@@ -160,10 +232,7 @@ pub struct SysMaster {
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
-    secure_peers: HashMap<String, SecurePeerConnection>,
-    plaintext_peers: HashSet<String>,
-    secure_bootstrap_failures: HashMap<String, (Instant, u32)>,
-    secure_bootstrap_replay_cache: HashMap<String, Instant>,
+    peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
 }
 
@@ -197,10 +266,7 @@ impl SysMaster {
             ptr: None,
             vmcluster,
             conn_to_mid: HashMap::new(),
-            secure_peers: HashMap::new(),
-            plaintext_peers: HashSet::new(),
-            secure_bootstrap_failures: HashMap::new(),
-            secure_bootstrap_replay_cache: HashMap::new(),
+            peer_transport: PeerTransport::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
     }
@@ -219,235 +285,46 @@ impl SysMaster {
         None
     }
 
-    /// Build a plaintext bootstrap diagnostic when a peer speaks secure transport to a plaintext-only runtime path.
-    pub(crate) fn secure_peer_diag(&mut self, peer_addr: &str, data: &[u8]) -> Option<Vec<u8>> {
-        Self::secure_peer_diag_with_state(&mut self.secure_bootstrap_failures, peer_addr, data)
+    /// Build a plaintext bootstrap diagnostic from shared malformed-attempt state kept for framed transport probes.
+    pub(crate) fn secure_peer_diag_with_state(
+        failures: &mut HashMap<String, (std::time::Instant, u32)>, peer_addr: &str, data: &[u8],
+    ) -> Option<Vec<u8>> {
+        PeerTransport::bootstrap_diag_with_state(failures, peer_addr, data)
     }
 
-    /// Build a plaintext bootstrap diagnostic from the shared malformed-attempt state kept for secure bootstrap probes.
-    pub(crate) fn secure_peer_diag_with_state(failures: &mut HashMap<String, (Instant, u32)>, peer_addr: &str, data: &[u8]) -> Option<Vec<u8>> {
-        let peer_key = Self::peer_rate_limit_key(peer_addr);
-        match serde_json::from_slice::<SecureFrame>(data) {
-            Ok(SecureFrame::BootstrapHello(_) | SecureFrame::BootstrapAck(_) | SecureFrame::Data(_)) => {
-                failures.remove(&peer_key);
-                serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version("Secure transport is not enabled on this master yet")).ok()
-            }
-            Err(_) if std::str::from_utf8(data).ok().map(|text| text.contains("\"kind\"")).unwrap_or(false) => {
-                serde_json::to_vec(&Self::secure_malformed_diag(failures, &peer_key)).ok()
-            }
-            _ => None,
-        }
-    }
-
-    /// Return a plaintext diagnostic when a minion sends normal protocol traffic before secure bootstrap.
+    /// Return a plaintext diagnostic when a minion sends normal protocol traffic before bootstrap.
     pub(crate) fn plaintext_peer_diag(data: &[u8]) -> Option<Vec<u8>> {
-        match serde_json::from_slice::<MinionMessage>(data) {
-            Ok(req) if matches!(req.req_type(), RequestType::Add) => None,
-            Ok(_) => serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
-                "Plaintext minion traffic is not allowed; secure bootstrap is required",
-            ))
-            .ok(),
-            Err(_) => None,
-        }
+        PeerTransport::plaintext_diag(data)
     }
 
     /// Return whether this connection may receive plaintext broadcast traffic before a secure session exists.
     pub(crate) fn peer_can_receive_broadcast_state(has_secure_session: bool, plaintext_allowed: bool) -> bool {
-        has_secure_session || plaintext_allowed
-    }
-
-    /// Return whether this connection may receive the next outbound broadcast frame.
-    fn peer_can_receive_broadcast(&self, peer_addr: &str) -> bool {
-        Self::peer_can_receive_broadcast_state(self.secure_peers.contains_key(peer_addr), self.plaintext_peers.contains(peer_addr))
-    }
-
-    /// Rate-limit repeated malformed secure bootstrap attempts from the same peer before the secure transport is enabled.
-    fn secure_malformed_diag(failures: &mut HashMap<String, (Instant, u32)>, peer_key: &str) -> SecureFrame {
-        let now = Instant::now();
-        let count = match failures.get_mut(peer_key) {
-            Some((seen_at, count)) if now.duration_since(*seen_at) <= SECURE_BOOTSTRAP_MALFORMED_WINDOW => {
-                *count += 1;
-                *seen_at = now;
-                *count
-            }
-            Some(entry) => {
-                *entry = (now, 1);
-                1
-            }
-            None => {
-                failures.insert(peer_key.to_string(), (now, 1));
-                1
-            }
-        };
-
-        if count >= 3 {
-            return SecureBootstrapDiagnostics::rate_limited("Repeated malformed secure bootstrap frames");
-        }
-        SecureBootstrapDiagnostics::malformed("Malformed secure bootstrap frame")
-    }
-
-    /// Encode a logical master message for one peer, sealing it when that peer already has a secure session.
-    fn encode_peer_message(&mut self, peer_addr: &str, msg: &MasterMessage) -> Result<Vec<u8>, SysinspectError> {
-        if let Some(peer) = self.secure_peers.get_mut(peer_addr) {
-            return peer.channel.seal(msg);
-        }
-        msg.sendable()
-    }
-
-    /// Decode a raw inbound peer frame, handling bootstrap establishment and secure steady-state decryption.
-    fn decode_peer_frame(&mut self, peer_addr: &str, raw: &[u8]) -> Result<IncomingPeerFrame, SysinspectError> {
-        if self.secure_peers.contains_key(peer_addr) {
-            let decoded = self
-                .secure_peers
-                .get_mut(peer_addr)
-                .ok_or_else(|| SysinspectError::ProtoError(format!("Secure peer state for {peer_addr} disappeared")))?
-                .channel
-                .open_bytes(raw);
-            if decoded.is_err() {
-                log::warn!("Secure session for peer {} became invalid; dropping channel state", peer_addr);
-                self.secure_peers.remove(peer_addr);
-            }
-            return decoded.map(IncomingPeerFrame::Forward);
-        }
-        if let Ok(SecureFrame::BootstrapHello(hello)) = serde_json::from_slice::<SecureFrame>(raw) {
-            return self.accept_bootstrap(peer_addr, &hello).map(IncomingPeerFrame::Reply);
-        }
-        if let Some(diag) = self.secure_peer_diag(peer_addr, raw) {
-            return Ok(IncomingPeerFrame::Reply(diag));
-        }
-        if let Some(diag) = Self::plaintext_peer_diag(raw) {
-            return Ok(IncomingPeerFrame::Reply(diag));
-        }
-        Ok(IncomingPeerFrame::Forward(raw.to_vec()))
-    }
-
-    /// Accept a bootstrap hello from a registered minion and store the resulting secure channel for that peer.
-    fn accept_bootstrap(&mut self, peer_addr: &str, hello: &SecureBootstrapHello) -> Result<Vec<u8>, SysinspectError> {
-        if self.secure_peers.iter().any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id) {
-            log::warn!("Rejecting duplicate secure bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
-            return serde_json::to_vec(&SecureBootstrapDiagnostics::duplicate_session(format!(
-                "Secure session for {} already exists",
-                hello.binding.minion_id
-            )))
-            .map_err(SysinspectError::from);
-        }
-        let mut state = TransportStore::for_master_minion(&self.cfg, &hello.binding.minion_id)?
-            .load()?
-            .ok_or_else(|| SysinspectError::ProtoError(format!("No managed transport state exists for {}", hello.binding.minion_id)))?;
-        let (bootstrap, ack) = SecureBootstrapSession::accept(
-            &state,
-            hello,
-            &self.mkr.master_private_key()?,
-            &self.mkr.minion_public_key(&hello.binding.minion_id)?,
-            None,
-            state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
-            None,
-        )?;
-
-        if Self::reject_bootstrap_replay(&mut self.secure_bootstrap_replay_cache, &hello.binding, Instant::now()) {
-            log::warn!("Rejecting replayed secure bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
-            return serde_json::to_vec(&SecureBootstrapDiagnostics::replay_rejected(format!(
-                "Secure bootstrap replay rejected for {}",
-                hello.binding.minion_id
-            )))
-            .map_err(SysinspectError::from);
-        }
-
-        if let Some(context) = state.pending_rotation_context.clone() {
-            if let Ok(payload) = serde_json::from_str::<RotationCommandPayload>(&context) {
-                if payload.intent.intent().next_key_id() == bootstrap.key_id() {
-                    let overlap = ChronoDuration::seconds(payload.grace_seconds as i64);
-                    let mut rotator = self.master_rotator(&hello.binding.minion_id)?;
-                    let _ = rotator.execute_signed_intent_with_overlap(
-                        &payload.intent,
-                        &RsaPublicKey::from(&self.mkr.master_private_key()?),
-                        overlap,
-                    )?;
-                    let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
-                    state = rotator.state().clone();
-                    state.set_pending_rotation_context(None);
-                } else {
-                    state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
-                }
-            } else {
-                state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
-            }
-        } else {
-            state.upsert_key(bootstrap.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
-        }
-        TransportStore::for_master_minion(&self.cfg, &hello.binding.minion_id)?.save(&state)?;
-        log::info!(
-            "Secure session established for minion {} from {} using key {} and protocol v{}",
-            hello.binding.minion_id,
-            peer_addr,
-            bootstrap.key_id(),
-            hello.binding.protocol_version
-        );
-        self.secure_peers.insert(
-            peer_addr.to_string(),
-            SecurePeerConnection { minion_id: hello.binding.minion_id.clone(), channel: SecureChannel::new(SecurePeerRole::Master, &bootstrap)? },
-        );
-        serde_json::to_vec(&ack).map_err(SysinspectError::from)
-    }
-
-    /// Normalize peer address for rate-limiting so reconnects from new source ports cannot evade limits.
-    fn peer_rate_limit_key(peer_addr: &str) -> String {
-        peer_addr.parse::<std::net::SocketAddr>().map(|addr| addr.ip().to_string()).unwrap_or_else(|_| peer_addr.to_string())
-    }
-
-    /// Return replay-cache key for one secure bootstrap opening attempt.
-    fn replay_cache_key(binding: &SecureSessionBinding) -> String {
-        format!("{}:{}:{}", binding.minion_id, binding.connection_id, binding.client_nonce)
-    }
-
-    /// Record opening bootstrap tuples and reject duplicates within the replay window.
-    fn reject_bootstrap_replay(cache: &mut HashMap<String, Instant>, binding: &SecureSessionBinding, now: Instant) -> bool {
-        cache.retain(|_, seen_at| now.duration_since(*seen_at) <= SECURE_BOOTSTRAP_REPLAY_WINDOW);
-        let key = Self::replay_cache_key(binding);
-        if cache.contains_key(&key) {
-            return true;
-        }
-        cache.insert(key, now);
-        false
+        PeerTransport::can_receive_broadcast_state(has_secure_session, plaintext_allowed)
     }
 
     #[cfg(test)]
-    pub(crate) fn replay_cache_key_for_test(binding: &SecureSessionBinding) -> String {
-        Self::replay_cache_key(binding)
+    pub(crate) fn replay_cache_key_for_test(binding: &libsysproto::secure::SecureSessionBinding) -> String {
+        PeerTransport::replay_cache_key(binding)
     }
 
     #[cfg(test)]
     pub(crate) fn peer_rate_limit_key_for_test(peer_addr: &str) -> String {
-        Self::peer_rate_limit_key(peer_addr)
+        PeerTransport::rate_limit_key(peer_addr)
     }
 
     #[cfg(test)]
     pub(crate) fn reject_bootstrap_replay_with_state_for_test(
-        cache: &mut HashMap<String, Instant>, binding: &SecureSessionBinding, now: Instant,
+        cache: &mut HashMap<String, std::time::Instant>, binding: &libsysproto::secure::SecureSessionBinding, now: std::time::Instant,
     ) -> bool {
-        Self::reject_bootstrap_replay(cache, binding, now)
+        PeerTransport::reject_bootstrap_replay(cache, binding, now)
     }
 
     #[cfg(test)]
     pub(crate) fn accept_bootstrap_auth_then_replay_for_test(
-        cache: &mut HashMap<String, Instant>, state: &libsysinspect::transport::TransportPeerState, hello: &SecureBootstrapHello,
-        master_prk: &rsa::RsaPrivateKey, minion_pbk: &rsa::RsaPublicKey, now: Instant,
-    ) -> Result<SecureFrame, SysinspectError> {
-        let (_, ack) = SecureBootstrapSession::accept(
-            state,
-            hello,
-            master_prk,
-            minion_pbk,
-            None,
-            state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
-            None,
-        )?;
-
-        if Self::reject_bootstrap_replay(cache, &hello.binding, now) {
-            return Ok(SecureBootstrapDiagnostics::replay_rejected(format!("Secure bootstrap replay rejected for {}", hello.binding.minion_id)));
-        }
-
-        Ok(ack)
+        cache: &mut HashMap<String, std::time::Instant>, state: &libsysinspect::transport::TransportPeerState,
+        hello: &libsysproto::secure::SecureBootstrapHello, master_prk: &rsa::RsaPrivateKey, minion_pbk: &rsa::RsaPublicKey, now: std::time::Instant,
+    ) -> Result<libsysproto::secure::SecureFrame, SysinspectError> {
+        PeerTransport::accept_bootstrap_auth_then_replay_for_test(cache, state, hello, master_prk, minion_pbk, now)
     }
 
     /// Start sysmaster
@@ -489,6 +366,14 @@ impl SysMaster {
     /// Get Minion key registry
     fn mkr(&mut self) -> &mut MinionsKeyRegistry {
         &mut self.mkr
+    }
+
+    /// Decode one raw peer frame through the transport manager using the current master configuration and key registry.
+    fn decode_peer_frame(&mut self, peer_addr: &str, raw: &[u8]) -> Result<IncomingFrame, SysinspectError> {
+        let cfg = self.cfg.clone();
+        let peer_transport = &mut self.peer_transport;
+        let mkr = &mut self.mkr;
+        peer_transport.decode_frame(peer_addr, raw, &cfg, mkr)
     }
 
     /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
@@ -727,6 +612,260 @@ impl SysMaster {
         Arc::clone(&self.taskreg)
     }
 
+    /// Clear session and transport state for one disconnected peer address.
+    async fn on_peer_disconnect(&mut self, minion_addr: &str) {
+        if let Some(mid) = self.conn_to_mid.remove(minion_addr) {
+            log::info!("Minion connection {} dropped; clearing session for {}", minion_addr, mid);
+            self.get_session().lock().await.remove(&mid);
+        } else {
+            log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
+        }
+        self.peer_transport.remove_peer(minion_addr);
+    }
+
+    /// Process a plaintext registration request and emit the one-shot registration response.
+    async fn on_registration_request(&mut self, minion_addr: &str, minion_id: &str, payload: &str, bcast: &broadcast::Sender<MasterMessage>) {
+        log::info!("Minion \"{minion_addr}\" requested registration");
+        self.peer_transport.allow_plaintext(minion_addr);
+        let resp_msg = if !self.mkr().is_registered(minion_id) {
+            if let Err(err) = self.mkr().add_mn_key(minion_id, minion_addr, payload) {
+                log::error!("Unable to add minion RSA key: {err}");
+            }
+            self.to_drop.insert(minion_addr.to_owned());
+            log::info!("Registered a minion at {minion_addr} ({minion_id})");
+            "Minion registration has been accepted"
+        } else {
+            log::warn!("Minion {minion_addr} ({minion_id}) is already registered");
+            "Minion already registered"
+        };
+        _ = bcast.send(self.msg_registered(minion_id.to_string(), resp_msg));
+    }
+
+    /// Process an `ehlo` request and either establish the runtime session or reject the peer.
+    async fn on_ehlo_request(&mut self, minion_addr: &str, minion_id: &str, payload: &str, bcast: &broadcast::Sender<MasterMessage>) {
+        log::info!("EHLO from {}", minion_id);
+        if !self.mkr().is_registered(minion_id) {
+            log::info!("Minion at {minion_addr} ({minion_id}) is not registered");
+            self.to_drop.insert(minion_addr.to_owned());
+            _ = bcast.send(self.msg_not_registered(minion_id.to_string()));
+            return;
+        }
+        if self.get_session().lock().await.exists(minion_id) {
+            log::info!("Minion at {minion_addr} ({minion_id}) is already connected");
+            self.to_drop.insert(minion_addr.to_owned());
+            _ = bcast.send(self.msg_already_connected(minion_id.to_string(), payload.to_string()));
+            return;
+        }
+
+        log::info!("{minion_id} connected successfully");
+        self.conn_to_mid.insert(minion_addr.to_string(), minion_id.to_string());
+        self.get_session().lock().await.ping(minion_id, Some(payload));
+        _ = bcast.send(self.msg_request_traits(minion_id.to_string(), payload.to_string()));
+        log::info!("Syncing traits with minion at {minion_id}");
+
+        match self.pending_rotation_message_for(minion_id).await {
+            Ok(Some(msg)) => {
+                log::info!("Dispatching deferred rotation to {} after reconnect", minion_id.bright_yellow());
+                _ = bcast.send(msg);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                log::error!("Unable to dispatch deferred rotation for {}: {err}", minion_id);
+            }
+        }
+    }
+
+    /// Process a `pong` heartbeat update from one minion.
+    async fn on_pong_request(&mut self, minion_id: &str, payload: serde_json::Value) {
+        log::debug!("Received pong from {payload:#?}");
+        let pm = match PingData::from_value(payload) {
+            Ok(pm) => pm,
+            Err(err) => {
+                log::error!("Unable to parse pong message: {err}");
+                return;
+            }
+        };
+
+        self.get_session().lock().await.ping(minion_id, Some(pm.sid()));
+        self.vmcluster.update_stats(minion_id, pm.payload().load_average(), pm.payload().disk_write_bps(), pm.payload().cpu_usage());
+
+        let taskreg = self.get_task_registry();
+        let mut taskreg = taskreg.lock().await;
+        taskreg.flush(minion_id, pm.payload().completed());
+    }
+
+    /// Process a `bye` request and acknowledge the disconnect.
+    async fn on_bye_request(&mut self, minion_addr: &str, minion_id: &str, payload: &str, bcast: &broadcast::Sender<MasterMessage>) {
+        log::info!("Minion {} disconnects", minion_id);
+        self.conn_to_mid.remove(minion_addr);
+        self.get_session().lock().await.remove(minion_id);
+        self.peer_transport.remove_peer(minion_addr);
+        _ = bcast.send(self.msg_bye_ack(minion_id.to_string(), payload.to_string()));
+    }
+
+    /// Dispatch one parsed minion request into the dedicated async handler for that request family.
+    fn spawn_incoming_request(master: Arc<Mutex<Self>>, bcast: broadcast::Sender<MasterMessage>, req: MinionMessage, minion_addr: String) {
+        match req.req_type() {
+            RequestType::Add => {
+                let c_master = Arc::clone(&master);
+                let c_bcast = bcast.clone();
+                let c_mid = req.id().to_string();
+                let c_payload = req.payload().to_string();
+                tokio::spawn(async move {
+                    c_master.lock().await.on_registration_request(&minion_addr, &c_mid, &c_payload, &c_bcast).await;
+                });
+            }
+            RequestType::Response => {
+                log::info!("Response");
+            }
+            RequestType::Ehlo => {
+                let c_master = Arc::clone(&master);
+                let c_bcast = bcast.clone();
+                let c_id = req.id().to_string();
+                let c_payload = req.payload().to_string();
+                tokio::spawn(async move {
+                    c_master.lock().await.on_ehlo_request(&minion_addr, &c_id, &c_payload, &c_bcast).await;
+                });
+            }
+            RequestType::Pong => {
+                let c_master = Arc::clone(&master);
+                let c_id = req.id().to_string();
+                let c_payload = req.payload().clone();
+                tokio::spawn(async move {
+                    c_master.lock().await.on_pong_request(&c_id, c_payload).await;
+                });
+            }
+            RequestType::Traits => {
+                log::debug!("Syncing traits from {}", req.id());
+                let c_master = Arc::clone(&master);
+                let c_id = req.id().to_string();
+                let c_payload = req.payload().to_string();
+                tokio::spawn(async move {
+                    c_master.lock().await.on_traits(c_id, c_payload).await;
+                });
+            }
+            RequestType::Bye => {
+                let c_master = Arc::clone(&master);
+                let c_bcast = bcast.clone();
+                let c_id = req.id().to_string();
+                let c_payload = req.payload().to_string();
+                tokio::spawn(async move {
+                    c_master.lock().await.on_bye_request(&minion_addr, &c_id, &c_payload, &c_bcast).await;
+                });
+            }
+            RequestType::Event => {
+                let c_master = Arc::clone(&master);
+                tokio::spawn(async move {
+                    log::debug!("Event for {}: {}", req.id(), req.payload());
+                    let d = req.get_data();
+                    let m = c_master.lock().await;
+                    m.taskreg.lock().await.deregister(d.cid(), req.id());
+                    let mrec = m.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
+
+                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
+                        Ok(pl) => pl,
+                        Err(err) => {
+                            log::error!("An event message with the bogus payload: {err}");
+                            return;
+                        }
+                    };
+
+                    if m.cfg().telemetry_enabled() {
+                        OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
+                    }
+
+                    let sid = match m
+                        .evtipc
+                        .open_session(
+                            util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned()),
+                            util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()),
+                            util::dataconv::as_str(pl.get(&ProtoKey::Timestamp.to_string()).cloned()),
+                        )
+                        .await
+                    {
+                        Ok(sid) => sid,
+                        Err(err) => {
+                            log::debug!("Unable to acquire session for this iteration: {err}");
+                            return;
+                        }
+                    };
+
+                    let mid = match m.evtipc.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).await {
+                        Ok(mid) => mid,
+                        Err(err) => {
+                            log::error!("Unable to record a minion {}: {err}", req.id());
+                            return;
+                        }
+                    };
+
+                    match m.evtipc.add_event(&sid, EventMinion::new(mid), pl).await {
+                        Ok(_) => {
+                            log::debug!("Event added for {} in {:#?}", req.id(), sid);
+                        }
+                        Err(err) => {
+                            log::error!("Unable to add event: {err}");
+                        }
+                    };
+                });
+            }
+            RequestType::ModelEvent => {
+                let c_master = Arc::clone(&master);
+                tokio::spawn(async move {
+                    let master = c_master.lock().await;
+                    let mrec = master.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
+
+                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
+                        Ok(pl) => pl,
+                        Err(err) => {
+                            log::error!("An event message with the bogus payload: {err}");
+                            return;
+                        }
+                    };
+                    let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned())).await {
+                        Ok(sid) => sid,
+                        Err(err) => {
+                            log::debug!("Unable to acquire session for this iteration: {err}");
+                            return;
+                        }
+                    };
+
+                    if master.cfg().telemetry_enabled() {
+                        let mut otel = OtelLogger::new(&pl);
+                        otel.set_map(true);
+                        match master.evtipc.get_events(sid.sid(), req.id()).await {
+                            Ok(events) => match master.mreg.lock().await.get(req.id()) {
+                                Ok(Some(mrec)) => {
+                                    otel.feed(events, mrec);
+                                }
+                                Ok(None) => {
+                                    log::error!("Unable to get minion record for {}", req.id());
+                                }
+                                Err(err) => {
+                                    log::error!("Error retrieving minion record for {}: {}", req.id(), err);
+                                }
+                            },
+                            Err(err) => {
+                                log::error!("Error retrieving events for minion {}: {}", req.id(), err);
+                            }
+                        }
+                        otel.log(&mrec, DataExportType::Model);
+                    }
+                });
+            }
+            RequestType::SensorsSyncRequest => {
+                let c_master = Arc::clone(&master);
+                let c_bcast = bcast.clone();
+                tokio::spawn(async move {
+                    let mut guard = c_master.lock().await;
+                    _ = c_bcast.send(guard.msg_sensors_files());
+                });
+            }
+            _ => {
+                log::error!("Minion sends unknown request type");
+            }
+        }
+    }
+
     /// Process incoming minion messages
     #[allow(clippy::while_let_loop)]
     pub async fn do_incoming(master: Arc<Mutex<Self>>, mut rx: tokio::sync::mpsc::Receiver<(Vec<u8>, String)>) {
@@ -739,18 +878,7 @@ impl SysMaster {
                     if raw.is_empty() {
                         let c_master = Arc::clone(&master);
                         tokio::spawn(async move {
-                            let mut guard = c_master.lock().await;
-
-                            if let Some(mid) = guard.conn_to_mid.remove(&minion_addr) {
-                                log::info!("Minion connection {} dropped; clearing session for {}", minion_addr, mid);
-                                guard.get_session().lock().await.remove(&mid);
-                                guard.secure_peers.remove(&minion_addr);
-                                guard.plaintext_peers.remove(&minion_addr);
-                            } else {
-                                log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
-                                guard.secure_peers.remove(&minion_addr);
-                                guard.plaintext_peers.remove(&minion_addr);
-                            }
+                            c_master.lock().await.on_peer_disconnect(&minion_addr).await;
                         });
                         continue;
                     }
@@ -759,250 +887,7 @@ impl SysMaster {
                     log::debug!("Minion response: {minion_addr}: {msg}");
 
                     if let Some(req) = master.lock().await.to_request(&msg) {
-                        match req.req_type() {
-                            RequestType::Add => {
-                                let c_master = Arc::clone(&master);
-                                let c_bcast = bcast.clone();
-                                let c_mid = req.id().to_string();
-                                tokio::spawn(async move {
-                                    log::info!("Minion \"{minion_addr}\" requested registration");
-                                    let mut guard = c_master.lock().await;
-                                    guard.plaintext_peers.insert(minion_addr.clone());
-                                    let resp_msg: &str;
-                                    if !guard.mkr().is_registered(&c_mid) {
-                                        if let Err(err) = guard.mkr().add_mn_key(&c_mid, &minion_addr, &req.payload().to_string()) {
-                                            log::error!("Unable to add minion RSA key: {err}");
-                                        }
-                                        guard.to_drop.insert(minion_addr.to_owned());
-                                        resp_msg = "Minion registration has been accepted";
-                                        log::info!("Registered a minion at {minion_addr} ({c_mid})");
-                                    } else {
-                                        resp_msg = "Minion already registered";
-                                        log::warn!("Minion {minion_addr} ({c_mid}) is already registered");
-                                    }
-                                    _ = c_bcast.send(guard.msg_registered(req.id().to_string(), resp_msg));
-                                });
-                            }
-
-                            RequestType::Response => {
-                                log::info!("Response");
-                            }
-
-                            RequestType::Ehlo => {
-                                log::info!("EHLO from {}", req.id());
-
-                                let c_master = Arc::clone(&master);
-                                let c_bcast = bcast.clone();
-                                let c_id = req.id().to_string();
-                                let c_payload = req.payload().to_string();
-                                tokio::spawn(async move {
-                                    let mut guard = c_master.lock().await;
-                                    if !guard.mkr().is_registered(&c_id) {
-                                        log::info!("Minion at {minion_addr} ({}) is not registered", req.id());
-                                        guard.to_drop.insert(minion_addr);
-                                        _ = c_bcast.send(guard.msg_not_registered(req.id().to_string()));
-                                    } else if guard.get_session().lock().await.exists(&c_id) {
-                                        log::info!("Minion at {minion_addr} ({}) is already connected", req.id());
-                                        guard.to_drop.insert(minion_addr);
-                                        _ = c_bcast.send(guard.msg_already_connected(req.id().to_string(), c_payload));
-                                    } else {
-                                        log::info!("{c_id} connected successfully");
-                                        guard.conn_to_mid.insert(minion_addr.clone(), c_id.clone());
-                                        guard.get_session().lock().await.ping(&c_id, Some(&c_payload));
-                                        _ = c_bcast.send(guard.msg_request_traits(req.id().to_string(), c_payload));
-                                        log::info!("Syncing traits with minion at {c_id}");
-
-                                        match guard.pending_rotation_message_for(&c_id).await {
-                                            Ok(Some(msg)) => {
-                                                log::info!("Dispatching deferred rotation to {} after reconnect", c_id.bright_yellow());
-                                                _ = c_bcast.send(msg);
-                                            }
-                                            Ok(None) => {}
-                                            Err(err) => {
-                                                log::error!("Unable to dispatch deferred rotation for {}: {err}", c_id);
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-
-                            RequestType::Pong => {
-                                let c_master = Arc::clone(&master);
-                                let c_id = req.id().to_string();
-                                tokio::spawn(async move {
-                                    log::debug!("Received pong from {:#?}", req.payload());
-                                    let mut guard = c_master.lock().await;
-                                    let pm = match PingData::from_value(req.payload().clone()) {
-                                        Ok(pm) => pm,
-                                        Err(err) => {
-                                            log::error!("Unable to parse pong message: {err}");
-                                            return;
-                                        }
-                                    };
-
-                                    guard.get_session().lock().await.ping(&c_id, Some(pm.sid()));
-                                    guard.vmcluster.update_stats(
-                                        &c_id,
-                                        pm.payload().load_average(),
-                                        pm.payload().disk_write_bps(),
-                                        pm.payload().cpu_usage(),
-                                    );
-
-                                    // Update task tracker
-                                    let taskreg = guard.get_task_registry();
-                                    let mut taskreg = taskreg.lock().await;
-                                    taskreg.flush(&c_id, pm.payload().completed());
-                                });
-                            }
-
-                            RequestType::Traits => {
-                                log::debug!("Syncing traits from {}", req.id());
-                                let c_master = Arc::clone(&master);
-                                let c_id = req.id().to_string();
-                                let c_payload = req.payload().to_string();
-                                tokio::spawn(async move {
-                                    let mut guard = c_master.lock().await;
-                                    guard.on_traits(c_id, c_payload).await;
-                                });
-                            }
-
-                            RequestType::Bye => {
-                                let c_master = Arc::clone(&master);
-                                let c_bcast = bcast.clone();
-                                log::info!("Minion {} disconnects", req.id());
-                                tokio::spawn(async move {
-                                    let mut guard = c_master.lock().await;
-                                    guard.conn_to_mid.remove(&minion_addr);
-                                    guard.get_session().lock().await.remove(req.id());
-                                    guard.secure_peers.remove(&minion_addr);
-                                    guard.plaintext_peers.remove(&minion_addr);
-                                    let m = guard.msg_bye_ack(req.id().to_string(), req.payload().to_string());
-                                    _ = c_bcast.send(m);
-                                });
-                            }
-
-                            RequestType::Event => {
-                                log::debug!("Event for {}: {}", req.id(), req.payload());
-                                let d = req.get_data();
-                                let c_master = Arc::clone(&master);
-                                tokio::spawn(async move {
-                                    let m = c_master.lock().await;
-                                    m.taskreg.lock().await.deregister(d.cid(), req.id());
-                                    let mrec = m.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
-
-                                    // XXX: Fix this nonsense
-                                    //      This should use get_data() method to extract payload properly
-                                    //      Also replace HashMap in evtipc.add_event with it.
-                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
-                                        Ok(pl) => pl,
-                                        Err(err) => {
-                                            log::error!("An event message with the bogus payload: {err}");
-                                            return;
-                                        }
-                                    };
-
-                                    if m.cfg().telemetry_enabled() {
-                                        // Sent OTEL log entry
-                                        OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
-                                    }
-
-                                    let sid = match m
-                                        .evtipc
-                                        .open_session(
-                                            util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned()),
-                                            util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()),
-                                            util::dataconv::as_str(pl.get(&ProtoKey::Timestamp.to_string()).cloned()),
-                                        )
-                                        .await
-                                    {
-                                        Ok(sid) => sid,
-                                        Err(err) => {
-                                            log::debug!("Unable to acquire session for this iteration: {err}");
-                                            return;
-                                        }
-                                    };
-
-                                    let mid = match m.evtipc.ensure_minion(&sid, req.id().to_string(), mrec.get_traits().to_owned()).await {
-                                        Ok(mid) => mid,
-                                        Err(err) => {
-                                            log::error!("Unable to record a minion {}: {err}", req.id());
-                                            return;
-                                        }
-                                    };
-
-                                    match m.evtipc.add_event(&sid, EventMinion::new(mid), pl).await {
-                                        Ok(_) => {
-                                            log::debug!("Event added for {} in {:#?}", req.id(), sid);
-                                        }
-                                        Err(err) => {
-                                            log::error!("Unable to add event: {err}");
-                                        }
-                                    };
-                                });
-                            }
-
-                            RequestType::ModelEvent => {
-                                let c_master = Arc::clone(&master);
-                                tokio::spawn(async move {
-                                    let master = c_master.lock().await;
-                                    let mrec = master.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
-
-                                    let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
-                                        Ok(pl) => pl,
-                                        Err(err) => {
-                                            log::error!("An event message with the bogus payload: {err}");
-                                            return;
-                                        }
-                                    };
-                                    let sid = match master
-                                        .evtipc
-                                        .get_session(&util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()))
-                                        .await
-                                    {
-                                        Ok(sid) => sid,
-                                        Err(err) => {
-                                            log::debug!("Unable to acquire session for this iteration: {err}");
-                                            return;
-                                        }
-                                    };
-
-                                    if master.cfg().telemetry_enabled() {
-                                        let mut otel = OtelLogger::new(&pl);
-                                        otel.set_map(true); // Use mapper (only)
-                                        match master.evtipc.get_events(sid.sid(), req.id()).await {
-                                            Ok(events) => match master.mreg.lock().await.get(req.id()) {
-                                                Ok(Some(mrec)) => {
-                                                    otel.feed(events, mrec);
-                                                }
-                                                Ok(None) => {
-                                                    log::error!("Unable to get minion record for {}", req.id());
-                                                }
-                                                Err(err) => {
-                                                    log::error!("Error retrieving minion record for {}: {}", req.id(), err);
-                                                }
-                                            },
-                                            Err(err) => {
-                                                log::error!("Error retrieving events for minion {}: {}", req.id(), err);
-                                            }
-                                        }
-                                        otel.log(&mrec, DataExportType::Model);
-                                    }
-                                });
-                            }
-
-                            RequestType::SensorsSyncRequest => {
-                                let c_master = Arc::clone(&master);
-                                let c_bcast = bcast.clone();
-                                tokio::spawn(async move {
-                                    let mut guard = c_master.lock().await;
-                                    _ = c_bcast.send(guard.msg_sensors_files());
-                                });
-                            }
-
-                            _ => {
-                                log::error!("Minion sends unknown request type");
-                            }
-                        }
+                        Self::spawn_incoming_request(Arc::clone(&master), bcast.clone(), req, minion_addr.clone());
                     } else {
                         log::error!("Unable to parse minion message");
                     }
@@ -1145,24 +1030,93 @@ impl SysMaster {
         Ok(records)
     }
 
-    /// Execute one profile console request and return its console response plus any outbound master messages to broadcast.
-    async fn profile_console_response(
-        &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
-    ) -> Result<(ConsoleResponse, Vec<MasterMessage>), SysinspectError> {
-        fn require_profile_name(request: &ProfileConsoleRequest) -> Result<(), SysinspectError> {
-            if !request.name().trim().is_empty() {
-                return Ok(());
-            }
-
-            Err(SysinspectError::InvalidQuery("Profile name cannot be empty".to_string()))
+    /// Ensure a profile request carries a non-empty profile name when the operation requires one.
+    fn require_profile_name(request: &ProfileConsoleRequest) -> Result<(), SysinspectError> {
+        if !request.name().trim().is_empty() {
+            return Ok(());
         }
 
+        Err(SysinspectError::InvalidQuery("Profile name cannot be empty".to_string()))
+    }
+
+    /// Extract the current non-default profile list from one minion record.
+    fn current_profiles(minion: &crate::registry::rec::MinionRecord) -> Vec<String> {
+        let mut profiles = match minion.get_traits().get("minion.profile") {
+            Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name.to_string()],
+            Some(serde_json::Value::Array(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>(),
+            _ => vec![],
+        };
+        profiles.retain(|profile| profile != "default");
+        profiles
+    }
+
+    /// Apply or remove profile tags for the selected minions and return the resulting outbound messages.
+    async fn profile_tag_console_response(
+        &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
+    ) -> Result<ConsoleOutcome, SysinspectError> {
+        let repo = SysInspectModPak::new(self.cfg.get_mod_repo_root())?;
+        let known_profiles = repo.list_profiles(None)?;
+        let missing = request.profiles().iter().filter(|name| !known_profiles.contains(name)).cloned().collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Ok((
+                ConsoleResponse {
+                    ok: false,
+                    message: format!("Unknown profile{}: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ").bright_yellow()),
+                },
+                vec![],
+            ));
+        }
+
+        let mut msgs = Vec::new();
+        for minion in self.selected_minions(query, traits, mid).await? {
+            let mut profiles = Self::current_profiles(&minion);
+            if request.op() == "tag" {
+                for profile in request.profiles() {
+                    if !profiles.contains(profile) {
+                        profiles.push(profile.to_string());
+                    }
+                }
+            } else {
+                profiles.retain(|profile| !request.profiles().contains(profile));
+            }
+
+            let context = if profiles.is_empty() {
+                json!({"op": "unset", "traits": {"minion.profile": null}})
+            } else {
+                json!({"op": "set", "traits": {"minion.profile": profiles}})
+            }
+            .to_string();
+
+            if let Some(msg) = self.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}"), "", "", minion.id(), &context).await {
+                msgs.push(msg);
+            }
+        }
+
+        Ok((
+            ConsoleResponse {
+                ok: true,
+                message: format!(
+                    "{} {} on {} minion{}",
+                    if request.op() == "tag" { "Applied profiles" } else { "Removed profiles" },
+                    request.profiles().join(", ").bright_yellow(),
+                    msgs.len(),
+                    if msgs.len() == 1 { "" } else { "s" }
+                ),
+            },
+            msgs,
+        ))
+    }
+
+    /// Execute one profile console request and return its console response plus any outbound master messages to broadcast.
+    async fn do_profile_console(
+        &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
+    ) -> Result<ConsoleOutcome, SysinspectError> {
         let repo = SysInspectModPak::new(self.cfg.get_mod_repo_root())?;
 
         match request.op() {
             "new" => Ok((
                 {
-                    require_profile_name(request)?;
+                    Self::require_profile_name(request)?;
                     repo.new_profile(request.name())?;
                     ConsoleResponse { ok: true, message: format!("Created profile {}", request.name().bright_yellow()) }
                 },
@@ -1170,7 +1124,7 @@ impl SysMaster {
             )),
             "delete" => Ok((
                 {
-                    require_profile_name(request)?;
+                    Self::require_profile_name(request)?;
                     repo.delete_profile(request.name())?;
                     ConsoleResponse { ok: true, message: format!("Deleted profile {}", request.name().bright_yellow()) }
                 },
@@ -1189,14 +1143,14 @@ impl SysMaster {
             )),
             "show" => Ok((
                 {
-                    require_profile_name(request)?;
+                    Self::require_profile_name(request)?;
                     ConsoleResponse { ok: true, message: repo.show_profile(request.name())? }
                 },
                 vec![],
             )),
             "add" => Ok((
                 {
-                    require_profile_name(request)?;
+                    Self::require_profile_name(request)?;
                     repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
                     ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
                 },
@@ -1204,77 +1158,13 @@ impl SysMaster {
             )),
             "remove" => Ok((
                 {
-                    require_profile_name(request)?;
+                    Self::require_profile_name(request)?;
                     repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
                     ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
                 },
                 vec![],
             )),
-            "tag" | "untag" => {
-                let known_profiles = repo.list_profiles(None)?;
-                let missing = request.profiles().iter().filter(|name| !known_profiles.contains(name)).cloned().collect::<Vec<_>>();
-                if !missing.is_empty() {
-                    return Ok((
-                        ConsoleResponse {
-                            ok: false,
-                            message: format!("Unknown profile{}: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ").bright_yellow()),
-                        },
-                        vec![],
-                    ));
-                }
-
-                let mut msgs = Vec::new();
-                for minion in self.selected_minions(query, traits, mid).await? {
-                    let mut profiles = match minion.get_traits().get("minion.profile") {
-                        Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name.to_string()],
-                        Some(serde_json::Value::Array(names)) => {
-                            names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>()
-                        }
-                        _ => vec![],
-                    };
-                    profiles.retain(|profile| profile != "default");
-                    if request.op() == "tag" {
-                        for profile in request.profiles() {
-                            if !profiles.contains(profile) {
-                                profiles.push(profile.to_string());
-                            }
-                        }
-                    } else {
-                        profiles.retain(|profile| !request.profiles().contains(profile));
-                    }
-                    if let Some(msg) = self
-                        .msg_query_data(
-                            &format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}"),
-                            "",
-                            "",
-                            minion.id(),
-                            &if profiles.is_empty() {
-                                json!({"op": "unset", "traits": {"minion.profile": null}})
-                            } else {
-                                json!({"op": "set", "traits": {"minion.profile": profiles}})
-                            }
-                            .to_string(),
-                        )
-                        .await
-                    {
-                        msgs.push(msg);
-                    }
-                }
-
-                Ok((
-                    ConsoleResponse {
-                        ok: true,
-                        message: format!(
-                            "{} {} on {} minion{}",
-                            if request.op() == "tag" { "Applied profiles" } else { "Removed profiles" },
-                            request.profiles().join(", ").bright_yellow(),
-                            msgs.len(),
-                            if msgs.len() == 1 { "" } else { "s" }
-                        ),
-                    },
-                    msgs,
-                ))
-            }
+            "tag" | "untag" => self.profile_tag_console_response(request, query, traits, mid).await,
             _ => Ok((ConsoleResponse { ok: false, message: format!("Unsupported profile operation {}", request.op().bright_yellow()) }, vec![])),
         }
     }
@@ -1330,14 +1220,13 @@ impl SysMaster {
 
     async fn rotate_console_response(
         &mut self, request: &RotationConsoleRequest, query: &str, traits: &str, mid: &str,
-    ) -> Result<(ConsoleResponse, Vec<MasterMessage>), SysinspectError> {
+    ) -> Result<ConsoleOutcome, SysinspectError> {
         if request.op() != "rotate" {
             return Ok((ConsoleResponse { ok: false, message: format!("Unsupported rotate operation {}", request.op().bright_yellow()) }, vec![]));
         }
 
         let mut online_msgs = Vec::new();
-        let mut online_count = 0usize;
-        let mut queued_count = 0usize;
+        let mut summary = RotationDispatchSummary::default();
 
         let targets = self.selected_minions(query, traits, mid).await?;
         for minion in targets {
@@ -1346,54 +1235,30 @@ impl SysMaster {
             if online {
                 if let Some(msg) = self.build_rotation_message(&minion_id, request, None).await? {
                     online_msgs.push(msg);
-                    online_count += 1;
+                    summary.note_online_dispatch();
                 }
             } else {
                 let context = self.stage_rotation_context(&minion_id, request)?;
                 self.persist_pending_rotation_context(&minion_id, Some(context))?;
-                queued_count += 1;
+                summary.note_queued_dispatch();
             }
         }
 
-        Ok((
-            ConsoleResponse {
-                ok: true,
-                message: format!(
-                    "Rotation staged: {} online dispatch{}, {} pending for offline minion{}",
-                    online_count,
-                    if online_count == 1 { "" } else { "es" },
-                    queued_count,
-                    if queued_count == 1 { "" } else { "s" }
-                ),
-            },
-            online_msgs,
-        ))
+        Ok((summary.response(), online_msgs))
     }
 
     async fn transport_status_summary(&mut self, query: &str, traits: &str, mid: &str) -> Result<String, SysinspectError> {
         let targets = self.selected_minions(query, traits, mid).await?;
-        let mut lines = vec![
-            "MINION  ACTIVE_KEY  KEY_AGE  LAST_HANDSHAKE  ROTATION  security.transport.last-rotated-at".to_string(),
-            "------  ----------  -------  --------------  --------  ----------------------------------".to_string(),
-        ];
+        let mut lines = TransportStatusRow::header().into_iter().collect::<Vec<_>>();
 
         let now = Utc::now();
         for minion in targets {
             let minion_id = minion.id().to_string();
             let state = TransportStore::for_master_minion(&self.cfg, &minion_id)?.load()?;
             if let Some(state) = state {
-                let active = state.active_key_id.clone().unwrap_or_else(|| "-".to_string());
-                let mut age = "-".to_string();
-                let mut last_rotated = "-".to_string();
-                if let Some(record) = state.keys.iter().find(|key| key.key_id == active) {
-                    let base = record.activated_at.unwrap_or(record.created_at);
-                    age = format!("{}s", (now - base).num_seconds().max(0));
-                    last_rotated = base.to_rfc3339();
-                }
-                let handshake = state.last_handshake_at.map(|d| d.to_rfc3339()).unwrap_or_else(|| "-".to_string());
-                lines.push(format!("{}  {}  {}  {}  {:?}  {}", minion_id, active, age, handshake, state.rotation, last_rotated));
+                lines.push(TransportStatusRow::from_state(&minion_id, &state, now).render());
             } else {
-                lines.push(format!("{}  -  -  -  missing  -", minion_id));
+                lines.push(TransportStatusRow::missing(&minion_id).render());
             }
         }
 
@@ -1564,7 +1429,7 @@ impl SysMaster {
                                                                                 Ok(request) => {
                                                                                     let mut guard = master.lock().await;
                                                                                     match guard
-                                                                                        .profile_console_response(
+                                                                                        .do_profile_console(
                                                                                             &request,
                                                                                             &query.query,
                                                                                             &query.traits,
@@ -1759,6 +1624,148 @@ impl SysMaster {
         });
     }
 
+    /// Encode one outbound frame for a connected peer, skipping broadcasts until the peer is allowed to receive them.
+    async fn encode_outgoing_frame(&mut self, peer_addr: &str, frame: OutgoingFrame) -> Result<Option<Vec<u8>>, SysinspectError> {
+        match frame {
+            OutgoingFrame::Direct(msg) => Ok(Some(msg)),
+            OutgoingFrame::Broadcast(msg) => {
+                if !self.peer_transport.can_receive_broadcast(peer_addr) {
+                    return Ok(None);
+                }
+                self.peer_transport.encode_message(peer_addr, &msg).map(Some)
+            }
+        }
+    }
+
+    /// Write direct replies and broadcast frames to one connected peer until the socket closes.
+    async fn write_peer_frames(
+        master: Arc<Mutex<Self>>, mut writer: OwnedWriteHalf, peer_addr: String, mut bcast_sub: broadcast::Receiver<MasterMessage>,
+        mut direct_rx: mpsc::Receiver<Vec<u8>>, cancel_writer: tokio::sync::watch::Sender<bool>,
+    ) {
+        log::info!("Minion {peer_addr} connected. Ready to send messages.");
+
+        loop {
+            let frame = match tokio::select! {
+                biased;
+                Some(msg) = direct_rx.recv() => Some(OutgoingFrame::Direct(msg)),
+                Ok(msg) = bcast_sub.recv() => Some(OutgoingFrame::Broadcast(Box::new(msg))),
+                else => return,
+            } {
+                Some(frame) => frame,
+                None => return,
+            };
+
+            let encoded = {
+                let mut guard = master.lock().await;
+                match guard.encode_outgoing_frame(&peer_addr, frame).await {
+                    Ok(Some(msg)) => msg,
+                    Ok(None) => continue,
+                    Err(err) => {
+                        log::error!("Failed to encode outbound message for {peer_addr}: {err}");
+                        let _ = cancel_writer.send(true);
+                        return;
+                    }
+                }
+            };
+
+            log::trace!("Sending message to minion at {} length of {}", peer_addr, encoded.len());
+            let mut guard = master.lock().await;
+            if writer.write_all(&(encoded.len() as u32).to_be_bytes()).await.is_err()
+                || writer.write_all(&encoded).await.is_err()
+                || writer.flush().await.is_err()
+            {
+                if let Err(err) = cancel_writer.send(true) {
+                    log::debug!("Error sending cancel notification: {err}");
+                }
+                break;
+            }
+
+            if guard.to_drop.contains(&peer_addr) {
+                guard.to_drop.remove(&peer_addr);
+                log::info!("Dropping minion: {}", &peer_addr);
+                if let Err(err) = writer.shutdown().await {
+                    log::error!("Error shutting down outgoing: {err}");
+                }
+                if let Err(err) = cancel_writer.send(true) {
+                    log::debug!("Error sending cancel notification: {err}");
+                }
+                return;
+            }
+        }
+    }
+
+    /// Read framed peer traffic, decode it through the peer transport object, and forward logical messages inward.
+    async fn read_peer_frames(
+        master: Arc<Mutex<Self>>, reader: OwnedReadHalf, peer_addr: String, client_tx: mpsc::Sender<(Vec<u8>, String)>,
+        direct_tx: mpsc::Sender<Vec<u8>>, cancel_tx: tokio::sync::watch::Sender<bool>, cancel_rx: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut reader = TokioBufReader::new(reader);
+        loop {
+            if *cancel_rx.borrow() {
+                log::info!("Process terminated");
+                return;
+            }
+
+            let mut len_buf = [0u8; 4];
+            if reader.read_exact(&mut len_buf).await.is_err() {
+                let _ = client_tx.send((Vec::new(), peer_addr.clone())).await;
+                return;
+            }
+
+            let msg_len = u32::from_be_bytes(len_buf) as usize;
+            let mut msg = vec![0u8; msg_len];
+            if reader.read_exact(&mut msg).await.is_err() {
+                let _ = client_tx.send((Vec::new(), peer_addr.clone())).await;
+                return;
+            }
+
+            let decoded = {
+                let mut guard = master.lock().await;
+                guard.decode_peer_frame(&peer_addr, &msg)
+            };
+            match decoded {
+                Ok(IncomingFrame::Forward(msg)) => {
+                    if client_tx.send((msg, peer_addr.clone())).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(IncomingFrame::Reply(msg)) => {
+                    let _ = direct_tx.send(msg).await;
+                }
+                Err(err) => {
+                    log::error!("Failed to decode frame from {peer_addr}: {err}");
+                    let _ = cancel_tx.send(true);
+                    let _ = client_tx.send((Vec::new(), peer_addr.clone())).await;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Spawn the paired reader and writer tasks for one accepted minion socket.
+    async fn handle_peer_connection(
+        master: Arc<Mutex<Self>>, tx: mpsc::Sender<(Vec<u8>, String)>, bcast: &broadcast::Sender<MasterMessage>, socket: tokio::net::TcpStream,
+    ) {
+        let bcast_sub = bcast.subscribe();
+        let client_tx = tx.clone();
+        let peer_addr = socket.peer_addr().unwrap().to_string();
+        let writer_peer_addr = peer_addr.clone();
+        let (reader, writer) = socket.into_split();
+        let c_master_writer = Arc::clone(&master);
+        let c_master_reader = Arc::clone(&master);
+        let (direct_tx, direct_rx) = mpsc::channel::<Vec<u8>>(8);
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let cancel_writer = cancel_tx.clone();
+
+        tokio::spawn(async move {
+            Self::write_peer_frames(c_master_writer, writer, writer_peer_addr, bcast_sub, direct_rx, cancel_writer).await;
+        });
+
+        tokio::spawn(async move {
+            Self::read_peer_frames(c_master_reader, reader, peer_addr, client_tx, direct_tx, cancel_tx, cancel_rx).await;
+        });
+    }
+
     pub async fn do_outgoing(master: Arc<Mutex<Self>>, tx: mpsc::Sender<(Vec<u8>, String)>) -> Result<(), SysinspectError> {
         log::trace!("Init outgoing channel");
         let listener = master.lock().await.listener().await?;
@@ -1769,118 +1776,7 @@ impl SysMaster {
                 tokio::select! {
                     // Accept a new connection
                     Ok((socket, _)) = listener.accept() => {
-                        let mut bcast_sub = bcast.subscribe();
-                        let client_tx = tx.clone();
-                        let peer_addr = socket.peer_addr().unwrap();
-                        let (reader, writer) = socket.into_split();
-                        let c_master = Arc::clone(&master);
-                        let c_master_writer = Arc::clone(&master);
-                        let (direct_tx, mut direct_rx) = mpsc::channel::<Vec<u8>>(8);
-                        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
-                        let cancel_writer = cancel_tx.clone();
-
-                        // Task to send direct and broadcast messages to the client
-                        tokio::spawn(async move {
-                            let mut writer = writer;
-                            log::info!("Minion {peer_addr} connected. Ready to send messages.");
-
-                            loop {
-                                let msg = match tokio::select! {
-                                    biased;
-                                    Some(msg) = direct_rx.recv() => Some(OutgoingPeerFrame::Direct(msg)),
-                                    Ok(msg) = bcast_sub.recv() => Some(OutgoingPeerFrame::Broadcast(Box::new(msg))),
-                                    else => return,
-                                } {
-                                    Some(OutgoingPeerFrame::Broadcast(msg)) => {
-                                        let peer_addr = peer_addr.to_string();
-                                        let mut guard = c_master_writer.lock().await;
-                                        if !guard.peer_can_receive_broadcast(&peer_addr) {
-                                            continue;
-                                        }
-                                        match guard.encode_peer_message(&peer_addr, &msg) {
-                                            Ok(msg) => msg,
-                                            Err(err) => {
-                                                log::error!("Failed to encode outbound message for {peer_addr}: {err}");
-                                                let _ = cancel_writer.send(true);
-                                                return;
-                                            }
-                                        }
-                                    }
-                                    Some(OutgoingPeerFrame::Direct(msg)) => msg,
-                                    None => return,
-                                };
-
-                                log::trace!("Sending message to minion at {} length of {}", peer_addr, msg.len());
-                                let mut guard = c_master_writer.lock().await;
-                                if writer.write_all(&(msg.len() as u32).to_be_bytes()).await.is_err()
-                                    || writer.write_all(&msg).await.is_err()
-                                    || writer.flush().await.is_err()
-                                {
-                                    if let Err(err) = cancel_writer.send(true) {
-                                        log::debug!("Error sending cancel notification: {err}");
-                                    }
-                                    break;
-                                }
-
-                                if guard.to_drop.contains(&peer_addr.to_string()) {
-                                    guard.to_drop.remove(&peer_addr.to_string());
-                                    log::info!("Dropping minion: {}", &peer_addr.to_string());
-                                    if let Err(err) = writer.shutdown().await {
-                                        log::error!("Error shutting down outgoing: {err}");
-                                    }
-                                    if let Err(err) = cancel_writer.send(true) {
-                                        log::debug!("Error sending cancel notification: {err}");
-                                    }
-
-                                    return;
-                                }
-                            }
-                        });
-
-                        // Task to read messages from the client
-                        tokio::spawn(async move {
-                            let mut reader = TokioBufReader::new(reader);
-                            loop {
-                                if *cancel_rx.borrow() {
-                                    log::info!("Process terminated");
-                                    return;
-                                }
-
-                                let mut len_buf = [0u8; 4];
-                                if reader.read_exact(&mut len_buf).await.is_err() {
-                                    let _ = client_tx.send((Vec::new(), peer_addr.to_string())).await;
-                                    return;
-                                }
-
-                                let msg_len = u32::from_be_bytes(len_buf) as usize;
-                                let mut msg = vec![0u8; msg_len];
-                                if reader.read_exact(&mut msg).await.is_err() {
-                                    let _ = client_tx.send((Vec::new(), peer_addr.to_string())).await;
-                                    return;
-                                }
-
-                                match c_master.lock().await.decode_peer_frame(&peer_addr.to_string(), &msg) {
-                                    Ok(IncomingPeerFrame::Forward(msg)) => {
-                                        if client_tx.send((msg, peer_addr.to_string())).await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                    Ok(IncomingPeerFrame::Reply(msg)) => {
-                                        let _ = direct_tx.send(msg).await;
-                                    }
-                                    Ok(IncomingPeerFrame::Drop) => {
-                                        let _ = cancel_tx.send(true);
-                                        return;
-                                    }
-                                    Err(err) => {
-                                        log::error!("Failed to decode frame from {peer_addr}: {err}");
-                                        let _ = cancel_tx.send(true);
-                                        let _ = client_tx.send((Vec::new(), peer_addr.to_string())).await;
-                                        return;
-                                    }
-                                }
-                            }
-                        });
+                        Self::handle_peer_connection(Arc::clone(&master), tx.clone(), &bcast, socket).await;
                     }
                 }
             }

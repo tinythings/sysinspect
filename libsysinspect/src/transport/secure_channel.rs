@@ -58,22 +58,19 @@ impl SecureChannel {
 
     /// Seal a serializable payload into a `data` secure frame encoded as JSON bytes.
     pub fn seal<T: Serialize>(&mut self, payload: &T) -> Result<Vec<u8>, SysinspectError> {
-        self.seal_bytes(&serde_json::to_vec(payload).map_err(|err| {
-            SysinspectError::SerializationError(format!("Failed to serialize secure channel payload: {err}"))
-        })?)
+        self.seal_bytes(
+            &serde_json::to_vec(payload)
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to serialize secure channel payload: {err}")))?,
+        )
     }
 
     /// Seal raw payload bytes into a `data` secure frame encoded as JSON bytes.
     pub fn seal_bytes(&mut self, payload: &[u8]) -> Result<Vec<u8>, SysinspectError> {
         if payload.len() > SECURE_MAX_PAYLOAD_SIZE {
-            return Err(SysinspectError::ProtoError(format!(
-                "Secure payload exceeds maximum size of {SECURE_MAX_PAYLOAD_SIZE} bytes"
-            )));
+            return Err(SysinspectError::ProtoError(format!("Secure payload exceeds maximum size of {SECURE_MAX_PAYLOAD_SIZE} bytes")));
         }
-        self.tx_counter = self
-            .tx_counter
-            .checked_add(1)
-            .ok_or_else(|| SysinspectError::ProtoError("Secure transmit counter overflow".to_string()))?;
+        self.tx_counter =
+            self.tx_counter.checked_add(1).ok_or_else(|| SysinspectError::ProtoError("Secure transmit counter overflow".to_string()))?;
         serde_json::to_vec(&SecureFrame::Data(SecureDataFrame {
             protocol_version: SECURE_PROTOCOL_VERSION,
             session_id: self.session_id.clone(),
@@ -94,9 +91,7 @@ impl SecureChannel {
     /// Open a `data` secure frame from JSON bytes and return the decrypted raw payload.
     pub fn open_bytes(&mut self, frame: &[u8]) -> Result<Vec<u8>, SysinspectError> {
         if frame.len() > SECURE_MAX_FRAME_SIZE {
-            return Err(SysinspectError::ProtoError(format!(
-                "Secure frame exceeds maximum size of {SECURE_MAX_FRAME_SIZE} bytes"
-            )));
+            return Err(SysinspectError::ProtoError(format!("Secure frame exceeds maximum size of {SECURE_MAX_FRAME_SIZE} bytes")));
         }
         match serde_json::from_slice::<SecureFrame>(frame)
             .map_err(|err| SysinspectError::DeserializationError(format!("Failed to decode secure frame: {err}")))?
@@ -119,10 +114,7 @@ impl SecureChannel {
     /// Decrypt and validate an incoming secure `data` frame.
     fn open_data(&mut self, frame: SecureDataFrame) -> Result<Vec<u8>, SysinspectError> {
         if frame.protocol_version != SECURE_PROTOCOL_VERSION {
-            return Err(SysinspectError::ProtoError(format!(
-                "Unsupported secure data frame version {}",
-                frame.protocol_version
-            )));
+            return Err(SysinspectError::ProtoError(format!("Unsupported secure data frame version {}", frame.protocol_version)));
         }
         if frame.session_id != self.session_id {
             return Err(SysinspectError::ProtoError("Secure data frame session id does not match the active secure channel".to_string()));
@@ -131,33 +123,23 @@ impl SecureChannel {
             return Err(SysinspectError::ProtoError("Secure data frame key id does not match the active secure channel".to_string()));
         }
         if frame.counter <= self.rx_counter {
-            return Err(SysinspectError::ProtoError(format!(
-                "Replay rejected for secure frame counter {}",
-                frame.counter
-            )));
+            return Err(SysinspectError::ProtoError(format!("Replay rejected for secure frame counter {}", frame.counter)));
         }
         if frame.counter != self.rx_counter.saturating_add(1) {
-            return Err(SysinspectError::ProtoError(format!(
-                "Secure frame counter {} is out of sequence after {}",
-                frame.counter, self.rx_counter
-            )));
+            return Err(SysinspectError::ProtoError(format!("Secure frame counter {} is out of sequence after {}", frame.counter, self.rx_counter)));
         }
         let expected_nonce = Self::nonce(Self::peer_role(self.role), frame.counter);
         if STANDARD.encode(expected_nonce.0) != frame.nonce {
             return Err(SysinspectError::ProtoError("Secure data frame nonce does not match the expected counter-derived nonce".to_string()));
         }
         let payload = secretbox::open(
-            &STANDARD
-                .decode(&frame.payload)
-                .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure payload: {err}")))?,
+            &STANDARD.decode(&frame.payload).map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure payload: {err}")))?,
             &expected_nonce,
             &self.key,
         )
         .map_err(|_| SysinspectError::ProtoError("Failed to authenticate or decrypt secure payload".to_string()))?;
         if payload.len() > SECURE_MAX_PAYLOAD_SIZE {
-            return Err(SysinspectError::ProtoError(format!(
-                "Decrypted secure payload exceeds maximum size of {SECURE_MAX_PAYLOAD_SIZE} bytes"
-            )));
+            return Err(SysinspectError::ProtoError(format!("Decrypted secure payload exceeds maximum size of {SECURE_MAX_PAYLOAD_SIZE} bytes")));
         }
         self.rx_counter = frame.counter;
         Ok(payload)

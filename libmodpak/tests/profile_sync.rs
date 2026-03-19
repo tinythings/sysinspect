@@ -3,7 +3,10 @@ use libsysinspect::{
     cfg::mmconf::MinionConfig,
     traits::{TraitUpdateRequest, ensure_master_traits_file},
 };
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -50,11 +53,7 @@ async fn start_fileserver(root: PathBuf) -> (u16, tokio::task::JoinHandle<()>) {
                 let mut buf = [0_u8; 4096];
                 let Ok(n) = stream.read(&mut buf).await else { return };
                 let req = String::from_utf8_lossy(&buf[..n]);
-                let path = req
-                    .lines()
-                    .next()
-                    .and_then(|line| line.split_whitespace().nth(1))
-                    .unwrap_or("/");
+                let path = req.lines().next().and_then(|line| line.split_whitespace().nth(1)).unwrap_or("/");
                 let file = root.join(path.trim_start_matches('/'));
                 let response = match fs::read(&file) {
                     Ok(body) => format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes(),
@@ -189,11 +188,8 @@ async fn sync_fails_if_effective_profiles_are_missing_from_profiles_index() {
 async fn sync_rejects_profile_paths_with_traversal_components() {
     let master = tempfile::tempdir().expect("master tempdir should be created");
     fs::create_dir_all(master.path().join("data")).expect("data dir should be created");
-    fs::write(
-        master.path().join("data/profiles.index"),
-        "profiles:\n  Escape:\n    file: ../escape.profile\n    checksum: deadbeef\n",
-    )
-    .expect("profiles index should be written");
+    fs::write(master.path().join("data/profiles.index"), "profiles:\n  Escape:\n    file: ../escape.profile\n    checksum: deadbeef\n")
+        .expect("profiles index should be written");
 
     let (port, server) = start_fileserver(master.path().join("data")).await;
     let minion = tempfile::tempdir().expect("minion tempdir should be created");
@@ -219,13 +215,9 @@ async fn sync_fails_if_downloaded_profile_checksum_does_not_match_index() {
     add_script_module(&master.path().join("data/repo"), "alpha.demo", "# alpha");
     set_script_modules(&master.path().join("data/repo"), &["alpha.demo"]);
     repo.new_profile("Broken").expect("Broken should be created");
-    repo.add_profile_matches("Broken", vec!["alpha.demo".to_string()], false)
-        .expect("Broken selector should be added");
-    fs::write(
-        master.path().join("data/profiles.index"),
-        "profiles:\n  Broken:\n    file: broken.profile\n    checksum: deadbeef\n",
-    )
-    .expect("profiles index should be overwritten");
+    repo.add_profile_matches("Broken", vec!["alpha.demo".to_string()], false).expect("Broken selector should be added");
+    fs::write(master.path().join("data/profiles.index"), "profiles:\n  Broken:\n    file: broken.profile\n    checksum: deadbeef\n")
+        .expect("profiles index should be overwritten");
 
     let (port, server) = start_fileserver(master.path().join("data")).await;
     let minion = tempfile::tempdir().expect("minion tempdir should be created");

@@ -64,7 +64,9 @@ pub struct SecureSessionBinding {
 
 impl SecureSessionBinding {
     /// Build the opening binding sent by the minion before the master nonce is known.
-    pub fn bootstrap_opening(minion_id: String, minion_rsa_fingerprint: String, master_rsa_fingerprint: String, connection_id: String, client_nonce: String) -> Self {
+    pub fn bootstrap_opening(
+        minion_id: String, minion_rsa_fingerprint: String, master_rsa_fingerprint: String, connection_id: String, client_nonce: String,
+    ) -> Self {
         Self {
             minion_id,
             minion_rsa_fingerprint,

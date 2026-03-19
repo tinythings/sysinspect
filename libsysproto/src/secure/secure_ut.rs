@@ -35,55 +35,67 @@ fn master_minion_goals_match_phase_one_decisions() {
 
 #[test]
 fn only_bootstrap_frames_may_stay_plaintext() {
-    assert!(SecureFrame::BootstrapHello(SecureBootstrapHello {
-        binding: binding(),
-        session_key_cipher: "cipher".to_string(),
-        binding_signature: "sig".to_string(),
-        key_id: None,
-    })
-    .is_plaintext_bootstrap());
-    assert!(SecureFrame::BootstrapAck(SecureBootstrapAck {
-        binding: binding(),
-        session_id: "sid".to_string(),
-        key_id: "kid".to_string(),
-        rotation: SecureRotationMode::None,
-        binding_signature: "sig".to_string(),
-    })
-    .is_plaintext_bootstrap());
-    assert!(SecureFrame::BootstrapDiagnostic(SecureBootstrapDiagnostic {
-        code: SecureDiagnosticCode::MalformedFrame,
-        message: "bad".to_string(),
-        failure: SecureFailureSemantics::diagnostic(false, true),
-    })
-    .is_plaintext_bootstrap());
-    assert!(!SecureFrame::Data(SecureDataFrame {
-        protocol_version: SECURE_PROTOCOL_VERSION,
-        session_id: "sid".to_string(),
-        key_id: "kid".to_string(),
-        counter: 1,
-        nonce: "nonce".to_string(),
-        payload: "payload".to_string(),
-    })
-    .is_plaintext_bootstrap());
+    assert!(
+        SecureFrame::BootstrapHello(SecureBootstrapHello {
+            binding: binding(),
+            session_key_cipher: "cipher".to_string(),
+            binding_signature: "sig".to_string(),
+            key_id: None,
+        })
+        .is_plaintext_bootstrap()
+    );
+    assert!(
+        SecureFrame::BootstrapAck(SecureBootstrapAck {
+            binding: binding(),
+            session_id: "sid".to_string(),
+            key_id: "kid".to_string(),
+            rotation: SecureRotationMode::None,
+            binding_signature: "sig".to_string(),
+        })
+        .is_plaintext_bootstrap()
+    );
+    assert!(
+        SecureFrame::BootstrapDiagnostic(SecureBootstrapDiagnostic {
+            code: SecureDiagnosticCode::MalformedFrame,
+            message: "bad".to_string(),
+            failure: SecureFailureSemantics::diagnostic(false, true),
+        })
+        .is_plaintext_bootstrap()
+    );
+    assert!(
+        !SecureFrame::Data(SecureDataFrame {
+            protocol_version: SECURE_PROTOCOL_VERSION,
+            session_id: "sid".to_string(),
+            key_id: "kid".to_string(),
+            counter: 1,
+            nonce: "nonce".to_string(),
+            payload: "payload".to_string(),
+        })
+        .is_plaintext_bootstrap()
+    );
 }
 
 #[test]
 fn data_frames_require_established_session_state() {
-    assert!(SecureFrame::Data(SecureDataFrame {
-        protocol_version: SECURE_PROTOCOL_VERSION,
-        session_id: "sid".to_string(),
-        key_id: "kid".to_string(),
-        counter: 7,
-        nonce: "nonce".to_string(),
-        payload: "payload".to_string(),
-    })
-    .requires_established_session());
-    assert!(!SecureFrame::BootstrapDiagnostic(SecureBootstrapDiagnostic {
-        code: SecureDiagnosticCode::UnsupportedVersion,
-        message: "old peer".to_string(),
-        failure: SecureFailureSemantics::diagnostic(true, false),
-    })
-    .requires_established_session());
+    assert!(
+        SecureFrame::Data(SecureDataFrame {
+            protocol_version: SECURE_PROTOCOL_VERSION,
+            session_id: "sid".to_string(),
+            key_id: "kid".to_string(),
+            counter: 7,
+            nonce: "nonce".to_string(),
+            payload: "payload".to_string(),
+        })
+        .requires_established_session()
+    );
+    assert!(
+        !SecureFrame::BootstrapDiagnostic(SecureBootstrapDiagnostic {
+            code: SecureDiagnosticCode::UnsupportedVersion,
+            message: "old peer".to_string(),
+            failure: SecureFailureSemantics::diagnostic(true, false),
+        })
+        .requires_established_session()
+    );
 }
 
 #[test]

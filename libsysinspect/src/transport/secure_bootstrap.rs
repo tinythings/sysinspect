@@ -43,11 +43,7 @@ impl SecureBootstrapSession {
         );
         Self::hello(
             binding.clone(),
-            state
-                .key_material(&key_id)
-                .as_deref()
-                .map(|material| Self::derive_session_key(material, &binding))
-                .unwrap_or_else(secretbox::gen_key),
+            state.key_material(&key_id).as_deref().map(|material| Self::derive_session_key(material, &binding)).unwrap_or_else(secretbox::gen_key),
             key_id,
             minion_prk,
             master_pbk,

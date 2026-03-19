@@ -217,9 +217,7 @@ impl SystemTraits {
             let content: Option<serde_json::Value> =
                 content.as_ref().and_then(|v| Self::proxy_log_error(serde_json::to_value(v), "Unable to convert existing YAML to JSON format"));
 
-            if fname == MASTER_TRAITS_FILE
-                && content.as_ref().is_none_or(serde_json::Value::is_null)
-            {
+            if fname == MASTER_TRAITS_FILE && content.as_ref().is_none_or(serde_json::Value::is_null) {
                 continue;
             }
 
@@ -228,8 +226,9 @@ impl SystemTraits {
                 continue;
             }
 
-            let content =
-                content.as_ref().and_then(|v| Self::proxy_log_error(serde_json::from_value::<IndexMap<String, serde_json::Value>>(v.clone()), "Unable to parse JSON"));
+            let content = content.as_ref().and_then(|v| {
+                Self::proxy_log_error(serde_json::from_value::<IndexMap<String, serde_json::Value>>(v.clone()), "Unable to parse JSON")
+            });
 
             if let Some(content) = content {
                 for (k, v) in content {

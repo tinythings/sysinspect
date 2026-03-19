@@ -151,16 +151,8 @@ fn secure_channel_first_frame_differs_across_reconnects_with_same_persisted_mate
         _ => panic!("expected bootstrap ack"),
     };
 
-    let mut minion_one = SecureChannel::new(
-        SecurePeerRole::Minion,
-        &opening_one.verify_ack(&state, &ack_one, &master_pbk).unwrap(),
-    )
-    .unwrap();
-    let mut minion_two = SecureChannel::new(
-        SecurePeerRole::Minion,
-        &opening_two.verify_ack(&state, &ack_two, &master_pbk).unwrap(),
-    )
-    .unwrap();
+    let mut minion_one = SecureChannel::new(SecurePeerRole::Minion, &opening_one.verify_ack(&state, &ack_one, &master_pbk).unwrap()).unwrap();
+    let mut minion_two = SecureChannel::new(SecurePeerRole::Minion, &opening_two.verify_ack(&state, &ack_two, &master_pbk).unwrap()).unwrap();
 
     let frame_one = minion_one.seal(&serde_json::json!({"hello":"world"})).unwrap();
     let frame_two = minion_two.seal(&serde_json::json!({"hello":"world"})).unwrap();

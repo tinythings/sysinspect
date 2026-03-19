@@ -99,16 +99,12 @@ impl MinionsKeyRegistry {
 
     /// Return the loaded master RSA private key used for secure bootstrap acceptance.
     pub fn master_private_key(&self) -> Result<RsaPrivateKey, SysinspectError> {
-        self.ms_prk
-            .clone()
-            .ok_or_else(|| SysinspectError::MasterGeneralError("Master RSA private key is not loaded".to_string()))
+        self.ms_prk.clone().ok_or_else(|| SysinspectError::MasterGeneralError("Master RSA private key is not loaded".to_string()))
     }
 
     pub fn get_master_key_fingerprint(&self) -> Result<String, SysinspectError> {
         rsa::keys::get_fingerprint(
-            self.ms_pbk
-                .as_ref()
-                .ok_or_else(|| SysinspectError::MasterGeneralError("Master RSA public key is not loaded".to_string()))?,
+            self.ms_pbk.as_ref().ok_or_else(|| SysinspectError::MasterGeneralError("Master RSA public key is not loaded".to_string()))?,
         )
         .map_err(|err| SysinspectError::RSAError(err.to_string()))
     }
@@ -129,17 +125,14 @@ impl MinionsKeyRegistry {
 
     pub fn get_mn_key_fingerprint(&mut self, mid: &str) -> Result<String, SysinspectError> {
         rsa::keys::get_fingerprint(
-            &self
-                .get_mn_key(mid)
-                .ok_or_else(|| SysinspectError::MasterGeneralError(format!("RSA public key for minion {mid} is not loaded")))?,
+            &self.get_mn_key(mid).ok_or_else(|| SysinspectError::MasterGeneralError(format!("RSA public key for minion {mid} is not loaded")))?,
         )
         .map_err(|err| SysinspectError::RSAError(err.to_string()))
     }
 
     /// Return the loaded minion RSA public key used for secure bootstrap verification.
     pub fn minion_public_key(&mut self, mid: &str) -> Result<RsaPublicKey, SysinspectError> {
-        self.get_mn_key(mid)
-            .ok_or_else(|| SysinspectError::MasterGeneralError(format!("RSA public key for minion {mid} is not loaded")))
+        self.get_mn_key(mid).ok_or_else(|| SysinspectError::MasterGeneralError(format!("RSA public key for minion {mid} is not loaded")))
     }
 
     /// Lazy-load minion key. By start all keys are only containing minion Ids.
@@ -216,8 +209,11 @@ impl MinionsKeyRegistry {
 #[cfg(test)]
 mod tests {
     use super::MinionsKeyRegistry;
+    use libsysinspect::{
+        rsa::keys::{keygen, to_pem},
+        transport::TransportStore,
+    };
     use libsysproto::secure::SECURE_PROTOCOL_VERSION;
-    use libsysinspect::{rsa::keys::{keygen, to_pem}, transport::TransportStore};
 
     #[test]
     fn registration_creates_transport_state_for_registered_minion() {

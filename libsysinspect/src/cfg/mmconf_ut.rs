@@ -1,5 +1,10 @@
-use super::mmconf::{CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CONSOLE_PORT, MasterConfig, MinionConfig};
-use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+use super::mmconf::{
+    CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CONSOLE_PORT, MasterConfig, MinionConfig,
+};
+use std::{
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 fn write_master_cfg(contents: &str) -> std::path::PathBuf {
     let base = std::env::temp_dir().join(format!(

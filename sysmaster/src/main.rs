@@ -5,6 +5,7 @@ mod master;
 mod master_itf;
 mod registry;
 mod telemetry;
+mod transport;
 mod util;
 
 #[cfg(test)]

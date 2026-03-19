@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
     use crate::{SysInspectModPak, mpk::ModPakMetadata};
+    use colored::control;
+    use libsysinspect::cfg::mmconf::CFG_PROFILES_ROOT;
     use libsysinspect::{cfg::mmconf::MinionConfig, traits::effective_profiles};
     use std::collections::HashSet;
-    use colored::control;
     use std::{fs, path::Path};
-    use libsysinspect::cfg::mmconf::CFG_PROFILES_ROOT;
 
     /// Creates a minimal library tree under `src/lib`.
     ///
@@ -233,29 +233,18 @@ mod tests {
         let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
 
         repo.new_profile("toto").expect("profile should be created");
-        repo.add_profile_matches("toto", vec!["runtime.lua".to_string(), "net.*".to_string()], false)
-            .expect("module selectors should be added");
+        repo.add_profile_matches("toto", vec!["runtime.lua".to_string(), "net.*".to_string()], false).expect("module selectors should be added");
         repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true).expect("library selectors should be added");
 
         assert_eq!(repo.list_profiles(None).expect("profiles should list"), vec!["toto".to_string()]);
-        assert!(repo
-            .list_profile_matches(Some("toto"), false)
-            .expect("profile modules should list")
-            .contains(&"toto: runtime.lua".to_string()));
-        assert!(repo
-            .list_profile_matches(Some("toto"), false)
-            .expect("profile modules should list")
-            .contains(&"toto: net.*".to_string()));
-        assert!(repo
-            .list_profile_matches(Some("toto"), true)
-            .expect("profile libraries should list")
-            .contains(&"toto: runtime/lua/*.lua".to_string()));
+        assert!(repo.list_profile_matches(Some("toto"), false).expect("profile modules should list").contains(&"toto: runtime.lua".to_string()));
+        assert!(repo.list_profile_matches(Some("toto"), false).expect("profile modules should list").contains(&"toto: net.*".to_string()));
+        assert!(
+            repo.list_profile_matches(Some("toto"), true).expect("profile libraries should list").contains(&"toto: runtime/lua/*.lua".to_string())
+        );
 
         repo.remove_profile_matches("toto", vec!["net.*".to_string()], false).expect("module selector should be removed");
-        assert!(!repo
-            .list_profile_matches(Some("toto"), false)
-            .expect("profile modules should list")
-            .contains(&"toto: net.*".to_string()));
+        assert!(!repo.list_profile_matches(Some("toto"), false).expect("profile modules should list").contains(&"toto: net.*".to_string()));
 
         repo.delete_profile("toto").expect("profile should be deleted");
         assert!(repo.list_profiles(None).expect("profiles should list").is_empty());
@@ -289,16 +278,9 @@ mod tests {
         let root = tempfile::tempdir().expect("repo tempdir should be created");
         let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
         let profiles_root = root.path().join(CFG_PROFILES_ROOT);
-        fs::write(
-            profiles_root.join("totobullshit.profile"),
-            "name: Toto\nmodules:\n  - runtime.lua\n",
-        )
-        .expect("profile file should be written");
-        fs::write(
-            root.path().join("profiles.index"),
-            "profiles:\n  Toto:\n    file: totobullshit.profile\n    checksum: deadbeef\n",
-        )
-        .expect("profiles index should be written");
+        fs::write(profiles_root.join("totobullshit.profile"), "name: Toto\nmodules:\n  - runtime.lua\n").expect("profile file should be written");
+        fs::write(root.path().join("profiles.index"), "profiles:\n  Toto:\n    file: totobullshit.profile\n    checksum: deadbeef\n")
+            .expect("profiles index should be written");
 
         repo.add_profile_matches("Toto", vec!["net.*".to_string()], false).expect("profile should be updated");
 
@@ -314,11 +296,8 @@ mod tests {
     fn profiles_index_rejects_parent_dir_traversal() {
         let root = tempfile::tempdir().expect("repo tempdir should be created");
         let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
-        fs::write(
-            root.path().join("profiles.index"),
-            "profiles:\n  Toto:\n    file: ../escape.profile\n    checksum: deadbeef\n",
-        )
-        .expect("profiles index should be written");
+        fs::write(root.path().join("profiles.index"), "profiles:\n  Toto:\n    file: ../escape.profile\n    checksum: deadbeef\n")
+            .expect("profiles index should be written");
 
         assert!(repo.get_profiles_index().is_err());
     }

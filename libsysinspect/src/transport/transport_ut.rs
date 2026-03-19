@@ -43,10 +43,7 @@ fn transport_state_roundtrips_through_managed_file() {
 fn transport_minion_root_uses_safe_peer_ids() {
     let root = tempfile::tempdir().unwrap();
 
-    assert_eq!(
-        transport_minion_root(root.path(), "node-1").unwrap(),
-        root.path().join("minions").join("node-1")
-    );
+    assert_eq!(transport_minion_root(root.path(), "node-1").unwrap(), root.path().join("minions").join("node-1"));
 }
 
 #[test]
@@ -112,14 +109,7 @@ fn transport_state_file_is_private_on_unix() {
     cfg.set_root_dir(root.path().to_str().unwrap());
     let store = TransportStore::for_minion(&cfg).unwrap();
 
-    store
-        .save(&TransportPeerState::new(
-            "mid-1".to_string(),
-            "master-fp".to_string(),
-            "minion-fp".to_string(),
-            1,
-        ))
-        .unwrap();
+    store.save(&TransportPeerState::new("mid-1".to_string(), "master-fp".to_string(), "minion-fp".to_string(), 1)).unwrap();
 
     assert_eq!(std::fs::metadata(cfg.transport_master_root()).unwrap().permissions().mode() & 0o777, 0o700);
     assert_eq!(std::fs::metadata(cfg.transport_state_file()).unwrap().permissions().mode() & 0o777, 0o600);

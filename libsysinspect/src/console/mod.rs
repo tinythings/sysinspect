@@ -177,17 +177,13 @@ impl ConsoleBootstrap {
     /// Build bootstrap material for a new console session.
     pub fn new(client_prk: &RsaPrivateKey, client_pbk: &RsaPublicKey, master_pbk: &RsaPublicKey, symkey: &Key) -> Result<Self, SysinspectError> {
         Ok(Self {
-            client_pubkey: to_pem(None, Some(client_pbk))
-                .map_err(|e| SysinspectError::RSAError(e.to_string()))?
-                .1
-                .unwrap_or_default(),
+            client_pubkey: to_pem(None, Some(client_pbk)).map_err(|e| SysinspectError::RSAError(e.to_string()))?.1.unwrap_or_default(),
             symkey_cipher: STANDARD.encode(
                 encrypt(master_pbk.clone(), symkey.0.to_vec())
                     .map_err(|_| SysinspectError::RSAError("Failed to encrypt console session key".to_string()))?,
             ),
             symkey_sign: STANDARD.encode(
-                sign_data(client_prk.clone(), &symkey.0)
-                    .map_err(|_| SysinspectError::RSAError("Failed to sign console session key".to_string()))?,
+                sign_data(client_prk.clone(), &symkey.0).map_err(|_| SysinspectError::RSAError("Failed to sign console session key".to_string()))?,
             ),
         })
     }
@@ -213,10 +209,7 @@ impl ConsoleBootstrap {
             return Err(SysinspectError::RSAError("Console session signature verification failed".to_string()));
         }
 
-        Ok((
-            Key::from_slice(&symkey).ok_or_else(|| SysinspectError::RSAError("Console session key has invalid size".to_string()))?,
-            client_pbk,
-        ))
+        Ok((Key::from_slice(&symkey).ok_or_else(|| SysinspectError::RSAError("Console session key has invalid size".to_string()))?, client_pbk))
     }
 }
 
@@ -239,15 +232,11 @@ impl ConsoleSealed {
     pub fn open<T: DeserializeOwned>(&self, key: &Key) -> Result<T, SysinspectError> {
         sodium_ready()?;
         let nonce = Nonce::from_slice(
-            &STANDARD
-                .decode(&self.nonce)
-                .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console nonce: {e}")))?,
+            &STANDARD.decode(&self.nonce).map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console nonce: {e}")))?,
         )
         .ok_or_else(|| SysinspectError::SerializationError("Console nonce has invalid size".to_string()))?;
         let payload = secretbox::open(
-            &STANDARD
-                .decode(&self.payload)
-                .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console payload: {e}")))?,
+            &STANDARD.decode(&self.payload).map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console payload: {e}")))?,
             &nonce,
             key,
         )
@@ -259,9 +248,7 @@ impl ConsoleSealed {
 /// Check whether the provided client console public key is authorised by the master.
 pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result<bool, SysinspectError> {
     let client_pem = client_pem.trim();
-    if cfg.console_pubkey().exists()
-        && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)?.trim() == client_pem
-    {
+    if cfg.console_pubkey().exists() && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)?.trim() == client_pem {
         return Ok(true);
     }
 
@@ -272,9 +259,7 @@ pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result
 
     for entry in fs::read_dir(root).map_err(SysinspectError::IoErr)? {
         let path = entry.map_err(SysinspectError::IoErr)?.path();
-        if path.is_file()
-            && fs::read_to_string(&path).map_err(SysinspectError::IoErr)?.trim() == client_pem
-        {
+        if path.is_file() && fs::read_to_string(&path).map_err(SysinspectError::IoErr)?.trim() == client_pem {
             return Ok(true);
         }
     }
@@ -289,10 +274,7 @@ pub fn build_console_query(root: &Path, cfg: &MasterConfig, query: &ConsoleQuery
     let master_pbk = load_master_public_key(cfg)?;
     let key = secretbox::gen_key();
     Ok((
-        ConsoleEnvelope {
-            bootstrap: ConsoleBootstrap::new(&client_prk, &client_pbk, &master_pbk, &key)?,
-            sealed: ConsoleSealed::seal(query, &key)?,
-        },
+        ConsoleEnvelope { bootstrap: ConsoleBootstrap::new(&client_prk, &client_pbk, &master_pbk, &key)?, sealed: ConsoleSealed::seal(query, &key)? },
         key,
     ))
 }
