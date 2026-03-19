@@ -100,6 +100,9 @@ The Minion side follows the same trust relationship from the other direction:
    that secure session automatically.
 7. If the secure bootstrap fails, the Minion reconnects instead of silently
    continuing on an insecure path.
+8. If the Minion no longer has trusted transport data, it does not continue in
+   plain mode. It stops and waits for secure recovery, re-bootstrap, or
+   re-registration.
 
 What this means for an operator:
 
@@ -107,6 +110,8 @@ What this means for an operator:
 - replacing or re-registering a Minion may require a fresh trust relationship
 - if trust data is stale, recovery should use re-bootstrap or re-registration,
   not hand-edited files
+- if the Minion cannot prove trust anymore, it should fail closed rather than
+  quietly continue insecurely
 
 What Actually Protects The Traffic
 ----------------------------------
