@@ -39,6 +39,29 @@ fn unsupported_peer_ignores_legacy_plaintext_messages() {
 }
 
 #[test]
+fn plaintext_registration_request_remains_allowed() {
+    assert!(SysMaster::plaintext_peer_diag(br#"{"id":"mid-1","r":"add","d":"pem","c":0,"sid":""}"#).is_none());
+}
+
+#[test]
+fn plaintext_ehlo_is_rejected_when_secure_transport_is_enabled() {
+    let bounced = SysMaster::plaintext_peer_diag(br#"{"id":"mid-1","r":"ehlo","d":{},"c":1,"sid":"sid-1"}"#).unwrap();
+
+    assert!(matches!(
+        serde_json::from_slice::<SecureFrame>(&bounced).unwrap(),
+        SecureFrame::BootstrapDiagnostic(frame)
+            if frame.message.contains("secure bootstrap is required")
+    ));
+}
+
+#[test]
+fn broadcasts_are_blocked_for_prebootstrap_peers() {
+    assert!(!SysMaster::peer_can_receive_broadcast_state(false, false));
+    assert!(SysMaster::peer_can_receive_broadcast_state(false, true));
+    assert!(SysMaster::peer_can_receive_broadcast_state(true, false));
+}
+
+#[test]
 fn malformed_secure_bootstrap_attempts_are_rate_limited() {
     let mut failures = HashMap::<String, (Instant, u32)>::new();
 

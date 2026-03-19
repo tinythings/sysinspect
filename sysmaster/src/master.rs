@@ -98,6 +98,7 @@ pub struct SysMaster {
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
     secure_peers: HashMap<String, SecurePeerConnection>,
+    plaintext_peers: HashSet<String>,
     secure_bootstrap_failures: HashMap<String, (Instant, u32)>,
     datastore: Arc<Mutex<DataStorage>>,
 }
@@ -133,6 +134,7 @@ impl SysMaster {
             vmcluster,
             conn_to_mid: HashMap::new(),
             secure_peers: HashMap::new(),
+            plaintext_peers: HashSet::new(),
             secure_bootstrap_failures: HashMap::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
@@ -171,6 +173,31 @@ impl SysMaster {
             }
             _ => None,
         }
+    }
+
+    /// Return a plaintext diagnostic when a minion sends normal protocol traffic before secure bootstrap.
+    pub(crate) fn plaintext_peer_diag(data: &[u8]) -> Option<Vec<u8>> {
+        match serde_json::from_slice::<MinionMessage>(data) {
+            Ok(req) if matches!(req.req_type(), RequestType::Add) => None,
+            Ok(_) => serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
+                "Plaintext minion traffic is not allowed; secure bootstrap is required",
+            ))
+            .ok(),
+            Err(_) => None,
+        }
+    }
+
+    /// Return whether this connection may receive plaintext broadcast traffic before a secure session exists.
+    pub(crate) fn peer_can_receive_broadcast_state(has_secure_session: bool, plaintext_allowed: bool) -> bool {
+        has_secure_session || plaintext_allowed
+    }
+
+    /// Return whether this connection may receive the next outbound broadcast frame.
+    fn peer_can_receive_broadcast(&self, peer_addr: &str) -> bool {
+        Self::peer_can_receive_broadcast_state(
+            self.secure_peers.contains_key(peer_addr),
+            self.plaintext_peers.contains(peer_addr),
+        )
     }
 
     /// Rate-limit repeated malformed secure bootstrap attempts from the same peer before the secure transport is enabled.
@@ -225,6 +252,9 @@ impl SysMaster {
             return self.accept_bootstrap(peer_addr, &hello).map(IncomingPeerFrame::Reply);
         }
         if let Some(diag) = self.secure_peer_diag(peer_addr, raw) {
+            return Ok(IncomingPeerFrame::Reply(diag));
+        }
+        if let Some(diag) = Self::plaintext_peer_diag(raw) {
             return Ok(IncomingPeerFrame::Reply(diag));
         }
         Ok(IncomingPeerFrame::Forward(raw.to_vec()))
@@ -574,9 +604,11 @@ impl SysMaster {
                                 log::info!("Minion connection {} dropped; clearing session for {}", minion_addr, mid);
                                 guard.get_session().lock().await.remove(&mid);
                                 guard.secure_peers.remove(&minion_addr);
+                                guard.plaintext_peers.remove(&minion_addr);
                             } else {
                                 log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
                                 guard.secure_peers.remove(&minion_addr);
+                                guard.plaintext_peers.remove(&minion_addr);
                             }
                         });
                         continue;
@@ -594,6 +626,7 @@ impl SysMaster {
                                 tokio::spawn(async move {
                                     log::info!("Minion \"{minion_addr}\" requested registration");
                                     let mut guard = c_master.lock().await;
+                                    guard.plaintext_peers.insert(minion_addr.clone());
                                     let resp_msg: &str;
                                     if !guard.mkr().is_registered(&c_mid) {
                                         if let Err(err) = guard.mkr().add_mn_key(&c_mid, &minion_addr, &req.payload().to_string()) {
@@ -690,6 +723,7 @@ impl SysMaster {
                                     guard.conn_to_mid.remove(&minion_addr);
                                     guard.get_session().lock().await.remove(req.id());
                                     guard.secure_peers.remove(&minion_addr);
+                                    guard.plaintext_peers.remove(&minion_addr);
                                     let m = guard.msg_bye_ack(req.id().to_string(), req.payload().to_string());
                                     _ = c_bcast.send(m);
                                 });
@@ -1371,12 +1405,18 @@ impl SysMaster {
 
                             loop {
                                 let msg = match tokio::select! {
-                                    Ok(msg) = bcast_sub.recv() => Some(OutgoingPeerFrame::Broadcast(Box::new(msg))),
+                                    biased;
                                     Some(msg) = direct_rx.recv() => Some(OutgoingPeerFrame::Direct(msg)),
+                                    Ok(msg) = bcast_sub.recv() => Some(OutgoingPeerFrame::Broadcast(Box::new(msg))),
                                     else => return,
                                 } {
                                     Some(OutgoingPeerFrame::Broadcast(msg)) => {
-                                        match c_master_writer.lock().await.encode_peer_message(&peer_addr.to_string(), &msg) {
+                                        let peer_addr = peer_addr.to_string();
+                                        let mut guard = c_master_writer.lock().await;
+                                        if !guard.peer_can_receive_broadcast(&peer_addr) {
+                                            continue;
+                                        }
+                                        match guard.encode_peer_message(&peer_addr, &msg) {
                                             Ok(msg) => msg,
                                             Err(err) => {
                                                 log::error!("Failed to encode outbound message for {peer_addr}: {err}");
