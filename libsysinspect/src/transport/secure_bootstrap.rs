@@ -32,7 +32,7 @@ impl SecureBootstrapSession {
         sodium_ready()?;
         Self::ready(state)?;
         Self::fingerprint("master", master_pbk, &state.master_rsa_fingerprint)?;
-        Ok(Self::hello(
+        Self::hello(
             SecureSessionBinding::bootstrap_opening(
                 state.minion_id.clone(),
                 state.minion_rsa_fingerprint.clone(),
@@ -44,7 +44,7 @@ impl SecureBootstrapSession {
             state.active_key_id.clone().or_else(|| state.last_key_id.clone()).unwrap_or_else(|| Uuid::new_v4().to_string()),
             minion_prk,
             master_pbk,
-        )?)
+        )
     }
 
     /// Validate a bootstrap hello on the master side and return a signed acknowledgement frame.
@@ -56,7 +56,7 @@ impl SecureBootstrapSession {
         Self::opening(state, &hello.binding)?;
         Self::fingerprint("minion", minion_pbk, &state.minion_rsa_fingerprint)?;
         Self::fingerprint("master", &RsaPublicKey::from(master_prk), &state.master_rsa_fingerprint)?;
-        Ok(Self::ack(
+        Self::ack(
             hello.binding.clone(),
             Self::verify_hello(hello, minion_pbk, master_prk)?,
             hello.key_id
@@ -68,7 +68,7 @@ impl SecureBootstrapSession {
             master_prk,
             session_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
             rotation.unwrap_or(SecureRotationMode::None),
-        )?)
+        )
     }
 
     /// Verify the master's bootstrap acknowledgement and finalize the negotiated bootstrap session.
