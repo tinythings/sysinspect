@@ -36,6 +36,7 @@ use tokio::{
 };
 
 mod clidef;
+mod clifmt;
 mod ui;
 
 static VERSION: &str = "0.4.0";
@@ -84,7 +85,11 @@ async fn call_master_console(
         Err(_) => serde_json::from_str(reply.trim())?,
     };
     if !response.ok {
-        return Err(SysinspectError::MasterGeneralError(response.message));
+        return Err(SysinspectError::MasterGeneralError(if response.error.is_empty() {
+            "Master returned an unspecified console error".to_string()
+        } else {
+            response.error
+        }));
     }
     Ok(response)
 }
@@ -421,8 +426,9 @@ async fn main() {
         match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), target_query, target_traits, target_id, context.as_ref()).await
         {
             Ok(resp) => {
-                if !resp.message.is_empty() {
-                    println!("{}", resp.message);
+                let rendered = clifmt::render_console_payload(&resp.payload);
+                if !rendered.is_empty() {
+                    println!("{}", rendered);
                 }
             }
             Err(err) => log::error!("Cannot reach master: {err}"),
@@ -504,14 +510,22 @@ async fn main() {
         )
         .await
         {
-            Ok(response) if !response.message.is_empty() => println!("{}", response.message),
-            Ok(_) => {}
+            Ok(response) => {
+                let rendered = clifmt::render_console_payload(&response.payload);
+                if !rendered.is_empty() {
+                    println!("{}", rendered);
+                }
+            }
             Err(err) => log::error!("Cannot reach master: {err}"),
         }
     } else if params.get_flag("online") {
         match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, None).await {
-            Ok(response) if !response.message.is_empty() => println!("{}", response.message),
-            Ok(_) => {}
+            Ok(response) => {
+                let rendered = clifmt::render_console_payload(&response.payload);
+                if !rendered.is_empty() {
+                    println!("{}", rendered);
+                }
+            }
             Err(err) => log::error!("Cannot reach master: {err}"),
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {

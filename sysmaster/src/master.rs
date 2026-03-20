@@ -10,7 +10,6 @@ use crate::{
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
     transport::{IncomingFrame, OutgoingFrame, PeerTransport},
 };
-use chrono::{DateTime, Utc};
 use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -23,13 +22,14 @@ use libmodpak::SysInspectModPak;
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     console::{
-        ConsoleEnvelope, ConsoleQuery, ConsoleResponse, ConsoleSealed, authorised_console_client, ensure_console_keypair, load_master_private_key,
+        ConsoleEnvelope, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow,
+        authorised_console_client, ensure_console_keypair, load_master_private_key,
     },
     context::{ProfileConsoleRequest, get_context},
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     rsa::rotation::{RotationActor, RsaTransportRotator, SignedRotationIntent},
-    transport::{TransportPeerState, TransportStore},
-    util::{self, iofs::scan_files_sha256, pad_visible},
+    transport::TransportStore,
+    util::{self, iofs::scan_files_sha256},
 };
 use libsysproto::{
     self, MasterMessage, MinionMessage, MinionTarget,
@@ -145,196 +145,9 @@ impl RotationDispatchSummary {
         self.queued_count += 1;
     }
 
-    /// Render the operator-facing console response for the staged rotation summary.
+    /// Build the typed rotation summary response returned to the CLI.
     fn response(&self) -> ConsoleResponse {
-        ConsoleResponse {
-            ok: true,
-            message: format!(
-                "Rotation staged: {} online dispatch{}, {} pending for offline minion{}",
-                self.online_count,
-                if self.online_count == 1 { "" } else { "es" },
-                self.queued_count,
-                if self.queued_count == 1 { "" } else { "s" }
-            ),
-        }
-    }
-}
-
-/// One rendered row of transport status data shown in the console summary.
-#[derive(Debug)]
-struct TransportStatusRow {
-    host: String,
-    active_key: String,
-    key_age: String,
-    last_handshake: String,
-    last_rotated: String,
-    rotation: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct TransportStatusWidths {
-    host: usize,
-    active_key: usize,
-    key_age: usize,
-    last_handshake: usize,
-    last_rotated: usize,
-    rotation: usize,
-}
-
-impl TransportStatusRow {
-    const HOST_HEADER: &'static str = "HOST";
-    const KEY_HEADER: &'static str = "KEY";
-    const AGE_HEADER: &'static str = "AGE";
-    const SEEN_HEADER: &'static str = "SEEN";
-    const ROTATED_HEADER: &'static str = "ROTATED";
-    const ROTATION_HEADER: &'static str = "ROTATION";
-
-    fn widths(rows: &[Self]) -> TransportStatusWidths {
-        TransportStatusWidths {
-            host: rows.iter().map(|row| row.host.chars().count()).max().unwrap_or(0).max(Self::HOST_HEADER.chars().count()),
-            active_key: rows.iter().map(|row| row.active_key.chars().count()).max().unwrap_or(0).max(Self::KEY_HEADER.chars().count()),
-            key_age: rows.iter().map(|row| row.key_age.chars().count()).max().unwrap_or(0).max(Self::AGE_HEADER.chars().count()),
-            last_handshake: rows.iter().map(|row| row.last_handshake.chars().count()).max().unwrap_or(0).max(Self::SEEN_HEADER.chars().count()),
-            last_rotated: rows.iter().map(|row| row.last_rotated.chars().count()).max().unwrap_or(0).max(Self::ROTATED_HEADER.chars().count()),
-            rotation: rows.iter().map(|row| row.rotation.chars().count()).max().unwrap_or(0).max(Self::ROTATION_HEADER.chars().count()),
-        }
-    }
-
-    fn header(widths: TransportStatusWidths) -> [String; 2] {
-        [
-            format!(
-                "{}  {}  {}  {}  {}  {}",
-                pad_visible(&Self::HOST_HEADER.bright_yellow().to_string(), widths.host),
-                pad_visible(&Self::KEY_HEADER.bright_yellow().to_string(), widths.active_key),
-                pad_visible(&Self::AGE_HEADER.bright_yellow().to_string(), widths.key_age),
-                pad_visible(&Self::SEEN_HEADER.bright_yellow().to_string(), widths.last_handshake),
-                pad_visible(&Self::ROTATED_HEADER.bright_yellow().to_string(), widths.last_rotated),
-                pad_visible(&Self::ROTATION_HEADER.bright_yellow().to_string(), widths.rotation),
-            ),
-            format!(
-                "{}  {}  {}  {}  {}  {}",
-                "─".repeat(widths.host),
-                "─".repeat(widths.active_key),
-                "─".repeat(widths.key_age),
-                "─".repeat(widths.last_handshake),
-                "─".repeat(widths.last_rotated),
-                "─".repeat(widths.rotation),
-            ),
-        ]
-    }
-
-    fn host_for_minion(minion: &crate::registry::rec::MinionRecord) -> String {
-        let traits = minion.get_traits();
-        let fqdn = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default();
-        if !fqdn.is_empty() {
-            return fqdn.to_string();
-        }
-
-        let hostname = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or_default();
-        if !hostname.is_empty() {
-            return hostname.to_string();
-        }
-
-        minion.id().to_string()
-    }
-
-    fn shorten_middle(value: &str) -> String {
-        let chars: Vec<char> = value.chars().collect();
-        if chars.len() <= 9 {
-            return value.to_string();
-        }
-
-        let prefix: String = chars.iter().take(3).collect();
-        let suffix: String = chars[chars.len().saturating_sub(3)..].iter().collect();
-        format!("{prefix}...{suffix}")
-    }
-
-    fn relative_label(ts: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
-        let Some(ts) = ts else {
-            return "-".to_string();
-        };
-
-        let seconds = (now - ts).num_seconds().max(0);
-        if seconds < 60 {
-            return format!("{seconds}s");
-        }
-
-        let minutes = seconds / 60;
-        if minutes < 60 {
-            return format!("{minutes}m");
-        }
-
-        let hours = minutes / 60;
-        if hours < 24 {
-            return format!("{hours}h");
-        }
-
-        let days = hours / 24;
-        if days < 7 {
-            return format!("{days}d");
-        }
-
-        format!("{}w", days / 7)
-    }
-
-    fn color_rotation(&self) -> String {
-        match self.rotation.as_str() {
-            "Idle" => self.rotation.bright_green().to_string(),
-            "Pending" => self.rotation.yellow().to_string(),
-            "InProgress" => self.rotation.bright_yellow().to_string(),
-            "RollbackReady" => self.rotation.bright_blue().to_string(),
-            "Missing" => self.rotation.red().to_string(),
-            _ => self.rotation.clone(),
-        }
-    }
-
-    /// Build the fallback row for a minion with no managed transport state.
-    fn missing(minion: &crate::registry::rec::MinionRecord) -> Self {
-        Self {
-            host: Self::host_for_minion(minion),
-            active_key: "-".to_string(),
-            key_age: "-".to_string(),
-            last_handshake: "-".to_string(),
-            last_rotated: "-".to_string(),
-            rotation: "Missing".to_string(),
-        }
-    }
-
-    /// Build one transport status row from persisted managed transport state.
-    fn from_state(minion: &crate::registry::rec::MinionRecord, state: &TransportPeerState, now: DateTime<Utc>) -> Self {
-        let active_key = state.active_key_id.clone().unwrap_or_else(|| "-".to_string());
-        let mut key_age = "-".to_string();
-        let mut last_rotated = "-".to_string();
-        if let Some(record) = state.keys.iter().find(|key| key.key_id == active_key) {
-            let base = record.activated_at.unwrap_or(record.created_at);
-            key_age = Self::relative_label(Some(base), now);
-            last_rotated = Self::relative_label(Some(base), now);
-        }
-
-        Self {
-            host: Self::host_for_minion(minion),
-            active_key: if active_key == "-" { active_key } else { Self::shorten_middle(&active_key) },
-            key_age,
-            last_handshake: Self::relative_label(state.last_handshake_at, now),
-            rotation: format!("{:?}", state.rotation),
-            last_rotated,
-        }
-    }
-
-    /// Render this row for the console table.
-    fn render(&self, widths: TransportStatusWidths) -> String {
-        let host = self.host.bright_green().to_string();
-        let active_key = if self.active_key == "-" { self.active_key.clone() } else { self.active_key.green().to_string() };
-
-        format!(
-            "{}  {}  {}  {}  {}  {}",
-            pad_visible(&host, widths.host),
-            pad_visible(&active_key, widths.active_key),
-            pad_visible(&self.key_age, widths.key_age),
-            pad_visible(&self.last_handshake, widths.last_handshake),
-            pad_visible(&self.last_rotated, widths.last_rotated),
-            pad_visible(&self.color_rotation(), widths.rotation),
-        )
+        ConsoleResponse::ok(ConsolePayload::RotationSummary { online_count: self.online_count, queued_count: self.queued_count })
     }
 }
 
@@ -1082,54 +895,46 @@ impl SysMaster {
         }
     }
 
-    /// Build the formatted online-minion summary returned by the console `--online` command.
-    async fn online_minions_summary(&mut self) -> Result<String, SysinspectError> {
+    /// Extract the preferred host labels for one minion record.
+    ///
+    /// The returned tuple is `(fqdn, hostname)`. Either value may be an empty
+    /// string if the corresponding trait is missing. Consumers decide how to
+    /// fall back when rendering.
+    fn preferred_host(minion: &crate::registry::rec::MinionRecord) -> (String, String) {
+        let traits = minion.get_traits();
+        let fqdn = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let hostname = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        (fqdn, hostname)
+    }
+
+    /// Build the raw online-minion rows returned by the console `--online` command.
+    ///
+    /// This function gathers registry traits plus current liveness state and
+    /// returns typed row data. It intentionally does not apply any CLI-specific
+    /// formatting, color, or truncation.
+    async fn online_minions_data(&mut self) -> Result<Vec<ConsoleOnlineMinionRow>, SysinspectError> {
         let mreg = self.mreg.lock().await;
         let mut session = self.session.lock().await;
         let ids = mreg.get_registered_ids()?;
-        let mut rows: Vec<(String, String, String, String, String, String)> = vec![];
+        let mut rows = Vec::with_capacity(ids.len());
 
         for mid in &ids {
             let alive = session.alive(mid);
-            let traits = match mreg.get(mid) {
-                Ok(Some(mrec)) => mrec.get_traits().to_owned(),
-                _ => HashMap::new(),
+            let minion = match mreg.get(mid)? {
+                Some(mrec) => mrec,
+                None => continue,
             };
-            let mut h = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown");
-            if h.is_empty() {
-                h = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
-            }
-            let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let mid_short = if mid.chars().count() > 8 { format!("{}...{}", &mid[..4], &mid[mid.len() - 4..]) } else { mid.to_string() };
-            rows.push((
-                h.to_string(),
-                if alive { h.bright_green().to_string() } else { h.red().to_string() },
-                ip.to_string(),
-                if alive { ip.bright_blue().to_string() } else { ip.blue().to_string() },
-                mid_short.clone(),
-                if alive { mid_short.bright_green().to_string() } else { mid_short.green().to_string() },
-            ));
+            let (fqdn, hostname) = Self::preferred_host(&minion);
+            rows.push(ConsoleOnlineMinionRow {
+                fqdn,
+                hostname,
+                ip: minion.get_traits().get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                minion_id: mid.to_string(),
+                alive,
+            });
         }
 
-        let host_width = rows.iter().map(|r| r.0.chars().count()).max().unwrap_or(4).max("HOST".chars().count());
-        let ip_width = rows.iter().map(|r| r.2.chars().count()).max().unwrap_or(2).max("IP".chars().count());
-        let id_width = rows.iter().map(|r| r.4.chars().count()).max().unwrap_or(2).max("ID".chars().count());
-
-        let mut out = vec![
-            format!(
-                "{}  {}  {}",
-                pad_visible(&"HOST".bright_yellow().to_string(), host_width),
-                pad_visible(&"IP".bright_yellow().to_string(), ip_width),
-                pad_visible(&"ID".bright_yellow().to_string(), id_width),
-            ),
-            format!("{}  {}  {}", "─".repeat(host_width), "─".repeat(ip_width), "─".repeat(id_width)),
-        ];
-
-        for (_, host, _, ip, _, mid) in rows {
-            out.push(format!("{}  {}  {}", pad_visible(&host, host_width), pad_visible(&ip, ip_width), pad_visible(&mid, id_width),));
-        }
-
-        Ok(out.join("\n"))
+        Ok(rows)
     }
 
     /// Resolve target minions for console profile operations from id, traits query, or hostname query.
@@ -1177,7 +982,11 @@ impl SysMaster {
         profiles
     }
 
-    /// Apply or remove profile tags for the selected minions and return the resulting outbound messages.
+    /// Apply or remove profile tags for the selected minions.
+    ///
+    /// The returned tuple contains the typed console response for the caller and
+    /// any outbound master messages that still need to be broadcast after the
+    /// console request is accepted.
     async fn profile_tag_console_response(
         &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
     ) -> Result<ConsoleOutcome, SysinspectError> {
@@ -1188,7 +997,8 @@ impl SysMaster {
             return Ok((
                 ConsoleResponse {
                     ok: false,
-                    message: format!("Unknown profile{}: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ").bright_yellow()),
+                    error: format!("Unknown profile{}: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ")),
+                    payload: ConsolePayload::Empty,
                 },
                 vec![],
             ));
@@ -1220,21 +1030,20 @@ impl SysMaster {
         }
 
         Ok((
-            ConsoleResponse {
-                ok: true,
-                message: format!(
-                    "{} {} on {} minion{}",
-                    if request.op() == "tag" { "Applied profiles" } else { "Removed profiles" },
-                    request.profiles().join(", ").bright_yellow(),
-                    msgs.len(),
-                    if msgs.len() == 1 { "" } else { "s" }
-                ),
-            },
+            ConsoleResponse::ok(ConsolePayload::Ack {
+                action: if request.op() == "tag" { "apply_profiles".to_string() } else { "remove_profiles".to_string() },
+                target: String::new(),
+                count: msgs.len(),
+                items: request.profiles().to_vec(),
+            }),
             msgs,
         ))
     }
 
-    /// Execute one profile console request and return its console response plus any outbound master messages to broadcast.
+    /// Execute one profile console request.
+    ///
+    /// The returned tuple contains the typed console response plus any outbound
+    /// master messages that should be broadcast after the console call returns.
     async fn do_profile_console(
         &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
     ) -> Result<ConsoleOutcome, SysinspectError> {
@@ -1245,7 +1054,12 @@ impl SysMaster {
                 {
                     Self::require_profile_name(request)?;
                     repo.new_profile(request.name())?;
-                    ConsoleResponse { ok: true, message: format!("Created profile {}", request.name().bright_yellow()) }
+                    ConsoleResponse::ok(ConsolePayload::Ack {
+                        action: "create_profile".to_string(),
+                        target: request.name().to_string(),
+                        count: 0,
+                        items: vec![],
+                    })
                 },
                 vec![],
             )),
@@ -1253,25 +1067,29 @@ impl SysMaster {
                 {
                     Self::require_profile_name(request)?;
                     repo.delete_profile(request.name())?;
-                    ConsoleResponse { ok: true, message: format!("Deleted profile {}", request.name().bright_yellow()) }
+                    ConsoleResponse::ok(ConsolePayload::Ack {
+                        action: "delete_profile".to_string(),
+                        target: request.name().to_string(),
+                        count: 0,
+                        items: vec![],
+                    })
                 },
                 vec![],
             )),
             "list" => Ok((
-                ConsoleResponse {
-                    ok: true,
-                    message: if request.name().is_empty() {
-                        repo.list_profiles(None)?.join("\n")
+                ConsoleResponse::ok(ConsolePayload::StringList {
+                    items: if request.name().is_empty() {
+                        repo.list_profiles(None)?
                     } else {
-                        repo.list_profile_matches(Some(request.name()), request.library())?.join("\n")
+                        repo.list_profile_matches(Some(request.name()), request.library())?
                     },
-                },
+                }),
                 vec![],
             )),
             "show" => Ok((
                 {
                     Self::require_profile_name(request)?;
-                    ConsoleResponse { ok: true, message: repo.show_profile(request.name())? }
+                    ConsoleResponse::ok(ConsolePayload::Text { value: repo.show_profile(request.name())? })
                 },
                 vec![],
             )),
@@ -1279,7 +1097,12 @@ impl SysMaster {
                 {
                     Self::require_profile_name(request)?;
                     repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
-                    ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
+                    ConsoleResponse::ok(ConsolePayload::Ack {
+                        action: "update_profile".to_string(),
+                        target: request.name().to_string(),
+                        count: 0,
+                        items: vec![],
+                    })
                 },
                 vec![],
             )),
@@ -1287,15 +1110,22 @@ impl SysMaster {
                 {
                     Self::require_profile_name(request)?;
                     repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
-                    ConsoleResponse { ok: true, message: format!("Updated profile {}", request.name().bright_yellow()) }
+                    ConsoleResponse::ok(ConsolePayload::Ack {
+                        action: "update_profile".to_string(),
+                        target: request.name().to_string(),
+                        count: 0,
+                        items: vec![],
+                    })
                 },
                 vec![],
             )),
             "tag" | "untag" => self.profile_tag_console_response(request, query, traits, mid).await,
-            _ => Ok((ConsoleResponse { ok: false, message: format!("Unsupported profile operation {}", request.op().bright_yellow()) }, vec![])),
+            _ => Ok((ConsoleResponse::err(format!("Unsupported profile operation {}", request.op())), vec![])),
         }
     }
 
+    /// Create a transport rotator bound to one minion using the currently known
+    /// master and minion RSA fingerprints.
     fn master_rotator(&mut self, minion_id: &str) -> Result<RsaTransportRotator, SysinspectError> {
         let master_fp = self.mkr().get_master_key_fingerprint()?;
         let minion_fp = self.mkr().get_mn_key_fingerprint(minion_id)?;
@@ -1303,6 +1133,11 @@ impl SysMaster {
         RsaTransportRotator::new(RotationActor::Master, store, minion_id, &master_fp, &minion_fp, SECURE_PROTOCOL_VERSION)
     }
 
+    /// Build the serialized rotate-command context that will be sent to a
+    /// minion.
+    ///
+    /// This signs a fresh rotation intent with the master's private RSA key and
+    /// embeds the operator-facing request parameters alongside that intent.
     fn stage_rotation_context(&mut self, minion_id: &str, request: &RotationConsoleRequest) -> Result<String, SysinspectError> {
         let rotator = self.master_rotator(minion_id)?;
         let plan = rotator.plan(request.reason());
@@ -1318,6 +1153,10 @@ impl SysMaster {
         .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode rotate payload: {err}")))
     }
 
+    /// Persist or clear the pending serialized rotation context for one minion.
+    ///
+    /// A pending context is stored when the minion is offline so the exact same
+    /// operator request can be replayed on the next reconnect.
     fn persist_pending_rotation_context(&mut self, minion_id: &str, context: Option<String>) -> Result<(), SysinspectError> {
         let store = TransportStore::for_master_minion(&self.cfg, minion_id)?;
         let mut state = store.load()?.ok_or_else(|| SysinspectError::ProtoError(format!("No managed transport state exists for {minion_id}")))?;
@@ -1325,6 +1164,12 @@ impl SysMaster {
         store.save(&state)
     }
 
+    /// Build a concrete outbound rotation message for an online minion.
+    ///
+    /// The function stages and persists the serialized context first so the
+    /// request can still be recovered if later parts of the flow fail.
+    ///
+    /// Returns `Ok(None)` when the target minion is not registered.
     async fn build_rotation_message(
         &mut self, minion_id: &str, request: &RotationConsoleRequest, reason_suffix: Option<&str>,
     ) -> Result<Option<MasterMessage>, SysinspectError> {
@@ -1345,11 +1190,16 @@ impl SysMaster {
         Ok(msg)
     }
 
+    /// Execute a console-driven rotate request and collect both the typed
+    /// response and the outbound master messages to broadcast.
+    ///
+    /// Online minions receive immediate messages while offline minions have the
+    /// exact request staged in their managed transport state for later replay.
     async fn rotate_console_response(
         &mut self, request: &RotationConsoleRequest, query: &str, traits: &str, mid: &str,
     ) -> Result<ConsoleOutcome, SysinspectError> {
         if request.op() != "rotate" {
-            return Ok((ConsoleResponse { ok: false, message: format!("Unsupported rotate operation {}", request.op().bright_yellow()) }, vec![]));
+            return Ok((ConsoleResponse::err(format!("Unsupported rotate operation {}", request.op())), vec![]));
         }
 
         let mut online_msgs = Vec::new();
@@ -1374,28 +1224,46 @@ impl SysMaster {
         Ok((summary.response(), online_msgs))
     }
 
-    async fn transport_status_summary(&mut self, query: &str, traits: &str, mid: &str) -> Result<String, SysinspectError> {
+    /// Build raw transport-status rows for the selected minions.
+    ///
+    /// Each row contains host metadata, current transport key identity,
+    /// handshake timestamps, derived last-rotation time, and the rotation state.
+    /// Rendering decisions are left to the CLI or TUI layers.
+    async fn transport_status_data(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<ConsoleTransportStatusRow>, SysinspectError> {
         let targets = self.selected_minions(query, traits, mid).await?;
         let mut rows = Vec::with_capacity(targets.len());
 
-        let now = Utc::now();
         for minion in targets {
             let minion_id = minion.id().to_string();
+            let (fqdn, hostname) = Self::preferred_host(&minion);
             let state = TransportStore::for_master_minion(&self.cfg, &minion_id)?.load()?;
             if let Some(state) = state {
-                rows.push(TransportStatusRow::from_state(&minion, &state, now));
+                let last_rotated_at = state.active_key_id.as_ref().and_then(|active_key| {
+                    state.keys.iter().find(|key| key.key_id == *active_key).map(|record| record.activated_at.unwrap_or(record.created_at))
+                });
+                rows.push(ConsoleTransportStatusRow {
+                    fqdn,
+                    hostname,
+                    minion_id,
+                    active_key_id: state.active_key_id.clone(),
+                    last_handshake_at: state.last_handshake_at,
+                    last_rotated_at,
+                    rotation: Some(state.rotation),
+                });
             } else {
-                rows.push(TransportStatusRow::missing(&minion));
+                rows.push(ConsoleTransportStatusRow {
+                    fqdn,
+                    hostname,
+                    minion_id,
+                    active_key_id: None,
+                    last_handshake_at: None,
+                    last_rotated_at: None,
+                    rotation: None,
+                });
             }
         }
 
-        let widths = TransportStatusRow::widths(&rows);
-        let mut lines = TransportStatusRow::header(widths).into_iter().collect::<Vec<_>>();
-        for row in rows {
-            lines.push(row.render(widths));
-        }
-
-        Ok(lines.join("\n"))
+        Ok(rows)
     }
 
     async fn pending_rotation_message_for(&mut self, minion_id: &str) -> Result<Option<MasterMessage>, SysinspectError> {
@@ -1448,7 +1316,7 @@ impl SysMaster {
                 };
                 loop {
                     match listener.accept().await {
-                        Ok((stream, peer)) => {
+                        Ok((stream, _peer)) => {
                             let master = Arc::clone(&master);
                             let cfg = cfg.clone();
                             let bcast = bcast.clone();
@@ -1459,55 +1327,44 @@ impl SysMaster {
                                 let mut frame = Vec::new();
                                 let mut reader = reader.take((MAX_CONSOLE_FRAME_SIZE + 1) as u64);
                                 let reply = match time::timeout(CONSOLE_READ_TIMEOUT, reader.read_until(b'\n', &mut frame)).await {
-                                    Err(_) => serde_json::to_string(&ConsoleResponse {
-                                        ok: false,
-                                        message: format!("Console request timed out after {} seconds", CONSOLE_READ_TIMEOUT.as_secs()),
-                                    })
+                                    Err(_) => serde_json::to_string(&ConsoleResponse::err(format!(
+                                        "Console request timed out after {} seconds",
+                                        CONSOLE_READ_TIMEOUT.as_secs()
+                                    )))
                                     .ok(),
-                                    Ok(Ok(0)) => {
-                                        serde_json::to_string(&ConsoleResponse { ok: false, message: "Empty console request".to_string() }).ok()
-                                    }
-                                    Ok(Ok(_)) if frame.len() > MAX_CONSOLE_FRAME_SIZE || !frame.ends_with(b"\n") => {
-                                        serde_json::to_string(&ConsoleResponse {
-                                            ok: false,
-                                            message: format!("Console request exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE),
-                                        })
-                                        .ok()
-                                    }
+                                    Ok(Ok(0)) => serde_json::to_string(&ConsoleResponse::err("Empty console request")).ok(),
+                                    Ok(Ok(_)) if frame.len() > MAX_CONSOLE_FRAME_SIZE || !frame.ends_with(b"\n") => serde_json::to_string(
+                                        &ConsoleResponse::err(format!("Console request exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE)),
+                                    )
+                                    .ok(),
                                     Ok(Ok(_)) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
                                         Ok(line) => match serde_json::from_str::<ConsoleEnvelope>(&line) {
                                             Ok(envelope) => {
                                                 if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
-                                                    serde_json::to_string(&ConsoleResponse {
-                                                        ok: false,
-                                                        message: "Console client key is not authorised".to_string(),
-                                                    })
-                                                    .ok()
+                                                    serde_json::to_string(&ConsoleResponse::err("Console client key is not authorised")).ok()
                                                 } else {
                                                     match envelope.bootstrap.session_key(&master_prk) {
                                                         Ok((key, _client_pkey)) => {
                                                             let response = match envelope.sealed.open::<ConsoleQuery>(&key) {
                                                                 Ok(query) => {
                                                                     if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}")) {
-                                                                        match master.lock().await.online_minions_summary().await {
-                                                                            Ok(summary) => ConsoleResponse { ok: true, message: summary },
-                                                                            Err(err) => ConsoleResponse {
-                                                                                ok: false,
-                                                                                message: format!("Unable to get online minions: {err}"),
-                                                                            },
+                                                                        match master.lock().await.online_minions_data().await {
+                                                                            Ok(rows) => ConsoleResponse::ok(ConsolePayload::OnlineMinions { rows }),
+                                                                            Err(err) => {
+                                                                                ConsoleResponse::err(format!("Unable to get online minions: {err}"))
+                                                                            }
                                                                         }
                                                                     } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_TRANSPORT_STATUS}")) {
                                                                         match master
                                                                             .lock()
                                                                             .await
-                                                                            .transport_status_summary(&query.query, &query.traits, &query.mid)
+                                                                            .transport_status_data(&query.query, &query.traits, &query.mid)
                                                                             .await
                                                                         {
-                                                                            Ok(summary) => ConsoleResponse { ok: true, message: summary },
-                                                                            Err(err) => ConsoleResponse {
-                                                                                ok: false,
-                                                                                message: format!("Unable to get transport status: {err}"),
-                                                                            },
+                                                                            Ok(rows) => ConsoleResponse::ok(ConsolePayload::TransportStatus { rows }),
+                                                                            Err(err) => {
+                                                                                ConsoleResponse::err(format!("Unable to get transport status: {err}"))
+                                                                            }
                                                                         }
                                                                     } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}")) {
                                                                         let (response, msgs) =
@@ -1524,17 +1381,13 @@ impl SysMaster {
                                                                                         .await
                                                                                     {
                                                                                         Ok(data) => data,
-                                                                                        Err(err) => (
-                                                                                            ConsoleResponse { ok: false, message: err.to_string() },
-                                                                                            vec![],
-                                                                                        ),
+                                                                                        Err(err) => (ConsoleResponse::err(err.to_string()), vec![]),
                                                                                     }
                                                                                 }
                                                                                 Err(err) => (
-                                                                                    ConsoleResponse {
-                                                                                        ok: false,
-                                                                                        message: format!("Failed to parse rotate request: {err}"),
-                                                                                    },
+                                                                                    ConsoleResponse::err(format!(
+                                                                                        "Failed to parse rotate request: {err}"
+                                                                                    )),
                                                                                     vec![],
                                                                                 ),
                                                                             };
@@ -1571,17 +1424,13 @@ impl SysMaster {
                                                                                         .await
                                                                                     {
                                                                                         Ok(data) => data,
-                                                                                        Err(err) => (
-                                                                                            ConsoleResponse { ok: false, message: err.to_string() },
-                                                                                            vec![],
-                                                                                        ),
+                                                                                        Err(err) => (ConsoleResponse::err(err.to_string()), vec![]),
                                                                                     }
                                                                                 }
                                                                                 Err(err) => (
-                                                                                    ConsoleResponse {
-                                                                                        ok: false,
-                                                                                        message: format!("Failed to parse profile request: {err}"),
-                                                                                    },
+                                                                                    ConsoleResponse::err(format!(
+                                                                                        "Failed to parse profile request: {err}"
+                                                                                    )),
                                                                                     vec![],
                                                                                 ),
                                                                             };
@@ -1634,20 +1483,20 @@ impl SysMaster {
                                                                             guard.taskreg.lock().await.register(msg.cycle(), ids);
                                                                             ConsoleResponse {
                                                                                 ok: true,
-                                                                                message: format!("Accepted console command from {peer}"),
+                                                                                error: String::new(),
+                                                                                payload: ConsolePayload::Ack {
+                                                                                    action: "accepted_console_command".to_string(),
+                                                                                    target: query.model.clone(),
+                                                                                    count: 0,
+                                                                                    items: vec![],
+                                                                                },
                                                                             }
                                                                         } else {
-                                                                            ConsoleResponse {
-                                                                                ok: false,
-                                                                                message: "No message constructed for the console query".to_string(),
-                                                                            }
+                                                                            ConsoleResponse::err("No message constructed for the console query")
                                                                         }
                                                                     }
                                                                 }
-                                                                Err(err) => ConsoleResponse {
-                                                                    ok: false,
-                                                                    message: format!("Failed to open console query: {err}"),
-                                                                },
+                                                                Err(err) => ConsoleResponse::err(format!("Failed to open console query: {err}")),
                                                             };
                                                             match ConsoleSealed::seal(&response, &key).and_then(|sealed| {
                                                                 serde_json::to_string(&sealed)
@@ -1656,39 +1505,31 @@ impl SysMaster {
                                                                 Ok(reply) => Some(reply),
                                                                 Err(err) => {
                                                                     log::error!("Failed to seal console response: {err}");
-                                                                    serde_json::to_string(&ConsoleResponse {
-                                                                        ok: false,
-                                                                        message: format!("Failed to seal console response: {err}"),
-                                                                    })
+                                                                    serde_json::to_string(&ConsoleResponse::err(format!(
+                                                                        "Failed to seal console response: {err}"
+                                                                    )))
                                                                     .ok()
                                                                 }
                                                             }
                                                         }
-                                                        Err(err) => serde_json::to_string(&ConsoleResponse {
-                                                            ok: false,
-                                                            message: format!("Console bootstrap failed: {err}"),
-                                                        })
-                                                        .ok(),
+                                                        Err(err) => {
+                                                            serde_json::to_string(&ConsoleResponse::err(format!("Console bootstrap failed: {err}")))
+                                                                .ok()
+                                                        }
                                                     }
                                                 }
                                             }
-                                            Err(err) => serde_json::to_string(&ConsoleResponse {
-                                                ok: false,
-                                                message: format!("Failed to parse console request: {err}"),
-                                            })
-                                            .ok(),
+                                            Err(err) => {
+                                                serde_json::to_string(&ConsoleResponse::err(format!("Failed to parse console request: {err}"))).ok()
+                                            }
                                         },
-                                        Err(err) => serde_json::to_string(&ConsoleResponse {
-                                            ok: false,
-                                            message: format!("Console request is not valid UTF-8: {err}"),
-                                        })
-                                        .ok(),
+                                        Err(err) => {
+                                            serde_json::to_string(&ConsoleResponse::err(format!("Console request is not valid UTF-8: {err}"))).ok()
+                                        }
                                     },
-                                    Ok(Err(err)) => serde_json::to_string(&ConsoleResponse {
-                                        ok: false,
-                                        message: format!("Failed to read console request: {err}"),
-                                    })
-                                    .ok(),
+                                    Ok(Err(err)) => {
+                                        serde_json::to_string(&ConsoleResponse::err(format!("Failed to read console request: {err}"))).ok()
+                                    }
                                 };
 
                                 if let Some(reply) = reply
