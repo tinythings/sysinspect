@@ -4,8 +4,11 @@ use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureDataFrame, SecureFrame}
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
+use std::sync::OnceLock;
 
 use super::secure_bootstrap::SecureBootstrapSession;
+
+static SODIUM_INIT: OnceLock<()> = OnceLock::new();
 
 /// Maximum accepted secure frame size on the wire.
 pub const SECURE_MAX_FRAME_SIZE: usize = 1024 * 1024;
@@ -35,6 +38,7 @@ pub struct SecureChannel {
 impl SecureChannel {
     /// Create a steady-state secure channel from an accepted bootstrap session.
     pub fn new(role: SecurePeerRole, bootstrap: &SecureBootstrapSession) -> Result<Self, SysinspectError> {
+        sodium_ready()?;
         let session_id = bootstrap
             .session_id()
             .ok_or_else(|| SysinspectError::ProtoError("Secure channel requires an established bootstrap session id".to_string()))?
@@ -178,4 +182,14 @@ impl SecureChannel {
             SecurePeerRole::Minion => SecurePeerRole::Master,
         }
     }
+}
+
+fn sodium_ready() -> Result<(), SysinspectError> {
+    if SODIUM_INIT.get().is_none() {
+        if sodiumoxide::init().is_err() {
+            return Err(SysinspectError::ConfigError("Failed to initialise libsodium".to_string()));
+        }
+        let _ = SODIUM_INIT.set(());
+    }
+    Ok(())
 }

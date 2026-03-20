@@ -84,6 +84,52 @@ fn hello_and_ack_complete_a_bound_session() {
 }
 
 #[test]
+fn tampered_hello_key_id_is_rejected() {
+    let (master_prk, master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let state = state(&master_pbk, &minion_pbk);
+    let (_, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+
+    let mut hello = match hello {
+        SecureFrame::BootstrapHello(hello) => hello,
+        _ => panic!("expected bootstrap hello"),
+    };
+    hello.key_id = Some("kid-tampered".to_string());
+
+    assert!(SecureBootstrapSession::accept(&state, &hello, &master_prk, &minion_pbk, None, Some("kid-1".to_string()), None).is_err());
+}
+
+#[test]
+fn tampered_ack_key_id_is_rejected() {
+    let (master_prk, master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let state = state(&master_pbk, &minion_pbk);
+    let (opening, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+
+    let mut ack = match SecureBootstrapSession::accept(
+        &state,
+        match &hello {
+            SecureFrame::BootstrapHello(hello) => hello,
+            _ => panic!("expected bootstrap hello"),
+        },
+        &master_prk,
+        &minion_pbk,
+        Some("sid-1".to_string()),
+        Some("kid-1".to_string()),
+        Some(SecureRotationMode::None),
+    )
+    .unwrap()
+    .1
+    {
+        SecureFrame::BootstrapAck(ack) => ack,
+        _ => panic!("expected bootstrap ack"),
+    };
+    ack.key_id = "kid-tampered".to_string();
+
+    assert!(opening.verify_ack(&state, &ack, &master_pbk).is_err());
+}
+
+#[test]
 fn persisted_material_derives_distinct_session_keys_for_distinct_openings() {
     let (_, master_pbk) = keygen(2048).unwrap();
     let (minion_prk, minion_pbk) = keygen(2048).unwrap();

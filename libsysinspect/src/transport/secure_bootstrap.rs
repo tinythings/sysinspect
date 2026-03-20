@@ -90,7 +90,7 @@ impl SecureBootstrapSession {
         }
         if !verify_sign(
             master_pbk,
-            &Self::ack_material(&ack.binding, &ack.session_id)?,
+            &Self::ack_material(&ack.binding, &ack.session_id, &ack.key_id, &ack.rotation)?,
             STANDARD
                 .decode(&ack.binding_signature)
                 .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure bootstrap ack signature: {err}")))?,
@@ -134,7 +134,7 @@ impl SecureBootstrapSession {
                 .map_err(|_| SysinspectError::RSAError("Failed to encrypt secure session key for the master".to_string()))?,
         );
         let binding_signature = STANDARD.encode(
-            sign_data(minion_prk.clone(), &Self::hello_material(&binding, &session_key_cipher)?)
+            sign_data(minion_prk.clone(), &Self::hello_material(&binding, &session_key_cipher, Some(&key_id))?)
                 .map_err(|_| SysinspectError::RSAError("Failed to sign secure bootstrap binding".to_string()))?,
         );
         Ok((
@@ -155,7 +155,7 @@ impl SecureBootstrapSession {
     ) -> Result<(Self, SecureFrame), SysinspectError> {
         binding.master_nonce = Uuid::new_v4().to_string();
         let binding_signature = STANDARD.encode(
-            sign_data(master_prk.clone(), &Self::ack_material(&binding, &session_id)?)
+            sign_data(master_prk.clone(), &Self::ack_material(&binding, &session_id, &key_id, &rotation)?)
                 .map_err(|_| SysinspectError::RSAError("Failed to sign secure bootstrap acknowledgement".to_string()))?,
         );
         Ok((
@@ -218,7 +218,7 @@ impl SecureBootstrapSession {
     fn verify_hello(hello: &SecureBootstrapHello, minion_pbk: &RsaPublicKey, master_prk: &RsaPrivateKey) -> Result<Key, SysinspectError> {
         if !verify_sign(
             minion_pbk,
-            &Self::hello_material(&hello.binding, &hello.session_key_cipher)?,
+            &Self::hello_material(&hello.binding, &hello.session_key_cipher, hello.key_id.as_deref())?,
             STANDARD
                 .decode(&hello.binding_signature)
                 .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure bootstrap signature: {err}")))?,
@@ -260,25 +260,36 @@ impl SecureBootstrapSession {
         Key::from_slice(&digest.finalize()).unwrap_or_else(secretbox::gen_key)
     }
 
-    /// Build the signed material for a bootstrap hello from the binding and ciphered session key bytes.
-    fn hello_material(binding: &SecureSessionBinding, session_key_cipher: &str) -> Result<Vec<u8>, SysinspectError> {
-        Self::material(binding, Some(session_key_cipher.as_bytes()), None)
+    /// Build the signed material for a bootstrap hello from the binding, ciphered session key bytes and negotiated key id.
+    fn hello_material(binding: &SecureSessionBinding, session_key_cipher: &str, key_id: Option<&str>) -> Result<Vec<u8>, SysinspectError> {
+        Self::material(binding, Some(session_key_cipher.as_bytes()), key_id, None, None)
     }
 
-    /// Build the signed material for a bootstrap acknowledgement from the binding and session id.
-    fn ack_material(binding: &SecureSessionBinding, session_id: &str) -> Result<Vec<u8>, SysinspectError> {
-        Self::material(binding, None, Some(session_id))
+    /// Build the signed material for a bootstrap acknowledgement from the binding, session id, activated key id and rotation state.
+    fn ack_material(
+        binding: &SecureSessionBinding, session_id: &str, key_id: &str, rotation: &SecureRotationMode,
+    ) -> Result<Vec<u8>, SysinspectError> {
+        Self::material(binding, None, Some(key_id), Some(session_id), Some(rotation))
     }
 
     /// Serialize the binding and append the extra authenticated bootstrap material used for signatures.
-    fn material(binding: &SecureSessionBinding, session_key: Option<&[u8]>, session_id: Option<&str>) -> Result<Vec<u8>, SysinspectError> {
+    fn material(
+        binding: &SecureSessionBinding, session_key: Option<&[u8]>, key_id: Option<&str>, session_id: Option<&str>,
+        rotation: Option<&SecureRotationMode>,
+    ) -> Result<Vec<u8>, SysinspectError> {
         serde_json::to_vec(binding)
             .map(|mut out| {
                 if let Some(chunk) = session_key {
                     out.extend_from_slice(chunk);
                 }
+                if let Some(chunk) = key_id {
+                    out.extend_from_slice(chunk.as_bytes());
+                }
                 if let Some(chunk) = session_id {
                     out.extend_from_slice(chunk.as_bytes());
+                }
+                if let Some(chunk) = rotation {
+                    out.extend_from_slice(format!("{chunk:?}").as_bytes());
                 }
                 out
             })

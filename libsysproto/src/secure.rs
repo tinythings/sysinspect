@@ -129,7 +129,7 @@ pub struct SecureBootstrapHello {
     pub binding: SecureSessionBinding,
     /// Fresh symmetric session key encrypted to the master's registered RSA key.
     pub session_key_cipher: String,
-    /// RSA signature over the bootstrap binding and wrapped session key ciphertext.
+    /// RSA signature over the bootstrap binding, wrapped session key ciphertext and negotiated key id.
     pub binding_signature: String,
     /// Optional transport key identifier when reconnecting or rotating.
     pub key_id: Option<String>,
@@ -146,7 +146,7 @@ pub struct SecureBootstrapAck {
     pub key_id: String,
     /// Rotation state communicated during handshake.
     pub rotation: SecureRotationMode,
-    /// RSA signature over the completed binding and the accepted session identifier.
+    /// RSA signature over the completed binding, accepted session identifier, activated key id and rotation state.
     pub binding_signature: String,
 }
 
