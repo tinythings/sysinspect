@@ -284,21 +284,15 @@ Below are directives for the configuration of the File Server service:
 
     .. important::
 
-        The WebAPI uses ``libsodium`` for encryption instead of standard SSL/TLS. This is because embedded
-        or IoT networks may lack DNS or have changing IP addresses, making SSL/TLS certificates unreliable,
-        as they are tied to specific DNS names or IPs. To connect to the WebAPI, use the Sysinspect client,
-        which authenticates using an RSA keypair and symmetric keys over an internal protocol.
+        When enabled, the WebAPI serves its OpenAPI documentation through Swagger UI.
+        The documentation endpoint is available at ``http://<HOST>:<PORT>/doc/``.
 
-    The URL the Swagger UI is typically is running over unencrypted plain text HTTP protocol at ``http://<HOST>:<PORT>/api-doc/``.
+    The Swagger UI is typically available at ``http://<HOST>:<PORT>/doc/``.
     Default port is ``4202``.
 
     .. note::
 
-        Swagger UI is a web-based interface for the WebAPI service, allowing users to interact with the API.
-        However it runs only if development mode is enabled, because it relies on unencrypted HTTP traffic
-        and API requires a proper protocol interaction that cannot be achieved with Swagger UI.
-
-        **In development mode authentication is fully disabled and no traffic is encrypted.**
+        Swagger UI is served whenever the WebAPI is enabled.
 
     Default is ``true``.
 
@@ -335,12 +329,13 @@ Below are directives for the configuration of the File Server service:
 
     Type: **boolean**
 
-    Enable or disable development mode for the WebAPI service.
+    Enable or disable development-only helpers for the WebAPI service.
 
     .. danger::
 
-        This option is exclusively only for development purposes! If it is enabled, Swagger UI will be running
-        on
+        This option is exclusively for development purposes. If enabled, the
+        authentication endpoint returns a static token and the development query
+        endpoint is exposed.
 
     Default is ``false``.
 
