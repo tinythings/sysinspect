@@ -1,6 +1,6 @@
 use crate::cfg::mmconf::MinionConfig;
-use crate::traits::{MASTER_TRAITS_FILE, TraitUpdateRequest, current_os_type, effective_profiles, ensure_master_traits_file, os_display_name};
 use crate::traits::systraits::SystemTraits;
+use crate::traits::{MASTER_TRAITS_FILE, TraitUpdateRequest, current_os_type, effective_profiles, ensure_master_traits_file, os_display_name};
 use std::fs;
 
 #[test]
@@ -61,12 +61,12 @@ fn trait_update_request_reset_clears_master_managed_traits_file_body() {
     let mut cfg = MinionConfig::default();
     cfg.set_root_dir(root.path().to_str().unwrap_or_default());
 
-    let set = TraitUpdateRequest::from_context(r#"{"op":"set","traits":{"foo":"bar"}}"#)
-        .unwrap_or_else(|err| panic!("failed to parse set request: {err}"));
+    let set =
+        TraitUpdateRequest::from_context(r#"{"op":"set","traits":{"foo":"bar"}}"#).unwrap_or_else(|err| panic!("failed to parse set request: {err}"));
     set.apply(&cfg).unwrap_or_else(|err| panic!("failed to apply set request: {err}"));
 
-    let reset = TraitUpdateRequest::from_context(r#"{"op":"reset","traits":{}}"#)
-        .unwrap_or_else(|err| panic!("failed to parse reset request: {err}"));
+    let reset =
+        TraitUpdateRequest::from_context(r#"{"op":"reset","traits":{}}"#).unwrap_or_else(|err| panic!("failed to parse reset request: {err}"));
     reset.apply(&cfg).unwrap_or_else(|err| panic!("failed to apply reset request: {err}"));
 
     let content =

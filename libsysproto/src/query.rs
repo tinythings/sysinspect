@@ -18,14 +18,19 @@ pub mod commands {
     pub const CLUSTER_REBOOT: &str = "cluster/reboot";
 
     // Rotate RSA/AES on the entire cluster
-    // TODO: Not implemented yet
     pub const CLUSTER_ROTATE: &str = "cluster/rotate";
+
+    // Report transport status for one or more minions
+    pub const CLUSTER_TRANSPORT_STATUS: &str = "cluster/transport/status";
 
     // Remove minion (unregister)
     pub const CLUSTER_REMOVE_MINION: &str = "cluster/minion/remove";
 
     // Get online minions
     pub const CLUSTER_ONLINE_MINIONS: &str = "cluster/minion/online";
+
+    // Get detailed minion registry information
+    pub const CLUSTER_MINION_INFO: &str = "cluster/minion/info";
 
     // Update master-managed static traits on minions
     pub const CLUSTER_TRAITS_UPDATE: &str = "cluster/traits/update";
@@ -38,8 +43,10 @@ pub mod commands {
 /// Query parser (scheme).
 /// It has the following format:
 ///
-///     <model>/[entity]/[state]
-///     <model>:[checkbook labels]
+/// ```text
+/// <model>/[entity]/[state]
+/// <model>:[checkbook labels]
+/// ```
 ///
 /// If `"entity"` and/or `"state"` are omitted, they are globbed to `"$"` (all).
 #[derive(Debug, Clone, Default)]

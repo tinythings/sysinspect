@@ -8,6 +8,7 @@ use crate::{
     ptcounter::PTCounter,
     rsa::MinionRSAKeyManager,
 };
+use chrono::{Duration as ChronoDuration, Utc};
 use clap::ArgMatches;
 use colored::Colorize;
 use indexmap::IndexMap;
@@ -20,7 +21,7 @@ use libsetup::get_ssh_client_ip;
 use libsysinspect::{
     cfg::{
         get_minion_config,
-        mmconf::{DEFAULT_PORT, MinionConfig, SysInspectConfig},
+        mmconf::{CFG_MASTER_KEY_PUB, DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
     context,
     inspector::SysInspectRunner,
@@ -33,8 +34,16 @@ use libsysinspect::{
         evtproc::EventProcessor,
         fmt::{formatter::StringFormatter, kvfmt::KeyValueFormatter},
     },
-    rsa,
+    rsa::{
+        self,
+        rotation::{RotationActor, RsaTransportRotator, SignedRotationIntent},
+    },
     traits::{self, TraitUpdateRequest, effective_profiles, ensure_master_traits_file, systraits::SystemTraits},
+    transport::{
+        TransportStore,
+        secure_bootstrap::SecureBootstrapSession,
+        secure_channel::{SECURE_MAX_FRAME_SIZE, SecureChannel, SecurePeerRole},
+    },
     util::{self, dataconv},
 };
 use libsysproto::{
@@ -46,8 +55,10 @@ use libsysproto::{
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
     rqtypes::{ProtoValue, RequestType},
+    secure::{SecureDiagnosticCode, SecureFrame},
 };
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_yaml::Value as YamlValue;
 use std::{
@@ -69,6 +80,16 @@ use uuid::Uuid;
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RotationCommandPayload {
+    op: String,
+    reason: String,
+    grace_seconds: u64,
+    reconnect: bool,
+    reregister: bool,
+    intent: SignedRotationIntent,
+}
 #[derive(Debug)]
 pub struct SysMinion {
     cfg: MinionConfig,
@@ -86,6 +107,7 @@ pub struct SysMinion {
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
     connected: AtomicBool,
+    secure: Mutex<Option<SecureChannel>>,
 
     minion_id: String,
 
@@ -136,6 +158,7 @@ impl SysMinion {
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
             connected: AtomicBool::new(false),
+            secure: Mutex::new(None),
             minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
             sensors_task: Mutex::new(None),
             sensors_pump: Mutex::new(None),
@@ -188,6 +211,9 @@ impl SysMinion {
         if !self.cfg.profiles_dir().exists() {
             log::debug!("Creating directory for the synced profiles at {}", self.cfg.profiles_dir().as_os_str().to_str().unwrap_or_default());
             fs::create_dir_all(self.cfg.profiles_dir())?;
+        }
+        if let Err(err) = self.kman.ensure_transport_state(self.get_minion_id()) {
+            log::warn!("Unable to refresh local transport state from RSA identity: {err}");
         }
 
         let mut out: Vec<String> = vec![];
@@ -272,27 +298,123 @@ impl SysMinion {
 
     /// Talk-back to the master
     pub(crate) async fn request(&self, msg: Vec<u8>) {
-        fn trigger_reconnect(context: &str, err: &std::io::Error) {
-            log::warn!("{context}: {err}; triggering reconnect");
+        let payload = match self.secure.lock().await.as_mut().map(|secure| secure.seal_bytes(&msg)).transpose() {
+            Ok(Some(msg)) => msg,
+            Ok(None) => msg,
+            Err(err) => {
+                log::error!("Failed to encode secure payload to master: {err}");
+                let _ = CONNECTION_TX.send(());
+                return;
+            }
+        };
+
+        if let Err(err) = self.write_frame(&payload).await {
+            log::warn!("Failed to send message to master: {err}; triggering reconnect");
             let _ = CONNECTION_TX.send(());
-        }
-
-        let mut stm = self.wstm.lock().await;
-
-        if let Err(e) = stm.write_all(&(msg.len() as u32).to_be_bytes()).await {
-            trigger_reconnect("Failed to send message length to master", &e);
-            return;
-        }
-
-        if let Err(e) = stm.write_all(&msg).await {
-            trigger_reconnect("Failed to send message to master", &e);
-            return;
-        }
-
-        if let Err(e) = stm.flush().await {
-            trigger_reconnect("Failed to flush writer to master", &e);
         } else {
-            log::trace!("To master: {}", String::from_utf8_lossy(&msg));
+            log::trace!("To master: {}", String::from_utf8_lossy(&payload));
+        }
+    }
+
+    /// Write one length-prefixed transport frame to the master connection.
+    async fn write_frame(&self, frame: &[u8]) -> Result<(), SysinspectError> {
+        let mut stm = self.wstm.lock().await;
+        stm.write_all(&(frame.len() as u32).to_be_bytes()).await?;
+        stm.write_all(frame).await?;
+        stm.flush().await?;
+        Ok(())
+    }
+
+    /// Read one length-prefixed transport frame from the master connection.
+    async fn read_frame(&self) -> Result<Vec<u8>, SysinspectError> {
+        let mut stm = self.rstm.lock().await;
+        let mut len = [0u8; 4];
+        stm.read_exact(&mut len).await?;
+        let frame_len = u32::from_be_bytes(len) as usize;
+        if frame_len > SECURE_MAX_FRAME_SIZE {
+            return Err(SysinspectError::ProtoError(format!("Transport frame exceeds maximum size of {SECURE_MAX_FRAME_SIZE} bytes")));
+        }
+        let mut frame = vec![0u8; frame_len];
+        stm.read_exact(&mut frame).await?;
+        Ok(frame)
+    }
+
+    /// Mark the specified transport key, or the current managed key, as broken after a failed secure bootstrap.
+    fn mark_broken_transport(&self, store: &TransportStore, state: &mut libsysinspect::transport::TransportPeerState, key_id: Option<&str>) {
+        let changed = if let Some(key_id) = key_id {
+            state.upsert_key(key_id, libsysinspect::transport::TransportKeyStatus::Broken);
+            true
+        } else {
+            state.mark_current_key_broken()
+        };
+        if changed && let Err(err) = store.save(state) {
+            log::warn!("Unable to persist broken transport state: {err}");
+        }
+    }
+
+    /// Bootstrap a secure session with the master before any normal protocol traffic is allowed.
+    pub(crate) async fn bootstrap_secure(&self) -> Result<(), SysinspectError> {
+        let store = TransportStore::for_minion(&self.cfg)?;
+        let master_pbk = match self.kman.master_public_key()? {
+            Some(key) => key,
+            None => {
+                return Err(SysinspectError::ConfigError(format!(
+                    "Trusted master RSA key is missing at {}; secure bootstrap cannot continue",
+                    self.cfg.root_dir().join(CFG_MASTER_KEY_PUB).display()
+                )));
+            }
+        };
+        let mut state = match store.load()? {
+            Some(state) => state,
+            None => {
+                return Err(SysinspectError::ConfigError(format!(
+                    "Managed transport state is missing at {}; secure bootstrap cannot continue",
+                    store.state_path().display()
+                )));
+            }
+        };
+        let (opening, hello) = match SecureBootstrapSession::open(&state, &self.kman.private_key()?, &master_pbk) {
+            Ok(opening) => opening,
+            Err(err) => {
+                self.mark_broken_transport(&store, &mut state, None);
+                return Err(err);
+            }
+        };
+        let opening_key_id = opening.key_id().to_string();
+        self.write_frame(
+            &serde_json::to_vec(&hello)
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode secure bootstrap hello: {err}")))?,
+        )
+        .await?;
+        match serde_json::from_slice::<SecureFrame>(&self.read_frame().await?)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to decode secure bootstrap reply: {err}")))?
+        {
+            SecureFrame::BootstrapAck(ack) => {
+                let session = match opening.verify_ack(&state, &ack, &master_pbk) {
+                    Ok(session) => session,
+                    Err(err) => {
+                        self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
+                        return Err(err);
+                    }
+                };
+                state.upsert_key(session.key_id(), libsysinspect::transport::TransportKeyStatus::Active);
+                store.save(&state)?;
+                *self.secure.lock().await = Some(SecureChannel::new(SecurePeerRole::Minion, &session)?);
+                log::info!(
+                    "Secure session established with master using key {} and session {}",
+                    session.key_id(),
+                    session.session_id().unwrap_or_default()
+                );
+                Ok(())
+            }
+            SecureFrame::BootstrapDiagnostic(diag) => {
+                self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
+                Err(SysinspectError::ProtoError(format!("Master rejected secure bootstrap with {:?}: {}", diag.code, diag.message)))
+            }
+            _ => {
+                self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
+                Err(SysinspectError::ProtoError("Master replied with a non-bootstrap frame during secure bootstrap".to_string()))
+            }
         }
     }
 
@@ -443,30 +565,40 @@ impl SysMinion {
     }
 
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let rstm = Arc::clone(&self.rstm);
         let this = self.clone();
 
         let handle = tokio::spawn(async move {
             loop {
-                let mut buff = [0u8; 4];
-                if let Err(e) = rstm.lock().await.read_exact(&mut buff).await {
-                    log::warn!("Proto read failed (len): {e}; triggering reconnect");
-                    let _ = CONNECTION_TX.send(());
-                    break;
-                }
-
-                let msg_len = u32::from_be_bytes(buff) as usize;
-                let mut msg = vec![0u8; msg_len];
-
-                if let Err(e) = rstm.lock().await.read_exact(&mut msg).await {
-                    log::warn!("Proto read failed (msg): {e}; triggering reconnect");
-                    let _ = CONNECTION_TX.send(());
-                    break;
-                }
-
-                let msg = match proto::msg::payload_to_msg(msg) {
+                let msg = match this.read_frame().await {
                     Ok(msg) => msg,
                     Err(err) => {
+                        log::warn!("Proto read failed: {err}; triggering reconnect");
+                        let _ = CONNECTION_TX.send(());
+                        break;
+                    }
+                };
+
+                let msg = match this.secure.lock().await.as_mut().map(|secure| secure.open_bytes(&msg)).transpose() {
+                    Ok(Some(msg)) => msg,
+                    Ok(None) => msg,
+                    Err(err) => {
+                        log::error!("Failed to decode secure frame from master: {err}");
+                        let _ = CONNECTION_TX.send(());
+                        break;
+                    }
+                };
+
+                let msg = match proto::msg::payload_to_msg(msg.clone()) {
+                    Ok(msg) => msg,
+                    Err(err) => {
+                        if let Ok(diag) = proto::msg::payload_to_diag(&msg) {
+                            log::warn!("Master rejected secure bootstrap: {}", diag.message);
+                            if matches!(diag.code, SecureDiagnosticCode::UnsupportedVersion) {
+                                let _ = CONNECTION_TX.send(());
+                                break;
+                            }
+                            continue;
+                        }
                         log::error!("Error getting network payload as message: {err}");
                         continue;
                     }
@@ -503,8 +635,8 @@ impl SysMinion {
                                     continue;
                                 }
 
-                                if let Err(e) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
-                                    log::error!("Failed to enqueue master command: {e}");
+                                if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+                                    log::error!("Failed to enqueue master command: {err}");
                                 } else {
                                     log::info!("Scheduled master command: {}", msg.target().scheme());
                                 }
@@ -541,8 +673,8 @@ impl SysMinion {
                         let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned());
                         let (_, pbk) = match rsa::keys::from_pem(None, Some(&pbk_pem)) {
                             Ok(val) => val,
-                            Err(e) => {
-                                log::error!("Failed to parse PEM: {e}");
+                            Err(err) => {
+                                log::error!("Failed to parse PEM: {err}");
                                 let _ = CONNECTION_TX.send(());
                                 break;
                             }
@@ -559,8 +691,8 @@ impl SysMinion {
 
                         let fpt = match rsa::keys::get_fingerprint(&pbk) {
                             Ok(fp) => fp,
-                            Err(e) => {
-                                log::error!("Failed to get fingerprint: {e}");
+                            Err(err) => {
+                                log::error!("Failed to get fingerprint: {err}");
                                 let _ = CONNECTION_TX.send(());
                                 break;
                             }
@@ -601,7 +733,7 @@ impl SysMinion {
                                 this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
                             }
 
-                            Err(e) => log::warn!("Invalid ping payload `{}`: {}", p, e),
+                            Err(err) => log::warn!("Invalid ping payload `{}`: {}", p, err),
                         }
                     }
 
@@ -613,13 +745,13 @@ impl SysMinion {
 
                     RequestType::SensorsSyncResponse => {
                         log::info!("Received sensors sync response from master");
-                        let sensors = SensorsFiledata::from_payload(msg.payload().clone(), this.cfg.sensors_dir()).unwrap_or_else(|e| {
-                            log::error!("Failed to parse sensors payload: {e}");
+                        let sensors = SensorsFiledata::from_payload(msg.payload().clone(), this.cfg.sensors_dir()).unwrap_or_else(|err| {
+                            log::error!("Failed to parse sensors payload: {err}");
                             SensorsFiledata::default()
                         });
 
-                        if let Err(e) = this.as_ptr().do_sensors(sensors).await {
-                            log::error!("Failed to start sensors: {e}");
+                        if let Err(err) = this.as_ptr().do_sensors(sensors).await {
+                            log::error!("Failed to start sensors: {err}");
                         }
                     }
 
@@ -634,7 +766,7 @@ impl SysMinion {
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
         let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
-        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_json_value()?);
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
@@ -647,11 +779,7 @@ impl SysMinion {
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
         let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
-        let mut r = MinionMessage::new(
-            dataconv::as_str(fresh_traits.get(traits::SYS_ID)),
-            RequestType::Ehlo,
-            fresh_traits.to_json_value()?,
-        );
+        let mut r = MinionMessage::new(dataconv::as_str(fresh_traits.get(traits::SYS_ID)), RequestType::Ehlo, fresh_traits.to_json_value()?);
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
@@ -704,6 +832,53 @@ impl SysMinion {
             Ok(msg) => self.request(msg).await,
             Err(e) => log::error!("Failed to send bye message: {e}"),
         }
+    }
+
+    async fn apply_rotation_command(self: Arc<Self>, context: &str) -> Result<(), SysinspectError> {
+        let payload: RotationCommandPayload =
+            serde_json::from_str(context).map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse rotate payload: {err}")))?;
+        if payload.op != "rotate" {
+            return Err(SysinspectError::InvalidQuery(format!("Unsupported rotate operation {}", payload.op)));
+        }
+
+        let master_pbk = self.kman.master_public_key()?.ok_or_else(|| {
+            SysinspectError::ConfigError(format!(
+                "Trusted master RSA key is missing at {}; rotate cannot proceed",
+                self.cfg.root_dir().join(CFG_MASTER_KEY_PUB).display()
+            ))
+        })?;
+        let master_fp = rsa::keys::get_fingerprint(&master_pbk).map_err(|err| SysinspectError::RSAError(err.to_string()))?;
+        let minion_fp = self.kman.get_pubkey_fingerprint()?;
+        let mut rotator = RsaTransportRotator::new(
+            RotationActor::Minion,
+            TransportStore::for_minion(&self.cfg)?,
+            self.get_minion_id(),
+            &master_fp,
+            &minion_fp,
+            libsysproto::secure::SECURE_PROTOCOL_VERSION,
+        )?;
+
+        let overlap = ChronoDuration::seconds(payload.grace_seconds as i64);
+        let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
+        let ticket = rotator.execute_signed_intent_with_overlap(&payload.intent, &master_pbk, overlap)?;
+        let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
+
+        if payload.reregister {
+            let _ = self.kman.ensure_transport_state(self.get_minion_id())?;
+        }
+
+        log::info!(
+            "Applied transport rotation {} for {} at {}",
+            ticket.result().active_key_id().bright_yellow(),
+            self.get_minion_id().bright_green(),
+            ticket.result().rotated_at().to_rfc3339().bright_blue()
+        );
+
+        if payload.reconnect {
+            self.send_bye().await;
+        }
+
+        Ok(())
     }
 
     /// Download a file from master
@@ -800,7 +975,10 @@ impl SysMinion {
                     }
                     dirty = true;
                 }
-                Err(_) => todo!(),
+                Err(err) => {
+                    log::error!("Unable to auto-update {uri_file}: {err}");
+                    continue;
+                }
             }
         }
         if dirty {
@@ -848,9 +1026,14 @@ impl SysMinion {
             CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
             }
-            CLUSTER_ROTATE => {
-                log::warn!("Command \"rotate\" is not implemented yet");
-            }
+            CLUSTER_ROTATE => match self.clone().apply_rotation_command(context).await {
+                Ok(_) => {
+                    if !context.is_empty() {
+                        let _ = CONNECTION_TX.send(());
+                    }
+                }
+                Err(err) => log::error!("Failed to apply rotate command: {err}"),
+            },
             CLUSTER_REMOVE_MINION => {
                 log::info!("{} from the master", "Unregistering".bright_red().bold());
                 self.as_ptr().send_bye().await;
@@ -868,38 +1051,38 @@ impl SysMinion {
                 }
                 let _ = self.as_ptr().send_sensors_sync().await;
             }
-            CLUSTER_TRAITS_UPDATE => {
-                match TraitUpdateRequest::from_context(context) {
-                    Ok(update) => match update.apply(&self.cfg) {
-                        Ok(_) => {
-                            let summary = if update.op() == "reset" {
-                                "all master-managed traits".bright_yellow().to_string()
-                            } else if update.op() == "unset" {
-                                update.traits().keys().map(|key| key.yellow().to_string()).collect::<Vec<String>>().join(", ")
-                            } else {
-                                update
-                                    .traits()
-                                    .iter()
-                                    .map(|(key, value)| format!("{}: {}", key.yellow(), dataconv::to_string(Some(value.clone())).unwrap_or_default().bright_yellow()))
-                                    .collect::<Vec<String>>()
-                                    .join(", ")
-                            };
-                            let label = match update.op() {
-                                "set" => "Set traits",
-                                "unset" => "Unset traits",
-                                "reset" => "Reset traits",
-                                _ => "Updated traits",
-                            };
-                            log::info!("{}: {}", label, summary);
-                            if let Err(err) = self.as_ptr().send_traits().await {
-                                log::error!("Failed to sync traits with master: {err}");
-                            }
+            CLUSTER_TRAITS_UPDATE => match TraitUpdateRequest::from_context(context) {
+                Ok(update) => match update.apply(&self.cfg) {
+                    Ok(_) => {
+                        let summary = if update.op() == "reset" {
+                            "all master-managed traits".bright_yellow().to_string()
+                        } else if update.op() == "unset" {
+                            update.traits().keys().map(|key| key.yellow().to_string()).collect::<Vec<String>>().join(", ")
+                        } else {
+                            update
+                                .traits()
+                                .iter()
+                                .map(|(key, value)| {
+                                    format!("{}: {}", key.yellow(), dataconv::to_string(Some(value.clone())).unwrap_or_default().bright_yellow())
+                                })
+                                .collect::<Vec<String>>()
+                                .join(", ")
+                        };
+                        let label = match update.op() {
+                            "set" => "Set traits",
+                            "unset" => "Unset traits",
+                            "reset" => "Reset traits",
+                            _ => "Updated traits",
+                        };
+                        log::info!("{}: {}", label, summary);
+                        if let Err(err) = self.as_ptr().send_traits().await {
+                            log::error!("Failed to sync traits with master: {err}");
                         }
-                        Err(err) => log::error!("Failed to apply traits update: {err}"),
-                    },
-                    Err(err) => log::error!("Failed to parse traits update payload: {err}"),
-                }
-            }
+                    }
+                    Err(err) => log::error!("Failed to apply traits update: {err}"),
+                },
+                Err(err) => log::error!("Failed to parse traits update payload: {err}"),
+            },
             _ => {
                 log::warn!("Unknown command: {cmd}");
             }
@@ -989,6 +1172,12 @@ impl SysMinion {
     pub fn set_ping_timeout(&mut self, d: Duration) {
         self.ping_timeout = d;
     }
+
+    /// Install a secure steady-state channel for tests that exercise encrypted transport writes.
+    #[cfg(test)]
+    pub async fn set_secure_channel(&self, channel: SecureChannel) {
+        *self.secure.lock().await = Some(channel);
+    }
 }
 
 /// Constructs and starts an actual minion
@@ -1020,13 +1209,16 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
     });
 
-    minion.as_ptr().do_proto().await?;
-
     // Messages
     if minion.fingerprint.is_some() {
+        minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_registration(minion.kman.get_pubkey_pem()).await?;
     } else {
-        // ehlo
+        if let Err(err) = minion.bootstrap_secure().await {
+            log::error!("Unable to bootstrap secure transport: {err}");
+            return Err(err);
+        }
+        minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_ehlo().await?;
         if cfg.autosync_startup() {
             tokio::select! {

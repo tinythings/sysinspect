@@ -1,9 +1,11 @@
 //! Encrypted console transport primitives shared by `sysinspect` and `sysmaster`.
 
 use base64::{Engine, engine::general_purpose::STANDARD};
+use chrono::{DateTime, Utc};
 use libcommon::SysinspectError;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::Value;
 use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
 use std::{
     fs,
@@ -17,6 +19,8 @@ use crate::{
         RsaKey::{Private, Public},
         decrypt, encrypt, key_from_file, key_to_file, keygen, sign_data, to_pem, verify_sign,
     },
+    traits::TraitSource,
+    transport::TransportRotationStatus,
 };
 
 #[cfg(test)]
@@ -74,11 +78,138 @@ pub struct ConsoleQuery {
 pub struct ConsoleResponse {
     /// Response success flag.
     pub ok: bool,
-    /// Human-readable response message or payload.
-    pub message: String,
+    /// Error text when the response is not successful.
+    #[serde(default)]
+    pub error: String,
+    /// Structured response payload.
+    #[serde(default)]
+    pub payload: ConsolePayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ConsolePayload {
+    /// No structured payload content.
+    #[default]
+    Empty,
+    /// A small acknowledgement payload for successful mutating operations.
+    Ack {
+        /// Machine-readable action name, for example `create_profile`.
+        action: String,
+        #[serde(default)]
+        /// Primary target associated with the action, if any.
+        target: String,
+        #[serde(default)]
+        /// Count associated with the action result, such as affected minions.
+        count: usize,
+        #[serde(default)]
+        /// Additional string items associated with the action.
+        items: Vec<String>,
+    },
+    /// A plain text payload that should be printed as-is by the CLI.
+    Text {
+        /// Human-readable text body.
+        value: String,
+    },
+    /// A list of strings that should be displayed one per line.
+    StringList {
+        /// Ordered list items.
+        items: Vec<String>,
+    },
+    /// Summary of how many rotation requests were dispatched immediately versus queued.
+    RotationSummary {
+        /// Number of online minions that received the rotation request immediately.
+        online_count: usize,
+        /// Number of offline minions for which the request was staged.
+        queued_count: usize,
+    },
+    /// Raw online-minion rows for CLI or TUI rendering.
+    OnlineMinions {
+        /// One row per registered minion included in the summary.
+        rows: Vec<ConsoleOnlineMinionRow>,
+    },
+    /// Raw transport-status rows for CLI or TUI rendering.
+    TransportStatus {
+        /// One row per selected minion.
+        rows: Vec<ConsoleTransportStatusRow>,
+    },
+    /// Raw minion-info rows for CLI or TUI rendering.
+    MinionInfo {
+        /// One row per key/value pair for one selected minion.
+        rows: Vec<ConsoleMinionInfoRow>,
+    },
+}
+
+/// One online-minion summary row returned by the master.
+///
+/// The master returns raw fields only. Consumers such as the CLI formatter or a
+/// future TUI decide how to order, color, shorten, or hide them.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsoleOnlineMinionRow {
+    /// Fully qualified host name reported by the minion traits, if present.
+    pub fqdn: String,
+    /// Short host name reported by the minion traits, if present.
+    pub hostname: String,
+    /// Last known IP address trait for the minion.
+    pub ip: String,
+    /// Stable minion system id used by the transport and registry layers.
+    pub minion_id: String,
+    /// Whether the master currently considers the minion online.
+    pub alive: bool,
+}
+
+/// One transport-status row returned by the master.
+///
+/// This contains raw state needed to render transport summaries in a CLI or a
+/// TUI without requiring the consumer to query extra state from the master.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsoleTransportStatusRow {
+    /// Fully qualified host name reported by the minion traits, if present.
+    pub fqdn: String,
+    /// Short host name reported by the minion traits, if present.
+    pub hostname: String,
+    /// Stable minion system id used by the transport and registry layers.
+    pub minion_id: String,
+    /// Currently active managed transport key id, if one exists.
+    pub active_key_id: Option<String>,
+    /// Timestamp of the last successful secure bootstrap handshake.
+    pub last_handshake_at: Option<DateTime<Utc>>,
+    /// Timestamp when the currently active transport key became active.
+    pub last_rotated_at: Option<DateTime<Utc>>,
+    /// Current rotation state for this minion, or `None` when no managed state exists.
+    pub rotation: Option<TransportRotationStatus>,
+}
+
+/// One minion-info key/value row returned by the master.
+///
+/// The master returns raw values only. The CLI or TUI owns ordering,
+/// formatting, colors, and human-readable conversions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleMinionInfoRow {
+    /// Logical field name.
+    pub key: String,
+    /// Raw value associated with the field.
+    pub value: Value,
+    /// Origin of this trait so the client can group and style it.
+    pub source: TraitSource,
+}
+
+impl ConsoleResponse {
+    /// Construct a successful console response carrying structured payload data.
+    pub fn ok(payload: ConsolePayload) -> Self {
+        Self { ok: true, error: String::new(), payload }
+    }
+
+    /// Construct an unsuccessful console response with an error string.
+    pub fn err(error: impl Into<String>) -> Self {
+        Self { ok: false, error: error.into(), payload: ConsolePayload::Empty }
+    }
 }
 
 /// Ensure the local libsodium state is initialised once for console sealing operations.
+///
+/// This function is cheap to call repeatedly; after successful initialisation
+/// it becomes a fast no-op.
 fn sodium_ready() -> Result<(), SysinspectError> {
     if SODIUM_INIT.get().is_some() {
         return Ok(());
@@ -90,10 +221,19 @@ fn sodium_ready() -> Result<(), SysinspectError> {
     Ok(())
 }
 
+/// Return the private and public console key paths under the provided root.
+///
+/// The first element is the private key path and the second is the public key
+/// path.
 fn console_keypair(root: &Path) -> (PathBuf, PathBuf) {
     (root.join(CFG_CONSOLE_KEY_PRI), root.join(CFG_CONSOLE_KEY_PUB))
 }
 
+/// Apply restrictive filesystem permissions to the console key directory and
+/// private key file on Unix platforms.
+///
+/// The directory is forced to `0700` and the private key file, when present, is
+/// forced to `0600`.
 fn ensure_console_permissions(root: &Path, prk_path: &Path) -> Result<(), SysinspectError> {
     #[cfg(unix)]
     {
@@ -157,6 +297,10 @@ pub fn load_master_private_key(cfg: &MasterConfig) -> Result<RsaPrivateKey, Sysi
     load_private_key(&cfg.root_dir().join(crate::cfg::mmconf::CFG_MASTER_KEY_PRI))
 }
 
+/// Load an RSA private key from the given filesystem path.
+///
+/// Returns an error when the file is missing, unreadable, or does not contain a
+/// private key.
 fn load_private_key(path: &Path) -> Result<RsaPrivateKey, SysinspectError> {
     match key_from_file(path.to_str().unwrap_or_default())? {
         Some(Private(prk)) => Ok(prk),
@@ -165,6 +309,10 @@ fn load_private_key(path: &Path) -> Result<RsaPrivateKey, SysinspectError> {
     }
 }
 
+/// Load an RSA public key from the given filesystem path.
+///
+/// Returns an error when the file is missing, unreadable, or does not contain a
+/// public key.
 fn load_public_key(path: &Path) -> Result<RsaPublicKey, SysinspectError> {
     match key_from_file(path.to_str().unwrap_or_default())? {
         Some(Public(pbk)) => Ok(pbk),
@@ -175,24 +323,31 @@ fn load_public_key(path: &Path) -> Result<RsaPublicKey, SysinspectError> {
 
 impl ConsoleBootstrap {
     /// Build bootstrap material for a new console session.
+    ///
+    /// The client public key is embedded in the bootstrap, the symmetric session
+    /// key is encrypted to the master's RSA public key, and the raw symmetric key
+    /// bytes are signed with the client's RSA private key.
     pub fn new(client_prk: &RsaPrivateKey, client_pbk: &RsaPublicKey, master_pbk: &RsaPublicKey, symkey: &Key) -> Result<Self, SysinspectError> {
         Ok(Self {
-            client_pubkey: to_pem(None, Some(client_pbk))
-                .map_err(|e| SysinspectError::RSAError(e.to_string()))?
-                .1
-                .unwrap_or_default(),
+            client_pubkey: to_pem(None, Some(client_pbk)).map_err(|e| SysinspectError::RSAError(e.to_string()))?.1.unwrap_or_default(),
             symkey_cipher: STANDARD.encode(
                 encrypt(master_pbk.clone(), symkey.0.to_vec())
                     .map_err(|_| SysinspectError::RSAError("Failed to encrypt console session key".to_string()))?,
             ),
             symkey_sign: STANDARD.encode(
-                sign_data(client_prk.clone(), &symkey.0)
-                    .map_err(|_| SysinspectError::RSAError("Failed to sign console session key".to_string()))?,
+                sign_data(client_prk.clone(), &symkey.0).map_err(|_| SysinspectError::RSAError("Failed to sign console session key".to_string()))?,
             ),
         })
     }
 
     /// Recover and verify the console session key from the bootstrap payload.
+    ///
+    /// The master decrypts the symmetric key with its private key and verifies
+    /// that the client signed the same raw key bytes with the embedded client
+    /// public key.
+    ///
+    /// Returns the recovered symmetric key together with the parsed client
+    /// public key.
     pub fn session_key(&self, master_prk: &RsaPrivateKey) -> Result<(Key, RsaPublicKey), SysinspectError> {
         let client_pbk = crate::rsa::keys::from_pem(None, Some(&self.client_pubkey))
             .map_err(|e| SysinspectError::RSAError(e.to_string()))?
@@ -213,15 +368,15 @@ impl ConsoleBootstrap {
             return Err(SysinspectError::RSAError("Console session signature verification failed".to_string()));
         }
 
-        Ok((
-            Key::from_slice(&symkey).ok_or_else(|| SysinspectError::RSAError("Console session key has invalid size".to_string()))?,
-            client_pbk,
-        ))
+        Ok((Key::from_slice(&symkey).ok_or_else(|| SysinspectError::RSAError("Console session key has invalid size".to_string()))?, client_pbk))
     }
 }
 
 impl ConsoleSealed {
     /// Seal a serializable console payload with the given symmetric session key.
+    ///
+    /// The payload is JSON-serialized and then encrypted with libsodium
+    /// `secretbox` using a fresh nonce.
     pub fn seal<T: Serialize>(payload: &T, key: &Key) -> Result<Self, SysinspectError> {
         sodium_ready()?;
         let nonce = secretbox::gen_nonce();
@@ -236,18 +391,17 @@ impl ConsoleSealed {
     }
 
     /// Open a sealed console payload with the given symmetric session key.
+    ///
+    /// The payload is decrypted with libsodium `secretbox` and then
+    /// deserialized into the requested type `T`.
     pub fn open<T: DeserializeOwned>(&self, key: &Key) -> Result<T, SysinspectError> {
         sodium_ready()?;
         let nonce = Nonce::from_slice(
-            &STANDARD
-                .decode(&self.nonce)
-                .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console nonce: {e}")))?,
+            &STANDARD.decode(&self.nonce).map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console nonce: {e}")))?,
         )
         .ok_or_else(|| SysinspectError::SerializationError("Console nonce has invalid size".to_string()))?;
         let payload = secretbox::open(
-            &STANDARD
-                .decode(&self.payload)
-                .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console payload: {e}")))?,
+            &STANDARD.decode(&self.payload).map_err(|e| SysinspectError::SerializationError(format!("Failed to decode console payload: {e}")))?,
             &nonce,
             key,
         )
@@ -257,11 +411,13 @@ impl ConsoleSealed {
 }
 
 /// Check whether the provided client console public key is authorised by the master.
+///
+/// The key is considered authorised when it matches either the primary console
+/// client key configured in the master config or one of the extra keys stored
+/// in the console keys directory.
 pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result<bool, SysinspectError> {
     let client_pem = client_pem.trim();
-    if cfg.console_pubkey().exists()
-        && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)?.trim() == client_pem
-    {
+    if cfg.console_pubkey().exists() && fs::read_to_string(cfg.console_pubkey()).map_err(SysinspectError::IoErr)?.trim() == client_pem {
         return Ok(true);
     }
 
@@ -272,9 +428,7 @@ pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result
 
     for entry in fs::read_dir(root).map_err(SysinspectError::IoErr)? {
         let path = entry.map_err(SysinspectError::IoErr)?.path();
-        if path.is_file()
-            && fs::read_to_string(&path).map_err(SysinspectError::IoErr)?.trim() == client_pem
-        {
+        if path.is_file() && fs::read_to_string(&path).map_err(SysinspectError::IoErr)?.trim() == client_pem {
             return Ok(true);
         }
     }
@@ -283,16 +437,18 @@ pub fn authorised_console_client(cfg: &MasterConfig, client_pem: &str) -> Result
 }
 
 /// Build a fully bootstrapped encrypted console request envelope for the given query.
+///
+/// This helper generates or loads the local console client keypair, loads the
+/// trusted master public key, creates a fresh symmetric session key, and returns
+/// both the encrypted request envelope and the raw symmetric key needed to open
+/// the master's reply.
 pub fn build_console_query(root: &Path, cfg: &MasterConfig, query: &ConsoleQuery) -> Result<(ConsoleEnvelope, Key), SysinspectError> {
     sodium_ready()?;
     let (client_prk, client_pbk) = ensure_console_keypair(root)?;
     let master_pbk = load_master_public_key(cfg)?;
     let key = secretbox::gen_key();
     Ok((
-        ConsoleEnvelope {
-            bootstrap: ConsoleBootstrap::new(&client_prk, &client_pbk, &master_pbk, &key)?,
-            sealed: ConsoleSealed::seal(query, &key)?,
-        },
+        ConsoleEnvelope { bootstrap: ConsoleBootstrap::new(&client_prk, &client_pbk, &master_pbk, &key)?, sealed: ConsoleSealed::seal(query, &key)? },
         key,
     ))
 }

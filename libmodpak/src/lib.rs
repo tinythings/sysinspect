@@ -94,10 +94,7 @@ impl SysInspectModPakMinion {
             return Err(SysinspectError::MasterGeneralError(format!("Failed to get modpak index: {}", resp.status())));
         }
 
-        let buff = resp
-            .bytes()
-            .await
-            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read modpak index response: {e}")))?;
+        let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read modpak index response: {e}")))?;
         let idx = ModPakRepoIndex::from_yaml(&String::from_utf8_lossy(&buff))?;
         Ok(idx)
     }
@@ -115,10 +112,7 @@ impl SysInspectModPakMinion {
             return Err(SysinspectError::MasterGeneralError(format!("Failed to get profiles index: {}", resp.status())));
         }
 
-        let buff = resp
-            .bytes()
-            .await
-            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read profiles index response: {e}")))?;
+        let buff = resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read profiles index response: {e}")))?;
         Self::validate_profiles_index(ModPakProfilesIndex::from_yaml(&String::from_utf8_lossy(&buff))?)
     }
 
@@ -149,12 +143,9 @@ impl SysInspectModPakMinion {
             {
                 fs::create_dir_all(parent)?;
             }
-            fs::write(&dst, resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))? )?;
+            fs::write(&dst, resp.bytes().await.map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to read response: {e}")))?)?;
             if !get_file_sha256(dst.clone())?.eq(profile.checksum()) {
-                return Err(SysinspectError::MasterGeneralError(format!(
-                    "Checksum mismatch for profile {}",
-                    name.bright_yellow()
-                )));
+                return Err(SysinspectError::MasterGeneralError(format!("Checksum mismatch for profile {}", name.bright_yellow())));
             }
         }
 
@@ -166,10 +157,7 @@ impl SysInspectModPakMinion {
             return Ok(());
         }
 
-        Err(SysinspectError::MasterGeneralError(format!(
-            "Invalid profile path in profiles.index: {}",
-            path.display()
-        )))
+        Err(SysinspectError::MasterGeneralError(format!("Invalid profile path in profiles.index: {}", path.display())))
     }
 
     fn validate_profiles_index(index: ModPakProfilesIndex) -> Result<ModPakProfilesIndex, SysinspectError> {
@@ -180,7 +168,9 @@ impl SysInspectModPakMinion {
         Ok(index)
     }
 
-    fn filtered_repo_index(&self, ridx: ModPakRepoIndex, profiles: &ModPakProfilesIndex, names: &[String]) -> Result<ModPakRepoIndex, SysinspectError> {
+    fn filtered_repo_index(
+        &self, ridx: ModPakRepoIndex, profiles: &ModPakProfilesIndex, names: &[String],
+    ) -> Result<ModPakRepoIndex, SysinspectError> {
         if profiles.profiles().is_empty() {
             return Ok(ridx);
         }
@@ -198,7 +188,8 @@ impl SysInspectModPakMinion {
         let mut libraries = IndexSet::new();
         for name in found {
             if let Some(profile) = profiles.get(&name) {
-                ModPakProfile::from_yaml(&fs::read_to_string(self.cfg.profiles_dir().join(profile.file()))?)?.merge_into(&mut modules, &mut libraries);
+                ModPakProfile::from_yaml(&fs::read_to_string(self.cfg.profiles_dir().join(profile.file()))?)?
+                    .merge_into(&mut modules, &mut libraries);
             }
         }
 
@@ -496,9 +487,9 @@ impl SysInspectModPak {
 
     /// Load the on-disk profiles index published next to the module repository.
     fn get_profiles_index(&self) -> Result<ModPakProfilesIndex, SysinspectError> {
-        SysInspectModPakMinion::validate_profiles_index(ModPakProfilesIndex::from_yaml(
-            &fs::read_to_string(self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX))?,
-        )?)
+        SysInspectModPakMinion::validate_profiles_index(ModPakProfilesIndex::from_yaml(&fs::read_to_string(
+            self.root.parent().unwrap_or(&self.root).join(REPO_PROFILES_INDEX),
+        )?)?)
     }
 
     /// Persist the profiles index next to the module repository.
@@ -509,29 +500,20 @@ impl SysInspectModPak {
 
     fn validate_profile_name_and_file(name: &str, file: &Path) -> Result<(), SysinspectError> {
         if name.contains('/') || name.contains('\\') || name.contains("..") {
-            return Err(SysinspectError::MasterGeneralError(format!(
-                "Invalid profile name {}",
-                name.bright_yellow()
-            )));
+            return Err(SysinspectError::MasterGeneralError(format!("Invalid profile name {}", name.bright_yellow())));
         }
 
         if file.components().all(|component| matches!(component, Component::Normal(_))) {
             return Ok(());
         }
 
-        Err(SysinspectError::MasterGeneralError(format!(
-            "Invalid profile file path for {}: {}",
-            name.bright_yellow(),
-            file.display()
-        )))
+        Err(SysinspectError::MasterGeneralError(format!("Invalid profile file path for {}: {}", name.bright_yellow(), file.display())))
     }
 
     /// Load one profile by canonical name and verify the file content name matches the index entry.
     fn get_profile(&self, name: &str) -> Result<ModPakProfile, SysinspectError> {
         let index = self.get_profiles_index()?;
-        let entry = index
-            .get(name)
-            .ok_or_else(|| SysinspectError::MasterGeneralError(format!("Profile {} was not found", name.bright_yellow())))?;
+        let entry = index.get(name).ok_or_else(|| SysinspectError::MasterGeneralError(format!("Profile {} was not found", name.bright_yellow())))?;
         Self::validate_profile_name_and_file(name, entry.file())?;
         {
             let profile =
@@ -550,7 +532,8 @@ impl SysInspectModPak {
     /// Persist one profile file and refresh its `profiles.index` checksum entry.
     fn set_profile(&self, name: &str, profile: &ModPakProfile) -> Result<(), SysinspectError> {
         let mut index = self.get_profiles_index()?;
-        let file = index.get(name).map(|entry| entry.file().to_path_buf()).unwrap_or_else(|| PathBuf::from(format!("{}.profile", name.to_lowercase())));
+        let file =
+            index.get(name).map(|entry| entry.file().to_path_buf()).unwrap_or_else(|| PathBuf::from(format!("{}.profile", name.to_lowercase())));
         Self::validate_profile_name_and_file(name, &file)?;
         let path = self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).join(&file);
         if !self.root.parent().unwrap_or(&self.root).join(CFG_PROFILES_ROOT).exists() {
@@ -859,23 +842,23 @@ impl SysInspectModPak {
                 os: module.os().iter().map(|os| os_display_name(os).to_string()).collect::<Vec<String>>().join(", "),
                 arch: module.arch().join(", "),
                 sha256: module
-                        .checksums()
-                        .iter()
-                        .map(|checksum| format!("{}...{}", &checksum[..4], &checksum[checksum.len() - 4..]))
-                        .collect::<Vec<String>>()
-                        .join(", "),
+                    .checksums()
+                    .iter()
+                    .map(|checksum| format!("{}...{}", &checksum[..4], &checksum[checksum.len() - 4..]))
+                    .collect::<Vec<String>>()
+                    .join(", "),
             })
             .collect::<Vec<ArtefactRow>>();
         rows.extend(libraries.into_iter().map(|(name, file)| ArtefactRow {
-                kind: match file.kind() {
-                    "wasm" | "binary" => "binary".to_string(),
-                    _ => "script".to_string(),
-                },
-                name: name.clone(),
-                display_name: Self::format_library_name(&name),
-                os: "Any".to_string(),
-                arch: "noarch".to_string(),
-                sha256: format!("{}...{}", &file.checksum()[..4], &file.checksum()[file.checksum().len() - 4..]),
+            kind: match file.kind() {
+                "wasm" | "binary" => "binary".to_string(),
+                _ => "script".to_string(),
+            },
+            name: name.clone(),
+            display_name: Self::format_library_name(&name),
+            os: "Any".to_string(),
+            arch: "noarch".to_string(),
+            sha256: format!("{}...{}", &file.checksum()[..4], &file.checksum()[file.checksum().len() - 4..]),
         }));
         Ok(Self::render_artefact_table(rows))
     }
@@ -901,7 +884,8 @@ impl SysInspectModPak {
     /// List profile names filtered by an optional glob expression.
     pub fn list_profiles(&self, expr: Option<&str>) -> Result<Vec<String>, SysinspectError> {
         let expr = glob::Pattern::new(expr.unwrap_or("*")).map_err(|e| SysinspectError::MasterGeneralError(format!("Invalid pattern: {e}")))?;
-        let mut profiles = self.get_profiles_index()?.profiles().keys().filter(|name| expr.matches(name)).map(|name| name.to_string()).collect::<Vec<_>>();
+        let mut profiles =
+            self.get_profiles_index()?.profiles().keys().filter(|name| expr.matches(name)).map(|name| name.to_string()).collect::<Vec<_>>();
         profiles.sort();
         Ok(profiles)
     }

@@ -6,7 +6,12 @@ use libcommon::SysinspectError;
 use libsysproto::MinionTarget;
 use serde_json::{Value, json};
 use sled::{Db, Tree};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fs,
+    path::PathBuf,
+    sync::Arc,
+};
 
 const DB_MINIONS: &str = "minions";
 
@@ -38,7 +43,9 @@ impl MinionRegistry {
     }
 
     /// Add or update traits
-    pub fn refresh(&mut self, mid: &str, traits: HashMap<String, Value>) -> Result<(), SysinspectError> {
+    pub fn refresh(
+        &mut self, mid: &str, traits: HashMap<String, Value>, static_keys: BTreeSet<String>, fn_keys: BTreeSet<String>,
+    ) -> Result<(), SysinspectError> {
         let minions = self.get_tree(DB_MINIONS)?;
         match minions.contains_key(mid) {
             Ok(exists) => {
@@ -55,7 +62,7 @@ impl MinionRegistry {
             Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Unable to access the database: {err}"))),
         };
 
-        self.add(mid, MinionRecord::new(mid.to_string(), traits))?;
+        self.add(mid, MinionRecord::new(mid.to_string(), traits, static_keys, fn_keys))?;
 
         Ok(())
     }
@@ -260,5 +267,41 @@ impl MinionRegistry {
         }
 
         vec![]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MinionRegistry;
+    use serde_json::json;
+    use std::collections::{BTreeSet, HashMap};
+
+    fn registry_with_one_minion() -> MinionRegistry {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+        let mut traits = HashMap::new();
+        traits.insert("system.hostname".to_string(), json!("alien"));
+        traits.insert("system.hostname.fqdn".to_string(), json!("alien.lab"));
+        traits.insert("system.hostname.ip".to_string(), json!("192.168.2.186"));
+        registry.refresh("30006546535e428aba0a0caa6712e225", traits, BTreeSet::new(), BTreeSet::new()).unwrap();
+        registry
+    }
+
+    #[test]
+    fn get_by_hostname_or_ip_matches_plain_hostname() {
+        let mut registry = registry_with_one_minion();
+        let records = registry.get_by_hostname_or_ip("alien").unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id(), "30006546535e428aba0a0caa6712e225");
+    }
+
+    #[test]
+    fn get_by_query_matches_plain_hostname() {
+        let registry = registry_with_one_minion();
+        let records = registry.get_by_query("alien").unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id(), "30006546535e428aba0a0caa6712e225");
     }
 }

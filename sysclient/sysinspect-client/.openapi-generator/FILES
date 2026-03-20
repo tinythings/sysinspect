@@ -3,7 +3,6 @@
 .travis.yml
 Cargo.toml
 README.md
-docs/AuthInnerRequest.md
 docs/AuthRequest.md
 docs/AuthResponse.md
 docs/HealthInfo.md
@@ -15,9 +14,6 @@ docs/ModelInfo.md
 docs/ModelNameResponse.md
 docs/ModelResponse.md
 docs/ModelsApi.md
-docs/PubKeyError.md
-docs/PubKeyRequest.md
-docs/PubKeyResponse.md
 docs/QueryError.md
 docs/QueryPayloadRequest.md
 docs/QueryRequest.md
@@ -32,7 +28,6 @@ src/apis/models_api.rs
 src/apis/rsa_keys_api.rs
 src/apis/system_api.rs
 src/lib.rs
-src/models/auth_inner_request.rs
 src/models/auth_request.rs
 src/models/auth_response.rs
 src/models/health_info.rs
@@ -43,9 +38,6 @@ src/models/mod.rs
 src/models/model_info.rs
 src/models/model_name_response.rs
 src/models/model_response.rs
-src/models/pub_key_error.rs
-src/models/pub_key_request.rs
-src/models/pub_key_response.rs
 src/models/query_error.rs
 src/models/query_payload_request.rs
 src/models/query_request.rs

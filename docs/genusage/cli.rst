@@ -71,14 +71,51 @@ cluster:
 .. code-block:: bash
 
     sysinspect --sync
-    sysinspect --online
     sysinspect --shutdown
     sysinspect --unregister 30006546535e428aba0a0caa6712e225
 
 ``--sync`` instructs minions to refresh cluster artefacts and then report
 their current traits back to the master.
 
-``--online`` prints the current online-minion summary directly to stdout.
+Network Operations
+------------------
+
+The ``network`` subcommand groups transport and minion-presence
+operations.
+
+.. code-block:: bash
+
+    sysinspect network --status
+    sysinspect network --status --pending
+    sysinspect network --status --idle 'db*'
+    sysinspect network --rotate 'web*'
+    sysinspect network --rotate --id 30006546535e428aba0a0caa6712e225
+    sysinspect network --online
+    sysinspect network --online --traits 'system.os.name:Ubuntu'
+    sysinspect network --info --id 30006546535e428aba0a0caa6712e225
+    sysinspect network --info db01.example.net
+
+Supported operations:
+
+* ``--status`` prints managed transport state for the selected minions
+* ``--rotate`` stages or dispatches transport key rotation for the selected minions
+* ``--online`` prints online-state summaries for the selected minions
+* ``--info`` prints detailed registry-backed minion information for exactly one minion
+
+Supported selectors:
+
+* ``--id`` targets one minion by System Id
+* ``--query`` or trailing positional query targets minions by hostname glob
+* ``--traits`` further narrows the target set by traits query
+* if no query is provided, the default selector is ``*``
+
+For ``--info``, broad selectors are rejected. Use either one hostname/FQDN or ``--id``.
+
+Transport status filters:
+
+* ``--all`` shows all selected minions; this is the default
+* ``--pending`` shows only minions with a non-idle rotation state
+* ``--idle`` shows only minions with an idle rotation state
 
 Traits Management
 -----------------

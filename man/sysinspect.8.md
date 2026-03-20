@@ -14,6 +14,7 @@ SYNOPSIS
 | **sysinspect** **--model** *path* \[**--entities** *list* | **--labels** *list*] \[**--state** *name*]
 | **sysinspect** **traits** \[**--set** *k:v,...* | **--unset** *k,...* | **--reset**] \[**--id** *id* | **--query** *glob* | *glob*] \[**--traits** *query*]
 | **sysinspect** **profile** \[**--new** | **--delete** | **--list** | **-A** | **-R** | **--tag** | **--untag**] ...
+| **sysinspect** **network** \[**--rotate** | **--status** | **--online** | **--info**] \[**--id** *id* | **--query** *glob* | *glob*] \[**--traits** *query*]
 | **sysinspect** **module** \[**-A** | **-R** | **-L** | **-i**] ...
 
 DESCRIPTION
@@ -28,6 +29,46 @@ system for the following means:
 The command-line tool talks to the local or configured master instance,
 submits model requests, manages the module repository, updates
 master-managed static traits on minions, and manages deployment profiles.
+
+NETWORK OPERATIONS
+==================
+
+The **network** subcommand groups cluster transport and minion-presence
+operations.
+
+Examples:
+
+| **sysinspect** **network** **--status**
+| **sysinspect** **network** **--status** **--pending**
+| **sysinspect** **network** **--status** **--idle** "db*"
+| **sysinspect** **network** **--rotate** "web*"
+| **sysinspect** **network** **--rotate** **--id** 30006546535e428aba0a0caa6712e225
+| **sysinspect** **network** **--online**
+| **sysinspect** **network** **--online** **--traits** "system.os.name:Ubuntu"
+| **sysinspect** **network** **--info** **--id** 30006546535e428aba0a0caa6712e225
+| **sysinspect** **network** **--info** db01.example.net
+
+Supported operations:
+
+- **--status** prints managed transport status for the selected minions
+- **--rotate** stages or dispatches transport key rotation for the selected minions
+- **--online** prints online-state summaries for the selected minions
+- **--info** prints detailed registry-backed minion information for exactly one minion
+
+Supported selectors:
+
+- **--id** target one minion by System Id
+- **--query** or trailing positional query target minions by hostname glob
+- **--traits** further narrow the target set by traits query
+- if no query is provided, the default selector is **\***
+
+For **--info**, broad selectors are rejected. Use either one hostname/FQDN or **--id**.
+
+Transport status filters:
+
+- **--all** show all selected minions; this is the default
+- **--pending** show only minions with a non-idle rotation state
+- **--idle** show only minions with an idle rotation state
 
 RUNNING MODELS REMOTELY
 =======================
@@ -75,7 +116,6 @@ CLUSTER COMMANDS
 
 - **--sync** refreshes cluster artefacts and triggers minions to report
   fresh traits back to the master
-- **--online** prints the current online-minion summary to standard output
 - **--shutdown** asks the master to stop
 - **--unregister** *id* unregisters a minion by System Id
 

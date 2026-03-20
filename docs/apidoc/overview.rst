@@ -10,7 +10,7 @@ The Web API is automatically documented using Swagger, which provides a user-fri
 and their parameters. You can access the Swagger UI at the following URL:
 
 ```
-http://<your-server-address>:4202/api-doc/
+http://<your-server-address>:4202/doc/
 ```
 
 This interface, running on default port **4202**, allows you to interact with the API, view the available endpoints,

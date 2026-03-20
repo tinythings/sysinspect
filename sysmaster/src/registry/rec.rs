@@ -1,16 +1,20 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct MinionRecord {
     id: String,
     traits: HashMap<String, Value>,
+    #[serde(default)]
+    static_keys: BTreeSet<String>,
+    #[serde(default)]
+    fn_keys: BTreeSet<String>,
 }
 
 impl MinionRecord {
-    pub fn new(id: String, traits: HashMap<String, Value>) -> Self {
-        MinionRecord { id, traits }
+    pub fn new(id: String, traits: HashMap<String, Value>, static_keys: BTreeSet<String>, fn_keys: BTreeSet<String>) -> Self {
+        MinionRecord { id, traits, static_keys, fn_keys }
     }
 
     /// Check if the record matches the value
@@ -50,5 +54,13 @@ impl MinionRecord {
 
     pub fn get_traits(&self) -> &HashMap<String, Value> {
         &self.traits
+    }
+
+    pub fn is_function_trait(&self, key: &str) -> bool {
+        self.fn_keys.contains(key)
+    }
+
+    pub fn is_yaml_trait(&self, key: &str) -> bool {
+        self.static_keys.contains(key)
     }
 }

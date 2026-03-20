@@ -2,13 +2,78 @@
 mod tests {
     use crate::minion::{_minion_instance, MINION_SID, SysMinion};
     use crate::proto::msg::{CONNECTION_TX, ExitState};
+    use crate::rsa::MinionRSAKeyManager;
     use libdpq::DiskPersistentQueue;
-    use libsysinspect::cfg::mmconf::MinionConfig;
+    use libsysinspect::{
+        cfg::mmconf::{CFG_MASTER_KEY_PUB, MinionConfig},
+        rsa::keys::{RsaKey::Public, key_to_file, keygen},
+        transport::{
+            TransportKeyExchangeModel, TransportKeyStatus, TransportPeerState, TransportProvisioningMode, TransportRotationStatus, TransportStore,
+            secure_bootstrap::SecureBootstrapSession,
+            secure_channel::{SecureChannel, SecurePeerRole},
+        },
+    };
+    use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
     use once_cell::sync::Lazy;
+    use rsa::RsaPublicKey;
     use std::sync::Arc;
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
     use tokio::time::{Duration, timeout};
+
+    fn secure_state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
+        let mut state = TransportPeerState::new(
+            "mid-1".to_string(),
+            libsysinspect::rsa::keys::get_fingerprint(master_pbk).unwrap(),
+            libsysinspect::rsa::keys::get_fingerprint(minion_pbk).unwrap(),
+            SECURE_PROTOCOL_VERSION,
+        );
+        state.key_exchange = TransportKeyExchangeModel::EphemeralSessionKeys;
+        state.provisioning = TransportProvisioningMode::Automatic;
+        state.rotation = TransportRotationStatus::Idle;
+        state.active_key_id = Some("kid-1".to_string());
+        state.last_key_id = Some("kid-1".to_string());
+        state
+    }
+
+    fn secure_channels(root: &std::path::Path) -> (SecureChannel, SecureChannel) {
+        let keyman = MinionRSAKeyManager::new(root.to_path_buf()).unwrap();
+        let (master_prk, master_pbk) = libsysinspect::rsa::keys::keygen(2048).unwrap();
+        let (_, minion_pbk) = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem())).unwrap();
+        let state = secure_state(&master_pbk, &minion_pbk.unwrap());
+        let (opening, hello) = SecureBootstrapSession::open(&state, &keyman.private_key().unwrap(), &master_pbk).unwrap();
+        let accepted = SecureBootstrapSession::accept(
+            &state,
+            match &hello {
+                SecureFrame::BootstrapHello(hello) => hello,
+                _ => panic!("expected bootstrap hello"),
+            },
+            &master_prk,
+            &libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem())).unwrap().1.unwrap(),
+            Some("sid-1".to_string()),
+            Some("kid-1".to_string()),
+            None,
+        )
+        .unwrap();
+
+        (
+            SecureChannel::new(SecurePeerRole::Master, &accepted.0).unwrap(),
+            SecureChannel::new(
+                SecurePeerRole::Minion,
+                &opening
+                    .verify_ack(
+                        &state,
+                        match &accepted.1 {
+                            SecureFrame::BootstrapAck(ack) => ack,
+                            _ => panic!("expected bootstrap ack"),
+                        },
+                        &master_pbk,
+                    )
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+    }
 
     static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
@@ -191,6 +256,112 @@ mod tests {
         let (n, msg) = server.await.unwrap();
         assert_eq!(n, payload.len());
         assert_eq!(msg, payload);
+    }
+
+    #[tokio::test]
+    async fn request_seals_payload_when_secure_channel_is_active() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::io::AsyncReadExt;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut lenb = [0u8; 4];
+            sock.read_exact(&mut lenb).await.unwrap();
+            let mut msg = vec![0u8; u32::from_be_bytes(lenb) as usize];
+            sock.read_exact(&mut msg).await.unwrap();
+            msg
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        let (mut master_channel, minion_channel) = secure_channels(tmp.path());
+        minion.set_secure_channel(minion_channel).await;
+
+        minion.request(br#"{"r":"ping"}"#.to_vec()).await;
+
+        assert_eq!(master_channel.open_bytes(&server.await.unwrap()).unwrap(), br#"{"r":"ping"}"#.to_vec());
+    }
+
+    #[tokio::test]
+    async fn bootstrap_secure_fails_closed_without_trusted_master_key() {
+        let _guard = TEST_LOCK.lock().await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        let err = minion.bootstrap_secure().await.unwrap_err().to_string();
+        assert!(err.contains("Trusted master RSA key is missing"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_secure_marks_transport_state_broken_on_diagnostic_reply() {
+        let _guard = TEST_LOCK.lock().await;
+        use libsysproto::secure::{SecureBootstrapDiagnostic, SecureDiagnosticCode, SecureFailureSemantics, SecureFrame};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut lenb = [0u8; 4];
+            sock.read_exact(&mut lenb).await.unwrap();
+            let mut hello = vec![0u8; u32::from_be_bytes(lenb) as usize];
+            sock.read_exact(&mut hello).await.unwrap();
+            assert!(!hello.is_empty());
+
+            let reply = serde_json::to_vec(&SecureFrame::BootstrapDiagnostic(SecureBootstrapDiagnostic {
+                code: SecureDiagnosticCode::BootstrapRejected,
+                message: "stale trust".to_string(),
+                failure: SecureFailureSemantics::diagnostic(false, true),
+            }))
+            .unwrap();
+            sock.write_all(&(reply.len() as u32).to_be_bytes()).await.unwrap();
+            sock.write_all(&reply).await.unwrap();
+            sock.flush().await.unwrap();
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, master_pbk) = keygen(2048).unwrap();
+        key_to_file(&Public(master_pbk), tmp.path().to_str().unwrap(), CFG_MASTER_KEY_PUB).unwrap();
+
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg.clone(), None, dpq).await.unwrap();
+        let store = TransportStore::for_minion(&cfg).unwrap();
+        let err = minion.bootstrap_secure().await.unwrap_err().to_string();
+        assert!(err.contains("Master rejected secure bootstrap"), "unexpected error: {err}");
+
+        let state = store.load().unwrap().unwrap();
+        assert!(state.active_key_id.is_none());
+        assert!(state.last_key_id.is_some());
+        assert_eq!(state.keys.iter().filter(|record| record.status == TransportKeyStatus::Broken).count(), 1);
     }
 
     #[tokio::test]

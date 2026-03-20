@@ -18,9 +18,10 @@ fn runtime_dispatcher_names_are_reserved() {
 fn profiles_index_and_profile_roundtrip() {
     let mut index = ModPakProfilesIndex::new();
     index.insert("default", PathBuf::from("default.profile"), "deadbeef");
-    let index = ModPakProfilesIndex::from_yaml(&index.to_yaml().expect("profiles index should serialize")).expect("profiles index should deserialize");
-    let profile =
-        ModPakProfile::from_yaml("name: default\nmodules:\n  - runtime.lua\nlibraries:\n  - runtime/lua/reader.lua\n").expect("profile should deserialize");
+    let index =
+        ModPakProfilesIndex::from_yaml(&index.to_yaml().expect("profiles index should serialize")).expect("profiles index should deserialize");
+    let profile = ModPakProfile::from_yaml("name: default\nmodules:\n  - runtime.lua\nlibraries:\n  - runtime/lua/reader.lua\n")
+        .expect("profile should deserialize");
 
     assert_eq!(index.get("default").expect("default profile should exist").file(), &PathBuf::from("default.profile"));
     assert_eq!(profile.name(), "default");
@@ -53,8 +54,7 @@ library:
     .expect("repo index should deserialize");
     repo.index_module("runtime.lua", "runtime/lua", "any", "noarch", "lua runtime", false, "deadbeef", None, None)
         .expect("runtime module should index");
-    repo.index_module("net.ping", "net/ping", "any", "noarch", "ping module", false, "cafebabe", None, None)
-        .expect("ping module should index");
+    repo.index_module("net.ping", "net/ping", "any", "noarch", "ping module", false, "cafebabe", None, None).expect("ping module should index");
 
     let filtered = repo.retain_profiles(&modules, &libraries);
     let modules = filtered.modules();

@@ -5,6 +5,7 @@ pub mod msg {
     use libsysproto::{
         MasterMessage, MinionMessage, ProtoConversion,
         rqtypes::{ProtoKey, ProtoValue, RequestType},
+        secure::{SecureBootstrapDiagnostic, SecureFrame},
     };
     use once_cell::sync::Lazy;
     use serde_json::{Value, json, to_value};
@@ -64,5 +65,14 @@ pub mod msg {
         };
 
         Ok(msg)
+    }
+
+    /// Parse a plaintext secure bootstrap diagnostic sent before a secure Master/Minion session exists.
+    pub fn payload_to_diag(data: &[u8]) -> Result<SecureBootstrapDiagnostic, SysinspectError> {
+        match serde_json::from_slice::<SecureFrame>(data) {
+            Ok(SecureFrame::BootstrapDiagnostic(diag)) => Ok(diag),
+            Ok(_) => Err(SysinspectError::ProtoError("received a secure transport frame that is not a bootstrap diagnostic".to_string())),
+            Err(err) => Err(SysinspectError::ProtoError(format!("broken JSON from secure bootstrap diagnostic: {err}"))),
+        }
     }
 }

@@ -112,6 +112,10 @@ pub static CFG_CONSOLE_KEY_PRI: &str = "console.rsa";
 pub static CFG_CONSOLE_KEYS: &str = "console-keys";
 pub static CFG_MINION_RSA_PUB: &str = "minion.rsa.pub";
 pub static CFG_MINION_RSA_PRV: &str = "minion.rsa";
+pub static CFG_TRANSPORT_ROOT: &str = "transport";
+pub static CFG_TRANSPORT_MASTER: &str = "master";
+pub static CFG_TRANSPORT_MINIONS: &str = "minions";
+pub static CFG_TRANSPORT_STATE: &str = "state.json";
 
 // Sync
 // ----
@@ -525,6 +529,21 @@ impl MinionConfig {
         self.root_dir().join(CFG_PROFILES_ROOT)
     }
 
+    /// Root for managed secure transport metadata on the minion.
+    pub fn transport_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_TRANSPORT_ROOT)
+    }
+
+    /// Managed transport metadata for the current master/minion relationship.
+    pub fn transport_master_root(&self) -> PathBuf {
+        self.transport_root().join(CFG_TRANSPORT_MASTER)
+    }
+
+    /// Managed transport state file for the current master/minion relationship.
+    pub fn transport_state_file(&self) -> PathBuf {
+        self.transport_master_root().join(CFG_TRANSPORT_STATE)
+    }
+
     /// Return machine Id path
     pub fn machine_id_path(&self) -> PathBuf {
         if let Some(mid) = self.machine_id.clone() {
@@ -806,11 +825,11 @@ pub struct MasterConfig {
     #[serde(rename = "api.auth")]
     pam_enabled: Option<String>,
 
-    /// Disable libsodium crypto and authentication.
-    /// Still need auth, but can be just empty strings passed
-    /// and development mode token used.
+    /// Enable development-only Web API shortcuts.
     ///
-    /// WARNING: **DO NOT USE IN PRODUCTION! IT FULLY DISABLES ENCRYPTION!!!**
+    /// This keeps the normal Web API enabled, but allows the authentication
+    /// endpoint to return a static token and exposes the development query
+    /// endpoint for debugging.
     #[serde(rename = "api.devmode")]
     dev_mode: Option<bool>,
 
@@ -938,11 +957,7 @@ impl MasterConfig {
 
     /// Return console listener address for `sysmaster`.
     pub fn console_listen_addr(&self) -> String {
-        format!(
-            "{}:{}",
-            self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()),
-            self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
-        )
+        format!("{}:{}", self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()), self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT))
     }
 
     /// Return console connect address for `sysinspect`.
@@ -952,11 +967,14 @@ impl MasterConfig {
     pub fn console_connect_addr(&self) -> String {
         format!(
             "{}:{}",
-            if self.console_ip.as_deref() == Some("0.0.0.0") { "127.0.0.1".to_string() } else { self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string()) },
+            if self.console_ip.as_deref() == Some("0.0.0.0") {
+                "127.0.0.1".to_string()
+            } else {
+                self.console_ip.to_owned().unwrap_or("127.0.0.1".to_string())
+            },
             self.console_port.unwrap_or(DEFAULT_CONSOLE_PORT)
         )
     }
-
 
     /// Get API enabled status (default: true)
     pub fn api_enabled(&self) -> bool {
@@ -987,12 +1005,10 @@ impl MasterConfig {
         }
     }
 
-    /// Get API development mode
-    /// This is a special mode for development purposes only.
-    /// It disables all crypto and authentication, so it is not secure.
-    /// Use it only for development and testing purposes!
+    /// Get API development mode.
     ///
-    /// WARNING: **DO NOT USE DEVMODE IN PRODUCTION! IT FULLY DISABLES ENCRYPTION!!!**
+    /// When enabled, the Web API exposes additional development helpers such as
+    /// authentication bypass and the development query endpoint.
     pub fn api_devmode(&self) -> bool {
         self.dev_mode.unwrap_or(false)
     }
@@ -1065,6 +1081,16 @@ impl MasterConfig {
 
     pub fn console_keys_root(&self) -> PathBuf {
         self.root_dir().join(CFG_CONSOLE_KEYS)
+    }
+
+    /// Root for managed secure transport metadata on the master.
+    pub fn transport_root(&self) -> PathBuf {
+        self.root_dir().join(CFG_TRANSPORT_ROOT)
+    }
+
+    /// Root for per-minion managed secure transport metadata on the master.
+    pub fn transport_minions_root(&self) -> PathBuf {
+        self.transport_root().join(CFG_TRANSPORT_MINIONS)
     }
 
     pub fn console_privkey(&self) -> PathBuf {

@@ -1,16 +1,12 @@
 pub use crate::api::v1::system::health_handler;
-use crate::{MasterInterfaceType, api::v1::TAG_MINIONS, keystore::get_webapi_keystore, sessions::get_session_store};
+use crate::{MasterInterfaceType, api::v1::TAG_MINIONS, sessions::get_session_store};
 use actix_web::{
     Result, post,
     web::{Data, Json},
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
-use colored::Colorize;
 use libcommon::SysinspectError;
-use libsysinspect::cfg::mmconf::MasterConfig;
 use serde::{Deserialize, Serialize};
-use sodiumoxide::crypto::secretbox::Nonce;
-use std::{collections::HashMap, fmt::Display, str::from_utf8};
+use std::{collections::HashMap, fmt::Display};
 use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
@@ -37,36 +33,32 @@ impl QueryPayloadRequest {
 
 #[derive(Deserialize, Serialize, ToSchema)]
 pub struct QueryRequest {
-    pub sid_rsa: String, // RSA encrypted session ID
-    pub nonce: String,   // Nonce for symmetric encryption
-    pub payload: String, // Base64-encoded, symmetric-encrypted JSON payload
+    pub sid: String,
+    pub model: String,
+    pub query: String,
+    pub traits: String,
+    pub mid: String,
+    pub context: HashMap<String, String>,
 }
 
 impl QueryRequest {
-    pub fn to_query_request(&self, cfg: &MasterConfig) -> Result<QueryPayloadRequest, SysinspectError> {
-        if self.sid_rsa.is_empty() {
-            return Err(SysinspectError::RSAError("Session ID cannot be empty".to_string()));
+    pub fn to_query_request(&self) -> Result<QueryPayloadRequest, SysinspectError> {
+        if self.sid.trim().is_empty() {
+            return Err(SysinspectError::WebAPIError("Session ID cannot be empty".to_string()));
         }
 
-        let keystore = get_webapi_keystore(cfg)?;
         let mut sessions = get_session_store().lock().unwrap();
-        let sid = keystore.decrypt_user_data(
-            &STANDARD.decode(&self.sid_rsa).map_err(|e| SysinspectError::RSAError(format!("Failed to decode sid_rsa from base64: {e}")))?,
-        )?;
-
-        match sessions.decrypt(
-            from_utf8(&sid).map_err(|_| SysinspectError::WebAPIError("Session ID is not valid UTF-8".to_string()))?,
-            &Nonce::from_slice(
-                &STANDARD.decode(&self.nonce).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode nonce from base64: {e}")))?,
-            )
-            .ok_or(SysinspectError::WebAPIError("Invalid nonce length".to_string()))?
-            .0,
-            &STANDARD.decode(&self.payload).map_err(|e| SysinspectError::WebAPIError(format!("Failed to decode payload from base64: {e}")))?,
-        ) {
-            Ok(data) => Ok(data),
-            Err(e) => {
-                log::debug!("{}: Failed to decrypt payload: {}", "ERROR".bright_red(), e);
-                Err(SysinspectError::WebAPIError(format!("Failed to decrypt payload: {}", e)))
+        match sessions.uid(&self.sid) {
+            Some(_) => Ok(QueryPayloadRequest {
+                model: self.model.clone(),
+                query: self.query.clone(),
+                traits: self.traits.clone(),
+                mid: self.mid.clone(),
+                context: self.context.clone(),
+            }),
+            None => {
+                log::debug!("Session {} is missing or expired", self.sid);
+                Err(SysinspectError::WebAPIError("Invalid or expired session".to_string()))
             }
         }
     }
@@ -102,8 +94,7 @@ impl Display for QueryError {
 #[post("/api/v1/query")]
 async fn query_handler(master: Data<MasterInterfaceType>, body: Json<QueryRequest>) -> Result<Json<QueryResponse>> {
     let mut master = master.lock().await;
-    let cfg = master.cfg().await;
-    let qpr = match body.to_query_request(cfg) {
+    let qpr = match body.to_query_request() {
         Ok(q) => q,
         Err(e) => {
             use actix_web::http::StatusCode;

@@ -1,7 +1,10 @@
 use super::{ConsoleBootstrap, ConsoleQuery, ConsoleSealed, ensure_console_keypair};
 use crate::{
     cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB},
-    rsa::keys::{RsaKey::{Private, Public}, key_to_file, keygen},
+    rsa::keys::{
+        RsaKey::{Private, Public},
+        key_to_file, keygen,
+    },
 };
 use rsa::traits::PublicKeyParts;
 use sodiumoxide::crypto::secretbox;
@@ -62,11 +65,7 @@ fn ensure_console_keypair_sets_restrictive_permissions() {
     let _ = ensure_console_keypair(root.path()).unwrap();
 
     let dir_mode = std::fs::metadata(root.path()).unwrap().permissions().mode() & 0o777;
-    let key_mode = std::fs::metadata(root.path().join(crate::cfg::mmconf::CFG_CONSOLE_KEY_PRI))
-        .unwrap()
-        .permissions()
-        .mode()
-        & 0o777;
+    let key_mode = std::fs::metadata(root.path().join(crate::cfg::mmconf::CFG_CONSOLE_KEY_PRI)).unwrap().permissions().mode() & 0o777;
 
     assert_eq!(dir_mode, 0o700);
     assert_eq!(key_mode, 0o600);

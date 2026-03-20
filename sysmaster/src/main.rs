@@ -5,7 +5,11 @@ mod master;
 mod master_itf;
 mod registry;
 mod telemetry;
+mod transport;
 mod util;
+
+#[cfg(test)]
+mod master_ut;
 
 use clap::{ArgMatches, Command};
 use clidef::cli;

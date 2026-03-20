@@ -2,7 +2,8 @@ use actix_web::{App, HttpResponse, HttpServer, Responder, rt::System, web};
 use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::{
-    CFG_FILESERVER_ROOT, CFG_MODELS_ROOT, CFG_MODREPO_ROOT, CFG_PROFILES_ROOT, CFG_SENSORS_ROOT, CFG_TRAIT_FUNCTIONS_ROOT, CFG_TRAITS_ROOT, MasterConfig,
+    CFG_FILESERVER_ROOT, CFG_MODELS_ROOT, CFG_MODREPO_ROOT, CFG_PROFILES_ROOT, CFG_SENSORS_ROOT, CFG_TRAIT_FUNCTIONS_ROOT, CFG_TRAITS_ROOT,
+    MasterConfig,
 };
 use std::{fs, path::PathBuf, thread};
 
@@ -42,17 +43,17 @@ async fn serve_file(path: web::Path<PathBuf>, cfg: web::Data<MasterConfig>) -> i
 
 /// Start fileserver
 pub async fn start(cfg: MasterConfig) -> Result<(), SysinspectError> {
-    log::info!("Starting file server");
-
     let cfg_clone = cfg.clone();
     init_fs_env(&cfg)?;
 
     thread::spawn(move || {
         let c_cfg = cfg_clone.clone();
+        let listen_addr = c_cfg.fileserver_bind_addr();
+        log::info!("Starting file server at {}", listen_addr.bright_yellow());
         System::new().block_on(async move {
             let server =
                 HttpServer::new(move || App::new().app_data(web::Data::new(cfg_clone.clone())).service(web::resource("/{path:.*}").to(serve_file)))
-                    .bind(c_cfg.fileserver_bind_addr());
+                    .bind(listen_addr.as_str());
 
             match server {
                 Ok(server) => {
@@ -66,6 +67,5 @@ pub async fn start(cfg: MasterConfig) -> Result<(), SysinspectError> {
             }
         })
     });
-    log::info!("Fileserver started at address {}", cfg.fileserver_bind_addr());
     Ok(())
 }
