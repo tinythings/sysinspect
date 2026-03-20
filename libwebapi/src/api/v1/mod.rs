@@ -9,8 +9,6 @@ use crate::api::v1::{
     system::{AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
 use actix_web::Scope;
-use colored::Colorize;
-use once_cell::sync::OnceCell;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -26,17 +24,14 @@ pub static TAG_MINIONS: &str = "Minions";
 pub static TAG_SYSTEM: &str = "System";
 pub static TAG_MODELS: &str = "Models";
 
-static SWAGGER_DEVMODE: OnceCell<std::sync::Mutex<bool>> = OnceCell::new();
-
 /// API Version 1 implementation
 pub struct V1 {
     dev_mode: bool,
-    swagger_port: u16,
 }
 
 impl V1 {
-    pub fn new(dev_mode: bool, swagger_port: u16) -> Self {
-        V1 { dev_mode, swagger_port }
+    pub fn new(dev_mode: bool) -> Self {
+        V1 { dev_mode }
     }
 }
 
@@ -53,22 +48,15 @@ impl super::ApiVersion for V1 {
             .service(store_list_handler)
             .service(store_meta_handler)
             .service(store_blob_handler)
-            .service(store_upload_handler);
+            .service(store_upload_handler)
+            .service(if self.dev_mode {
+                SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDocDev::openapi())
+            } else {
+                SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())
+            });
 
         if self.dev_mode {
-            scope = scope.service(SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())).service(query_handler_dev);
-            let mode = SWAGGER_DEVMODE.get_or_init(|| std::sync::Mutex::new(false));
-            let mut mode = mode.lock().unwrap();
-            if !*mode {
-                *mode = self.dev_mode;
-                log::info!(
-                    "{} In development mode {} is enabled at http://{}:{}/doc/",
-                    "WARNING:".bright_red().bold(),
-                    "API Swagger UI".bright_yellow(),
-                    "<THIS_HOST>",
-                    self.swagger_port
-                );
-            }
+            scope = scope.service(query_handler_dev);
         }
 
         scope
@@ -94,3 +82,23 @@ impl super::ApiVersion for V1 {
                              ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDoc;
+
+#[derive(OpenApi)]
+#[openapi(paths(
+    crate::api::v1::minions::query_handler,
+    crate::api::v1::minions::query_handler_dev,
+    crate::api::v1::system::health_handler,
+    crate::api::v1::system::authenticate_handler,
+    crate::api::v1::model::model_names_handler,
+    crate::api::v1::model::model_descr_handler,
+    crate::api::v1::store::store_meta_handler,
+    crate::api::v1::store::store_blob_handler,
+    crate::api::v1::store::store_upload_handler,
+    crate::api::v1::store::store_resolve_handler,
+    crate::api::v1::store::store_list_handler,
+),
+          components(schemas(QueryRequest, QueryResponse, QueryError, QueryPayloadRequest,
+                             HealthInfo, HealthResponse, AuthRequest, AuthResponse,
+                             ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
+info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
+pub struct ApiDocDev;

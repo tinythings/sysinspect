@@ -113,6 +113,7 @@ config:
     pidfile: /tmp/sysinspect.pid
 
     # API configuration
+    # Set api.devmode only when you need auth bypass and the development query endpoint.
     api.devmode: false
     api.enabled: true
 

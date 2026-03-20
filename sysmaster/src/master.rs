@@ -242,7 +242,7 @@ impl SysMaster {
 
     /// Start sysmaster
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
-        log::info!("Starting master at {}", self.cfg.bind_addr());
+        log::info!("Starting master at {}", self.cfg.bind_addr().bright_yellow());
         ensure_console_keypair(&self.cfg.root_dir())?;
         std::fs::create_dir_all(self.cfg.console_keys_root()).map_err(SysinspectError::IoErr)?;
         self.vmcluster.init().await?;

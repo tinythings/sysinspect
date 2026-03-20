@@ -20,9 +20,26 @@ pub trait MasterInterface: Send + Sync {
 
 pub type MasterInterfaceType = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
 
+fn advertised_api_host(bind_addr: &str) -> String {
+    match bind_addr {
+        "0.0.0.0" | "::" | "[::]" => hostname::get()
+            .ok()
+            .and_then(|value| {
+                let host = value.to_string_lossy().trim().to_string();
+                if host.is_empty() { None } else { Some(host) }
+            })
+            .unwrap_or_else(|| "localhost".to_string()),
+        _ => bind_addr.to_string(),
+    }
+}
+
+fn advertised_doc_url(bind_addr: &str, bind_port: u32) -> String {
+    format!("http://{}:{bind_port}/doc/", advertised_api_host(bind_addr))
+}
+
 pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<(), SysinspectError> {
     if !cfg.api_enabled() {
-        log::warn!("Web API is {} in the configuration.", "disabled".bright_yellow().bold());
+        log::info!("Web API disabled.");
         return Ok(());
     }
 
@@ -31,32 +48,26 @@ pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<()
 
     thread::spawn(move || {
         let devmode = ccfg.api_devmode();
-        let swagger_port = ccfg.api_bind_port();
+        let bind_addr = ccfg.api_bind_addr();
+        let bind_port = ccfg.api_bind_port();
+        let listen_addr = format!("{}:{}", bind_addr, bind_port);
         let version = match ccfg.api_version() {
             1 => ApiVersions::V1,
             _ => ApiVersions::V1,
         };
 
-        if devmode {
-            log::info!("{} *** {} ***", "WARNING:".bright_red().bold(), "Web API is running in development mode".red());
-        } else {
-            log::info!(
-                "{} is running in {}. Swagger UI is {}.",
-                "Web API".yellow(),
-                "production mode".bright_green(),
-                "disabled".bright_white().bold()
-            );
-        }
+        log::info!("Starting Web API at {}", listen_addr.bright_yellow());
+        log::info!("Web API enabled. Swagger UI available at {}", advertised_doc_url(&bind_addr, bind_port));
 
         actix_web::rt::System::new().block_on(async move {
             HttpServer::new(move || {
                 let mut scope = web::scope("");
-                if let Some(ver) = api::get(devmode, swagger_port as u16, version) {
+                if let Some(ver) = api::get(devmode, version) {
                     scope = ver.load(scope);
                 }
                 App::new().app_data(web::Data::new(cmaster.clone())).service(scope)
             })
-            .bind((ccfg.api_bind_addr(), ccfg.api_bind_port() as u16))
+            .bind((bind_addr.as_str(), bind_port as u16))
             .map_err(SysinspectError::from)?
             .run()
             .await

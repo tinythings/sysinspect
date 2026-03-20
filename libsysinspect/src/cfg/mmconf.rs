@@ -825,11 +825,11 @@ pub struct MasterConfig {
     #[serde(rename = "api.auth")]
     pam_enabled: Option<String>,
 
-    /// Disable libsodium crypto and authentication.
-    /// Still need auth, but can be just empty strings passed
-    /// and development mode token used.
+    /// Enable development-only Web API shortcuts.
     ///
-    /// WARNING: **DO NOT USE IN PRODUCTION! IT FULLY DISABLES ENCRYPTION!!!**
+    /// This keeps the normal Web API enabled, but allows the authentication
+    /// endpoint to return a static token and exposes the development query
+    /// endpoint for debugging.
     #[serde(rename = "api.devmode")]
     dev_mode: Option<bool>,
 
@@ -1005,12 +1005,10 @@ impl MasterConfig {
         }
     }
 
-    /// Get API development mode
-    /// This is a special mode for development purposes only.
-    /// It disables all crypto and authentication, so it is not secure.
-    /// Use it only for development and testing purposes!
+    /// Get API development mode.
     ///
-    /// WARNING: **DO NOT USE DEVMODE IN PRODUCTION! IT FULLY DISABLES ENCRYPTION!!!**
+    /// When enabled, the Web API exposes additional development helpers such as
+    /// authentication bypass and the development query endpoint.
     pub fn api_devmode(&self) -> bool {
         self.dev_mode.unwrap_or(false)
     }

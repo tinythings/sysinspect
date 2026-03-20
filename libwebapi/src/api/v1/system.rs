@@ -104,16 +104,16 @@ impl AuthResponse {
           \"username\": \"darth_vader\",\n\
                     \"password\": \"I am your father\"\n\
         }\n\
-            ```\n\n\
-        If the API is in development mode, it will return a static token without \
-        actual authentication.",
+                        ```\n\n\
+                    If `api.devmode` is enabled, the handler returns a static token without \
+                    performing authentication.",
 )]
 #[post("/api/v1/authenticate")]
 pub async fn authenticate_handler(master: web::Data<MasterInterfaceType>, body: web::Json<AuthRequest>) -> impl Responder {
     let master = master.lock().await;
     let cfg = master.cfg().await;
     if cfg.api_devmode() {
-        log::warn!("API is in development mode, returning static token!");
+        log::warn!("Web API development auth bypass is enabled, returning static token.");
         return HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid: "dev-token".into(), error: String::new() });
     }
 
