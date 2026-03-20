@@ -1,92 +1,81 @@
-use base64::{Engine, engine::general_purpose::STANDARD};
 use libcommon::SysinspectError;
-use libsysinspect::rsa::keys::{
-    RsaKey::{Private, Public},
-    decrypt, encrypt, key_from_file, key_to_file, keygen,
-};
-use serde_json::{Value, json};
-use sodiumoxide::crypto::secretbox::{self, Key, gen_nonce};
-use std::{fs, path::PathBuf};
-use syswebclient::{
-    apis::{
-        configuration::Configuration, minions_api::query_handler, rsa_keys_api::master_key,
-        system_api::authenticate_user,
-    },
-    models::{AuthRequest, QueryResponse},
-};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::{collections::BTreeMap, collections::HashMap};
 
 /// SysClient Configuration
 /// This struct holds the configuration for the SysClient, including the root directory.
 /// It can be extended in the future to include more configuration options.
 ///
 /// # Fields
-/// * `root` - The root directory where keys and other files are stored.
-/// * `private_key` - The filename of the private key.
-/// * `public_key` - The filename of the public key.
-/// * `master_public_key` - The filename of the master public key.
 /// * `master_url` - The URL of the SysInspect master server.
 #[derive(Debug, Clone)]
 pub struct SysClientConfiguration {
-    pub root: PathBuf,
-    pub private_key: String,
-    pub public_key: String,
-    pub master_public_key: String,
     pub master_url: String,
 }
 
 impl SysClientConfiguration {
-    /// Returns the path to the private key file, joined with the root directory.
-    ///
-    /// # Returns
-    /// A `PathBuf` representing the full path to the private key file.
-    pub fn privkey_path(&self) -> PathBuf {
-        self.root.join(&self.private_key)
-    }
-
-    /// Returns the path to the public key file, joined with the root directory.
-    ///
-    /// # Returns
-    /// A `PathBuf` representing the full path to the public key file.
-    pub fn pubkey_path(&self) -> PathBuf {
-        self.root.join(&self.public_key)
-    }
-
-    /// Returns the path to the master public key file, joined with the root directory.
-    ///
-    /// # Returns
-    /// A `PathBuf` representing the full path to the master public key file.
-    pub fn master_pubkey_path(&self) -> PathBuf {
-        self.root.join(&self.master_public_key)
-    }
-
-    /// Return API configuration for the SysClient.
-    /// This method constructs a `Configuration` object that is used to interact with the SysInspect API.
-    /// # Returns
-    /// A `Configuration` object with the base path set to the master URL,
-    /// user agent set to "sysinspect-client/0.1.0", and a new `reqwest::Client`.
-    pub fn get_api_config(&self) -> Configuration {
-        Configuration {
-            base_path: self.master_url.clone(),
-            user_agent: Some("sysinspect-client/0.1.0".to_string()),
-            client: reqwest::Client::new(),
-            basic_auth: None,
-            oauth_access_token: None,
-            bearer_access_token: None,
-            api_key: None,
-        }
+    fn client(&self) -> Client {
+        Client::builder().user_agent("sysinspect-client/0.1.0").build().unwrap_or_else(|_| Client::new())
     }
 }
 
 impl Default for SysClientConfiguration {
     fn default() -> Self {
-        SysClientConfiguration {
-            root: PathBuf::from("."),
-            private_key: "private.key".to_string(),
-            public_key: "public.key".to_string(),
-            master_public_key: "master_public.key".to_string(),
-            master_url: "http://localhost:4202".to_string(),
-        }
+        SysClientConfiguration { master_url: "http://localhost:4202".to_string() }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AuthRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AuthResponse {
+    pub status: String,
+    pub sid: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct QueryRequest {
+    pub sid: String,
+    pub model: String,
+    pub query: String,
+    pub traits: String,
+    pub mid: String,
+    pub context: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct QueryResponse {
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelNameResponse {
+    pub models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub maintainer: String,
+    #[allow(clippy::type_complexity)]
+    #[serde(rename = "entity-states")]
+    pub entity_states: BTreeMap<String, Vec<(String, BTreeMap<String, String>)>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelResponse {
+    pub model: ModelInfo,
 }
 
 /// SysClient is the main client for interacting with the SysInspect system.
@@ -94,163 +83,17 @@ impl Default for SysClientConfiguration {
 /// It handles user authentication, key management, and data encryption/decryption.
 ///
 /// # Fields
-/// * `cfg` - The configuration for the SysClient, which includes paths to keys and the master URL.
+/// * `cfg` - The configuration for the SysClient, which includes the master URL.
 /// * `sid` - The session ID for the authenticated user.
-/// * `symkey` - The symmetric key used for encrypting and decrypting data after authentication.
 #[derive(Debug, Clone)]
 pub struct SysClient {
     cfg: SysClientConfiguration,
     sid: String,
-    symkey: Vec<u8>,
 }
 
 impl SysClient {
     pub fn new(cfg: SysClientConfiguration) -> Self {
-        SysClient { cfg, sid: String::new(), symkey: Vec::new() }
-    }
-
-    /// Setup the SysClient by generating RSA keypair and download Master RSA public key.
-    /// Keys are stored where the configuration specifies.
-    ///
-    /// # Returns
-    /// A `Result` that is `Ok(())` if the setup is successful,
-    /// or an `Err(SysinspectError)` if there is an error during the setup.
-    pub(crate) async fn setup(&self) -> Result<(), SysinspectError> {
-        if !self.cfg.privkey_path().exists() || !self.cfg.pubkey_path().exists() {
-            log::debug!("Generating RSA keys...");
-
-            let (prk, pbk) = keygen(2048)?;
-            key_to_file(&Private(prk), "./", self.cfg.privkey_path().to_str().unwrap())?;
-            key_to_file(&Public(pbk), "./", self.cfg.pubkey_path().to_str().unwrap())?;
-            log::debug!("RSA keys generated successfully.");
-        }
-
-        if !self.cfg.master_pubkey_path().exists() {
-            let r = master_key(&self.cfg.get_api_config()).await.map_err(|e| {
-                SysinspectError::MasterGeneralError(format!("Failed to retrieve master public key (network): {e}"))
-            })?;
-
-            if r.key.is_empty() {
-                return Err(SysinspectError::MasterGeneralError("Master public key is empty".to_string()));
-            }
-            fs::write(self.cfg.master_pubkey_path(), r.key.as_bytes()).map_err(SysinspectError::IoErr)?;
-        }
-
-        Ok(())
-    }
-
-    /// Encode data to Base64 format.
-    /// This method uses the `base64` crate to encode the provided data into a Base64 string.
-    /// # Arguments
-    /// * `data` - The data to encode, provided as a byte slice.
-    /// # Returns
-    /// A `String` containing the Base64-encoded representation of the input data.
-    /// # Errors
-    /// * This function does not return an error; it will always return a valid Base64 string.
-    pub(crate) fn b64encode(&self, data: &[u8]) -> String {
-        STANDARD.encode(data)
-    }
-
-    /// Encrypt data using a public key (master or own).
-    /// This method reads the public key from the file system and uses it to encrypt the provided data.
-    /// # Arguments
-    /// * `data` - The data to encrypt, provided as a string.
-    /// # Returns
-    /// A `Result` that is `Ok(Vec<u8>)` containing the encrypted data,
-    /// or an `Err(SysinspectError)` if there is an error during the encryption process.
-    pub(crate) fn encrypt(&self, data: &str, pkey: &str) -> Result<Vec<u8>, SysinspectError> {
-        let pbk = match key_from_file(pkey)?
-            .ok_or(SysinspectError::RSAError("Failed to load RSA key from file".to_string()))?
-        {
-            Public(ref k) => k.clone(),
-            _ => return Err(SysinspectError::RSAError("Expected a public key".to_string())),
-        };
-
-        encrypt(pbk, data.as_bytes().to_vec())
-            .map_err(|_| SysinspectError::RSAError("Failed to encrypt data".to_string()))
-    }
-
-    /// Decrypt data using the private key.
-    /// This method reads the private key from the file system and uses it to decrypt the provided data.
-    /// # Arguments
-    /// * `data` - The encrypted data to decrypt, provided as a byte slice.
-    /// # Returns
-    /// A `Result` that is `Ok(String)` containing the decrypted data as a string,
-    /// or an `Err(SysinspectError)` if there is an error during the decryption process.
-    ///
-    /// # Errors
-    /// * Returns `SysinspectError::RSAError` if there is an error during decryption,
-    /// * Returns `SysinspectError::SerializationError` if the decrypted data cannot be converted to a string.
-    ///
-    /// This function expects the private key to be in PEM format and stored in the file specified
-    /// by `self.cfg.privkey_path()`. If the file does not exist or is not a valid private key,
-    /// it will return an error.
-    pub(crate) fn decrypt(&self, data: &[u8]) -> Result<String, SysinspectError> {
-        let prk = match key_from_file(self.cfg.privkey_path().to_str().unwrap())?
-            .ok_or(SysinspectError::RSAError("Failed to load RSA key from file".to_string()))?
-        {
-            Private(ref k) => k.clone(),
-            _ => return Err(SysinspectError::RSAError("Expected a private key".to_string())),
-        };
-
-        let data =
-            decrypt(prk, data.to_vec()).map_err(|_| SysinspectError::RSAError("Failed to decrypt data".to_string()))?;
-
-        String::from_utf8(data)
-            .map_err(|_| SysinspectError::SerializationError("Failed to decode decrypted data".to_string()))
-    }
-
-    /// Read the client's public key from the file system.
-    ///
-    /// # Returns
-    /// A `Result` that is `Ok(String)` containing the client's public key if successful,
-    /// or an `Err(SysinspectError)` if there is an error reading the file.
-    pub async fn client_pubkey_pem(&self) -> Result<String, SysinspectError> {
-        fs::read_to_string(self.cfg.pubkey_path()).map_err(SysinspectError::IoErr)
-    }
-
-    /// Convert a JSON payload to a symmetric encrypted payload.
-    /// This method generates a nonce, serializes the payload to JSON, and encrypts it
-    /// using the symmetric key stored in `self.symkey`.
-    ///
-    /// # Arguments
-    /// * `payload` - The JSON payload to encrypt, provided as a `serde_json::Value`.
-    /// # Returns
-    /// A `Result` that is `Ok((Vec<u8>, Vec<u8>))` containing the nonce and the encrypted data,
-    /// or an `Err(SysinspectError)` if there is an error during serialization or encryption.
-    ///
-    /// # Errors
-    /// * Returns `SysinspectError::SerializationError` if the payload cannot be serialized to JSON,
-    /// * Returns `SysinspectError::SerializationError` if the symmetric key is not valid (i.e., not 32 bytes long),
-    /// * Returns `SysinspectError::SerializationError` if the encryption fails for any reason.
-    ///
-    /// This function uses the `sodiumoxide` library for encryption,
-    /// specifically the `secretbox` module for symmetric encryption.
-    /// It expects the symmetric key to be 32 bytes long,
-    /// which is the required length for the `secretbox::Key`.
-    ///
-    /// The nonce is generated using `secretbox::gen_nonce()`, which creates a new nonce for each encryption operation.
-    /// The payload is serialized to a byte vector using `serde_json::to_vec()`.
-    /// If the serialization fails, it returns a `SysinspectError::SerializationError`.
-    /// The symmetric key is created from the `self.symkey` field, which is expected to be a 32-byte slice.
-    /// If the key is not valid, it returns a `SysinspectError::SerializationError`.
-    /// The encrypted data is produced using `secretbox::seal()`, which takes the serialized data, nonce, and symmetric key.
-    /// If the encryption fails, it returns a `SysinspectError::SerializationError`.
-    /// The function returns a tuple containing the nonce and the encrypted data as byte vectors.
-    /// The nonce is returned as a `Vec<u8>` for easy transmission, and the encrypted data is also returned as a `Vec<u8>`.
-    /// This allows the caller to use the nonce and encrypted data for further processing,
-    /// such as sending it over a network or storing it securely.
-    pub async fn to_payload(&self, payload: &Value) -> Result<(Vec<u8>, Vec<u8>), SysinspectError> {
-        let nonce = gen_nonce();
-        Ok((
-            nonce.0.to_vec(),
-            secretbox::seal(
-                &serde_json::to_vec(payload).map_err(|e| SysinspectError::SerializationError(e.to_string()))?,
-                &nonce,
-                &Key::from_slice(&self.symkey)
-                    .ok_or_else(|| SysinspectError::SerializationError("Invalid symmetric key length".to_string()))?,
-            ),
-        ))
+        SysClient { cfg, sid: String::new() }
     }
 
     /// Authenticate a user with the SysInspect system.
@@ -265,42 +108,32 @@ impl SysClient {
     /// or `Ok(false)` if authentication fails.
     /// If there is an error during the setup or authentication process, it returns an `Err(SysinspectError)`.
     pub async fn authenticate(&mut self, uid: &str, pwd: &str) -> Result<String, SysinspectError> {
-        // Setup the client first
-        self.setup().await?;
-
-        // Authenticate the user
         log::debug!("Authenticating user: {uid}");
-        let r = authenticate_user(
-            &self.cfg.get_api_config(),
-            AuthRequest {
-                payload: STANDARD.encode(&self.encrypt(
-                    &json!({"username": uid, "password": pwd}).to_string(),
-                    self.cfg.master_pubkey_path().to_str().unwrap(),
-                )?),
-                pubkey: self.client_pubkey_pem().await?,
-            },
-        )
-        .await
-        .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication error: {e}")))?;
+        let response = self
+            .cfg
+            .client()
+            .post(format!("{}/api/v1/authenticate", self.cfg.master_url.trim_end_matches('/')))
+            .json(&AuthRequest { username: uid.to_string(), password: pwd.to_string() })
+            .send()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication error: {e}")))?;
+        let response = response
+            .error_for_status()
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication error: {e}")))?
+            .json::<AuthResponse>()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication decode error: {e}")))?;
 
-        self.symkey =
-            hex::decode(
-                self.decrypt(&STANDARD.decode(&r.symkey_cipher).map_err(|e| {
-                    SysinspectError::SerializationError(format!("Failed to decode base64 symkey: {e}"))
-                })?)
-                .map_err(|e| SysinspectError::SerializationError(format!("Failed to decrypt symkey: {e}")))?,
-            )
-            .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode hex symkey: {e}")))?;
+        if response.status != "authenticated" || response.sid.trim().is_empty() {
+            return Err(SysinspectError::MasterGeneralError(if response.error.is_empty() {
+                "Authentication failed".to_string()
+            } else {
+                response.error
+            }));
+        }
 
-        self.sid = self
-            .decrypt(
-                &STANDARD
-                    .decode(&r.sid_cipher)
-                    .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode base64 SID: {e}")))?,
-            )
-            .map_err(|e| SysinspectError::SerializationError(format!("Failed to decrypt SID: {e}")))?;
-
-        log::debug!("Authenticated user: {uid}, session ID: {}, symmetric key: {:x?}", self.sid, self.symkey);
+        self.sid = response.sid;
+        log::debug!("Authenticated user: {uid}, session ID: {}", self.sid);
 
         Ok(self.sid.clone())
     }
@@ -329,24 +162,28 @@ impl SysClient {
             return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
         }
 
-        let payload = json!({
-            "model": model,
-            "query": query,
-            "traits": traits,
-            "mid": mid,
-            "context": context,
-        });
-
-        let (nonce, payload) = self.to_payload(&payload).await?;
-        let query_request = syswebclient::models::QueryRequest {
-            nonce: STANDARD.encode(nonce),
-            payload: STANDARD.encode(payload),
-            sid_rsa: self.b64encode(&self.encrypt(&self.sid.clone(), self.cfg.master_pubkey_path().to_str().unwrap())?),
+        let query_request = QueryRequest {
+            sid: self.sid.clone(),
+            model: model.to_string(),
+            query: query.to_string(),
+            traits: traits.to_string(),
+            mid: mid.to_string(),
+            context: Self::context_map(context)?,
         };
 
-        let response = query_handler(&self.cfg.get_api_config(), query_request)
+        let response = self
+            .cfg
+            .client()
+            .post(format!("{}/api/v1/query", self.cfg.master_url.trim_end_matches('/')))
+            .json(&query_request)
+            .send()
             .await
-            .map_err(|e| SysinspectError::MasterGeneralError(format!("Query error: {e}")))?;
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Query error: {e}")))?
+            .error_for_status()
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Query error: {e}")))?
+            .json::<QueryResponse>()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Query decode error: {e}")))?;
 
         Ok(response)
     }
@@ -362,27 +199,49 @@ impl SysClient {
     /// Calls the `list_models` API to fetch available models from the SysInspect system.
     /// Returns a `ModelNameResponse` containing the list of models on success, or a `SysinspectError` if the API call fails.
     /// This enables the caller to access the models provided by the SysInspect system.
-    pub async fn models(&self) -> Result<syswebclient::models::ModelNameResponse, SysinspectError> {
-        if self.sid.is_empty() {
-            return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
-        }
-
-        let response = syswebclient::apis::models_api::list_models(&self.cfg.get_api_config()).await;
-        match response {
-            Err(e) => Err(SysinspectError::MasterGeneralError(format!("Failed to list models: {e}"))),
-            Ok(r) => Ok(r),
-        }
+    pub async fn models(&self) -> Result<ModelNameResponse, SysinspectError> {
+        self.cfg
+            .client()
+            .get(format!("{}/api/v1/model/names", self.cfg.master_url.trim_end_matches('/')))
+            .send()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to list models: {e}")))?
+            .error_for_status()
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to list models: {e}")))?
+            .json::<ModelNameResponse>()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to decode model list: {e}")))
     }
 
-    pub async fn model_descr(&self, name: &str) -> Result<syswebclient::models::ModelResponse, SysinspectError> {
-        if self.sid.is_empty() {
-            return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
-        }
+    pub async fn model_descr(&self, name: &str) -> Result<ModelResponse, SysinspectError> {
+        self.cfg
+            .client()
+            .get(format!("{}/api/v1/model/descr", self.cfg.master_url.trim_end_matches('/')))
+            .query(&[("name", name)])
+            .send()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to get model details: {e}")))?
+            .error_for_status()
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to get model details: {e}")))?
+            .json::<ModelResponse>()
+            .await
+            .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to decode model details: {e}")))
+    }
 
-        let response = syswebclient::apis::models_api::get_model_details(&self.cfg.get_api_config(), name).await;
-        match response {
-            Err(e) => Err(SysinspectError::MasterGeneralError(format!("Failed to get model details: {e}"))),
-            Ok(r) => Ok(r),
-        }
+    fn context_map(context: Value) -> Result<HashMap<String, String>, SysinspectError> {
+        let Value::Object(map) = context else {
+            return Err(SysinspectError::SerializationError("Query context must be a JSON object".to_string()));
+        };
+
+        Ok(map
+            .into_iter()
+            .map(|(key, value)| {
+                let value = match value {
+                    Value::String(text) => text,
+                    other => other.to_string(),
+                };
+                (key, value)
+            })
+            .collect())
     }
 }
