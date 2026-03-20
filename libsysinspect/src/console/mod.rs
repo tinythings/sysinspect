@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use libcommon::SysinspectError;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::Value;
 use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
 use std::{
     fs,
@@ -18,6 +19,7 @@ use crate::{
         RsaKey::{Private, Public},
         decrypt, encrypt, key_from_file, key_to_file, keygen, sign_data, to_pem, verify_sign,
     },
+    traits::TraitSource,
     transport::TransportRotationStatus,
 };
 
@@ -131,6 +133,11 @@ pub enum ConsolePayload {
         /// One row per selected minion.
         rows: Vec<ConsoleTransportStatusRow>,
     },
+    /// Raw minion-info rows for CLI or TUI rendering.
+    MinionInfo {
+        /// One row per key/value pair for one selected minion.
+        rows: Vec<ConsoleMinionInfoRow>,
+    },
 }
 
 /// One online-minion summary row returned by the master.
@@ -171,6 +178,20 @@ pub struct ConsoleTransportStatusRow {
     pub last_rotated_at: Option<DateTime<Utc>>,
     /// Current rotation state for this minion, or `None` when no managed state exists.
     pub rotation: Option<TransportRotationStatus>,
+}
+
+/// One minion-info key/value row returned by the master.
+///
+/// The master returns raw values only. The CLI or TUI owns ordering,
+/// formatting, colors, and human-readable conversions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleMinionInfoRow {
+    /// Logical field name.
+    pub key: String,
+    /// Raw value associated with the field.
+    pub value: Value,
+    /// Origin of this trait so the client can group and style it.
+    pub source: TraitSource,
 }
 
 impl ConsoleResponse {

@@ -766,7 +766,7 @@ impl SysMinion {
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
         let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
-        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_json_value()?);
+        let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");

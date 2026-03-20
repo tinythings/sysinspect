@@ -2,11 +2,11 @@ use crate::{
     cfg::mmconf::MinionConfig,
     traits::{
         HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, MASTER_TRAITS_FILE, SYS_ID, SYS_NET_HOSTNAME,
-        SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION,
+        SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION, TraitSource, TraitsTransportPayload,
     },
     util::sys::to_fqdn_ip,
 };
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use libcommon::SysinspectError;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -20,6 +20,8 @@ use std::{
 #[derive(Debug, Clone, Default)]
 pub struct SystemTraits {
     data: IndexMap<String, Value>,
+    yaml_keys: IndexSet<String>,
+    function_keys: IndexSet<String>,
     cfg: MinionConfig,
     checksum: String,
     quiet: bool,
@@ -61,6 +63,22 @@ impl SystemTraits {
 
     /// Put a JSON value into traits structure
     pub fn put(&mut self, path: String, data: Value) {
+        self.yaml_keys.shift_remove(&path);
+        self.function_keys.shift_remove(&path);
+        self.data.insert(path, data);
+    }
+
+    /// Put a JSON value into traits structure and mark it as YAML drop-in generated.
+    pub fn put_yaml(&mut self, path: String, data: Value) {
+        self.function_keys.shift_remove(&path);
+        self.yaml_keys.insert(path.clone());
+        self.data.insert(path, data);
+    }
+
+    /// Put a JSON value into traits structure and mark it as function-generated.
+    pub fn put_function(&mut self, path: String, data: Value) {
+        self.yaml_keys.shift_remove(&path);
+        self.function_keys.insert(path.clone());
         self.data.insert(path, data);
     }
 
@@ -94,6 +112,16 @@ impl SystemTraits {
     /// Return a cloned map of all known trait items.
     pub fn to_map(&self) -> IndexMap<String, Value> {
         self.data.clone()
+    }
+
+    /// Return the sorted list of keys that originated from trait functions.
+    pub fn function_keys(&self) -> Vec<String> {
+        self.function_keys.iter().cloned().collect()
+    }
+
+    /// Return the sorted list of keys that originated from YAML drop-in files.
+    pub fn yaml_keys(&self) -> Vec<String> {
+        self.yaml_keys.iter().cloned().collect()
     }
 
     /// Return checksum of traits.
@@ -232,7 +260,7 @@ impl SystemTraits {
 
             if let Some(content) = content {
                 for (k, v) in content {
-                    self.put(k, json!(v));
+                    self.put_yaml(k, json!(v));
                 }
             } else {
                 log::error!("Custom traits data is empty or in a wrong format");
@@ -280,7 +308,7 @@ impl SystemTraits {
                     );
                     if let Some(data) = data {
                         for (k, v) in data {
-                            self.put(k, json!(v));
+                            self.put_function(k, json!(v));
                         }
                     } else {
                         log::error!("Custom traits data is empty or in a wrong format");
@@ -303,5 +331,21 @@ impl SystemTraits {
     /// Convert the data to the JSON value
     pub fn to_json_value(&self) -> Result<Value, SysinspectError> {
         Ok(json!(self.data))
+    }
+
+    /// Convert traits into the structured transport payload used for sync with the master.
+    pub fn to_transport_value(&self) -> Result<Value, SysinspectError> {
+        Ok(serde_json::to_value(TraitsTransportPayload { traits: self.data.clone(), static_keys: self.yaml_keys(), fn_keys: self.function_keys() })?)
+    }
+
+    /// Return the origin category for one trait key.
+    pub fn trait_source(&self, key: &str) -> TraitSource {
+        if self.function_keys.contains(key) {
+            TraitSource::Function
+        } else if self.yaml_keys.contains(key) {
+            TraitSource::Static
+        } else {
+            TraitSource::Preset
+        }
     }
 }

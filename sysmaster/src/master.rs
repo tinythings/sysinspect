@@ -1,3 +1,6 @@
+#[path = "console.rs"]
+mod console;
+
 use crate::{
     cluster::VirtualMinionsCluster,
     dataserv::fls,
@@ -21,13 +24,11 @@ use libeventreg::{
 use libmodpak::SysInspectModPak;
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
-    console::{
-        ConsoleEnvelope, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow,
-        authorised_console_client, ensure_console_keypair, load_master_private_key,
-    },
-    context::{ProfileConsoleRequest, get_context},
+    console::ensure_console_keypair,
+    context::ProfileConsoleRequest,
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     rsa::rotation::{RotationActor, RsaTransportRotator, SignedRotationIntent},
+    traits::TraitsTransportPayload,
     transport::TransportStore,
     util::{self, iofs::scan_files_sha256},
 };
@@ -37,7 +38,10 @@ use libsysproto::{
     payload::{ModStatePayload, PingData},
     query::{
         SCHEME_COMMAND,
-        commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS},
+        commands::{
+            CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE,
+            CLUSTER_TRANSPORT_STATUS,
+        },
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
     secure::SECURE_PROTOCOL_VERSION,
@@ -52,23 +56,19 @@ use std::{
     sync::{Arc, Weak},
     vec,
 };
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::{
     TcpListener,
     tcp::{OwnedReadHalf, OwnedWriteHalf},
 };
 use tokio::sync::Mutex;
 use tokio::sync::{broadcast, mpsc};
+use tokio::time;
 use tokio::time::{Duration, sleep};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader},
-    time,
-};
 
 // Session singleton
 pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-static MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
-const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 const DEFAULT_ROTATION_OVERLAP_SECONDS: u64 = 900;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -123,32 +123,6 @@ pub(crate) struct RotationCommandPayload {
     pub(crate) reconnect: bool,
     pub(crate) reregister: bool,
     pub(crate) intent: SignedRotationIntent,
-}
-
-type ConsoleOutcome = (ConsoleResponse, Vec<MasterMessage>);
-
-/// Summary of how many rotation commands were dispatched immediately versus staged for offline peers.
-#[derive(Debug, Default)]
-struct RotationDispatchSummary {
-    online_count: usize,
-    queued_count: usize,
-}
-
-impl RotationDispatchSummary {
-    /// Record one successful online rotation dispatch.
-    fn note_online_dispatch(&mut self) {
-        self.online_count += 1;
-    }
-
-    /// Record one offline peer whose rotation was queued for later reconnect.
-    fn note_queued_dispatch(&mut self) {
-        self.queued_count += 1;
-    }
-
-    /// Build the typed rotation summary response returned to the CLI.
-    fn response(&self) -> ConsoleResponse {
-        ConsoleResponse::ok(ConsolePayload::RotationSummary { online_count: self.online_count, queued_count: self.queued_count })
-    }
 }
 
 #[derive(Debug)]
@@ -838,10 +812,21 @@ impl SysMaster {
     }
 
     pub async fn on_traits(&mut self, mid: String, payload: String) {
-        let traits = serde_json::from_str::<HashMap<String, serde_json::Value>>(&payload).unwrap_or_default();
-        if !traits.is_empty() {
+        let traits_payload = match TraitsTransportPayload::from_json_str(&payload) {
+            Ok(data) => data,
+            Err(err) => {
+                log::error!("Unable to parse traits payload for {}: {err}", mid);
+                return;
+            }
+        };
+        if !traits_payload.traits.is_empty() {
             let mut mreg = self.mreg.lock().await;
-            if let Err(err) = mreg.refresh(&mid, traits) {
+            if let Err(err) = mreg.refresh(
+                &mid,
+                traits_payload.traits.into_iter().collect(),
+                traits_payload.static_keys.into_iter().collect(),
+                traits_payload.fn_keys.into_iter().collect(),
+            ) {
                 log::error!("Unable to sync traits: {err}");
             } else {
                 let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
@@ -850,54 +835,6 @@ impl SysMaster {
                     m.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown").bright_green(),
                     mid.green()
                 );
-            }
-        }
-    }
-
-    pub async fn on_fifo_commands(&mut self, msg: &MasterMessage) {
-        if msg.target().scheme().eq(&format!("cmd://{}", CLUSTER_REMOVE_MINION)) && !msg.target().id().is_empty() {
-            log::info!("Removing minion {}", msg.target().id());
-            if let Err(err) = self.mreg.lock().await.remove(msg.target().id()) {
-                log::error!("Unable to remove minion {}: {err}", msg.target().id());
-            }
-            if let Err(err) = self.mkr().remove_mn_key(msg.target().id()) {
-                log::error!("Unable to unregister minion: {err}");
-            }
-        } else if msg.target().scheme().eq(&format!("cmd://{}", CLUSTER_ONLINE_MINIONS)) {
-            // XXX: This is just a logdumper for now, because there is no proper response channel yet.
-            // Most likely we need to dump FIFO mechanism in a whole and replace with something else.
-            log::info!("Listing online minions");
-            let mreg = self.mreg.lock().await;
-            let mut session = self.session.lock().await;
-            match mreg.get_registered_ids() {
-                Ok(ids) => {
-                    let mut msg: Vec<String> = vec![];
-                    for (idx, mid) in ids.iter().enumerate() {
-                        let alive = session.alive(mid);
-                        let traits = match mreg.get(mid) {
-                            Ok(Some(mrec)) => mrec.get_traits().to_owned(),
-                            _ => HashMap::new(),
-                        };
-                        let mut h = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        if h.is_empty() {
-                            h = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        }
-                        let ip = traits.get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or("unknown");
-
-                        msg.push(format!(
-                            "{}. {} {} - {} ({})",
-                            idx + 1,
-                            if alive { " " } else { "!" },
-                            if alive { mid.cyan() } else { mid.white() },
-                            if alive { h.bright_green() } else { h.yellow() },
-                            if alive { ip.bright_green() } else { ip.yellow() },
-                        ));
-                    }
-                    log::info!("Status of all registered minions:\n{}", msg.join("\n"));
-                }
-                Err(err) => {
-                    log::error!("Unable to get online minions: {err}");
-                }
             }
         }
     }
@@ -912,223 +849,6 @@ impl SysMaster {
         let fqdn = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default().to_string();
         let hostname = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or_default().to_string();
         (fqdn, hostname)
-    }
-
-    /// Build the raw online-minion rows returned by the console `--online` command.
-    ///
-    /// This function gathers registry traits plus current liveness state and
-    /// returns typed row data. It intentionally does not apply any CLI-specific
-    /// formatting, color, or truncation.
-    async fn online_minions_data(&mut self) -> Result<Vec<ConsoleOnlineMinionRow>, SysinspectError> {
-        let mreg = self.mreg.lock().await;
-        let mut session = self.session.lock().await;
-        let ids = mreg.get_registered_ids()?;
-        let mut rows = Vec::with_capacity(ids.len());
-
-        for mid in &ids {
-            let alive = session.alive(mid);
-            let minion = match mreg.get(mid)? {
-                Some(mrec) => mrec,
-                None => continue,
-            };
-            let (fqdn, hostname) = Self::preferred_host(&minion);
-            rows.push(ConsoleOnlineMinionRow {
-                fqdn,
-                hostname,
-                ip: minion.get_traits().get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                minion_id: mid.to_string(),
-                alive,
-            });
-        }
-
-        Ok(rows)
-    }
-
-    /// Resolve target minions for console profile operations from id, traits query, or hostname query.
-    async fn selected_minions(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<crate::registry::rec::MinionRecord>, SysinspectError> {
-        let mut records = if !mid.is_empty() {
-            let mut registry = self.mreg.lock().await;
-            let mut records = registry.get(mid)?.into_iter().collect::<Vec<_>>();
-            if records.is_empty() {
-                records = registry.get_by_hostname_or_ip(mid)?;
-            }
-            if records.is_empty() {
-                records = registry.get_by_query(mid)?;
-            }
-            records
-        } else if !traits.trim().is_empty() {
-            let traits = get_context(traits)
-                .ok_or_else(|| SysinspectError::InvalidQuery("Traits selector must be in key:value format".to_string()))?
-                .into_iter()
-                .collect::<HashMap<_, _>>();
-            self.mreg.lock().await.get_by_traits(traits)?
-        } else {
-            self.mreg.lock().await.get_by_query(if query.trim().is_empty() { "*" } else { query })?
-        };
-        records.sort_by(|a, b| a.id().cmp(b.id()));
-        Ok(records)
-    }
-
-    /// Ensure a profile request carries a non-empty profile name when the operation requires one.
-    fn require_profile_name(request: &ProfileConsoleRequest) -> Result<(), SysinspectError> {
-        if !request.name().trim().is_empty() {
-            return Ok(());
-        }
-
-        Err(SysinspectError::InvalidQuery("Profile name cannot be empty".to_string()))
-    }
-
-    /// Extract the current non-default profile list from one minion record.
-    fn current_profiles(minion: &crate::registry::rec::MinionRecord) -> Vec<String> {
-        let mut profiles = match minion.get_traits().get("minion.profile") {
-            Some(serde_json::Value::String(name)) if !name.trim().is_empty() => vec![name.to_string()],
-            Some(serde_json::Value::Array(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect::<Vec<_>>(),
-            _ => vec![],
-        };
-        profiles.retain(|profile| profile != "default");
-        profiles
-    }
-
-    /// Apply or remove profile tags for the selected minions.
-    ///
-    /// The returned tuple contains the typed console response for the caller and
-    /// any outbound master messages that still need to be broadcast after the
-    /// console request is accepted.
-    async fn profile_tag_console_response(
-        &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
-    ) -> Result<ConsoleOutcome, SysinspectError> {
-        let repo = SysInspectModPak::new(self.cfg.get_mod_repo_root())?;
-        let known_profiles = repo.list_profiles(None)?;
-        let missing = request.profiles().iter().filter(|name| !known_profiles.contains(name)).cloned().collect::<Vec<_>>();
-        if !missing.is_empty() {
-            return Ok((
-                ConsoleResponse {
-                    ok: false,
-                    error: format!("Unknown profile{}: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ")),
-                    payload: ConsolePayload::Empty,
-                },
-                vec![],
-            ));
-        }
-
-        let mut msgs = Vec::new();
-        for minion in self.selected_minions(query, traits, mid).await? {
-            let mut profiles = Self::current_profiles(&minion);
-            if request.op() == "tag" {
-                for profile in request.profiles() {
-                    if !profiles.contains(profile) {
-                        profiles.push(profile.to_string());
-                    }
-                }
-            } else {
-                profiles.retain(|profile| !request.profiles().contains(profile));
-            }
-
-            let context = if profiles.is_empty() {
-                json!({"op": "unset", "traits": {"minion.profile": null}})
-            } else {
-                json!({"op": "set", "traits": {"minion.profile": profiles}})
-            }
-            .to_string();
-
-            if let Some(msg) = self.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_TRAITS_UPDATE}"), "", "", minion.id(), &context).await {
-                msgs.push(msg);
-            }
-        }
-
-        Ok((
-            ConsoleResponse::ok(ConsolePayload::Ack {
-                action: if request.op() == "tag" { "apply_profiles".to_string() } else { "remove_profiles".to_string() },
-                target: String::new(),
-                count: msgs.len(),
-                items: request.profiles().to_vec(),
-            }),
-            msgs,
-        ))
-    }
-
-    /// Execute one profile console request.
-    ///
-    /// The returned tuple contains the typed console response plus any outbound
-    /// master messages that should be broadcast after the console call returns.
-    async fn do_profile_console(
-        &mut self, request: &ProfileConsoleRequest, query: &str, traits: &str, mid: &str,
-    ) -> Result<ConsoleOutcome, SysinspectError> {
-        let repo = SysInspectModPak::new(self.cfg.get_mod_repo_root())?;
-
-        match request.op() {
-            "new" => Ok((
-                {
-                    Self::require_profile_name(request)?;
-                    repo.new_profile(request.name())?;
-                    ConsoleResponse::ok(ConsolePayload::Ack {
-                        action: "create_profile".to_string(),
-                        target: request.name().to_string(),
-                        count: 0,
-                        items: vec![],
-                    })
-                },
-                vec![],
-            )),
-            "delete" => Ok((
-                {
-                    Self::require_profile_name(request)?;
-                    repo.delete_profile(request.name())?;
-                    ConsoleResponse::ok(ConsolePayload::Ack {
-                        action: "delete_profile".to_string(),
-                        target: request.name().to_string(),
-                        count: 0,
-                        items: vec![],
-                    })
-                },
-                vec![],
-            )),
-            "list" => Ok((
-                ConsoleResponse::ok(ConsolePayload::StringList {
-                    items: if request.name().is_empty() {
-                        repo.list_profiles(None)?
-                    } else {
-                        repo.list_profile_matches(Some(request.name()), request.library())?
-                    },
-                }),
-                vec![],
-            )),
-            "show" => Ok((
-                {
-                    Self::require_profile_name(request)?;
-                    ConsoleResponse::ok(ConsolePayload::Text { value: repo.show_profile(request.name())? })
-                },
-                vec![],
-            )),
-            "add" => Ok((
-                {
-                    Self::require_profile_name(request)?;
-                    repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
-                    ConsoleResponse::ok(ConsolePayload::Ack {
-                        action: "update_profile".to_string(),
-                        target: request.name().to_string(),
-                        count: 0,
-                        items: vec![],
-                    })
-                },
-                vec![],
-            )),
-            "remove" => Ok((
-                {
-                    Self::require_profile_name(request)?;
-                    repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
-                    ConsoleResponse::ok(ConsolePayload::Ack {
-                        action: "update_profile".to_string(),
-                        target: request.name().to_string(),
-                        count: 0,
-                        items: vec![],
-                    })
-                },
-                vec![],
-            )),
-            "tag" | "untag" => self.profile_tag_console_response(request, query, traits, mid).await,
-            _ => Ok((ConsoleResponse::err(format!("Unsupported profile operation {}", request.op())), vec![])),
-        }
     }
 
     /// Create a transport rotator bound to one minion using the currently known
@@ -1197,82 +917,6 @@ impl SysMaster {
         Ok(msg)
     }
 
-    /// Execute a console-driven rotate request and collect both the typed
-    /// response and the outbound master messages to broadcast.
-    ///
-    /// Online minions receive immediate messages while offline minions have the
-    /// exact request staged in their managed transport state for later replay.
-    async fn rotate_console_response(
-        &mut self, request: &RotationConsoleRequest, query: &str, traits: &str, mid: &str,
-    ) -> Result<ConsoleOutcome, SysinspectError> {
-        if request.op() != "rotate" {
-            return Ok((ConsoleResponse::err(format!("Unsupported rotate operation {}", request.op())), vec![]));
-        }
-
-        let mut online_msgs = Vec::new();
-        let mut summary = RotationDispatchSummary::default();
-
-        let targets = self.selected_minions(query, traits, mid).await?;
-        for minion in targets {
-            let minion_id = minion.id().to_string();
-            let online = self.session.lock().await.alive(&minion_id);
-            if online {
-                if let Some(msg) = self.build_rotation_message(&minion_id, request, None).await? {
-                    online_msgs.push(msg);
-                    summary.note_online_dispatch();
-                }
-            } else {
-                let context = self.stage_rotation_context(&minion_id, request)?;
-                self.persist_pending_rotation_context(&minion_id, Some(context))?;
-                summary.note_queued_dispatch();
-            }
-        }
-
-        Ok((summary.response(), online_msgs))
-    }
-
-    /// Build raw transport-status rows for the selected minions.
-    ///
-    /// Each row contains host metadata, current transport key identity,
-    /// handshake timestamps, derived last-rotation time, and the rotation state.
-    /// Rendering decisions are left to the CLI or TUI layers.
-    async fn transport_status_data(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<ConsoleTransportStatusRow>, SysinspectError> {
-        let targets = self.selected_minions(query, traits, mid).await?;
-        let mut rows = Vec::with_capacity(targets.len());
-
-        for minion in targets {
-            let minion_id = minion.id().to_string();
-            let (fqdn, hostname) = Self::preferred_host(&minion);
-            let state = TransportStore::for_master_minion(&self.cfg, &minion_id)?.load()?;
-            if let Some(state) = state {
-                let last_rotated_at = state.active_key_id.as_ref().and_then(|active_key| {
-                    state.keys.iter().find(|key| key.key_id == *active_key).map(|record| record.activated_at.unwrap_or(record.created_at))
-                });
-                rows.push(ConsoleTransportStatusRow {
-                    fqdn,
-                    hostname,
-                    minion_id,
-                    active_key_id: state.active_key_id.clone(),
-                    last_handshake_at: state.last_handshake_at,
-                    last_rotated_at,
-                    rotation: Some(state.rotation),
-                });
-            } else {
-                rows.push(ConsoleTransportStatusRow {
-                    fqdn,
-                    hostname,
-                    minion_id,
-                    active_key_id: None,
-                    last_handshake_at: None,
-                    last_rotated_at: None,
-                    rotation: None,
-                });
-            }
-        }
-
-        Ok(rows)
-    }
-
     async fn pending_rotation_message_for(&mut self, minion_id: &str) -> Result<Option<MasterMessage>, SysinspectError> {
         let store = TransportStore::for_master_minion(&self.cfg, minion_id)?;
         let state = match store.load()? {
@@ -1297,265 +941,6 @@ impl SysMaster {
         .map(Some)
     }
 
-    /// Start the encrypted TCP console listener used by `sysinspect` to talk to the master.
-    pub async fn do_console(master: Arc<Mutex<Self>>) {
-        log::trace!("Init local console channel");
-        tokio::spawn({
-            let master = Arc::clone(&master);
-            async move {
-                let (cfg, bcast) = {
-                    let guard = master.lock().await;
-                    (guard.cfg(), guard.broadcast().clone())
-                };
-                let master_prk = match load_master_private_key(&cfg) {
-                    Ok(prk) => prk,
-                    Err(err) => {
-                        log::error!("Failed to load console private key: {err}");
-                        return;
-                    }
-                };
-                let listener = match TcpListener::bind(cfg.console_listen_addr()).await {
-                    Ok(listener) => listener,
-                    Err(err) => {
-                        log::error!("Failed to bind console listener: {err}");
-                        return;
-                    }
-                };
-                loop {
-                    match listener.accept().await {
-                        Ok((stream, _peer)) => {
-                            let master = Arc::clone(&master);
-                            let cfg = cfg.clone();
-                            let bcast = bcast.clone();
-                            let master_prk = master_prk.clone();
-                            tokio::spawn(async move {
-                                let (read_half, mut write_half) = stream.into_split();
-                                let reader = TokioBufReader::new(read_half);
-                                let mut frame = Vec::new();
-                                let mut reader = reader.take((MAX_CONSOLE_FRAME_SIZE + 1) as u64);
-                                let reply = match time::timeout(CONSOLE_READ_TIMEOUT, reader.read_until(b'\n', &mut frame)).await {
-                                    Err(_) => serde_json::to_string(&ConsoleResponse::err(format!(
-                                        "Console request timed out after {} seconds",
-                                        CONSOLE_READ_TIMEOUT.as_secs()
-                                    )))
-                                    .ok(),
-                                    Ok(Ok(0)) => serde_json::to_string(&ConsoleResponse::err("Empty console request")).ok(),
-                                    Ok(Ok(_)) if frame.len() > MAX_CONSOLE_FRAME_SIZE || !frame.ends_with(b"\n") => serde_json::to_string(
-                                        &ConsoleResponse::err(format!("Console request exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE)),
-                                    )
-                                    .ok(),
-                                    Ok(Ok(_)) => match String::from_utf8(frame).map(|line| line.trim().to_string()) {
-                                        Ok(line) => match serde_json::from_str::<ConsoleEnvelope>(&line) {
-                                            Ok(envelope) => {
-                                                if !authorised_console_client(&cfg, &envelope.bootstrap.client_pubkey).unwrap_or(false) {
-                                                    serde_json::to_string(&ConsoleResponse::err("Console client key is not authorised")).ok()
-                                                } else {
-                                                    match envelope.bootstrap.session_key(&master_prk) {
-                                                        Ok((key, _client_pkey)) => {
-                                                            let response = match envelope.sealed.open::<ConsoleQuery>(&key) {
-                                                                Ok(query) => {
-                                                                    if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}")) {
-                                                                        match master.lock().await.online_minions_data().await {
-                                                                            Ok(rows) => ConsoleResponse::ok(ConsolePayload::OnlineMinions { rows }),
-                                                                            Err(err) => {
-                                                                                ConsoleResponse::err(format!("Unable to get online minions: {err}"))
-                                                                            }
-                                                                        }
-                                                                    } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_TRANSPORT_STATUS}")) {
-                                                                        match master
-                                                                            .lock()
-                                                                            .await
-                                                                            .transport_status_data(&query.query, &query.traits, &query.mid)
-                                                                            .await
-                                                                        {
-                                                                            Ok(rows) => ConsoleResponse::ok(ConsolePayload::TransportStatus { rows }),
-                                                                            Err(err) => {
-                                                                                ConsoleResponse::err(format!("Unable to get transport status: {err}"))
-                                                                            }
-                                                                        }
-                                                                    } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}")) {
-                                                                        let (response, msgs) =
-                                                                            match RotationConsoleRequest::from_context(&query.context) {
-                                                                                Ok(request) => {
-                                                                                    let mut guard = master.lock().await;
-                                                                                    match guard
-                                                                                        .rotate_console_response(
-                                                                                            &request,
-                                                                                            &query.query,
-                                                                                            &query.traits,
-                                                                                            &query.mid,
-                                                                                        )
-                                                                                        .await
-                                                                                    {
-                                                                                        Ok(data) => data,
-                                                                                        Err(err) => (ConsoleResponse::err(err.to_string()), vec![]),
-                                                                                    }
-                                                                                }
-                                                                                Err(err) => (
-                                                                                    ConsoleResponse::err(format!(
-                                                                                        "Failed to parse rotate request: {err}"
-                                                                                    )),
-                                                                                    vec![],
-                                                                                ),
-                                                                            };
-                                                                        for msg in msgs {
-                                                                            SysMaster::bcast_master_msg(
-                                                                                &bcast,
-                                                                                cfg.telemetry_enabled(),
-                                                                                Arc::clone(&master),
-                                                                                Some(msg.clone()),
-                                                                            )
-                                                                            .await;
-                                                                            let guard = master.lock().await;
-                                                                            let ids = guard
-                                                                                .mreg
-                                                                                .lock()
-                                                                                .await
-                                                                                .get_targeted_minions(msg.target(), false)
-                                                                                .await;
-                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
-                                                                        }
-                                                                        response
-                                                                    } else if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
-                                                                        let (response, msgs) =
-                                                                            match ProfileConsoleRequest::from_context(&query.context) {
-                                                                                Ok(request) => {
-                                                                                    let mut guard = master.lock().await;
-                                                                                    match guard
-                                                                                        .do_profile_console(
-                                                                                            &request,
-                                                                                            &query.query,
-                                                                                            &query.traits,
-                                                                                            &query.mid,
-                                                                                        )
-                                                                                        .await
-                                                                                    {
-                                                                                        Ok(data) => data,
-                                                                                        Err(err) => (ConsoleResponse::err(err.to_string()), vec![]),
-                                                                                    }
-                                                                                }
-                                                                                Err(err) => (
-                                                                                    ConsoleResponse::err(format!(
-                                                                                        "Failed to parse profile request: {err}"
-                                                                                    )),
-                                                                                    vec![],
-                                                                                ),
-                                                                            };
-                                                                        for msg in msgs {
-                                                                            SysMaster::bcast_master_msg(
-                                                                                &bcast,
-                                                                                cfg.telemetry_enabled(),
-                                                                                Arc::clone(&master),
-                                                                                Some(msg.clone()),
-                                                                            )
-                                                                            .await;
-                                                                            let guard = master.lock().await;
-                                                                            let ids = guard
-                                                                                .mreg
-                                                                                .lock()
-                                                                                .await
-                                                                                .get_targeted_minions(msg.target(), false)
-                                                                                .await;
-                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
-                                                                        }
-                                                                        response
-                                                                    } else {
-                                                                        let msg = {
-                                                                            let mut guard = master.lock().await;
-                                                                            guard
-                                                                                .msg_query_data(
-                                                                                    &query.model,
-                                                                                    &query.query,
-                                                                                    &query.traits,
-                                                                                    &query.mid,
-                                                                                    &query.context,
-                                                                                )
-                                                                                .await
-                                                                        };
-                                                                        if let Some(msg) = msg {
-                                                                            SysMaster::bcast_master_msg(
-                                                                                &bcast,
-                                                                                cfg.telemetry_enabled(),
-                                                                                Arc::clone(&master),
-                                                                                Some(msg.clone()),
-                                                                            )
-                                                                            .await;
-                                                                            let guard = master.lock().await;
-                                                                            let ids = guard
-                                                                                .mreg
-                                                                                .lock()
-                                                                                .await
-                                                                                .get_targeted_minions(msg.target(), false)
-                                                                                .await;
-                                                                            guard.taskreg.lock().await.register(msg.cycle(), ids);
-                                                                            ConsoleResponse {
-                                                                                ok: true,
-                                                                                error: String::new(),
-                                                                                payload: ConsolePayload::Ack {
-                                                                                    action: "accepted_console_command".to_string(),
-                                                                                    target: query.model.clone(),
-                                                                                    count: 0,
-                                                                                    items: vec![],
-                                                                                },
-                                                                            }
-                                                                        } else {
-                                                                            ConsoleResponse::err("No message constructed for the console query")
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(err) => ConsoleResponse::err(format!("Failed to open console query: {err}")),
-                                                            };
-                                                            match ConsoleSealed::seal(&response, &key).and_then(|sealed| {
-                                                                serde_json::to_string(&sealed)
-                                                                    .map_err(|e| SysinspectError::SerializationError(e.to_string()))
-                                                            }) {
-                                                                Ok(reply) => Some(reply),
-                                                                Err(err) => {
-                                                                    log::error!("Failed to seal console response: {err}");
-                                                                    serde_json::to_string(&ConsoleResponse::err(format!(
-                                                                        "Failed to seal console response: {err}"
-                                                                    )))
-                                                                    .ok()
-                                                                }
-                                                            }
-                                                        }
-                                                        Err(err) => {
-                                                            serde_json::to_string(&ConsoleResponse::err(format!("Console bootstrap failed: {err}")))
-                                                                .ok()
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Err(err) => {
-                                                serde_json::to_string(&ConsoleResponse::err(format!("Failed to parse console request: {err}"))).ok()
-                                            }
-                                        },
-                                        Err(err) => {
-                                            serde_json::to_string(&ConsoleResponse::err(format!("Console request is not valid UTF-8: {err}"))).ok()
-                                        }
-                                    },
-                                    Ok(Err(err)) => {
-                                        serde_json::to_string(&ConsoleResponse::err(format!("Failed to read console request: {err}"))).ok()
-                                    }
-                                };
-
-                                if let Some(reply) = reply
-                                    && let Err(err) = write_half.write_all(format!("{reply}\n").as_bytes()).await
-                                {
-                                    log::error!("Failed to write console response: {err}");
-                                }
-                            });
-                        }
-                        Err(err) => {
-                            log::error!("Console listener accept error: {err}");
-                            sleep(Duration::from_secs(1)).await;
-                        }
-                    }
-                }
-            }
-        });
-    }
-
     /// Broadcast a message to all minions
     /// Broadcast a logical master message so each connected peer can encode it with its own transport state.
     pub async fn bcast_master_msg(
@@ -1566,15 +951,6 @@ impl SysMaster {
             return;
         }
         let msg = msg.unwrap();
-
-        {
-            let c_master = Arc::clone(&master);
-            let c_msg = msg.clone();
-            tokio::spawn(async move {
-                let mut guard = c_master.lock().await;
-                guard.on_fifo_commands(&c_msg).await;
-            });
-        }
 
         if use_telemetry {
             let c_master = Arc::clone(&master);

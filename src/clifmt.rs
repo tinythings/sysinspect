@@ -1,10 +1,13 @@
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use libsysinspect::{
-    console::{ConsoleOnlineMinionRow, ConsolePayload, ConsoleTransportStatusRow},
+    console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleTransportStatusRow},
+    traits::TraitSource,
     transport::TransportRotationStatus,
     util::pad_visible,
 };
+use serde_json::Value;
+use std::{net::IpAddr, str::FromStr};
 
 /// Shorten a display string by preserving the leading and trailing `edge`
 /// characters and replacing the removed middle section with `...`.
@@ -105,6 +108,129 @@ fn rotation_label(rotation: Option<TransportRotationStatus>) -> (&'static str, S
         Some(TransportRotationStatus::RollbackReady) => ("RollbackReady", "RollbackReady".bright_blue().to_string()),
         None => ("Missing", "Missing".red().to_string()),
     }
+}
+
+fn is_mac_address(value: &str) -> bool {
+    let parts = value.split([':', '-']).collect::<Vec<_>>();
+    (parts.len() == 6 || parts.len() == 8) && parts.iter().all(|part| part.len() == 2 && part.chars().all(|ch| ch.is_ascii_hexdigit()))
+}
+
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 { format!("{} {}", bytes, UNITS[unit]) } else { format!("{value:.1} {}", UNITS[unit]) }
+}
+
+fn format_minion_info_value(key: &str, value: &Value) -> (String, String) {
+    match value {
+        Value::Null => ("null".to_string(), "null".bright_white().to_string()),
+        Value::Bool(flag) => {
+            let plain = if *flag { "yes" } else { "no" }.to_string();
+            let colored = if *flag { plain.clone().bright_green().to_string() } else { plain.clone().red().to_string() };
+            (plain, colored)
+        }
+        Value::Number(number) => {
+            if (key == "hardware.memory" || key == "hardware.swap")
+                && let Some(bytes) = number.as_u64()
+            {
+                let plain = human_size(bytes);
+                return (plain.clone(), plain.bright_white().to_string());
+            }
+
+            let plain = number.to_string();
+            (plain.clone(), plain.bright_white().to_string())
+        }
+        Value::String(text) => {
+            let plain = text.clone();
+            let colored = if IpAddr::from_str(text).is_ok() {
+                plain.clone().bright_blue().to_string()
+            } else if is_mac_address(text) {
+                plain.clone().blue().to_string()
+            } else {
+                plain.clone().bright_green().to_string()
+            };
+            (plain, colored)
+        }
+        _ => {
+            let plain = value.to_string();
+            (plain.clone(), plain.bright_green().to_string())
+        }
+    }
+}
+
+fn format_minion_info_lines(key: &str, value: &Value) -> Vec<(String, String)> {
+    match value {
+        Value::Array(items) => {
+            if items.is_empty() {
+                return vec![("[]".to_string(), "[]".bright_white().to_string())];
+            }
+
+            let mut lines = Vec::new();
+            for item in items {
+                match item {
+                    Value::Array(_) => lines.extend(format_minion_info_lines(key, item)),
+                    Value::String(text) => lines.push((text.clone(), text.green().to_string())),
+                    _ => {
+                        let plain = item.to_string();
+                        lines.push((plain.clone(), plain.bright_green().to_string()));
+                    }
+                }
+            }
+            lines
+        }
+        Value::Object(_) => {
+            let plain = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+            plain.lines().map(|line| (line.to_string(), line.bright_green().to_string())).collect()
+        }
+        _ => vec![format_minion_info_value(key, value)],
+    }
+}
+
+fn minion_info_key_label(key: &str, source: TraitSource) -> String {
+    match source {
+        TraitSource::Preset => key.bright_yellow().bold().to_string(),
+        TraitSource::Static => key.bright_cyan().bold().to_string(),
+        TraitSource::Function => key.bright_white().bold().to_string(),
+    }
+}
+
+fn render_minion_info(rows: &[ConsoleMinionInfoRow]) -> String {
+    let mut rows = rows.to_vec();
+    rows.sort_by(|a, b| a.key.cmp(&b.key));
+
+    let widths = (
+        rows.iter().map(|row| row.key.chars().count()).max().unwrap_or(3).max("KEY".chars().count()),
+        rows.iter()
+            .flat_map(|row| format_minion_info_lines(&row.key, &row.value).into_iter().map(|(plain, _)| plain.chars().count()))
+            .max()
+            .unwrap_or(5)
+            .max("VALUE".chars().count()),
+    );
+
+    let mut out = vec![
+        format!("{}  {}", pad_visible(&"KEY".yellow().to_string(), widths.0), pad_visible(&"VALUE".yellow().to_string(), widths.1)),
+        format!("{}  {}", "─".repeat(widths.0), "─".repeat(widths.1)),
+    ];
+    for row in rows {
+        let values = format_minion_info_lines(&row.key, &row.value);
+        let key_label = minion_info_key_label(&row.key, row.source);
+
+        for (index, (_plain, colored)) in values.into_iter().enumerate() {
+            if index == 0 {
+                out.push(format!("{}  {}", pad_visible(&key_label, widths.0), pad_visible(&colored, widths.1)));
+            } else {
+                out.push(format!("{}  {}", " ".repeat(widths.0), pad_visible(&format!("  {colored}"), widths.1)));
+            }
+        }
+    }
+
+    out.join("\n")
 }
 
 /// Render the `ConsolePayload::OnlineMinions` rows as a width-aware CLI table.
@@ -229,6 +355,7 @@ pub fn render_console_payload(payload: &ConsolePayload) -> String {
             "create_profile" => format!("Created profile {}", target.bright_yellow()),
             "delete_profile" => format!("Deleted profile {}", target.bright_yellow()),
             "update_profile" => format!("Updated profile {}", target.bright_yellow()),
+            "remove_minion" => format!("Unregistered minion {}", target.bright_yellow()),
             "apply_profiles" => {
                 format!("Applied profiles {} on {} minion{}", items.join(", ").bright_yellow(), count, if *count == 1 { "" } else { "s" })
             }
@@ -240,5 +367,6 @@ pub fn render_console_payload(payload: &ConsolePayload) -> String {
         },
         ConsolePayload::OnlineMinions { rows } => render_online_minions(rows),
         ConsolePayload::TransportStatus { rows } => render_transport_status(rows),
+        ConsolePayload::MinionInfo { rows } => render_minion_info(rows),
     }
 }

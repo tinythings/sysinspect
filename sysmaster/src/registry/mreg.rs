@@ -6,7 +6,12 @@ use libcommon::SysinspectError;
 use libsysproto::MinionTarget;
 use serde_json::{Value, json};
 use sled::{Db, Tree};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fs,
+    path::PathBuf,
+    sync::Arc,
+};
 
 const DB_MINIONS: &str = "minions";
 
@@ -38,7 +43,9 @@ impl MinionRegistry {
     }
 
     /// Add or update traits
-    pub fn refresh(&mut self, mid: &str, traits: HashMap<String, Value>) -> Result<(), SysinspectError> {
+    pub fn refresh(
+        &mut self, mid: &str, traits: HashMap<String, Value>, static_keys: BTreeSet<String>, fn_keys: BTreeSet<String>,
+    ) -> Result<(), SysinspectError> {
         let minions = self.get_tree(DB_MINIONS)?;
         match minions.contains_key(mid) {
             Ok(exists) => {
@@ -55,7 +62,7 @@ impl MinionRegistry {
             Err(err) => return Err(SysinspectError::MasterGeneralError(format!("Unable to access the database: {err}"))),
         };
 
-        self.add(mid, MinionRecord::new(mid.to_string(), traits))?;
+        self.add(mid, MinionRecord::new(mid.to_string(), traits, static_keys, fn_keys))?;
 
         Ok(())
     }
@@ -267,7 +274,7 @@ impl MinionRegistry {
 mod tests {
     use super::MinionRegistry;
     use serde_json::json;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
 
     fn registry_with_one_minion() -> MinionRegistry {
         let tmp = tempfile::tempdir().unwrap();
@@ -276,7 +283,7 @@ mod tests {
         traits.insert("system.hostname".to_string(), json!("alien"));
         traits.insert("system.hostname.fqdn".to_string(), json!("alien.lab"));
         traits.insert("system.hostname.ip".to_string(), json!("192.168.2.186"));
-        registry.refresh("30006546535e428aba0a0caa6712e225", traits).unwrap();
+        registry.refresh("30006546535e428aba0a0caa6712e225", traits, BTreeSet::new(), BTreeSet::new()).unwrap();
         registry
     }
 
