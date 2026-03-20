@@ -159,7 +159,7 @@ impl SecureChannel {
 
     /// Derive a deterministic nonce from the sender role, base_nonce and monotonic counter.
     fn nonce(role: SecurePeerRole, counter: u64, base_nonce: &[u8; secretbox::NONCEBYTES]) -> Nonce {
-        let mut nonce = base_nonce.clone();
+        let mut nonce = *base_nonce;
         nonce[0] ^= match role {
             SecurePeerRole::Master => 1,
             SecurePeerRole::Minion => 2,
