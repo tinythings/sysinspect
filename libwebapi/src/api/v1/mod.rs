@@ -2,12 +2,12 @@ pub use crate::api::v1::system::health_handler;
 use crate::api::v1::{
     minions::{QueryError, QueryPayloadRequest, QueryRequest, QueryResponse, query_handler, query_handler_dev},
     model::{ModelNameResponse, model_descr_handler, model_names_handler},
-    pkeys::{MasterKeyError, MasterKeyResponse, PubKeyError, PubKeyRequest, PubKeyResponse, masterkey_handler, pushkey_handler},
+    pkeys::{MasterKeyError, MasterKeyResponse, masterkey_handler},
     store::{
         StoreListQuery, StoreMetaResponse, StoreResolveQuery, store_blob_handler, store_list_handler, store_meta_handler, store_resolve_handler,
         store_upload_handler,
     },
-    system::{AuthInnerRequest, AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
+    system::{AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
 use actix_web::Scope;
 use colored::Colorize;
@@ -31,15 +31,6 @@ pub static TAG_MODELS: &str = "Models";
 
 static SWAGGER_DEVMODE: OnceCell<std::sync::Mutex<bool>> = OnceCell::new();
 
-/// Get the Swagger UI development mode status.
-fn get_is_devmode() -> bool {
-    if let Some(mode) = SWAGGER_DEVMODE.get() {
-        return *mode.lock().unwrap();
-    }
-
-    false
-}
-
 /// API Version 1 implementation
 pub struct V1 {
     dev_mode: bool,
@@ -59,7 +50,6 @@ impl super::ApiVersion for V1 {
             .service(query_handler)
             .service(health_handler)
             .service(authenticate_handler)
-            .service(pushkey_handler)
             .service(masterkey_handler)
             .service(model_names_handler)
             .service(model_descr_handler)
@@ -95,7 +85,6 @@ impl super::ApiVersion for V1 {
     crate::api::v1::minions::query_handler_dev,
     crate::api::v1::system::health_handler,
     crate::api::v1::system::authenticate_handler,
-    crate::api::v1::pkeys::pushkey_handler,
     crate::api::v1::pkeys::masterkey_handler,
     crate::api::v1::model::model_names_handler,
     crate::api::v1::model::model_descr_handler,
@@ -106,8 +95,8 @@ impl super::ApiVersion for V1 {
     crate::api::v1::store::store_list_handler,
 ),
           components(schemas(QueryRequest, QueryResponse, QueryError, QueryPayloadRequest,
-                             PubKeyRequest, PubKeyResponse, PubKeyError, MasterKeyResponse, MasterKeyError,
-                             HealthInfo, HealthResponse, AuthRequest, AuthResponse, AuthInnerRequest,
+                             MasterKeyResponse, MasterKeyError,
+                             HealthInfo, HealthResponse, AuthRequest, AuthResponse,
                              ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDoc;

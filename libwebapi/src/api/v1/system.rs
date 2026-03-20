@@ -62,7 +62,7 @@ pub async fn health_handler(master: web::Data<MasterInterfaceType>, _body: ()) -
 
 #[derive(ToSchema, Deserialize, Serialize)]
 pub struct AuthRequest {
-    /// Base64-encoded, RSA-encrypted JSON: {"username": "...", "password": "...", "pubkey": "..."}
+    /// Base64-encoded, RSA-encrypted JSON: {"username": "...", "password": "..."}
     pub payload: String,
     pub pubkey: String,
 }
@@ -74,7 +74,7 @@ impl AuthRequest {
     }
 }
 
-#[derive(ToSchema, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct AuthInnerRequest {
     pub username: Option<String>,
     pub password: Option<String>,
@@ -99,14 +99,14 @@ impl AuthResponse {
     path = "/api/v1/authenticate",
     request_body(
         content = AuthRequest,
-        description = "Base64-encoded, RSA-encrypted JSON containing username and password. See description for details.",
+                description = "Base64-encoded, RSA-encrypted JSON containing username and password. The client public key is sent separately in the top-level pubkey field.",
         content_type = "application/json"
     ),
     responses(
-        (status = 200, description = "Authentication successful. Returns a session ID (sid) if credentials are valid.",
-         body = AuthResponse, example = json!({"status": "authenticated", "sid": "session-id"})),
+                (status = 200, description = "Authentication successful. Returns RSA-encrypted session identifiers if credentials are valid.",
+                 body = AuthResponse, example = json!({"status": "authenticated", "sid_cipher": "base64-rsa-ciphertext", "symkey_cipher": "base64-rsa-ciphertext", "error": ""})),
         (status = 400, description = "Bad Request. Returned if payload is missing, invalid, or credentials are incorrect.",
-         body = AuthResponse, example = json!({"status": "error", "sid": null, "error": "Invalid payload"}))),
+                 body = AuthResponse, example = json!({"status": "error", "sid_cipher": "", "symkey_cipher": "", "error": "Invalid payload"}))),
     tag = TAG_SYSTEM,
     operation_id = "authenticateUser",
     description =
@@ -116,10 +116,10 @@ impl AuthResponse {
         ```json\n\
         {\n\
           \"username\": \"darth_vader\",\n\
-          \"password\": \"I am your father\",\n\
-          \"pubkey\": \"...\"\n\
+                    \"password\": \"I am your father\"\n\
         }\n\
-        ```\n\n\
+                ```\n\n\
+                The client public key is sent in the top-level `pubkey` request field, not inside the encrypted payload.\n\n\
         If the API is in development mode, it will return a static token without \
         actual authentication.",
 )]

@@ -5,7 +5,7 @@ use libsysinspect::rsa::keys::{
     decrypt, encrypt, key_from_file, key_to_file, keygen,
 };
 use serde_json::{Value, json};
-use sodiumoxide::crypto::secretbox::{self, Key, Nonce, gen_nonce};
+use sodiumoxide::crypto::secretbox::{self, Key, gen_nonce};
 use std::{fs, path::PathBuf};
 use syswebclient::{
     apis::{
@@ -151,23 +151,6 @@ impl SysClient {
         STANDARD.encode(data)
     }
 
-    /// Decode Base64-encoded data.
-    /// This method uses the `base64` crate to decode the provided Base64 string into a byte vector.
-    /// # Arguments
-    /// * `data` - The Base64-encoded data to decode, provided as a string.
-    /// # Returns
-    /// A `Result` that is `Ok(Vec<u8>)` containing the decoded data,
-    /// or an `Err(SysinspectError)` if there is an error during the decoding process.
-    /// # Errors
-    /// * Returns `SysinspectError::SerializationError` if the provided data is not valid Base64.
-    ///
-    /// This function will return an error if the input string cannot be decoded into valid Base64 data.
-    pub(crate) fn b64decode(&self, data: &str) -> Result<Vec<u8>, SysinspectError> {
-        STANDARD
-            .decode(data)
-            .map_err(|e| SysinspectError::SerializationError(format!("Failed to decode base64 data: {e}")))
-    }
-
     /// Encrypt data using a public key (master or own).
     /// This method reads the public key from the file system and uses it to encrypt the provided data.
     /// # Arguments
@@ -268,52 +251,6 @@ impl SysClient {
                     .ok_or_else(|| SysinspectError::SerializationError("Invalid symmetric key length".to_string()))?,
             ),
         ))
-    }
-
-    /// Decrypt a payload using the symmetric key and nonce.
-    /// This method takes a nonce and a payload, decrypts the payload using the symmetric key,
-    /// and deserializes the decrypted data into a `serde_json::Value`.
-    /// # Arguments
-    /// * `nonce` - The nonce used for decryption, provided as a byte slice.
-    /// * `payload` - The encrypted payload to decrypt, provided as a byte slice.
-    /// # Returns
-    /// A `Result` that is `Ok(Value)` containing the deserialized JSON value if successful,
-    /// or an `Err(SysinspectError)` if there is an error during decryption or deserialization.
-    ///
-    /// # Errors
-    /// * Returns `SysinspectError::SerializationError` if the nonce is not valid (i.e., not 24 bytes long),
-    /// * Returns `SysinspectError::SerializationError` if the symmetric key is not valid (i.e., not 32 bytes long),
-    /// * Returns `SysinspectError::SerializationError` if the decryption fails,
-    /// * Returns `SysinspectError::DeserializationError` if the decrypted data cannot be deserialized into a `serde_json::Value`.
-    ///
-    /// This function uses the `sodiumoxide` library for decryption,
-    /// specifically the `secretbox` module for symmetric decryption.
-    /// It expects the nonce to be 24 bytes long, which is the required length for the `secretbox::Nonce`.
-    /// The symmetric key is expected to be 32 bytes long,
-    /// which is the required length for the `secretbox::Key`.
-    /// The function first checks the length of the nonce and symmetric key,
-    /// and if they are not valid, it returns a `SysinspectError::SerializationError`.
-    /// It then attempts to decrypt the payload using `secretbox::open()`, which takes the payload, nonce, and symmetric key.
-    /// If the decryption fails, it returns a `SysinspectError::SerializationError`.
-    /// Finally, it deserializes the decrypted data into a `serde_json::Value` using `serde_json::from_slice()`.
-    /// If the deserialization fails, it returns a `SysinspectError::DeserializationError`.
-    /// If all operations are successful, it returns the deserialized `Value` as a result.
-    /// This allows the caller to retrieve the original JSON data that was encrypted and sent as a payload.
-    /// The decrypted data is expected to be in JSON format,
-    /// and the function will return a `serde_json::Value` that can be used for further processing or analysis.
-    /// This is useful for applications that need to securely transmit JSON data,
-    /// such as configuration settings, user data, or other structured information,
-    /// while ensuring that the data remains confidential and tamper-proof during transmission.
-    pub async fn from_payload(&self, nonce: &[u8], payload: &[u8]) -> Result<Value, SysinspectError> {
-        let nonce =
-            Nonce::from_slice(nonce).ok_or(SysinspectError::SerializationError("Invalid nonce length".to_string()))?;
-        let key = Key::from_slice(&self.symkey)
-            .ok_or_else(|| SysinspectError::SerializationError("Invalid symmetric key length".to_string()))?;
-
-        let data = secretbox::open(payload, &nonce, &key)
-            .map_err(|_| SysinspectError::SerializationError("Failed to decrypt payload".to_string()))?;
-
-        serde_json::from_slice(&data).map_err(|e| SysinspectError::DeserializationError(e.to_string()))
     }
 
     /// Authenticate a user with the SysInspect system.

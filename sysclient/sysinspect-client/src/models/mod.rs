@@ -1,5 +1,3 @@
-pub mod auth_inner_request;
-pub use self::auth_inner_request::AuthInnerRequest;
 pub mod auth_request;
 pub use self::auth_request::AuthRequest;
 pub mod auth_response;
@@ -18,12 +16,6 @@ pub mod model_name_response;
 pub use self::model_name_response::ModelNameResponse;
 pub mod model_response;
 pub use self::model_response::ModelResponse;
-pub mod pub_key_error;
-pub use self::pub_key_error::PubKeyError;
-pub mod pub_key_request;
-pub use self::pub_key_request::PubKeyRequest;
-pub mod pub_key_response;
-pub use self::pub_key_response::PubKeyResponse;
 pub mod query_error;
 pub use self::query_error::QueryError;
 pub mod query_payload_request;

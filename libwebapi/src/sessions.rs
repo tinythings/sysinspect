@@ -5,7 +5,6 @@
 
 use libcommon::SysinspectError;
 use once_cell::sync::OnceCell;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::secretbox::Key;
@@ -111,25 +110,6 @@ impl SessionStore {
             }
         }
         None
-    }
-
-    /// Encrypts a value using the session's symmetric key and returns the nonce and ciphertext.
-    /// The nonce is used to ensure that the same plaintext encrypted multiple times will yield different ciphertext.
-    /// The ciphertext is the encrypted form of the serialized value.
-    /// # Arguments
-    /// * `value` - The value to encrypt, which must implement the `Serialize` trait.
-    /// * `key` - The symmetric key to use for encryption, which is derived from the session.
-    /// # Returns
-    /// * `(Vec<u8>, Vec<u8>)` - A tuple containing the nonce and the ciphertext.
-    /// # Errors
-    /// * If the value cannot be serialized, it will panic.
-    /// * If the key is not valid, it will panic.
-    ///
-    pub fn encrypt<T: Serialize>(&mut self, sid: &str, value: &T) -> Result<(Vec<u8>, Vec<u8>), SysinspectError> {
-        let key = self.key(sid).ok_or(SysinspectError::ObjectNotFound("Session key not found".to_string()))?;
-        let nonce = secretbox::gen_nonce();
-        let data = serde_json::to_vec(value).map_err(|e| SysinspectError::SerializationError(e.to_string()))?;
-        Ok((nonce.0.to_vec(), secretbox::seal(&data, &nonce, &key)))
     }
 
     /// Decrypts the ciphertext using the session's symmetric key and returns the deserialized value.

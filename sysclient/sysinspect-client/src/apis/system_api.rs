@@ -29,7 +29,7 @@ pub enum HealthCheckError {
     UnknownValue(serde_json::Value),
 }
 
-/// Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields as follows:  ```json { \"username\": \"darth_vader\", \"password\": \"I am your father\", \"pubkey\": \"...\" } ```  If the API is in development mode, it will return a static token without actual authentication.
+/// Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields, while the client public key is sent separately in the top-level `pubkey` field. If the API is in development mode, it will return a static token without actual authentication.
 pub async fn authenticate_user(
     configuration: &configuration::Configuration, auth_request: models::AuthRequest,
 ) -> Result<models::AuthResponse, Error<AuthenticateUserError>> {

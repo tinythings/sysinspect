@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AuthRequest {
-    /// Base64-encoded, RSA-encrypted JSON: {\"username\": \"...\", \"password\": \"...\", \"pubkey\": \"...\"}
+    /// Base64-encoded, RSA-encrypted JSON: {\"username\": \"...\", \"password\": \"...\"}
     #[serde(rename = "payload")]
     pub payload: String,
     #[serde(rename = "pubkey")]
