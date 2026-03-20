@@ -41,7 +41,7 @@ impl MinionsKeyRegistry {
             self.ms_pbk_pem = Some(fs::read_to_string(pbk_pth)?);
             (self.ms_prk, self.ms_pbk) = rsa::keys::from_pem(Some(&prk_pem), self.ms_pbk_pem.as_deref())?;
 
-            if self.ms_pbk.is_none() || self.ms_pbk.is_none() {
+            if self.ms_prk.is_none() || self.ms_pbk.is_none() {
                 return Err(SysinspectError::MasterGeneralError("Unable to initialise RSA keys".to_string()));
             }
 
