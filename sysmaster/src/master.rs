@@ -245,10 +245,17 @@ impl SysMaster {
     }
 
     #[cfg(test)]
-    pub(crate) fn reject_bootstrap_replay_with_state_for_test(
+    pub(crate) fn bootstrap_precheck_with_state_for_test(
         cache: &mut HashMap<String, std::time::Instant>, binding: &libsysproto::secure::SecureSessionBinding, now: std::time::Instant,
-    ) -> bool {
-        PeerTransport::reject_bootstrap_replay(cache, binding, now)
+    ) -> Option<String> {
+        PeerTransport::bootstrap_precheck(cache, binding, now)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_bootstrap_replay_with_state_for_test(
+        cache: &mut HashMap<String, std::time::Instant>, binding: &libsysproto::secure::SecureSessionBinding, now: std::time::Instant,
+    ) {
+        PeerTransport::record_bootstrap_replay(cache, binding, now)
     }
 
     #[cfg(test)]

@@ -60,12 +60,15 @@ pub struct SecureSessionBinding {
     pub client_nonce: String,
     /// Fresh randomness from the master side. Empty in the first bootstrap frame.
     pub master_nonce: String,
+    /// UTC timestamp of the bootstrap opening, used to prevent replay attacks across cache purges.
+    pub timestamp: i64,
 }
 
 impl SecureSessionBinding {
     /// Build the opening binding sent by the minion before the master nonce is known.
     pub fn bootstrap_opening(
         minion_id: String, minion_rsa_fingerprint: String, master_rsa_fingerprint: String, connection_id: String, client_nonce: String,
+        timestamp: i64,
     ) -> Self {
         Self {
             minion_id,
@@ -75,6 +78,7 @@ impl SecureSessionBinding {
             connection_id,
             client_nonce,
             master_nonce: String::new(),
+            timestamp,
         }
     }
 }
@@ -125,7 +129,7 @@ pub struct SecureBootstrapHello {
     pub binding: SecureSessionBinding,
     /// Fresh symmetric session key encrypted to the master's registered RSA key.
     pub session_key_cipher: String,
-    /// RSA signature over the bootstrap binding and raw session key.
+    /// RSA signature over the bootstrap binding and wrapped session key ciphertext.
     pub binding_signature: String,
     /// Optional transport key identifier when reconnecting or rotating.
     pub key_id: Option<String>,

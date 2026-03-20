@@ -154,6 +154,7 @@ impl PeerTransport {
     pub(crate) fn accept_bootstrap(
         &mut self, peer_addr: &str, hello: &SecureBootstrapHello, cfg: &MasterConfig, mkr: &mut MinionsKeyRegistry,
     ) -> Result<Vec<u8>, SysinspectError> {
+        let now = Instant::now();
         if self.peers.iter().any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id) {
             log::warn!("Rejecting duplicate bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
             return serde_json::to_vec(&SecureBootstrapDiagnostics::duplicate_session(format!(
@@ -161,6 +162,10 @@ impl PeerTransport {
                 hello.binding.minion_id
             )))
             .map_err(SysinspectError::from);
+        }
+        if let Some(message) = Self::bootstrap_precheck(&mut self.bootstrap_replay_cache, &hello.binding, now) {
+            log::warn!("Rejecting bootstrap for minion {} from {}: {}", hello.binding.minion_id, peer_addr, message);
+            return serde_json::to_vec(&SecureBootstrapDiagnostics::replay_rejected(message)).map_err(SysinspectError::from);
         }
         let mut state = TransportStore::for_master_minion(cfg, &hello.binding.minion_id)?
             .load()?
@@ -176,15 +181,7 @@ impl PeerTransport {
             state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
             None,
         )?;
-
-        if Self::reject_bootstrap_replay(&mut self.bootstrap_replay_cache, &hello.binding, Instant::now()) {
-            log::warn!("Rejecting replayed bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
-            return serde_json::to_vec(&SecureBootstrapDiagnostics::replay_rejected(format!(
-                "Secure bootstrap replay rejected for {}",
-                hello.binding.minion_id
-            )))
-            .map_err(SysinspectError::from);
-        }
+        Self::record_bootstrap_replay(&mut self.bootstrap_replay_cache, &hello.binding, now);
 
         Self::promote_bootstrap_key(cfg, mkr, &mut state, hello, bootstrap.key_id())?;
         TransportStore::for_master_minion(cfg, &hello.binding.minion_id)?.save(&state)?;
@@ -212,15 +209,30 @@ impl PeerTransport {
         peer_addr.parse::<std::net::SocketAddr>().map(|addr| addr.ip().to_string()).unwrap_or_else(|_| peer_addr.to_string())
     }
 
-    /// Record opening bootstrap tuples and reject duplicates within the replay window.
-    pub(crate) fn reject_bootstrap_replay(cache: &mut HashMap<String, Instant>, binding: &SecureSessionBinding, now: Instant) -> bool {
-        cache.retain(|_, seen_at| now.duration_since(*seen_at) <= BOOTSTRAP_REPLAY_WINDOW);
+    /// Reject stale or already-seen bootstrap openings before any expensive cryptographic work.
+    pub(crate) fn bootstrap_precheck(cache: &mut HashMap<String, Instant>, binding: &SecureSessionBinding, now: Instant) -> Option<String> {
+        Self::prune_bootstrap_replay_cache(cache, now);
+        let current_time = chrono::Utc::now().timestamp();
+        let drift = (current_time - binding.timestamp).abs();
+        if drift > BOOTSTRAP_REPLAY_WINDOW.as_secs() as i64 {
+            return Some(format!("Secure bootstrap timestamp drift {}s exceeds the allowed {}s window", drift, BOOTSTRAP_REPLAY_WINDOW.as_secs()));
+        }
         let key = Self::replay_cache_key(binding);
         if cache.contains_key(&key) {
-            return true;
+            return Some(format!("Secure bootstrap replay rejected for {}", binding.minion_id));
         }
+        None
+    }
+
+    /// Record one authenticated bootstrap opening so later duplicates are rejected before RSA decryption.
+    pub(crate) fn record_bootstrap_replay(cache: &mut HashMap<String, Instant>, binding: &SecureSessionBinding, now: Instant) {
+        Self::prune_bootstrap_replay_cache(cache, now);
+        let key = Self::replay_cache_key(binding);
         cache.insert(key, now);
-        false
+    }
+
+    fn prune_bootstrap_replay_cache(cache: &mut HashMap<String, Instant>, now: Instant) {
+        cache.retain(|_, seen_at| now.duration_since(*seen_at) <= BOOTSTRAP_REPLAY_WINDOW);
     }
 
     /// Apply staged rotation context when the bootstrap key matches the expected promoted key.
@@ -287,6 +299,9 @@ impl PeerTransport {
         cache: &mut HashMap<String, Instant>, state: &TransportPeerState, hello: &SecureBootstrapHello, master_prk: &rsa::RsaPrivateKey,
         minion_pbk: &rsa::RsaPublicKey, now: Instant,
     ) -> Result<SecureFrame, SysinspectError> {
+        if let Some(message) = Self::bootstrap_precheck(cache, &hello.binding, now) {
+            return Ok(SecureBootstrapDiagnostics::replay_rejected(message));
+        }
         let (_, ack) = SecureBootstrapSession::accept(
             state,
             hello,
@@ -296,11 +311,7 @@ impl PeerTransport {
             state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
             None,
         )?;
-
-        if Self::reject_bootstrap_replay(cache, &hello.binding, now) {
-            return Ok(SecureBootstrapDiagnostics::replay_rejected(format!("Secure bootstrap replay rejected for {}", hello.binding.minion_id)));
-        }
-
+        Self::record_bootstrap_replay(cache, &hello.binding, now);
         Ok(ack)
     }
 }

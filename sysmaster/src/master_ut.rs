@@ -10,6 +10,10 @@ use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureBootstrapHello, SecureF
 use rsa::RsaPublicKey;
 use std::{collections::HashMap, time::Instant};
 
+fn fresh_timestamp() -> i64 {
+    Utc::now().timestamp()
+}
+
 fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
     TransportPeerState {
         minion_id: "mid-1".to_string(),
@@ -41,6 +45,7 @@ fn unsupported_peer_bounces_secure_bootstrap_hello() {
                 "master-fp".to_string(),
                 "conn-1".to_string(),
                 "nonce-1".to_string(),
+                fresh_timestamp(),
             ),
             session_key_cipher: "cipher".to_string(),
             binding_signature: "sig".to_string(),
@@ -122,10 +127,29 @@ fn replay_cache_rejects_duplicate_bootstrap_openings() {
         "master-fp".to_string(),
         "conn-1".to_string(),
         "nonce-1".to_string(),
+        fresh_timestamp(),
     );
 
-    assert!(!SysMaster::reject_bootstrap_replay_with_state_for_test(&mut cache, &binding, Instant::now(),));
-    assert!(SysMaster::reject_bootstrap_replay_with_state_for_test(&mut cache, &binding, Instant::now(),));
+    assert!(SysMaster::bootstrap_precheck_with_state_for_test(&mut cache, &binding, Instant::now(),).is_none());
+    SysMaster::record_bootstrap_replay_with_state_for_test(&mut cache, &binding, Instant::now());
+    assert!(SysMaster::bootstrap_precheck_with_state_for_test(&mut cache, &binding, Instant::now(),).is_some());
+}
+
+#[test]
+fn replay_cache_rejects_stale_bootstrap_openings_before_auth() {
+    let mut cache = HashMap::<String, Instant>::new();
+    let binding = SecureSessionBinding::bootstrap_opening(
+        "mid-1".to_string(),
+        "minion-fp".to_string(),
+        "master-fp".to_string(),
+        "conn-1".to_string(),
+        "nonce-1".to_string(),
+        fresh_timestamp() - 301,
+    );
+
+    let rejection = SysMaster::bootstrap_precheck_with_state_for_test(&mut cache, &binding, Instant::now()).unwrap();
+    assert!(rejection.contains("timestamp drift"));
+    assert!(cache.is_empty());
 }
 
 #[test]
@@ -136,6 +160,7 @@ fn replay_cache_key_binds_minion_connection_and_nonce() {
         "master-fp".to_string(),
         "conn-1".to_string(),
         "nonce-1".to_string(),
+        fresh_timestamp(),
     ));
 
     assert_eq!(key, "mid-1:conn-1:nonce-1");

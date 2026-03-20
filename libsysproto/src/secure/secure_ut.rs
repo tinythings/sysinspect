@@ -12,6 +12,7 @@ fn binding() -> SecureSessionBinding {
         connection_id: "conn-1".to_string(),
         client_nonce: "client-nonce".to_string(),
         master_nonce: "master-nonce".to_string(),
+        timestamp: 1672531200,
     }
 }
 

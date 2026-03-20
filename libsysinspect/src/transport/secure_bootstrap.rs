@@ -1,5 +1,6 @@
 use super::TransportPeerState;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use chrono::Utc;
 use libcommon::SysinspectError;
 use libsysproto::secure::{
     SECURE_PROTOCOL_VERSION, SecureBootstrapAck, SecureBootstrapDiagnostic, SecureBootstrapHello, SecureDiagnosticCode, SecureFailureSemantics,
@@ -40,6 +41,7 @@ impl SecureBootstrapSession {
             state.master_rsa_fingerprint.clone(),
             Uuid::new_v4().to_string(),
             Uuid::new_v4().to_string(),
+            Utc::now().timestamp(),
         );
         Self::hello(
             binding.clone(),
@@ -132,7 +134,7 @@ impl SecureBootstrapSession {
                 .map_err(|_| SysinspectError::RSAError("Failed to encrypt secure session key for the master".to_string()))?,
         );
         let binding_signature = STANDARD.encode(
-            sign_data(minion_prk.clone(), &Self::hello_material(&binding, &session_key.0)?)
+            sign_data(minion_prk.clone(), &Self::hello_material(&binding, &session_key_cipher)?)
                 .map_err(|_| SysinspectError::RSAError("Failed to sign secure bootstrap binding".to_string()))?,
         );
         Ok((
@@ -214,10 +216,9 @@ impl SecureBootstrapSession {
 
     /// Decrypt and authenticate the opening bootstrap frame sent by the minion.
     fn verify_hello(hello: &SecureBootstrapHello, minion_pbk: &RsaPublicKey, master_prk: &RsaPrivateKey) -> Result<Key, SysinspectError> {
-        let session_key = Self::key(&hello.session_key_cipher, master_prk)?;
         if !verify_sign(
             minion_pbk,
-            &Self::hello_material(&hello.binding, &session_key.0)?,
+            &Self::hello_material(&hello.binding, &hello.session_key_cipher)?,
             STANDARD
                 .decode(&hello.binding_signature)
                 .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure bootstrap signature: {err}")))?,
@@ -226,6 +227,7 @@ impl SecureBootstrapSession {
         {
             return Err(SysinspectError::RSAError("Secure bootstrap hello signature verification failed".to_string()));
         }
+        let session_key = Self::key(&hello.session_key_cipher, master_prk)?;
         Ok(session_key)
     }
 
@@ -258,9 +260,9 @@ impl SecureBootstrapSession {
         Key::from_slice(&digest.finalize()).unwrap_or_else(secretbox::gen_key)
     }
 
-    /// Build the signed material for a bootstrap hello from the binding and raw session key bytes.
-    fn hello_material(binding: &SecureSessionBinding, session_key: &[u8]) -> Result<Vec<u8>, SysinspectError> {
-        Self::material(binding, Some(session_key), None)
+    /// Build the signed material for a bootstrap hello from the binding and ciphered session key bytes.
+    fn hello_material(binding: &SecureSessionBinding, session_key_cipher: &str) -> Result<Vec<u8>, SysinspectError> {
+        Self::material(binding, Some(session_key_cipher.as_bytes()), None)
     }
 
     /// Build the signed material for a bootstrap acknowledgement from the binding and session id.

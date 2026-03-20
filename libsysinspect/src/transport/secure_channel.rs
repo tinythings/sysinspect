@@ -2,6 +2,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use libcommon::SysinspectError;
 use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureDataFrame, SecureFrame};
 use serde::{Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
 
 use super::secure_bootstrap::SecureBootstrapSession;
@@ -28,21 +29,32 @@ pub struct SecureChannel {
     role: SecurePeerRole,
     tx_counter: u64,
     rx_counter: u64,
+    base_nonce: [u8; secretbox::NONCEBYTES],
 }
 
 impl SecureChannel {
     /// Create a steady-state secure channel from an accepted bootstrap session.
     pub fn new(role: SecurePeerRole, bootstrap: &SecureBootstrapSession) -> Result<Self, SysinspectError> {
+        let session_id = bootstrap
+            .session_id()
+            .ok_or_else(|| SysinspectError::ProtoError("Secure channel requires an established bootstrap session id".to_string()))?
+            .to_string();
+
+        let mut digest = Sha256::new();
+        digest.update(session_id.as_bytes());
+        digest.update(bootstrap.session_key().0);
+        let hash = digest.finalize();
+        let mut base_nonce = [0u8; secretbox::NONCEBYTES];
+        base_nonce.copy_from_slice(&hash[..secretbox::NONCEBYTES]);
+
         Ok(Self {
-            session_id: bootstrap
-                .session_id()
-                .ok_or_else(|| SysinspectError::ProtoError("Secure channel requires an established bootstrap session id".to_string()))?
-                .to_string(),
+            session_id,
             key_id: bootstrap.key_id().to_string(),
             key: bootstrap.session_key().clone(),
             role,
             tx_counter: 0,
             rx_counter: 0,
+            base_nonce,
         })
     }
 
@@ -76,8 +88,8 @@ impl SecureChannel {
             session_id: self.session_id.clone(),
             key_id: self.key_id.clone(),
             counter: self.tx_counter,
-            nonce: STANDARD.encode(Self::nonce(self.role, self.tx_counter).0),
-            payload: STANDARD.encode(secretbox::seal(payload, &Self::nonce(self.role, self.tx_counter), &self.key)),
+            nonce: STANDARD.encode(Self::nonce(self.role, self.tx_counter, &self.base_nonce).0),
+            payload: STANDARD.encode(secretbox::seal(payload, &Self::nonce(self.role, self.tx_counter, &self.base_nonce), &self.key)),
         }))
         .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode secure data frame: {err}")))
     }
@@ -128,7 +140,7 @@ impl SecureChannel {
         if frame.counter != self.rx_counter.saturating_add(1) {
             return Err(SysinspectError::ProtoError(format!("Secure frame counter {} is out of sequence after {}", frame.counter, self.rx_counter)));
         }
-        let expected_nonce = Self::nonce(Self::peer_role(self.role), frame.counter);
+        let expected_nonce = Self::nonce(Self::peer_role(self.role), frame.counter, &self.base_nonce);
         if STANDARD.encode(expected_nonce.0) != frame.nonce {
             return Err(SysinspectError::ProtoError("Secure data frame nonce does not match the expected counter-derived nonce".to_string()));
         }
@@ -145,14 +157,17 @@ impl SecureChannel {
         Ok(payload)
     }
 
-    /// Derive a deterministic nonce from the sender role and monotonic counter.
-    fn nonce(role: SecurePeerRole, counter: u64) -> Nonce {
-        let mut nonce = [0u8; secretbox::NONCEBYTES];
-        nonce[0] = match role {
+    /// Derive a deterministic nonce from the sender role, base_nonce and monotonic counter.
+    fn nonce(role: SecurePeerRole, counter: u64, base_nonce: &[u8; secretbox::NONCEBYTES]) -> Nonce {
+        let mut nonce = base_nonce.clone();
+        nonce[0] ^= match role {
             SecurePeerRole::Master => 1,
             SecurePeerRole::Minion => 2,
         };
-        nonce[secretbox::NONCEBYTES - 8..].copy_from_slice(&counter.to_be_bytes());
+        let counter_bytes = counter.to_be_bytes();
+        for i in 0..8 {
+            nonce[secretbox::NONCEBYTES - 8 + i] ^= counter_bytes[i];
+        }
         Nonce(nonce)
     }
 
