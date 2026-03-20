@@ -16,8 +16,8 @@ use libsysinspect::{
 };
 use libsysproto::query::SCHEME_COMMAND;
 use libsysproto::query::commands::{
-    CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
-    CLUSTER_TRANSPORT_STATUS,
+    CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC,
+    CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
 };
 use log::LevelFilter;
 use serde_json::json;
@@ -261,6 +261,15 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         }
         return false;
     }
+    if let Some(sub) = params.subcommand_matches("network")
+        && (sub.get_flag("help") || !(sub.get_flag("rotate") || sub.get_flag("status") || sub.get_flag("online") || sub.get_flag("info")))
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("network") {
+            _ = s_cli.print_help();
+            return true;
+        }
+        return false;
+    }
     if params.get_flag("help") {
         _ = &cli.print_long_help();
         return true;
@@ -455,6 +464,156 @@ async fn main() {
         return;
     }
 
+    if let Some(network) = params.subcommand_matches("network") {
+        let query = network.get_one::<String>("query").or_else(|| network.get_one::<String>("query-pos")).cloned().unwrap_or("*".to_string());
+        let direct_id = network.get_one::<String>("id").map(String::as_str);
+
+        if network.get_flag("rotate") {
+            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
+            let overlap = network.get_one::<String>("rotate-overlap").and_then(|v| v.parse::<u64>().ok()).unwrap_or(900);
+            let reason = network.get_one::<String>("rotate-reason").cloned().unwrap_or("manual".to_string());
+            let context = json!({
+                "op": "rotate",
+                "reason": reason,
+                "grace_seconds": overlap,
+                "reconnect": true,
+                "reregister": true,
+            })
+            .to_string();
+            if let Err(err) = call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}"),
+                if direct_id.is_some() {
+                    "*"
+                } else if by_query {
+                    &query
+                } else {
+                    "*"
+                },
+                network.get_one::<String>("select-traits"),
+                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
+                Some(&context),
+            )
+            .await
+            {
+                log::error!("Cannot reach master: {err}");
+            }
+            return;
+        }
+
+        if network.get_flag("status") {
+            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
+            let filter = if network.get_flag("pending") {
+                "pending"
+            } else if network.get_flag("idle") {
+                "idle"
+            } else {
+                "all"
+            };
+            let context = json!({ "filter": filter }).to_string();
+            match call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_TRANSPORT_STATUS}"),
+                if direct_id.is_some() {
+                    "*"
+                } else if by_query {
+                    &query
+                } else {
+                    "*"
+                },
+                network.get_one::<String>("select-traits"),
+                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
+                Some(&context),
+            )
+            .await
+            {
+                Ok(response) => {
+                    let rendered = clifmt::render_console_payload(&response.payload);
+                    if !rendered.is_empty() {
+                        println!("{}", rendered);
+                    }
+                }
+                Err(err) => log::error!("Cannot reach master: {err}"),
+            }
+            return;
+        }
+
+        if network.get_flag("online") {
+            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
+            match call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"),
+                if direct_id.is_some() {
+                    "*"
+                } else if by_query {
+                    &query
+                } else {
+                    "*"
+                },
+                network.get_one::<String>("select-traits"),
+                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
+                None,
+            )
+            .await
+            {
+                Ok(response) => {
+                    let rendered = clifmt::render_console_payload(&response.payload);
+                    if !rendered.is_empty() {
+                        println!("{}", rendered);
+                    }
+                }
+                Err(err) => log::error!("Cannot reach master: {err}"),
+            }
+            return;
+        }
+
+        if network.get_flag("info") {
+            if network.get_one::<String>("select-traits").is_some() {
+                log::error!(
+                    "{} requires exactly one minion name or {} and does not support {} selectors",
+                    "--info".bright_yellow(),
+                    "--id".bright_yellow(),
+                    "--traits".bright_yellow()
+                );
+                return;
+            }
+            if direct_id.is_none() && (query.trim().is_empty() || query == "*" || query.contains('*') || query.contains(',')) {
+                log::error!(
+                    "{} requires exactly one minion name or {}. Broad selectors are not allowed",
+                    "--info".bright_yellow(),
+                    "--id".bright_yellow()
+                );
+                return;
+            }
+            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
+            match call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_MINION_INFO}"),
+                if direct_id.is_some() {
+                    "*"
+                } else if by_query {
+                    &query
+                } else {
+                    "*"
+                },
+                network.get_one::<String>("select-traits"),
+                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
+                None,
+            )
+            .await
+            {
+                Ok(response) => {
+                    let rendered = clifmt::render_console_payload(&response.payload);
+                    if !rendered.is_empty() {
+                        println!("{}", rendered);
+                    }
+                }
+                Err(err) => log::error!("Cannot reach master: {err}"),
+            }
+            return;
+        }
+    }
+
     if let Some(model) = params.get_one::<String>("path") {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
@@ -470,63 +629,9 @@ async fn main() {
         if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
-    } else if let Some(target) = params.get_one::<String>("rotate") {
-        let by_query = target.contains('*') || target.contains(',');
-        let overlap = params.get_one::<String>("rotate-overlap").and_then(|v| v.parse::<u64>().ok()).unwrap_or(900);
-        let reason = params.get_one::<String>("rotate-reason").cloned().unwrap_or_else(|| "manual".to_string());
-        let context = json!({
-            "op": "rotate",
-            "reason": reason,
-            "grace_seconds": overlap,
-            "reconnect": true,
-            "reregister": true,
-        })
-        .to_string();
-        if let Err(err) = call_master_console(
-            &cfg,
-            &format!("{SCHEME_COMMAND}{CLUSTER_ROTATE}"),
-            if by_query { target } else { "*" },
-            params.get_one::<String>("traits"),
-            if by_query { None } else { Some(target.as_str()) },
-            Some(&context),
-        )
-        .await
-        {
-            log::error!("Cannot reach master: {err}");
-        }
     } else if let Some(mid) = params.get_one::<String>("unregister") {
         if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", None, Some(mid), None).await {
             log::error!("Cannot reach master: {err}");
-        }
-    } else if let Some(target) = params.get_one::<String>("transport-status") {
-        let by_query = target.contains('*') || target.contains(',');
-        match call_master_console(
-            &cfg,
-            &format!("{SCHEME_COMMAND}{CLUSTER_TRANSPORT_STATUS}"),
-            if by_query { target } else { "*" },
-            params.get_one::<String>("traits"),
-            if by_query { None } else { Some(target.as_str()) },
-            None,
-        )
-        .await
-        {
-            Ok(response) => {
-                let rendered = clifmt::render_console_payload(&response.payload);
-                if !rendered.is_empty() {
-                    println!("{}", rendered);
-                }
-            }
-            Err(err) => log::error!("Cannot reach master: {err}"),
-        }
-    } else if params.get_flag("online") {
-        match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "", None, None, None).await {
-            Ok(response) => {
-                let rendered = clifmt::render_console_payload(&response.payload);
-                if !rendered.is_empty() {
-                    println!("{}", rendered);
-                }
-            }
-            Err(err) => log::error!("Cannot reach master: {err}"),
         }
     } else if let Some(mpath) = params.get_one::<String>("model") {
         let mut sr = SysInspectRunner::new(&MinionConfig::default());
