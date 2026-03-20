@@ -975,7 +975,10 @@ impl SysMinion {
                     }
                     dirty = true;
                 }
-                Err(_) => todo!(),
+                Err(err) => {
+                    log::error!("Unable to auto-update {uri_file}: {err}");
+                    continue;
+                }
             }
         }
         if dirty {

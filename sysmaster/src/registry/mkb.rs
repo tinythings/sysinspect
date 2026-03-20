@@ -181,10 +181,6 @@ impl MinionsKeyRegistry {
         Ok(())
     }
 
-    pub fn encrypt_with_mn_key(&self) {}
-
-    pub fn encrypt_with_mst_key(&self) {}
-
     fn transport_root(&self) -> Result<PathBuf, SysinspectError> {
         Ok(self
             .root
