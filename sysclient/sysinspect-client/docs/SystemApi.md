@@ -1,23 +1,19 @@
 # \SystemApi
 
-All URIs are relative to *http://localhost*
+All URIs are relative to *<http://localhost>*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**authenticate_user**](SystemApi.md#authenticate_user) | **POST** /api/v1/authenticate | 
-[**health_check**](SystemApi.md#health_check) | **POST** /api/v1/health | 
-
-
+[**authenticate_user**](SystemApi.md#authenticate_user) | **POST** /api/v1/authenticate |
+[**health_check**](SystemApi.md#health_check) | **POST** /api/v1/health |
 
 ## authenticate_user
 
 > models::AuthResponse authenticate_user(auth_request)
 
-
-Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields as follows:  ```json { \"username\": \"darth_vader\", \"password\": \"I am your father\", \"pubkey\": \"...\" } ```  If the API is in development mode, it will return a static token without actual authentication.
+Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields, while the client public key is sent separately in the top-level `pubkey` field. If the API is in development mode, it will return a static token without actual authentication.
 
 ### Parameters
-
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
@@ -38,11 +34,9 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
-
 ## health_check
 
 > models::HealthResponse health_check()
-
 
 Checks the health of the SysInspect API. Returns basic information about the API status, telemetry, and scheduler tasks.
 
@@ -64,4 +58,3 @@ No authorization required
 - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-

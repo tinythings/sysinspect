@@ -15,10 +15,10 @@
         "tags": [
           "System"
         ],
-        "description": "Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields as follows:\n\n```json\n{\n\"username\": \"darth_vader\",\n\"password\": \"I am your father\",\n\"pubkey\": \"...\"\n}\n```\n\nIf the API is in development mode, it will return a static token without actual authentication.",
+        "description": "Authenticates a user using configured authentication method. The payload must be a base64-encoded, RSA-encrypted JSON object with username and password fields, while the client public key is sent separately in the top-level pubkey field. If the API is in development mode, it will return a static token without actual authentication.",
         "operationId": "authenticateUser",
         "requestBody": {
-          "description": "Base64-encoded, RSA-encrypted JSON containing username and password. See description for details.",
+          "description": "Base64-encoded, RSA-encrypted JSON containing username and password. The client public key is sent separately in the top-level pubkey field.",
           "content": {
             "application/json": {
               "schema": {
@@ -233,53 +233,6 @@
         }
       }
     },
-    "/api/v1/pushkey": {
-      "post": {
-        "tags": [
-          "RSA Keys"
-        ],
-        "description": "Push a public key for a user. Requires an authenticated session ID.",
-        "operationId": "pushkey",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PubKeyRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Public key saved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PubKeyResponse"
-                },
-                "example": {
-                  "message": "Public key saved successfully"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PubKeyError"
-                },
-                "example": {
-                  "error": "Invalid session ID"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/query": {
       "post": {
         "tags": [
@@ -323,23 +276,6 @@
   },
   "components": {
     "schemas": {
-      "AuthInnerRequest": {
-        "type": "object",
-        "properties": {
-          "password": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "username": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "AuthRequest": {
         "type": "object",
         "required": [
@@ -349,7 +285,7 @@
         "properties": {
           "payload": {
             "type": "string",
-            "description": "Base64-encoded, RSA-encrypted JSON: {\"username\": \"...\", \"password\": \"...\", \"pubkey\": \"...\"}"
+            "description": "Base64-encoded, RSA-encrypted JSON: {\"username\": \"...\", \"password\": \"...\"}"
           },
           "pubkey": {
             "type": "string"
@@ -360,43 +296,6 @@
         "type": "object",
         "required": [
           "status",
-          "sid_cipher",
-          "symkey_cipher",
-          "error"
-        ],
-        "properties": {
-          "error": {
-            "type": "string"
-          },
-          "sid_cipher": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "symkey_cipher": {
-            "type": "string"
-          }
-        }
-      },
-      "HealthInfo": {
-        "type": "object",
-        "required": [
-          "telemetry_enabled",
-          "scheduler_tasks",
-          "api_version"
-        ],
-        "properties": {
-          "api_version": {
-            "type": "string"
-          },
-          "scheduler_tasks": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "telemetry_enabled": {
-            "type": "boolean"
-          }
         }
       },
       "HealthResponse": {
@@ -519,44 +418,6 @@
         "properties": {
           "model": {
             "$ref": "#/components/schemas/ModelInfo"
-          }
-        }
-      },
-      "PubKeyError": {
-        "type": "object",
-        "required": [
-          "error"
-        ],
-        "properties": {
-          "error": {
-            "type": "string"
-          }
-        }
-      },
-      "PubKeyRequest": {
-        "type": "object",
-        "description": "Push to push a user public key to store on the server.",
-        "required": [
-          "sid_cipher",
-          "key"
-        ],
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "sid_cipher": {
-            "type": "string"
-          }
-        }
-      },
-      "PubKeyResponse": {
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
           }
         }
       },
