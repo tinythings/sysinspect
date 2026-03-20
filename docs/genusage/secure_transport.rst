@@ -167,9 +167,9 @@ For operators, this means:
 
 Typical usage:
 
-- rotate a specific minion id: ``sysinspect --rotate <minion-id>``
-- rotate by selector query: ``sysinspect --rotate '<glob>'``
-- inspect transport status: ``sysinspect --transport-status <minion-id|glob>``
+- rotate a specific minion id: ``sysinspect network --rotate --id <minion-id>``
+- rotate by selector query: ``sysinspect network --rotate '<glob>'``
+- inspect transport status: ``sysinspect network --status <minion-id|glob>``
 
 Practical Rotation Procedure
 ----------------------------
@@ -188,25 +188,25 @@ In practice this looks like:
 
    .. code-block:: bash
 
-      sysinspect --online
+      sysinspect network --online
 
 2. Inspect one Minion before rotation:
 
    .. code-block:: bash
 
-      sysinspect --transport-status <minion-id>
+      sysinspect network --status <minion-id>
 
 3. Rotate that Minion with the default overlap window:
 
    .. code-block:: bash
 
-      sysinspect --rotate <minion-id>
+      sysinspect network --rotate <minion-id>
 
 4. Inspect it again after it reconnects:
 
    .. code-block:: bash
 
-      sysinspect --transport-status <minion-id>
+      sysinspect network --status <minion-id>
 
 If the Minion is online, Sysinspect sends the signed rotation intent
 immediately.
@@ -219,8 +219,8 @@ What Each Rotation Option Does
 
 The current operator-facing rotation options are:
 
-``--rotate <target>``
-~~~~~~~~~~~~~~~~~~~~~
+``network --rotate <target>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Starts a managed transport rotation.
 
@@ -233,12 +233,12 @@ Examples:
 
 .. code-block:: bash
 
-   sysinspect --rotate minion-42
-   sysinspect --rotate 'edge-*'
-   sysinspect --rotate 'edge-1,edge-2'
+   sysinspect network --rotate minion-42
+   sysinspect network --rotate 'edge-*'
+   sysinspect network --rotate 'edge-1,edge-2'
 
-``--rotate-overlap <seconds>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``network --rotate --rotate-overlap <seconds>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Controls how long the old key remains in ``retiring`` state before it is
 removed.
@@ -251,13 +251,13 @@ Example:
 
 .. code-block:: bash
 
-   sysinspect --rotate minion-42 --rotate-overlap 1800
+   sysinspect network --rotate minion-42 --rotate-overlap 1800
 
 That keeps the previous key material around for 30 minutes before retirement
 cleanup removes it.
 
-``--rotate-reason <text>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+``network --rotate --rotate-reason <text>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Adds operator-visible context to the signed rotation intent.
 
@@ -268,9 +268,9 @@ Example:
 
 .. code-block:: bash
 
-   sysinspect --rotate minion-42 --rotate-reason quarterly-maintenance
+   sysinspect network --rotate minion-42 --rotate-reason quarterly-maintenance
 
-``--transport-status <target>``
+``network --status <target>``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Shows current managed transport state for one Minion or a selected set.
@@ -287,8 +287,8 @@ Examples:
 
 .. code-block:: bash
 
-   sysinspect --transport-status minion-42
-   sysinspect --transport-status 'edge-*'
+   sysinspect network --status minion-42
+   sysinspect network --status 'edge-*'
 
 Related Operational Options
 ---------------------------
@@ -296,8 +296,8 @@ Related Operational Options
 These options are not rotation-specific, but they are commonly used together
 with transport-key rotation:
 
-``--online``
-~~~~~~~~~~~~
+``network --online``
+~~~~~~~~~~~~~~~~~~
 
 Shows which registered Minions are currently online.
 
@@ -306,7 +306,7 @@ immediately or deferred until reconnect.
 
 .. code-block:: bash
 
-   sysinspect --online
+   sysinspect network --online
 
 ``--sync``
 ~~~~~~~~~~
@@ -359,23 +359,23 @@ For one Minion:
 
 .. code-block:: bash
 
-   sysinspect --transport-status minion-42
-   sysinspect --rotate minion-42 --rotate-reason planned-maintenance
-   sysinspect --transport-status minion-42
+   sysinspect network --status minion-42
+   sysinspect network --rotate minion-42 --rotate-reason planned-maintenance
+   sysinspect network --status minion-42
 
 For a group with a longer grace window:
 
 .. code-block:: bash
 
-   sysinspect --online
-   sysinspect --rotate 'edge-*' --rotate-overlap 3600 --rotate-reason staged-rollout
-   sysinspect --transport-status 'edge-*'
+   sysinspect network --online
+   sysinspect network --rotate 'edge-*' --rotate-overlap 3600 --rotate-reason staged-rollout
+   sysinspect network --status 'edge-*'
 
 For offline or unstable Minions:
 
 - issue the same rotation command normally
 - let Sysinspect keep the request pending
-- verify the result after the Minion reconnects with ``--transport-status``
+- verify the result after the Minion reconnects with ``network --status``
 
 The status view includes:
 
@@ -416,13 +416,13 @@ Lost or Corrupted Minion Transport State
 1. Recreate trust from the Master side by rotating (or re-registering if
    needed).
 2. Restart the Minion to force a fresh secure bootstrap.
-3. Confirm status via ``sysinspect --transport-status <minion-id>``.
+3. Confirm status via ``sysinspect network --status <minion-id>``.
 
 Lost Master-Side Transport Metadata For One Minion
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 1. Keep the Minion registration key if still valid.
-2. Trigger ``sysinspect --rotate <minion-id>`` to stage a new signed intent.
+2. Trigger ``sysinspect network --rotate <minion-id>`` to stage a new signed intent.
 3. Let the Minion reconnect and apply the new state.
 
 Master Rebuild Scenario
