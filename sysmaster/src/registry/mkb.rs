@@ -1,7 +1,7 @@
 use ::rsa::{RsaPrivateKey, RsaPublicKey};
 use libcommon::SysinspectError;
 use libsysinspect::{
-    cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB},
+    cfg::mmconf::{CFG_MASTER_KEY_PRI, CFG_MASTER_KEY_PUB, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE},
     rsa,
     transport::{TransportStore, transport_minion_root},
 };
@@ -173,7 +173,7 @@ impl MinionsKeyRegistry {
         }
 
         // Keep registration cleanup symmetric by removing managed transport metadata too.
-        let transport_root = transport_minion_root(&self.root.parent().unwrap().join("transport"), mid)?;
+        let transport_root = transport_minion_root(&self.transport_root()?, mid)?;
         if transport_root.exists() {
             fs::remove_dir_all(transport_root)?;
         }
@@ -185,6 +185,14 @@ impl MinionsKeyRegistry {
 
     pub fn encrypt_with_mst_key(&self) {}
 
+    fn transport_root(&self) -> Result<PathBuf, SysinspectError> {
+        Ok(self
+            .root
+            .parent()
+            .ok_or_else(|| SysinspectError::ConfigError(format!("Registry root {} has no parent for transport metadata", self.root.display())))?
+            .join(CFG_TRANSPORT_ROOT))
+    }
+
     fn backfill_transport_state(&mut self) -> Result<(), SysinspectError> {
         for mid in self.keys.keys().cloned().collect::<Vec<_>>() {
             if let Some(pbk) = self.get_mn_key(&mid) {
@@ -195,7 +203,7 @@ impl MinionsKeyRegistry {
     }
 
     fn ensure_transport_state(&self, mid: &str, pbk: &RsaPublicKey) -> Result<(), SysinspectError> {
-        let store = TransportStore::new(transport_minion_root(&self.root.parent().unwrap().join("transport"), mid)?.join("state.json"))?;
+        let store = TransportStore::new(transport_minion_root(&self.transport_root()?, mid)?.join(CFG_TRANSPORT_STATE))?;
         let _ = store.ensure_automatic_peer(
             mid,
             &self.get_master_key_fingerprint()?,

@@ -42,7 +42,7 @@ use libsysinspect::{
     transport::{
         TransportStore,
         secure_bootstrap::SecureBootstrapSession,
-        secure_channel::{SecureChannel, SecurePeerRole},
+        secure_channel::{SECURE_MAX_FRAME_SIZE, SecureChannel, SecurePeerRole},
     },
     util::{self, dataconv},
 };
@@ -327,10 +327,15 @@ impl SysMinion {
 
     /// Read one length-prefixed transport frame from the master connection.
     async fn read_frame(&self) -> Result<Vec<u8>, SysinspectError> {
+        let mut stm = self.rstm.lock().await;
         let mut len = [0u8; 4];
-        self.rstm.lock().await.read_exact(&mut len).await?;
-        let mut frame = vec![0u8; u32::from_be_bytes(len) as usize];
-        self.rstm.lock().await.read_exact(&mut frame).await?;
+        stm.read_exact(&mut len).await?;
+        let frame_len = u32::from_be_bytes(len) as usize;
+        if frame_len > SECURE_MAX_FRAME_SIZE {
+            return Err(SysinspectError::ProtoError(format!("Transport frame exceeds maximum size of {SECURE_MAX_FRAME_SIZE} bytes")));
+        }
+        let mut frame = vec![0u8; frame_len];
+        stm.read_exact(&mut frame).await?;
         Ok(frame)
     }
 
@@ -560,26 +565,18 @@ impl SysMinion {
     }
 
     pub async fn do_proto(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let rstm = Arc::clone(&self.rstm);
         let this = self.clone();
 
         let handle = tokio::spawn(async move {
             loop {
-                let mut buff = [0u8; 4];
-                if let Err(e) = rstm.lock().await.read_exact(&mut buff).await {
-                    log::warn!("Proto read failed (len): {e}; triggering reconnect");
-                    let _ = CONNECTION_TX.send(());
-                    break;
-                }
-
-                let msg_len = u32::from_be_bytes(buff) as usize;
-                let mut msg = vec![0u8; msg_len];
-
-                if let Err(e) = rstm.lock().await.read_exact(&mut msg).await {
-                    log::warn!("Proto read failed (msg): {e}; triggering reconnect");
-                    let _ = CONNECTION_TX.send(());
-                    break;
-                }
+                let msg = match this.read_frame().await {
+                    Ok(msg) => msg,
+                    Err(err) => {
+                        log::warn!("Proto read failed: {err}; triggering reconnect");
+                        let _ = CONNECTION_TX.send(());
+                        break;
+                    }
+                };
 
                 let msg = match this.secure.lock().await.as_mut().map(|secure| secure.open_bytes(&msg)).transpose() {
                     Ok(Some(msg)) => msg,
@@ -638,8 +635,8 @@ impl SysMinion {
                                     continue;
                                 }
 
-                                if let Err(e) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
-                                    log::error!("Failed to enqueue master command: {e}");
+                                if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+                                    log::error!("Failed to enqueue master command: {err}");
                                 } else {
                                     log::info!("Scheduled master command: {}", msg.target().scheme());
                                 }
@@ -676,8 +673,8 @@ impl SysMinion {
                         let pbk_pem = dataconv::as_str(Some(msg.payload()).cloned());
                         let (_, pbk) = match rsa::keys::from_pem(None, Some(&pbk_pem)) {
                             Ok(val) => val,
-                            Err(e) => {
-                                log::error!("Failed to parse PEM: {e}");
+                            Err(err) => {
+                                log::error!("Failed to parse PEM: {err}");
                                 let _ = CONNECTION_TX.send(());
                                 break;
                             }
@@ -694,8 +691,8 @@ impl SysMinion {
 
                         let fpt = match rsa::keys::get_fingerprint(&pbk) {
                             Ok(fp) => fp,
-                            Err(e) => {
-                                log::error!("Failed to get fingerprint: {e}");
+                            Err(err) => {
+                                log::error!("Failed to get fingerprint: {err}");
                                 let _ = CONNECTION_TX.send(());
                                 break;
                             }
@@ -736,7 +733,7 @@ impl SysMinion {
                                 this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
                             }
 
-                            Err(e) => log::warn!("Invalid ping payload `{}`: {}", p, e),
+                            Err(err) => log::warn!("Invalid ping payload `{}`: {}", p, err),
                         }
                     }
 
@@ -748,13 +745,13 @@ impl SysMinion {
 
                     RequestType::SensorsSyncResponse => {
                         log::info!("Received sensors sync response from master");
-                        let sensors = SensorsFiledata::from_payload(msg.payload().clone(), this.cfg.sensors_dir()).unwrap_or_else(|e| {
-                            log::error!("Failed to parse sensors payload: {e}");
+                        let sensors = SensorsFiledata::from_payload(msg.payload().clone(), this.cfg.sensors_dir()).unwrap_or_else(|err| {
+                            log::error!("Failed to parse sensors payload: {err}");
                             SensorsFiledata::default()
                         });
 
-                        if let Err(e) = this.as_ptr().do_sensors(sensors).await {
-                            log::error!("Failed to start sensors: {e}");
+                        if let Err(err) = this.as_ptr().do_sensors(sensors).await {
+                            log::error!("Failed to start sensors: {err}");
                         }
                     }
 

@@ -4,7 +4,7 @@ RSA keys manager
 
 use libcommon::SysinspectError;
 use libsysinspect::{
-    cfg::mmconf::{CFG_MASTER_KEY_PUB, CFG_MINION_RSA_PRV, CFG_MINION_RSA_PUB},
+    cfg::mmconf::{CFG_MASTER_KEY_PUB, CFG_MINION_RSA_PRV, CFG_MINION_RSA_PUB, CFG_TRANSPORT_MASTER, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE},
     transport::TransportStore,
 };
 use libsysproto::secure::SECURE_PROTOCOL_VERSION;
@@ -102,6 +102,10 @@ impl MinionRSAKeyManager {
         self.mn_prk.clone().ok_or_else(|| SysinspectError::RSAError("Minion private key is not loaded".to_string()))
     }
 
+    fn transport_state_store(&self) -> Result<TransportStore, SysinspectError> {
+        TransportStore::new(self.root.join(CFG_TRANSPORT_ROOT).join(CFG_TRANSPORT_MASTER).join(CFG_TRANSPORT_STATE))
+    }
+
     pub fn ensure_transport_state(&self, minion_id: &str) -> Result<bool, SysinspectError> {
         let master_pem_path = self.root.join(CFG_MASTER_KEY_PUB);
         if !master_pem_path.exists() {
@@ -113,7 +117,7 @@ impl MinionRSAKeyManager {
             &master_pbk.ok_or_else(|| SysinspectError::RSAError("Master public key is not loaded".to_string()))?,
         )
         .map_err(|err| SysinspectError::RSAError(err.to_string()))?;
-        let store = TransportStore::new(self.root.join("transport/master/state.json"))?;
+        let store = self.transport_state_store()?;
         let _ = store.ensure_automatic_peer(minion_id, &master_fingerprint, &self.get_pubkey_fingerprint()?, SECURE_PROTOCOL_VERSION)?;
         Ok(true)
     }
