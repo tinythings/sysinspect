@@ -17,7 +17,11 @@ libsysinspect = { path = "../libsysinspect" }
 libcommon = { path = "../libcommon" }
 libdatastore = { path = "../libdatastore" }
 async-trait = "0.1.89"
-utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web", "vendored", "debug-embed"] }
+utoipa-swagger-ui = { version = "9.0.2", features = [
+    "actix-web",
+    "vendored",
+    "debug-embed",
+] }
 utoipa = { version = "5.4.0", features = ["actix_extras"] }
 pam = "0.8.0"
 uuid = "1.19.0"
@@ -29,3 +33,4 @@ indexmap = { version = "2.13.0", features = ["serde"] }
 actix-files = "0.6.10"
 tempfile = "3.25.0"
 futures-util = "0.3.32"
+hostname = "0.4.1"
