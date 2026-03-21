@@ -220,7 +220,7 @@ impl SecureBootstrapSession {
                 session_id: Some(params.session_id.clone()),
                 offered_versions: vec![binding.protocol_version],
                 local_ephemeral_public: params.master_ephemeral_public,
-                local_ephemeral_secret: Some(params.master_ephemeral_secret),
+                local_ephemeral_secret: None,
             },
             SecureFrame::BootstrapAck(SecureBootstrapAck {
                 binding,
