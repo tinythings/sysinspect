@@ -127,3 +127,48 @@ fn secure_frame_serde_uses_stable_kind_tags() {
         "data"
     );
 }
+
+#[test]
+fn secure_bootstrap_ack_roundtrips_through_json() {
+    let frame = SecureFrame::BootstrapAck(SecureBootstrapAck {
+        binding: binding(),
+        session_id: "sid".to_string(),
+        key_id: "kid".to_string(),
+        rotation: SecureRotationMode::Rekey,
+        master_ephemeral_pubkey: "pubkey".to_string(),
+        binding_signature: "sig".to_string(),
+    });
+
+    let parsed = serde_json::from_slice::<SecureFrame>(&serde_json::to_vec(&frame).unwrap()).unwrap();
+
+    assert_eq!(parsed, frame);
+}
+
+#[test]
+fn secure_diagnostic_roundtrips_through_json() {
+    let frame = SecureFrame::BootstrapDiagnostic(SecureBootstrapDiagnostic {
+        code: SecureDiagnosticCode::ReplayRejected,
+        message: "duplicate".to_string(),
+        failure: SecureFailureSemantics::diagnostic(false, true),
+    });
+
+    let parsed = serde_json::from_slice::<SecureFrame>(&serde_json::to_vec(&frame).unwrap()).unwrap();
+
+    assert_eq!(parsed, frame);
+}
+
+#[test]
+fn secure_data_frame_roundtrips_through_json() {
+    let frame = SecureFrame::Data(SecureDataFrame {
+        protocol_version: SECURE_PROTOCOL_VERSION,
+        session_id: "sid".to_string(),
+        key_id: "kid".to_string(),
+        counter: 7,
+        nonce: "nonce".to_string(),
+        payload: "payload".to_string(),
+    });
+
+    let parsed = serde_json::from_slice::<SecureFrame>(&serde_json::to_vec(&frame).unwrap()).unwrap();
+
+    assert_eq!(parsed, frame);
+}
