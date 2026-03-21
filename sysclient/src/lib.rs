@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, collections::HashMap};
 
+#[cfg(test)]
+mod lib_ut;
+
 /// SysClient Configuration
 /// This struct holds the configuration for the SysClient, including the root directory.
 /// It can be extended in the future to include more configuration options.
