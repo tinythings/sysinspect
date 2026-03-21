@@ -1,4 +1,4 @@
-use super::{advertised_doc_url, load_tls_server_config, tls_paths_summary, tls_setup_err_message};
+use super::{advertised_doc_url, load_tls_server_config, tls_paths_summary, tls_self_signed_warning_message, tls_setup_err_message};
 use libsysinspect::cfg::mmconf::MasterConfig;
 use std::{fs, path::Path, path::PathBuf};
 
@@ -50,7 +50,7 @@ fn load_tls_server_config_accepts_valid_certificate_pair() {
     let cfg = write_cfg(
         root.path(),
         &format!(
-            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n",
+            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.allow-insecure: true\n",
             cert.display(),
             key.display()
         ),
@@ -66,7 +66,7 @@ fn load_tls_server_config_accepts_valid_ca_bundle_for_client_auth() {
     let cfg = write_cfg(
         root.path(),
         &format!(
-            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n",
+            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n    api.tls.allow-insecure: true\n",
             cert.display(),
             key.display(),
             cert.display()
@@ -74,6 +74,24 @@ fn load_tls_server_config_accepts_valid_ca_bundle_for_client_auth() {
     );
 
     assert!(load_tls_server_config(&cfg).is_ok());
+}
+
+#[test]
+fn load_tls_server_config_rejects_self_signed_certificate_without_allow_insecure() {
+    let root = tempfile::tempdir().unwrap();
+    let (cert, key) = write_tls_fixture(root.path());
+    let cfg = write_cfg(
+        root.path(),
+        &format!(
+            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n",
+            cert.display(),
+            key.display()
+        ),
+    );
+
+    let err = load_tls_server_config(&cfg).unwrap_err().to_string();
+    assert!(err.contains("self-signed"));
+    assert!(err.contains("api.tls.allow-insecure"));
 }
 
 #[test]
@@ -98,7 +116,7 @@ fn load_tls_server_config_rejects_invalid_ca_bundle() {
     let cfg = write_cfg(
         root.path(),
         &format!(
-            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n",
+            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n    api.tls.allow-insecure: true\n",
             cert.display(),
             key.display(),
             ca.display()
@@ -126,4 +144,12 @@ fn tls_paths_summary_reports_configured_locations() {
     let summary = tls_paths_summary(&cfg);
     assert!(summary.contains(&cert.display().to_string()));
     assert!(summary.contains(&key.display().to_string()));
+}
+
+#[test]
+fn tls_self_signed_warning_is_operator_facing() {
+    let msg = tls_self_signed_warning_message();
+    assert!(msg.contains("self-signed"));
+    assert!(msg.contains("api.tls.allow-insecure"));
+    assert!(msg.contains("explicitly trust"));
 }
