@@ -339,6 +339,54 @@ Below are directives for the configuration of the File Server service:
 
     Default is ``false``.
 
+``api.tls.enabled``
+###################
+
+    Type: **boolean**
+
+    Turn on TLS for the embedded Web API listener.
+
+    Default is ``false``.
+
+``api.tls.cert-file``
+#####################
+
+    Type: **string**
+
+    Path to the TLS certificate file for the Web API.
+
+    If the path is relative, it is resolved under the Sysinspect root. If it is
+    absolute, it is used as-is.
+
+``api.tls.key-file``
+####################
+
+    Type: **string**
+
+    Path to the TLS private key file for the Web API.
+
+    If the path is relative, it is resolved under the Sysinspect root. If it is
+    absolute, it is used as-is.
+
+``api.tls.ca-file``
+###################
+
+    Type: **string**
+
+    Optional CA bundle path for TLS validation or future mutual-TLS use.
+
+    If the path is relative, it is resolved under the Sysinspect root. If it is
+    absolute, it is used as-is.
+
+``api.tls.trust-self-signed``
+#############################
+
+    Type: **boolean**
+
+    Explicitly allow self-signed or otherwise non-standard TLS setups.
+
+    Default is ``false``.
+
 ``telemetry.location``
 ######################
 

@@ -1,3 +1,9 @@
+"""Sphinx configuration for the Sysinspect documentation."""
+
+from __future__ import annotations
+
+# pylint: disable=invalid-name,redefined-builtin
+
 project = "Sysinspect"
 copyright = "2026, Bo Maryniuk"
 author = "Bo Maryniuk"
