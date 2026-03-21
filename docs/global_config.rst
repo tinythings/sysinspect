@@ -348,7 +348,7 @@ Below are directives for the configuration of the File Server service:
 
     Type: **boolean**
 
-    Turn on TLS for the embedded Web API listener.
+    Enable TLS for the embedded Web API listener.
 
     Default is ``false``.
 
@@ -357,37 +357,41 @@ Below are directives for the configuration of the File Server service:
 
     Type: **string**
 
-    Path to the TLS certificate file for the Web API.
+    Path to the PEM certificate chain used by the Web API TLS listener.
 
     If the path is relative, it is resolved under the Sysinspect root. If it is
     absolute, it is used as-is.
+
+    When ``api.tls.enabled`` is ``true``, this option is required.
 
 ``api.tls.key-file``
 ####################
 
     Type: **string**
 
-    Path to the TLS private key file for the Web API.
+    Path to the PEM private key used by the Web API TLS listener.
 
     If the path is relative, it is resolved under the Sysinspect root. If it is
     absolute, it is used as-is.
+
+    When ``api.tls.enabled`` is ``true``, this option is required.
 
 ``api.tls.ca-file``
 ###################
 
     Type: **string**
 
-    Optional CA bundle path for TLS validation or future mutual-TLS use.
+    Optional CA bundle path used for TLS validation or mutual TLS extensions.
 
     If the path is relative, it is resolved under the Sysinspect root. If it is
     absolute, it is used as-is.
 
-``api.tls.trust-self-signed``
-#############################
+``api.tls.allow-insecure``
+##########################
 
     Type: **boolean**
 
-    Explicitly allow self-signed or otherwise non-standard TLS setups.
+    Allow explicitly using insecure client trust handling for the Web API TLS setup.
 
     Default is ``false``.
 
