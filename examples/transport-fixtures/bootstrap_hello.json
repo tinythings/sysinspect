@@ -1,0 +1,19 @@
+{
+  "kind": "bootstrap_hello",
+  "binding": {
+    "minion_id": "minion-a",
+    "minion_rsa_fingerprint": "minion-fp",
+    "master_rsa_fingerprint": "master-fp",
+    "protocol_version": 1,
+    "connection_id": "conn-1",
+    "client_nonce": "client-nonce",
+    "master_nonce": "",
+    "timestamp": 1734739200
+  },
+  "supported_versions": [
+    1
+  ],
+  "client_ephemeral_pubkey": "<base64>",
+  "binding_signature": "<base64>",
+  "key_id": "trk-current"
+}

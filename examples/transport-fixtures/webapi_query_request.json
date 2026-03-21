@@ -1,0 +1,9 @@
+{
+  "model": "cm/file-ops",
+  "query": "*",
+  "traits": "",
+  "mid": "",
+  "context": {
+    "reason": "manual-run"
+  }
+}

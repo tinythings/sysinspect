@@ -1,0 +1,18 @@
+{
+  "kind": "bootstrap_ack",
+  "binding": {
+    "minion_id": "minion-a",
+    "minion_rsa_fingerprint": "minion-fp",
+    "master_rsa_fingerprint": "master-fp",
+    "protocol_version": 1,
+    "connection_id": "conn-1",
+    "client_nonce": "client-nonce",
+    "master_nonce": "master-nonce",
+    "timestamp": 1734739200
+  },
+  "session_id": "sid-1",
+  "key_id": "trk-current",
+  "rotation": "none",
+  "master_ephemeral_pubkey": "<base64>",
+  "binding_signature": "<base64>"
+}
