@@ -1,6 +1,6 @@
 use super::{
-    SECURE_PROTOCOL_VERSION, SecureBootstrapAck, SecureBootstrapDiagnostic, SecureBootstrapHello, SecureDataFrame, SecureDiagnosticCode,
-    SecureFailureSemantics, SecureFrame, SecureRotationMode, SecureSessionBinding, SecureTransportGoals,
+    SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapAck, SecureBootstrapDiagnostic, SecureBootstrapHello, SecureDataFrame,
+    SecureDiagnosticCode, SecureFailureSemantics, SecureFrame, SecureRotationMode, SecureSessionBinding, SecureTransportGoals,
 };
 
 fn binding() -> SecureSessionBinding {
@@ -39,7 +39,8 @@ fn only_bootstrap_frames_may_stay_plaintext() {
     assert!(
         SecureFrame::BootstrapHello(SecureBootstrapHello {
             binding: binding(),
-            session_key_cipher: "cipher".to_string(),
+            supported_versions: SECURE_SUPPORTED_PROTOCOL_VERSIONS.to_vec(),
+            client_ephemeral_pubkey: "pubkey".to_string(),
             binding_signature: "sig".to_string(),
             key_id: None,
         })
@@ -51,6 +52,7 @@ fn only_bootstrap_frames_may_stay_plaintext() {
             session_id: "sid".to_string(),
             key_id: "kid".to_string(),
             rotation: SecureRotationMode::None,
+            master_ephemeral_pubkey: "pubkey".to_string(),
             binding_signature: "sig".to_string(),
         })
         .is_plaintext_bootstrap()
@@ -104,7 +106,8 @@ fn secure_frame_serde_uses_stable_kind_tags() {
     assert_eq!(
         serde_json::to_value(SecureFrame::BootstrapHello(SecureBootstrapHello {
             binding: binding(),
-            session_key_cipher: "cipher".to_string(),
+            supported_versions: SECURE_SUPPORTED_PROTOCOL_VERSIONS.to_vec(),
+            client_ephemeral_pubkey: "pubkey".to_string(),
             binding_signature: "sig".to_string(),
             key_id: Some("kid".to_string()),
         }))

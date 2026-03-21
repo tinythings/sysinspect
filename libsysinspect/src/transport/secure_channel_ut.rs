@@ -7,7 +7,6 @@ use crate::rsa::keys::{get_fingerprint, keygen};
 use chrono::Utc;
 use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
 use rsa::RsaPublicKey;
-use sodiumoxide::crypto::secretbox;
 
 fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
     TransportPeerState {
@@ -105,12 +104,10 @@ fn secure_channel_rejects_oversized_payloads() {
 }
 
 #[test]
-fn secure_channel_first_frame_differs_across_reconnects_with_same_persisted_material() {
+fn secure_channel_first_frame_differs_across_reconnects() {
     let (master_prk, master_pbk) = keygen(2048).unwrap();
     let (minion_prk, minion_pbk) = keygen(2048).unwrap();
-    let mut state = state(&master_pbk, &minion_pbk);
-    let material = secretbox::gen_key();
-    state.upsert_key_with_material("kid-1", super::TransportKeyStatus::Active, Some(&material.0));
+    let state = state(&master_pbk, &minion_pbk);
 
     let (opening_one, hello_one) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
     let ack_one = match SecureBootstrapSession::accept(
