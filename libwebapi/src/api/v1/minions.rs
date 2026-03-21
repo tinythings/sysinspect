@@ -10,28 +10,6 @@ use std::{collections::HashMap, fmt::Display};
 use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
-pub struct QueryPayloadRequest {
-    pub model: String,
-    pub query: String,
-    pub traits: String,
-    pub mid: String,
-    pub context: HashMap<String, String>,
-}
-
-impl QueryPayloadRequest {
-    pub fn to_query(&self) -> String {
-        format!(
-            "{};{};{};{};{}",
-            self.model,
-            self.query,
-            self.traits,
-            self.mid,
-            self.context.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",")
-        )
-    }
-}
-
-#[derive(Deserialize, Serialize, ToSchema)]
 pub struct QueryRequest {
     pub sid: String,
     pub model: String,
@@ -42,20 +20,22 @@ pub struct QueryRequest {
 }
 
 impl QueryRequest {
-    pub fn to_query_request(&self) -> Result<QueryPayloadRequest, SysinspectError> {
+    /// Validate the session and convert the request into the internal query format.
+    pub fn to_query(&self) -> Result<String, SysinspectError> {
         if self.sid.trim().is_empty() {
             return Err(SysinspectError::WebAPIError("Session ID cannot be empty".to_string()));
         }
 
         let mut sessions = get_session_store().lock().unwrap();
         match sessions.uid(&self.sid) {
-            Some(_) => Ok(QueryPayloadRequest {
-                model: self.model.clone(),
-                query: self.query.clone(),
-                traits: self.traits.clone(),
-                mid: self.mid.clone(),
-                context: self.context.clone(),
-            }),
+            Some(_) => Ok(format!(
+                "{};{};{};{};{}",
+                self.model,
+                self.query,
+                self.traits,
+                self.mid,
+                self.context.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",")
+            )),
             None => {
                 log::debug!("Session {} is missing or expired", self.sid);
                 Err(SysinspectError::WebAPIError("Invalid or expired session".to_string()))
@@ -94,7 +74,7 @@ impl Display for QueryError {
 #[post("/api/v1/query")]
 async fn query_handler(master: Data<MasterInterfaceType>, body: Json<QueryRequest>) -> Result<Json<QueryResponse>> {
     let mut master = master.lock().await;
-    let qpr = match body.to_query_request() {
+    let query = match body.to_query() {
         Ok(q) => q,
         Err(e) => {
             use actix_web::http::StatusCode;
@@ -103,27 +83,7 @@ async fn query_handler(master: Data<MasterInterfaceType>, body: Json<QueryReques
         }
     };
 
-    match master.query(qpr.to_query()).await {
-        Ok(()) => Ok(Json(QueryResponse { status: "success".to_string(), message: "Query executed successfully".to_string() })),
-        Err(err) => Ok(Json(QueryResponse { status: "error".to_string(), message: err.to_string() })),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/dev_query",
-    request_body = QueryPayloadRequest,
-    description = "Development endpoint for querying minions. FOR DEVELOPMENT AND DEBUGGING PURPOSES ONLY!",
-    tag = TAG_MINIONS,
-    responses(
-        (status = 200, description = "Success", body = QueryResponse),
-        (status = 400, description = "Bad Request", body = QueryError)
-    )
-)]
-#[post("/api/v1/dev_query")]
-async fn query_handler_dev(master: Data<MasterInterfaceType>, body: Json<QueryPayloadRequest>) -> Result<Json<QueryResponse>> {
-    let mut master = master.lock().await;
-    match master.query(body.to_query()).await {
+    match master.query(query).await {
         Ok(()) => Ok(Json(QueryResponse { status: "success".to_string(), message: "Query executed successfully".to_string() })),
         Err(err) => Ok(Json(QueryResponse { status: "error".to_string(), message: err.to_string() })),
     }

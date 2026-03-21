@@ -1,6 +1,6 @@
 pub use crate::api::v1::system::health_handler;
 use crate::api::v1::{
-    minions::{QueryError, QueryPayloadRequest, QueryRequest, QueryResponse, query_handler, query_handler_dev},
+    minions::{QueryError, QueryRequest, QueryResponse, query_handler},
     model::{ModelNameResponse, model_descr_handler, model_names_handler},
     store::{
         StoreListQuery, StoreMetaResponse, StoreResolveQuery, store_blob_handler, store_list_handler, store_meta_handler, store_resolve_handler,
@@ -37,8 +37,7 @@ impl V1 {
 
 impl super::ApiVersion for V1 {
     fn load(&self, scope: Scope) -> Scope {
-        let mut scope = scope
-            // Available services
+        scope
             .service(query_handler)
             .service(health_handler)
             .service(authenticate_handler)
@@ -53,20 +52,13 @@ impl super::ApiVersion for V1 {
                 SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDocDev::openapi())
             } else {
                 SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())
-            });
-
-        if self.dev_mode {
-            scope = scope.service(query_handler_dev);
-        }
-
-        scope
+            })
     }
 }
 
 #[derive(OpenApi)]
 #[openapi(paths(
     crate::api::v1::minions::query_handler,
-    crate::api::v1::minions::query_handler_dev,
     crate::api::v1::system::health_handler,
     crate::api::v1::system::authenticate_handler,
     crate::api::v1::model::model_names_handler,
@@ -77,7 +69,7 @@ impl super::ApiVersion for V1 {
     crate::api::v1::store::store_resolve_handler,
     crate::api::v1::store::store_list_handler,
 ),
-          components(schemas(QueryRequest, QueryResponse, QueryError, QueryPayloadRequest,
+          components(schemas(QueryRequest, QueryResponse, QueryError,
                              HealthInfo, HealthResponse, AuthRequest, AuthResponse,
                              ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
@@ -86,7 +78,6 @@ pub struct ApiDoc;
 #[derive(OpenApi)]
 #[openapi(paths(
     crate::api::v1::minions::query_handler,
-    crate::api::v1::minions::query_handler_dev,
     crate::api::v1::system::health_handler,
     crate::api::v1::system::authenticate_handler,
     crate::api::v1::model::model_names_handler,
@@ -97,7 +88,7 @@ pub struct ApiDoc;
     crate::api::v1::store::store_resolve_handler,
     crate::api::v1::store::store_list_handler,
 ),
-          components(schemas(QueryRequest, QueryResponse, QueryError, QueryPayloadRequest,
+          components(schemas(QueryRequest, QueryResponse, QueryError,
                              HealthInfo, HealthResponse, AuthRequest, AuthResponse,
                              ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]

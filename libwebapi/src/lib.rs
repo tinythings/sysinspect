@@ -37,9 +37,9 @@ fn advertised_doc_url(bind_addr: &str, bind_port: u32) -> String {
     format!("http://{}:{bind_port}/doc/", advertised_api_host(bind_addr))
 }
 
-pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<(), SysinspectError> {
+pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<(), SysinspectError> {
     if !cfg.api_enabled() {
-        log::info!("Web API disabled.");
+        log::info!("Embedded Web API disabled.");
         return Ok(());
     }
 
@@ -56,8 +56,8 @@ pub fn start_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<()
             _ => ApiVersions::V1,
         };
 
-        log::info!("Starting Web API at {}", listen_addr.bright_yellow());
-        log::info!("Web API enabled. Swagger UI available at {}", advertised_doc_url(&bind_addr, bind_port));
+        log::info!("Starting embedded Web API inside sysmaster at {}", listen_addr.bright_yellow());
+        log::info!("Embedded Web API enabled. Swagger UI available at {}", advertised_doc_url(&bind_addr, bind_port));
 
         actix_web::rt::System::new().block_on(async move {
             HttpServer::new(move || {

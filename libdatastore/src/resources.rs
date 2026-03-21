@@ -2,12 +2,14 @@ use crate::{
     cfg::DataStorageConfig,
     util::{copy, data_tree, get_sha256, json_write, meta_tree, unix_now},
 };
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::MetadataExt;
 use std::{
     fs,
     io::{self},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[derive(Debug, Clone)]
@@ -26,10 +28,65 @@ pub struct DataItemMeta {
     pub fmode: u32,
 }
 
+/// Format a byte count into a short human-readable string.
+fn format_bytes(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+    const GIB: u64 = 1024 * MIB;
+    const TIB: u64 = 1024 * GIB;
+
+    if bytes >= TIB {
+        format!("{:.1} TiB", bytes as f64 / TIB as f64)
+    } else if bytes >= GIB {
+        format!("{:.1} GiB", bytes as f64 / GIB as f64)
+    } else if bytes >= MIB {
+        format!("{:.1} MiB", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB", bytes as f64 / KIB as f64)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+/// Format an optional size limit for operator-facing logging.
+fn format_size_limit(bytes: Option<u64>) -> String {
+    bytes.map(format_bytes).unwrap_or_else(|| "unlimited".to_string())
+}
+
+/// Format an optional expiration duration for operator-facing logging.
+fn format_expiration(expiration: Option<Duration>) -> String {
+    match expiration {
+        Some(duration) => {
+            let total = duration.as_secs();
+            let days = total / 86_400;
+            let hours = (total % 86_400) / 3_600;
+            let minutes = (total % 3_600) / 60;
+            let seconds = total % 60;
+
+            if days > 0 {
+                format!("{days}d {hours}h")
+            } else if hours > 0 {
+                format!("{hours}h {minutes}m")
+            } else if minutes > 0 {
+                format!("{minutes}m {seconds}s")
+            } else {
+                format!("{seconds}s")
+            }
+        }
+        None => "never".to_string(),
+    }
+}
+
 impl DataStorage {
     pub fn new(cfg: DataStorageConfig, root: impl AsRef<Path>) -> io::Result<Self> {
         let root = root.as_ref().to_path_buf();
-        log::info!("Initializing datastore at {:?} with config: {:?}", root, cfg);
+        log::info!(
+            "Initializing datastore at {}. Expiration: {}, max item size: {}, max overall size: {}",
+            root.display().to_string().bright_yellow(),
+            format_expiration(cfg.get_expiration()).bright_yellow(),
+            format_size_limit(cfg.get_max_item_size()).bright_yellow(),
+            format_size_limit(cfg.get_max_overall_size()).bright_yellow(),
+        );
         fs::create_dir_all(&root)?;
         Ok(Self { cfg, root })
     }
