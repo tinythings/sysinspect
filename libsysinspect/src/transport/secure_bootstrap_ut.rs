@@ -260,3 +260,101 @@ fn bootstrap_rejects_when_no_common_version_exists() {
     let err = SecureBootstrapSession::accept(&state, &hello, &master_prk, &minion_pbk, None, Some("kid-1".to_string()), None).unwrap_err();
     assert!(err.to_string().contains("No common secure transport protocol version"));
 }
+
+#[test]
+fn bootstrap_hello_roundtrips_through_json() {
+    let (_, master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let state = state(&master_pbk, &minion_pbk);
+    let (_, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+
+    let parsed = serde_json::from_slice::<SecureFrame>(&serde_json::to_vec(&hello).unwrap()).unwrap();
+
+    assert!(matches!(parsed, SecureFrame::BootstrapHello(_)));
+}
+
+#[test]
+fn accept_rejects_wrong_registered_minion_key() {
+    let (master_prk, master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let (_, wrong_minion_pbk) = keygen(2048).unwrap();
+    let state = state(&master_pbk, &minion_pbk);
+    let (_, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+
+    let err = SecureBootstrapSession::accept(
+        &state,
+        match &hello {
+            SecureFrame::BootstrapHello(hello) => hello,
+            _ => panic!("expected bootstrap hello"),
+        },
+        &master_prk,
+        &wrong_minion_pbk,
+        Some("sid-1".to_string()),
+        Some("kid-1".to_string()),
+        Some(SecureRotationMode::None),
+    )
+    .unwrap_err()
+    .to_string();
+
+    assert!(err.contains("fingerprint") || err.contains("signature"));
+}
+
+#[test]
+fn verify_ack_rejects_wrong_master_key() {
+    let (master_prk, master_pbk) = keygen(2048).unwrap();
+    let (_, wrong_master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let state = state(&master_pbk, &minion_pbk);
+    let (opening, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+    let ack = match SecureBootstrapSession::accept(
+        &state,
+        match &hello {
+            SecureFrame::BootstrapHello(hello) => hello,
+            _ => panic!("expected bootstrap hello"),
+        },
+        &master_prk,
+        &minion_pbk,
+        Some("sid-1".to_string()),
+        Some("kid-1".to_string()),
+        Some(SecureRotationMode::None),
+    )
+    .unwrap()
+    .1
+    {
+        SecureFrame::BootstrapAck(ack) => ack,
+        _ => panic!("expected bootstrap ack"),
+    };
+
+    let err = opening.verify_ack(&state, &ack, &wrong_master_pbk).unwrap_err().to_string();
+    assert!(err.contains("fingerprint") || err.contains("signature"));
+}
+
+#[test]
+fn verify_ack_rejects_invalid_master_ephemeral_key() {
+    let (master_prk, master_pbk) = keygen(2048).unwrap();
+    let (minion_prk, minion_pbk) = keygen(2048).unwrap();
+    let state = state(&master_pbk, &minion_pbk);
+    let (opening, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
+    let mut ack = match SecureBootstrapSession::accept(
+        &state,
+        match &hello {
+            SecureFrame::BootstrapHello(hello) => hello,
+            _ => panic!("expected bootstrap hello"),
+        },
+        &master_prk,
+        &minion_pbk,
+        Some("sid-1".to_string()),
+        Some("kid-1".to_string()),
+        Some(SecureRotationMode::None),
+    )
+    .unwrap()
+    .1
+    {
+        SecureFrame::BootstrapAck(ack) => ack,
+        _ => panic!("expected bootstrap ack"),
+    };
+    ack.master_ephemeral_pubkey = STANDARD.encode([0u8; 8]);
+
+    let err = opening.verify_ack(&state, &ack, &master_pbk).unwrap_err().to_string();
+    assert!(err.contains("invalid size"));
+}
