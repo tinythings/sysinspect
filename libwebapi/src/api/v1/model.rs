@@ -1,7 +1,7 @@
 use crate::{MasterInterfaceType, api::v1::{TAG_MODELS, minions::authorize_request}};
 use actix_web::{
     HttpRequest, HttpResponse, Result, get,
-    web::{Data, Json, Query},
+    web::{Data, Query},
 };
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -96,15 +96,18 @@ pub struct ModelNameResponse {
         ("bearer_auth" = [])
     ),
     responses(
-        (status = 200, description = "List of available models", body = ModelNameResponse)
+        (status = 200, description = "List of available models", body = ModelNameResponse),
+        (status = 401, description = "Unauthorized", body = ModelResponseError)
     )
 )]
 #[allow(unused)]
 #[get("/api/v1/model/names")]
-pub async fn model_names_handler(req: HttpRequest, master: Data<MasterInterfaceType>) -> Result<Json<ModelNameResponse>> {
-    authorize_request(&req).map_err(actix_web::error::ErrorUnauthorized)?;
+pub async fn model_names_handler(req: HttpRequest, master: Data<MasterInterfaceType>) -> Result<HttpResponse> {
+    if let Err(err) = authorize_request(&req) {
+        return Ok(HttpResponse::Unauthorized().json(ModelResponseError { error: err.to_string() }));
+    }
     let mut master = master.lock().await;
-    Ok(Json(ModelNameResponse { models: master.cfg().await.fileserver_models().to_owned() }))
+    Ok(HttpResponse::Ok().json(ModelNameResponse { models: master.cfg().await.fileserver_models().to_owned() }))
 }
 #[utoipa::path(
     get,
@@ -119,13 +122,19 @@ pub async fn model_names_handler(req: HttpRequest, master: Data<MasterInterfaceT
         ("name" = String, Query, description = "Name of the model to retrieve details for")
     ),
     responses(
-        (status = 200, description = "Detailed information about the model", body = ModelResponse)
+        (status = 200, description = "Detailed information about the model", body = ModelResponse),
+        (status = 400, description = "Bad request", body = ModelResponseError),
+        (status = 401, description = "Unauthorized", body = ModelResponseError),
+        (status = 404, description = "Model not found", body = ModelResponseError),
+        (status = 500, description = "Failed to load model information", body = ModelResponseError)
     )
 )]
 #[allow(unused)]
 #[get("/api/v1/model/descr")]
 pub async fn model_descr_handler(req: HttpRequest, master: Data<MasterInterfaceType>, query: Query<IndexMap<String, String>>) -> Result<HttpResponse> {
-    authorize_request(&req).map_err(actix_web::error::ErrorUnauthorized)?;
+    if let Err(err) = authorize_request(&req) {
+        return Ok(HttpResponse::Unauthorized().json(ModelResponseError { error: err.to_string() }));
+    }
     let mid = query.get("name").cloned().unwrap_or_default(); // Model Id
     if mid.is_empty() {
         return Ok(HttpResponse::BadRequest().json(ModelResponseError { error: "Missing 'name' query parameter".to_string() }));

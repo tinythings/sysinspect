@@ -3,13 +3,20 @@ use async_trait::async_trait;
 use libdatastore::{cfg::DataStorageConfig, resources::DataStorage};
 use libsysinspect::cfg::mmconf::MasterConfig;
 use libwebapi::{MasterInterface, MasterInterfaceType, api::{self, ApiVersions}};
-use reqwest::Certificate;
+use reqwest::{Certificate, Identity};
 use rustls::ServerConfig;
+use rustls::RootCertStore;
+use rustls::server::WebPkiClientVerifier;
 use std::{fs, io::BufReader, path::Path, sync::Arc};
 use tokio::{sync::Mutex, task::JoinHandle, time::{Duration, sleep}};
 
 const CERT_PEM: &str = include_str!("data/sysmaster-dev.crt");
 const KEY_PEM: &str = include_str!("data/sysmaster-dev.key");
+const MTLS_CA_CERT_PEM: &str = include_str!("data/webapi-test-ca.crt");
+const MTLS_SERVER_CERT_PEM: &str = include_str!("data/webapi-test-server.crt");
+const MTLS_SERVER_KEY_PEM: &str = include_str!("data/webapi-test-server.key");
+const MTLS_CLIENT_CERT_PEM: &str = include_str!("data/webapi-test-client.crt");
+const MTLS_CLIENT_KEY_PEM: &str = include_str!("data/webapi-test-client.key");
 
 struct TestMaster {
     cfg: MasterConfig,
@@ -46,16 +53,35 @@ fn write_cfg(root: &Path, devmode: bool) -> MasterConfig {
     MasterConfig::new(cfg_path).unwrap()
 }
 
-fn tls_config() -> ServerConfig {
-    let mut cert_reader = BufReader::new(CERT_PEM.as_bytes());
+fn tls_config(require_client_auth: bool) -> ServerConfig {
+    let (server_cert_pem, server_key_pem, ca_cert_pem) = if require_client_auth {
+        (MTLS_SERVER_CERT_PEM, MTLS_SERVER_KEY_PEM, Some(MTLS_CA_CERT_PEM))
+    } else {
+        (CERT_PEM, KEY_PEM, None)
+    };
+
+    let mut cert_reader = BufReader::new(server_cert_pem.as_bytes());
     let certs = rustls_pemfile::certs(&mut cert_reader).collect::<Result<Vec<_>, _>>().unwrap();
-    let mut key_reader = BufReader::new(KEY_PEM.as_bytes());
+    let mut key_reader = BufReader::new(server_key_pem.as_bytes());
     let key = rustls_pemfile::private_key(&mut key_reader).unwrap().unwrap();
 
-    ServerConfig::builder().with_no_client_auth().with_single_cert(certs, key).unwrap()
+    let builder = if let Some(ca_cert_pem) = ca_cert_pem {
+        let mut ca_reader = BufReader::new(ca_cert_pem.as_bytes());
+        let ca_certs = rustls_pemfile::certs(&mut ca_reader).collect::<Result<Vec<_>, _>>().unwrap();
+        let mut roots = RootCertStore::empty();
+        for ca_cert in ca_certs {
+            roots.add(ca_cert).unwrap();
+        }
+        let verifier = WebPkiClientVerifier::builder(Arc::new(roots)).build().unwrap();
+        ServerConfig::builder().with_client_cert_verifier(verifier)
+    } else {
+        ServerConfig::builder().with_no_client_auth()
+    };
+
+    builder.with_single_cert(certs, key).unwrap()
 }
 
-async fn spawn_https_server(devmode: bool) -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std::io::Result<()>>) {
+async fn spawn_https_server(devmode: bool, require_client_auth: bool) -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std::io::Result<()>>) {
     let root = tempfile::tempdir().unwrap();
     let cfg = write_cfg(root.path(), devmode);
     let queries = Arc::new(Mutex::new(Vec::new()));
@@ -66,7 +92,7 @@ async fn spawn_https_server(devmode: bool) -> (String, Arc<Mutex<Vec<String>>>, 
         let scope = api::get(devmode, ApiVersions::V1).unwrap().load(web::scope(""));
         App::new().app_data(web::Data::new(master.clone())).service(scope)
     })
-    .bind_rustls_0_23(("127.0.0.1", 0), tls_config())
+    .bind_rustls_0_23(("127.0.0.1", 0), tls_config(require_client_auth))
     .unwrap();
     let addr = server.addrs()[0];
     let handle = tokio::spawn(server.run());
@@ -82,9 +108,24 @@ fn trusted_client() -> reqwest::Client {
         .unwrap()
 }
 
+fn trusted_mtls_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(MTLS_CA_CERT_PEM.as_bytes()).unwrap())
+        .build()
+        .unwrap()
+}
+
+fn trusted_client_with_identity() -> reqwest::Client {
+    reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(MTLS_CA_CERT_PEM.as_bytes()).unwrap())
+        .identity(Identity::from_pkcs8_pem(MTLS_CLIENT_CERT_PEM.as_bytes(), MTLS_CLIENT_KEY_PEM.as_bytes()).unwrap())
+        .build()
+        .unwrap()
+}
+
 #[tokio::test]
 async fn https_server_rejects_default_certificate_validation_for_self_signed_cert() {
-    let (base, _, handle) = spawn_https_server(true).await;
+    let (base, _, handle) = spawn_https_server(true, false).await;
 
     let err = reqwest::Client::new()
         .post(format!("{base}/api/v1/health"))
@@ -99,7 +140,7 @@ async fn https_server_rejects_default_certificate_validation_for_self_signed_cer
 
 #[tokio::test]
 async fn https_auth_and_query_use_plain_json_and_bearer_token() {
-    let (base, queries, handle) = spawn_https_server(true).await;
+    let (base, queries, handle) = spawn_https_server(true, false).await;
     let client = trusted_client();
 
     let auth = client
@@ -141,7 +182,7 @@ async fn https_auth_and_query_use_plain_json_and_bearer_token() {
 
 #[tokio::test]
 async fn https_query_rejects_missing_bearer_token() {
-    let (base, _, handle) = spawn_https_server(true).await;
+    let (base, _, handle) = spawn_https_server(true, false).await;
     let client = trusted_client();
 
     let response = client
@@ -163,7 +204,7 @@ async fn https_query_rejects_missing_bearer_token() {
 
 #[tokio::test]
 async fn https_model_names_returns_plain_json_list() {
-    let (base, _, handle) = spawn_https_server(true).await;
+    let (base, _, handle) = spawn_https_server(true, false).await;
     let client = trusted_client();
     let auth = client
         .post(format!("{base}/api/v1/authenticate"))
@@ -188,5 +229,71 @@ async fn https_model_names_returns_plain_json_list() {
         .unwrap();
 
     assert_eq!(response["models"], serde_json::json!(["cm", "net"]));
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_model_names_rejects_missing_bearer_token_with_json_error() {
+    let (base, _, handle) = spawn_https_server(true, false).await;
+    let client = trusted_client();
+
+    let response = client
+        .get(format!("{base}/api/v1/model/names"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "Error Web API: Missing Authorization header");
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_store_list_rejects_missing_bearer_token_with_json_error() {
+    let (base, _, handle) = spawn_https_server(true, false).await;
+    let client = trusted_client();
+
+    let response = client
+        .get(format!("{base}/store/list"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "Error Web API: Missing Authorization header");
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_server_rejects_requests_without_required_client_certificate() {
+    let (base, _, handle) = spawn_https_server(true, true).await;
+    let err = trusted_mtls_client()
+        .post(format!("{base}/api/v1/health"))
+        .send()
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(!err.is_empty());
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_server_accepts_requests_with_trusted_client_certificate() {
+    let (base, _, handle) = spawn_https_server(true, true).await;
+    let response = trusted_client_with_identity()
+        .post(format!("{base}/api/v1/health"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    assert_eq!(response["status"], "healthy");
     handle.abort();
 }

@@ -837,7 +837,7 @@ pub struct MasterConfig {
     #[serde(rename = "api.tls.key-file")]
     api_tls_key_file: Option<String>,
 
-    /// Optional CA bundle path used for TLS validation or mutual TLS extensions.
+    /// Optional CA bundle path used to verify client certificates for the Web API TLS listener.
     #[serde(rename = "api.tls.ca-file")]
     api_tls_ca_file: Option<String>,
 

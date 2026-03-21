@@ -29,6 +29,7 @@ pub struct SecureChannel {
     session_id: String,
     key_id: String,
     key: Key,
+    role: SecurePeerRole,
     tx_counter: u64,
     rx_counter: u64,
     base_nonce: [u8; secretbox::NONCEBYTES],
@@ -36,7 +37,7 @@ pub struct SecureChannel {
 
 impl SecureChannel {
     /// Create a steady-state secure channel from an accepted bootstrap session.
-    pub fn new(_role: SecurePeerRole, bootstrap: &SecureBootstrapSession) -> Result<Self, SysinspectError> {
+    pub fn new(role: SecurePeerRole, bootstrap: &SecureBootstrapSession) -> Result<Self, SysinspectError> {
         sodium_ready()?;
         let session_id = bootstrap
             .session_id()
@@ -57,6 +58,7 @@ impl SecureChannel {
             session_id,
             key_id: bootstrap.key_id().to_string(),
             key: bootstrap.session_key().clone(),
+            role,
             tx_counter: 0,
             rx_counter: 0,
             base_nonce,
@@ -88,13 +90,14 @@ impl SecureChannel {
         }
         self.tx_counter =
             self.tx_counter.checked_add(1).ok_or_else(|| SysinspectError::ProtoError("Secure transmit counter overflow".to_string()))?;
+        let nonce = Self::nonce(self.role, self.tx_counter, &self.base_nonce);
         serde_json::to_vec(&SecureFrame::Data(SecureDataFrame {
             protocol_version: SECURE_PROTOCOL_VERSION,
             session_id: self.session_id.clone(),
             key_id: self.key_id.clone(),
             counter: self.tx_counter,
-            nonce: STANDARD.encode(Self::nonce(self.tx_counter, &self.base_nonce).0),
-            payload: STANDARD.encode(secretbox::seal(payload, &Self::nonce(self.tx_counter, &self.base_nonce), &self.key)),
+            nonce: STANDARD.encode(nonce.0),
+            payload: STANDARD.encode(secretbox::seal(payload, &nonce, &self.key)),
         }))
         .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode secure data frame: {err}")))
     }
@@ -145,7 +148,7 @@ impl SecureChannel {
         if frame.counter != self.rx_counter.saturating_add(1) {
             return Err(SysinspectError::ProtoError(format!("Secure frame counter {} is out of sequence after {}", frame.counter, self.rx_counter)));
         }
-        let expected_nonce = Self::nonce(frame.counter, &self.base_nonce);
+        let expected_nonce = Self::nonce(Self::opposite_role(self.role), frame.counter, &self.base_nonce);
         if STANDARD.encode(expected_nonce.0) != frame.nonce {
             return Err(SysinspectError::ProtoError("Secure data frame nonce does not match the expected counter-derived nonce".to_string()));
         }
@@ -162,14 +165,25 @@ impl SecureChannel {
         Ok(payload)
     }
 
-    /// Derive a deterministic nonce from the base_nonce and monotonic counter.
-    fn nonce(counter: u64, base_nonce: &[u8; secretbox::NONCEBYTES]) -> Nonce {
+    /// Derive a deterministic per-direction nonce from the base nonce and monotonic counter.
+    fn nonce(role: SecurePeerRole, counter: u64, base_nonce: &[u8; secretbox::NONCEBYTES]) -> Nonce {
         let mut nonce = *base_nonce;
+        nonce[0] ^= match role {
+            SecurePeerRole::Master => 0x4d,
+            SecurePeerRole::Minion => 0x6d,
+        };
         let counter_bytes = counter.to_be_bytes();
         for i in 0..8 {
             nonce[secretbox::NONCEBYTES - 8 + i] ^= counter_bytes[i];
         }
         Nonce(nonce)
+    }
+
+    fn opposite_role(role: SecurePeerRole) -> SecurePeerRole {
+        match role {
+            SecurePeerRole::Master => SecurePeerRole::Minion,
+            SecurePeerRole::Minion => SecurePeerRole::Master,
+        }
     }
 }
 

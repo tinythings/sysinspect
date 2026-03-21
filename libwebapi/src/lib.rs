@@ -5,6 +5,8 @@ use libcommon::SysinspectError;
 use libdatastore::resources::DataStorage;
 use libsysinspect::cfg::mmconf::MasterConfig;
 use rustls::ServerConfig;
+use rustls::RootCertStore;
+use rustls::server::WebPkiClientVerifier;
 use std::{fs::File, io::BufReader, sync::Arc, thread};
 use tokio::sync::Mutex;
 
@@ -54,7 +56,7 @@ pub(crate) fn tls_setup_err_message() -> String {
 
 /// Loads the TLS server configuration for the Web API from the provided MasterConfig.
 /// This includes reading the certificate and private key files, and optionally
-/// the CA file if client certificate authentication is configured.
+/// the CA file for client certificate authentication.
 /// Returns a ServerConfig on success, or a SysinspectError with a user-friendly message on failure.
 fn load_tls_server_config(cfg: &MasterConfig) -> Result<ServerConfig, SysinspectError> {
     let cert_path = cfg
@@ -88,7 +90,7 @@ fn load_tls_server_config(cfg: &MasterConfig) -> Result<ServerConfig, Sysinspect
             SysinspectError::ConfigError(format!("Web API TLS private key file {} does not contain a supported PEM private key", key_path.display()))
         })?;
 
-    if let Some(ca_path) = cfg.api_tls_ca_file() {
+    let builder = if let Some(ca_path) = cfg.api_tls_ca_file() {
         let mut ca_reader = BufReader::new(
             File::open(&ca_path)
                 .map_err(|err| SysinspectError::ConfigError(format!("Unable to open Web API TLS CA file {}: {err}", ca_path.display())))?,
@@ -99,10 +101,22 @@ fn load_tls_server_config(cfg: &MasterConfig) -> Result<ServerConfig, Sysinspect
         if ca_certs.is_empty() {
             return Err(SysinspectError::ConfigError(format!("Web API TLS CA file {} does not contain any PEM certificates", ca_path.display())));
         }
-    }
+        let mut roots = RootCertStore::empty();
+        for ca_cert in ca_certs {
+            roots
+                .add(ca_cert)
+                .map_err(|err| SysinspectError::ConfigError(format!("Unable to use Web API TLS CA file {}: {err}", ca_path.display())))?;
+        }
 
-    ServerConfig::builder()
-        .with_no_client_auth()
+        let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
+            .build()
+            .map_err(|err| SysinspectError::ConfigError(format!("Invalid Web API TLS CA verifier configuration: {err}")))?;
+        ServerConfig::builder().with_client_cert_verifier(verifier)
+    } else {
+        ServerConfig::builder().with_no_client_auth()
+    };
+
+    builder
         .with_single_cert(certs, private_key)
         .map_err(|err| SysinspectError::ConfigError(format!("Invalid Web API TLS certificate/private key pair: {err}")))
 }
