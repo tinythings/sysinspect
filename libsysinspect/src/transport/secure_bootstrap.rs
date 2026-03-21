@@ -32,12 +32,12 @@ pub struct SecureBootstrapSession {
 }
 
 struct MasterBootstrapAckParams {
-    session_key: Key,
     key_id: String,
     session_id: String,
     rotation: SecureRotationMode,
     master_ephemeral_public: box_::PublicKey,
     master_ephemeral_secret: box_::SecretKey,
+    minion_ephemeral_public: box_::PublicKey,
 }
 
 /// Factory for the plaintext bootstrap diagnostics allowed before a secure session exists.
@@ -77,17 +77,10 @@ impl SecureBootstrapSession {
         accepted_binding.protocol_version = negotiated_version;
         let minion_ephemeral_public = Self::ephemeral_public_key(&hello.client_ephemeral_pubkey)?;
         let (master_ephemeral_public, master_ephemeral_secret) = box_::gen_keypair();
-        let session_key = Self::derive_session_key(
-            &accepted_binding,
-            &minion_ephemeral_public,
-            &master_ephemeral_public,
-            &box_::precompute(&minion_ephemeral_public, &master_ephemeral_secret),
-        );
         Self::ack(
             accepted_binding,
             master_prk,
             MasterBootstrapAckParams {
-                session_key,
                 key_id: hello
                     .key_id
                     .clone()
@@ -99,6 +92,7 @@ impl SecureBootstrapSession {
                 rotation: rotation.unwrap_or(SecureRotationMode::None),
                 master_ephemeral_public,
                 master_ephemeral_secret,
+                minion_ephemeral_public,
             },
         )
     }
@@ -207,6 +201,12 @@ impl SecureBootstrapSession {
         mut binding: SecureSessionBinding, master_prk: &RsaPrivateKey, params: MasterBootstrapAckParams,
     ) -> Result<(Self, SecureFrame), SysinspectError> {
         binding.master_nonce = Uuid::new_v4().to_string();
+        let session_key = Self::derive_session_key(
+            &binding,
+            &params.minion_ephemeral_public,
+            &params.master_ephemeral_public,
+            &box_::precompute(&params.minion_ephemeral_public, &params.master_ephemeral_secret),
+        );
         let master_ephemeral_pubkey = STANDARD.encode(params.master_ephemeral_public.0);
         let binding_signature = STANDARD.encode(
             sign_data(master_prk.clone(), &Self::ack_material(&binding, &params.session_id, &params.key_id, &params.rotation, &master_ephemeral_pubkey)?)
@@ -215,7 +215,7 @@ impl SecureBootstrapSession {
         Ok((
             Self {
                 binding: binding.clone(),
-                session_key: Some(params.session_key),
+                session_key: Some(session_key),
                 key_id: params.key_id.clone(),
                 session_id: Some(params.session_id.clone()),
                 offered_versions: vec![binding.protocol_version],
