@@ -4,7 +4,7 @@ include Makefile.in
 
 .PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel clean check fix setup \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
-	stats man test test-core test-modules test-sensors test-integration tar
+	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
 setup:
 	$(call deps)
@@ -89,6 +89,9 @@ stats:
 
 man:
 	pandoc --standalone --to man docs/manpages/sysinspect.8.md -o docs/manpages/sysinspect.8
+
+dev-tls:
+	./scripts/dev-tls.sh
 
 test: setup
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
