@@ -11,6 +11,10 @@ hand or understand the protocol internals.
 This page is only about the Master/Minion link. It does not describe the Web
 API.
 
+For the exact wire format, see :doc:`transport_protocol`.
+For operator procedures, see :doc:`operator_security`.
+For threat coverage and limits, see :doc:`security_model`.
+
 What You Need To Know
 ---------------------
 
