@@ -142,3 +142,64 @@ fn secure_channel_first_frame_differs_across_reconnects() {
 
     assert_ne!(frame_one, frame_two);
 }
+
+#[test]
+fn secure_channel_accepts_consecutive_frames() {
+    let (mut master, mut minion) = channels();
+    let first = minion.seal(&serde_json::json!({"n":1})).unwrap();
+    let second = minion.seal(&serde_json::json!({"n":2})).unwrap();
+
+    let first_payload: serde_json::Value = master.open(&first).unwrap();
+    let second_payload: serde_json::Value = master.open(&second).unwrap();
+
+    assert_eq!(first_payload["n"], 1);
+    assert_eq!(second_payload["n"], 2);
+}
+
+#[test]
+fn secure_channel_rejects_truncated_frame_bytes() {
+    let (mut master, mut minion) = channels();
+    let mut frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    frame.pop();
+
+    assert!(master.open::<serde_json::Value>(&frame).is_err());
+}
+
+#[test]
+fn secure_channel_rejects_tampered_session_id() {
+    let (mut master, mut minion) = channels();
+    let frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    let mut parsed = serde_json::from_slice::<SecureFrame>(&frame).unwrap();
+    match &mut parsed {
+        SecureFrame::Data(data) => data.session_id = "wrong-session".to_string(),
+        _ => panic!("expected data frame"),
+    }
+
+    assert!(master.open::<serde_json::Value>(&serde_json::to_vec(&parsed).unwrap()).is_err());
+}
+
+#[test]
+fn secure_channel_rejects_tampered_key_id() {
+    let (mut master, mut minion) = channels();
+    let frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    let mut parsed = serde_json::from_slice::<SecureFrame>(&frame).unwrap();
+    match &mut parsed {
+        SecureFrame::Data(data) => data.key_id = "wrong-key".to_string(),
+        _ => panic!("expected data frame"),
+    }
+
+    assert!(master.open::<serde_json::Value>(&serde_json::to_vec(&parsed).unwrap()).is_err());
+}
+
+#[test]
+fn secure_channel_rejects_tampered_nonce() {
+    let (mut master, mut minion) = channels();
+    let frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    let mut parsed = serde_json::from_slice::<SecureFrame>(&frame).unwrap();
+    match &mut parsed {
+        SecureFrame::Data(data) => data.nonce = "AA==".to_string(),
+        _ => panic!("expected data frame"),
+    }
+
+    assert!(master.open::<serde_json::Value>(&serde_json::to_vec(&parsed).unwrap()).is_err());
+}
