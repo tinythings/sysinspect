@@ -9,6 +9,7 @@ use rustls::RootCertStore;
 use rustls::server::WebPkiClientVerifier;
 use std::{fs::File, io::BufReader, sync::Arc, thread};
 use tokio::sync::Mutex;
+use x509_parser::prelude::parse_x509_certificate;
 
 pub mod api;
 #[cfg(test)]
@@ -54,6 +55,22 @@ pub(crate) fn tls_setup_err_message() -> String {
     )
 }
 
+/// Returns a user-friendly warning message about using a self-signed TLS certificate for WebAPI, pointing to the relevant configuration option.
+pub(crate) fn tls_self_signed_warning_message() -> String {
+    format!(
+        "Embedded Web API is using a {} TLS certificate because {} is set to {}. Clients must explicitly trust this certificate.",
+        "self-signed".bright_red(),
+        "api.tls.allow-insecure".bright_yellow(),
+        "true".bright_yellow()
+    )
+}
+
+fn cert_appears_self_signed(cert_der: &[u8]) -> Result<bool, SysinspectError> {
+    let (_, cert) = parse_x509_certificate(cert_der)
+        .map_err(|err| SysinspectError::ConfigError(format!("Unable to parse Web API TLS certificate for trust checks: {err}")))?;
+    Ok(cert.tbs_certificate.subject == cert.tbs_certificate.issuer)
+}
+
 /// Loads the TLS server configuration for the Web API from the provided MasterConfig.
 /// This includes reading the certificate and private key files, and optionally
 /// the CA file for client certificate authentication.
@@ -76,6 +93,12 @@ fn load_tls_server_config(cfg: &MasterConfig) -> Result<ServerConfig, Sysinspect
     if certs.is_empty() {
         return Err(SysinspectError::ConfigError(format!(
             "Web API TLS certificate file {} does not contain any PEM certificates",
+            cert_path.display()
+        )));
+    }
+    if cert_appears_self_signed(certs[0].as_ref())? && !cfg.api_tls_allow_insecure() {
+        return Err(SysinspectError::ConfigError(format!(
+            "Web API TLS certificate file {} appears to be self-signed. Set api.tls.allow-insecure=true only when you intentionally want to allow this setup.",
             cert_path.display()
         )));
     }
@@ -168,9 +191,8 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
         log::info!("Starting embedded Web API inside sysmaster at {} over {}", listen_addr.bright_yellow(), "HTTPS/TLS");
         log::info!("Embedded Web API enabled. Swagger UI available at {}", advertised_doc_url(&bind_addr, bind_port, true).bright_yellow());
         if ccfg.api_tls_allow_insecure() {
-            log::warn!("Web API TLS allow-insecure mode is enabled for clients.");
+            log::warn!("{}", tls_self_signed_warning_message());
         }
-
         actix_web::rt::System::new().block_on(async move {
             let server = HttpServer::new(move || {
                 let mut scope = web::scope("");
