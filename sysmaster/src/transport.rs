@@ -132,8 +132,8 @@ impl PeerTransport {
                 .ok_or_else(|| SysinspectError::ProtoError(format!("Peer transport state for {peer_addr} disappeared")))?
                 .channel
                 .open_bytes(raw);
-            if decoded.is_err() {
-                log::warn!("Session for peer {} became invalid; dropping channel state", peer_addr);
+            if let Err(err) = &decoded {
+                log::warn!("Session for peer {} became invalid: {}; dropping channel state", peer_addr, err);
                 self.peers.remove(peer_addr);
             }
             return decoded.map(IncomingFrame::Forward);
@@ -194,7 +194,7 @@ impl PeerTransport {
             .ok_or_else(|| SysinspectError::ProtoError(format!("No managed transport state exists for {}", hello.binding.minion_id)))?;
         let master_prk = mkr.master_private_key()?;
         let minion_pbk = mkr.minion_public_key(&hello.binding.minion_id)?;
-        let (bootstrap, ack) = SecureBootstrapSession::accept(
+        let (bootstrap, ack) = match SecureBootstrapSession::accept(
             &state,
             hello,
             &master_prk,
@@ -202,17 +202,29 @@ impl PeerTransport {
             None,
             state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
             None,
-        )?;
+        ) {
+            Ok(result) => result,
+            Err(err) => {
+                log::warn!(
+                    "Secure bootstrap authentication failed for minion {} from {}: {}",
+                    hello.binding.minion_id,
+                    peer_addr,
+                    err
+                );
+                return Err(err);
+            }
+        };
         Self::record_bootstrap_replay(&mut self.bootstrap_replay_cache, &hello.binding, now);
 
         Self::promote_bootstrap_key(cfg, mkr, &mut state, hello, bootstrap.key_id())?;
         TransportStore::for_master_minion(cfg, &hello.binding.minion_id)?.save(&state)?;
         log::info!(
-            "Session established for minion {} from {} using key {} and protocol v{}",
+            "Session established for minion {} from {} using key {} and protocol v{} (rotation state: {:?})",
             hello.binding.minion_id,
             peer_addr,
             bootstrap.key_id(),
-            hello.binding.protocol_version
+            hello.binding.protocol_version,
+            state.rotation
         );
         self.peers.insert(
             peer_addr.to_string(),
@@ -272,7 +284,25 @@ impl PeerTransport {
             let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
             *state = rotator.state().clone();
             state.set_pending_rotation_context(None);
+            log::info!(
+                "Applied staged transport rotation for {} using key {} with {}s overlap",
+                hello.binding.minion_id,
+                bootstrap_key_id,
+                payload.grace_seconds
+            );
             return Ok(());
+        }
+        if let Some(context) = state.pending_rotation_context.clone()
+            && let Ok(payload) = serde_json::from_str::<RotationCommandPayload>(&context)
+            && payload.intent.intent().next_key_id() != bootstrap_key_id
+        {
+            log::warn!(
+                "Minion {} bootstrapped with key {} while staged rotation expects {}; leaving rotation state as {:?}",
+                hello.binding.minion_id,
+                bootstrap_key_id,
+                payload.intent.intent().next_key_id(),
+                state.rotation
+            );
         }
         state.upsert_key(bootstrap_key_id, libsysinspect::transport::TransportKeyStatus::Active);
         Ok(())

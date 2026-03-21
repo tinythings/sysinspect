@@ -107,6 +107,15 @@ fn load_tls_server_config(cfg: &MasterConfig) -> Result<ServerConfig, Sysinspect
         .map_err(|err| SysinspectError::ConfigError(format!("Invalid Web API TLS certificate/private key pair: {err}")))
 }
 
+fn tls_paths_summary(cfg: &MasterConfig) -> String {
+    format!(
+        "cert={}, key={}, ca={}",
+        cfg.api_tls_cert_file().map(|p| p.display().to_string()).unwrap_or_else(|| "<unset>".to_string()),
+        cfg.api_tls_key_file().map(|p| p.display().to_string()).unwrap_or_else(|| "<unset>".to_string()),
+        cfg.api_tls_ca_file().map(|p| p.display().to_string()).unwrap_or_else(|| "<unset>".to_string())
+    )
+}
+
 /// Starts the embedded Web API server in a new thread, using the provided MasterConfig and MasterInterface.
 pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> Result<(), SysinspectError> {
     if !cfg.api_enabled() {
@@ -124,6 +133,7 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
         Err(err) => {
             log::error!("{}", tls_setup_err_message());
             log::error!("Embedded Web API TLS setup error: {err}");
+            log::error!("Embedded Web API TLS paths: {}", tls_paths_summary(&cfg));
             return Ok(());
         }
     };
