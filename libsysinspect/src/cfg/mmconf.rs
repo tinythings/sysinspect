@@ -841,7 +841,7 @@ pub struct MasterConfig {
     #[serde(rename = "api.tls.ca-file")]
     api_tls_ca_file: Option<String>,
 
-    /// Allow explicitly using insecure client trust handling for the Web API TLS setup.
+    /// Allow self-signed or otherwise non-public Web API TLS certificates.
     #[serde(rename = "api.tls.allow-insecure")]
     api_tls_allow_insecure: Option<bool>,
 
@@ -1036,7 +1036,7 @@ impl MasterConfig {
         self.api_tls_ca_file.as_deref().map(|path| self.resolve_rooted_path(path))
     }
 
-    /// Return whether the Web API may explicitly use insecure client trust handling.
+    /// Return whether self-signed or otherwise non-public Web API TLS certificates are allowed.
     pub fn api_tls_allow_insecure(&self) -> bool {
         self.api_tls_allow_insecure.unwrap_or(false)
     }
