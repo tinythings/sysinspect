@@ -4,7 +4,7 @@ Protocol description about message exchange between master and a minion.
 
 ## Secure transport design
 
-This document is the Phase 1 source of truth for the secure Master/Minion transport.
+This document is the source of truth for the secure Master/Minion transport.
 The concrete shared protocol types live in `libsysproto::secure`.
 
 ### Transport goals
@@ -65,6 +65,28 @@ Fields:
 - `binding_signature`: minion RSA signature over the binding and ephemeral public key
 - `key_id`: optional transport key identifier for reconnect or rotation continuity
 
+Example:
+
+```json
+{
+  "kind": "bootstrap_hello",
+  "binding": {
+    "minion_id": "minion-a",
+    "minion_rsa_fingerprint": "minion-fp",
+    "master_rsa_fingerprint": "master-fp",
+    "protocol_version": 1,
+    "connection_id": "conn-1",
+    "client_nonce": "client-nonce",
+    "master_nonce": "",
+    "timestamp": 1734739200
+  },
+  "supported_versions": [1],
+  "client_ephemeral_pubkey": "<base64>",
+  "binding_signature": "<base64>",
+  "key_id": "trk-current"
+}
+```
+
 #### `bootstrap_ack`
 
 Sent by the master after validating the registered minion RSA identity and accepting the new secure session.
@@ -78,6 +100,29 @@ Fields:
 - `master_ephemeral_pubkey`: master ephemeral Curve25519 public key
 - `binding_signature`: master RSA signature over the completed binding, accepted session id, and master ephemeral public key
 
+Example:
+
+```json
+{
+  "kind": "bootstrap_ack",
+  "binding": {
+    "minion_id": "minion-a",
+    "minion_rsa_fingerprint": "minion-fp",
+    "master_rsa_fingerprint": "master-fp",
+    "protocol_version": 1,
+    "connection_id": "conn-1",
+    "client_nonce": "client-nonce",
+    "master_nonce": "master-nonce",
+    "timestamp": 1734739200
+  },
+  "session_id": "sid-1",
+  "key_id": "trk-current",
+  "rotation": "none",
+  "master_ephemeral_pubkey": "<base64>",
+  "binding_signature": "<base64>"
+}
+```
+
 #### `bootstrap_diagnostic`
 
 Plaintext rejection or negotiation failure emitted before a secure session exists.
@@ -87,6 +132,21 @@ Fields:
 - `code`: `unsupported_version`, `bootstrap_rejected`, `replay_rejected`, `rate_limited`, `malformed_frame`, or `duplicate_session`
 - `message`: human-readable diagnostic
 - `failure`: retry and disconnect semantics
+
+Example:
+
+```json
+{
+  "kind": "bootstrap_diagnostic",
+  "code": "replay_rejected",
+  "message": "Secure bootstrap replay rejected for minion-a",
+  "failure": {
+    "retryable": false,
+    "disconnect": true,
+    "rate_limit": true
+  }
+}
+```
 
 ### Encrypted steady-state frame
 
@@ -103,6 +163,49 @@ Fields:
 - `counter`: monotonic per-direction counter
 - `nonce`: libsodium nonce for the sealed payload
 - `payload`: authenticated encrypted payload
+
+Example:
+
+```json
+{
+  "kind": "data",
+  "protocol_version": 1,
+  "session_id": "sid-1",
+  "key_id": "trk-current",
+  "counter": 1,
+  "nonce": "<base64>",
+  "payload": "<base64>"
+}
+```
+
+### Handshake sequence
+
+The exact bootstrap sequence is:
+
+1. the minion opens a TCP connection to the master
+2. the minion sends `bootstrap_hello`
+3. the master checks:
+   - registered minion identity
+   - RSA fingerprints against managed transport state
+   - supported protocol versions
+   - replay window and duplicate-session rules
+4. the master sends either:
+   - `bootstrap_ack` on success
+   - `bootstrap_diagnostic` on failure
+5. both sides derive the same short-lived session key from:
+   - the authenticated Curve25519 shared secret
+   - the full `SecureSessionBinding`
+   - both ephemeral public keys
+6. every later frame on that TCP connection must use `data`
+
+### Steady-state frame rules
+
+For `data` frames:
+
+- `counter` must increase exactly by one in each direction
+- `nonce` must match the counter-derived nonce expected for that session
+- `session_id` and `key_id` must match the active secure channel
+- replayed, stale, duplicated, or tampered frames are rejected
 
 ### Failure semantics
 
