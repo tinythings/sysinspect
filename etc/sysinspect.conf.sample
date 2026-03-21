@@ -113,9 +113,19 @@ config:
     pidfile: /tmp/sysinspect.pid
 
     # API configuration
+    # The embedded Web API only runs when TLS is configured.
+    # Leave it disabled until certificate and key paths are in place.
+    api.enabled: false
+    # api.enabled: true
+    # api.bind.ip: 0.0.0.0
+    # api.bind.port: 4202
+    # api.tls.enabled: true
+    # api.tls.cert-file: etc/web/api.crt
+    # api.tls.key-file: etc/web/api.key
+    # api.tls.ca-file: trust/ca.pem
+    # api.tls.allow-insecure: false
     # Set api.devmode only when you need auth bypass and the development query endpoint.
     api.devmode: false
-    api.enabled: true
 
   # Configuration that is present only on a minion node
   minion:
