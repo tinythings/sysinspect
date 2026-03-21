@@ -280,7 +280,11 @@ Below are directives for the configuration of the File Server service:
 
     Type: **boolean**
 
-    Enable or disable the WebAPI service to control Sysinspect Master remotely.
+    Enable or disable the embedded Web API listener inside the ``sysmaster``
+    process so Sysinspect Master can be controlled remotely.
+
+    This listener is part of ``sysmaster`` itself. Sysinspect does not start a
+    separate Web API daemon for this interface.
 
     .. important::
 
@@ -301,7 +305,7 @@ Below are directives for the configuration of the File Server service:
 
     Type: **string**
 
-    IPv4 address on which the WebAPI service is listening for all incoming and outgoing traffic.
+    IPv4 address on which the embedded Web API listener accepts traffic.
 
     Default value is ``0.0.0.0``.
 
@@ -310,16 +314,16 @@ Below are directives for the configuration of the File Server service:
 
     Type: **integer**
 
-    Network port number on which the WebAPI service is listening.
+    Network port number on which the embedded Web API listener is listening.
 
-    WebAPI service port is ``4202``.
+    The embedded Web API listener uses port ``4202`` by default.
 
 ``api.auth``
 ############
 
     Type: **string**
 
-    Authentication method to be used for the WebAPI service. This is a string and can be one of the following:
+    Authentication method to be used for the embedded Web API. This is a string and can be one of the following:
 
         - ``pam``
         - ``ldap`` `(planned, not implemented yet)`
@@ -329,7 +333,7 @@ Below are directives for the configuration of the File Server service:
 
     Type: **boolean**
 
-    Enable or disable development-only helpers for the WebAPI service.
+    Enable or disable development-only helpers for the embedded Web API.
 
     .. danger::
 
