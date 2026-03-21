@@ -78,9 +78,8 @@ pub struct ModelResponse {
     pub model: ModelInfo,
 }
 
-/// SysClient is the main client for interacting with the SysInspect system.
-/// It provides methods to set up RSA encryption, manage configurations, and interact with the system.
-/// It handles user authentication, key management, and data encryption/decryption.
+/// SysClient is the main client for interacting with the SysInspect Web API.
+/// It handles authentication and plain JSON request/response flows.
 ///
 /// # Fields
 /// * `cfg` - The configuration for the SysClient, which includes the master URL.
@@ -152,9 +151,8 @@ impl SysClient {
     /// * Returns `SysinspectError::MasterGeneralError` if the client is not authenticated (i.e., `sid` is empty),
     /// * Returns `SysinspectError::MasterGeneralError` if there is an error during the query process, such as network issues or server errors.
     ///
-    /// This function constructs a JSON payload containing the session ID and the query,
-    /// encodes it, and sends it to the SysInspect system using the `query_handler` API.
-    /// It expects the SysInspect system to respond with a string, which is returned as the result.
+    /// This function constructs a plain JSON payload containing the session ID and query,
+    /// sends it to the `query_handler` API, and returns the decoded JSON response.
     pub async fn query(
         &self, model: &str, query: &str, traits: &str, mid: &str, context: Value,
     ) -> Result<QueryResponse, SysinspectError> {

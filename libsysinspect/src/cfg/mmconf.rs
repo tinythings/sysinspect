@@ -825,6 +825,26 @@ pub struct MasterConfig {
     #[serde(rename = "api.auth")]
     pam_enabled: Option<String>,
 
+    /// Enable TLS for the embedded Web API listener.
+    #[serde(rename = "api.tls.enabled")]
+    api_tls_enabled: Option<bool>,
+
+    /// Path to the PEM certificate chain used by the Web API TLS listener.
+    #[serde(rename = "api.tls.cert-file")]
+    api_tls_cert_file: Option<String>,
+
+    /// Path to the PEM private key used by the Web API TLS listener.
+    #[serde(rename = "api.tls.key-file")]
+    api_tls_key_file: Option<String>,
+
+    /// Optional CA bundle path used for TLS validation or mutual TLS extensions.
+    #[serde(rename = "api.tls.ca-file")]
+    api_tls_ca_file: Option<String>,
+
+    /// Allow explicitly trusting self-signed or non-standard TLS setups.
+    #[serde(rename = "api.tls.trust-self-signed")]
+    api_tls_trust_self_signed: Option<bool>,
+
     /// Enable development-only Web API shortcuts.
     ///
     /// This keeps the normal Web API enabled, but allows the authentication
@@ -996,6 +1016,31 @@ impl MasterConfig {
         self.api_version.unwrap_or(1)
     }
 
+    /// Return whether HTTPS/TLS is enabled for the embedded Web API listener.
+    pub fn api_tls_enabled(&self) -> bool {
+        self.api_tls_enabled.unwrap_or(false)
+    }
+
+    /// Return the configured Web API TLS certificate path, resolved against the SysInspect root when relative.
+    pub fn api_tls_cert_file(&self) -> Option<PathBuf> {
+        self.api_tls_cert_file.as_deref().map(|path| self.resolve_rooted_path(path))
+    }
+
+    /// Return the configured Web API TLS private key path, resolved against the SysInspect root when relative.
+    pub fn api_tls_key_file(&self) -> Option<PathBuf> {
+        self.api_tls_key_file.as_deref().map(|path| self.resolve_rooted_path(path))
+    }
+
+    /// Return the optional Web API TLS CA bundle path, resolved against the SysInspect root when relative.
+    pub fn api_tls_ca_file(&self) -> Option<PathBuf> {
+        self.api_tls_ca_file.as_deref().map(|path| self.resolve_rooted_path(path))
+    }
+
+    /// Return whether the Web API may explicitly trust self-signed TLS setups.
+    pub fn api_tls_trust_self_signed(&self) -> bool {
+        self.api_tls_trust_self_signed.unwrap_or(false)
+    }
+
     /// Get API authentication method
     pub fn api_auth(&self) -> AuthMethod {
         match self.pam_enabled.as_deref().map(|s| s.to_ascii_lowercase()) {
@@ -1063,6 +1108,12 @@ impl MasterConfig {
     /// Get default sysinspect root. For master it is always /etc/sysinspect
     pub fn root_dir(&self) -> PathBuf {
         PathBuf::from(DEFAULT_SYSINSPECT_ROOT.to_string())
+    }
+
+    /// Resolve a path under the SysInspect root unless it is already absolute.
+    fn resolve_rooted_path(&self, path: &str) -> PathBuf {
+        let path = PathBuf::from(path);
+        if path.is_absolute() { path } else { self.root_dir().join(path) }
     }
 
     /// Get minion keys store
