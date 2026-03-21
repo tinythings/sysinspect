@@ -32,7 +32,7 @@ fn channels() -> (SecureChannel, SecureChannel) {
     let (minion_prk, minion_pbk) = keygen(2048).unwrap();
     let state = state(&master_pbk, &minion_pbk);
     let (opening, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
-    let ack = match SecureBootstrapSession::accept(
+    let accepted = SecureBootstrapSession::accept(
         &state,
         match &hello {
             SecureFrame::BootstrapHello(hello) => hello,
@@ -44,27 +44,13 @@ fn channels() -> (SecureChannel, SecureChannel) {
         Some("kid-1".to_string()),
         None,
     )
-    .unwrap()
-    .1
-    {
+    .unwrap();
+    let ack = match accepted.1 {
         SecureFrame::BootstrapAck(ack) => ack,
         _ => panic!("expected bootstrap ack"),
     };
     let minion = opening.verify_ack(&state, &ack, &master_pbk).unwrap();
-    let master = SecureBootstrapSession::accept(
-        &state,
-        match &hello {
-            SecureFrame::BootstrapHello(hello) => hello,
-            _ => panic!("expected bootstrap hello"),
-        },
-        &master_prk,
-        &minion_pbk,
-        Some("sid-1".to_string()),
-        Some("kid-1".to_string()),
-        None,
-    )
-    .unwrap()
-    .0;
+    let master = accepted.0;
 
     (SecureChannel::new(SecurePeerRole::Master, &master).unwrap(), SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap())
 }
