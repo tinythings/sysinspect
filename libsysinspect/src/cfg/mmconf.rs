@@ -841,9 +841,9 @@ pub struct MasterConfig {
     #[serde(rename = "api.tls.ca-file")]
     api_tls_ca_file: Option<String>,
 
-    /// Allow explicitly trusting self-signed or non-standard TLS setups.
-    #[serde(rename = "api.tls.trust-self-signed")]
-    api_tls_trust_self_signed: Option<bool>,
+    /// Allow explicitly using insecure client trust handling for the Web API TLS setup.
+    #[serde(rename = "api.tls.allow-insecure")]
+    api_tls_allow_insecure: Option<bool>,
 
     /// Enable development-only Web API shortcuts.
     ///
@@ -1036,9 +1036,9 @@ impl MasterConfig {
         self.api_tls_ca_file.as_deref().map(|path| self.resolve_rooted_path(path))
     }
 
-    /// Return whether the Web API may explicitly trust self-signed TLS setups.
-    pub fn api_tls_trust_self_signed(&self) -> bool {
-        self.api_tls_trust_self_signed.unwrap_or(false)
+    /// Return whether the Web API may explicitly use insecure client trust handling.
+    pub fn api_tls_allow_insecure(&self) -> bool {
+        self.api_tls_allow_insecure.unwrap_or(false)
     }
 
     /// Get API authentication method
