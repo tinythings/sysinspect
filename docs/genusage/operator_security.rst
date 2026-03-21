@@ -156,6 +156,9 @@ Optional configuration:
        api.tls.ca-file: trust/ca.pem
        api.tls.allow-insecure: false
 
+If ``api.tls.ca-file`` is set, the Web API requires client certificates signed
+by that CA bundle.
+
 Behavior:
 
 - if ``api.enabled`` is ``true`` but TLS is not configured correctly, the Web

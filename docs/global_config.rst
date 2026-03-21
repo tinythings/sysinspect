@@ -384,10 +384,14 @@ Below are directives for the configuration of the File Server service:
 
     Type: **string**
 
-    Optional CA bundle path used for TLS validation or mutual TLS extensions.
+    Optional CA bundle path used to verify client certificates for the Web API
+    TLS listener.
 
     If the path is relative, it is resolved under the Sysinspect root. If it is
     absolute, it is used as-is.
+
+    When set, clients must present a certificate chain that validates against
+    this CA bundle.
 
 ``api.tls.allow-insecure``
 ##########################
