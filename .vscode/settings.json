@@ -3,10 +3,19 @@
         "libsysinspect",
         "Sysinspect"
     ],
+    "python.defaultInterpreterPath": "/usr/bin/python3",
     "files.associations": {
         "*.cfg": "yaml"
     },
     "makefile.configureOnOpen": false,
+    "esbonio.sphinx.confDir": "${workspaceFolder}/docs",
+    "esbonio.sphinx.srcDir": "${workspaceFolder}/docs",
     "python-envs.defaultEnvManager": "ms-python.python:system",
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "esbonio.sphinx.pythonCommand": {
+        "command": [
+            "/usr/bin/python3"
+        ],
+        "cwd": "${workspaceFolder}"
+    }
 }
