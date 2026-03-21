@@ -124,6 +124,36 @@ The protection happens in two steps:
 So the long-term trust comes from the registered identities, while everyday
 traffic is protected by a fresh session created when the connection starts.
 
+What Changes And What Does Not
+------------------------------
+
+This transport change affects the Master/Minion boundary only.
+
+What changes:
+
+- the Master/Minion bootstrap now uses authenticated ephemeral key exchange
+- reconnects always create a fresh secure session
+- unsupported or malformed peers fail explicitly instead of falling back
+
+What does not change:
+
+- the local ``sysinspect`` to ``sysmaster`` console path still uses its own
+  local console transport
+- the embedded Web API still uses normal HTTPS/TLS and is separate from the
+  Master/Minion transport
+- the fileserver still publishes artefacts on its existing fileserver endpoint
+- profile assignment still happens through master-managed traits and normal
+  sync workflows
+
+Operationally this means:
+
+- console administration commands keep working as before
+- Web API TLS settings are configured separately under ``api.*``
+- ``sysinspect --sync`` still refreshes modules, libraries, sensors, and
+  profiles through the fileserver path after the secure control channel is up
+- profile sync policy is unchanged; the secure transport only protects the
+  control messages that trigger or coordinate it
+
 What Operators Should Do
 ------------------------
 
@@ -150,6 +180,29 @@ If a Minion can no longer establish a secure connection, the usual causes are:
 
 In those cases, prefer the supported recovery path such as re-registration or
 re-bootstrap instead of editing transport files manually.
+
+Operator Diagnostics
+--------------------
+
+Sysinspect now emits operator-visible diagnostics for the common failure cases.
+
+Look for these classes of messages:
+
+- secure bootstrap authentication failure
+- secure bootstrap replay rejection
+- secure bootstrap version mismatch or malformed-frame rejection
+- staged rotation key mismatch versus the reconnecting Minion key
+- Web API TLS startup failure, including configured cert/key/CA paths
+
+The quickest operator checks are:
+
+- ``sysinspect network --status`` for active key id, last handshake time, and
+  rotation state
+- the master error log for bootstrap rejection and TLS startup messages
+- the minion error log for bootstrap-diagnostic and ack-verification failures
+
+If a Minion reconnects but does not complete bootstrap, check the logs on both
+sides before editing any managed state.
 
 Transport Rotation Workflow
 ---------------------------
@@ -384,6 +437,19 @@ The status view includes:
 - last successful handshake timestamp
 - current rotation state
 - ``security.transport.last-rotated-at`` value
+
+Fresh Installs, Re-Registration, And Admin Workflows
+----------------------------------------------------
+
+The intended operator workflow remains simple:
+
+- fresh registration auto-provisions the managed transport metadata
+- normal reconnects auto-bootstrap a fresh secure session
+- re-registration replaces the trust relationship when identity changes
+- master-side administration stays on the console and Web API paths
+
+In other words, the secure transport is hardened without adding a manual
+day-to-day key exchange procedure for operators.
 
 Rotation Safety Model
 ---------------------

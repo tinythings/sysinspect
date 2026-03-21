@@ -289,9 +289,12 @@ Below are directives for the configuration of the File Server service:
     .. important::
 
         When enabled, the WebAPI serves its OpenAPI documentation through Swagger UI.
-        The documentation endpoint is available at ``http://<HOST>:<PORT>/doc/``.
+        The documentation endpoint is available at ``https://<HOST>:<PORT>/doc/``.
 
-    The Swagger UI is typically available at ``http://<HOST>:<PORT>/doc/``.
+    If ``api.enabled`` is ``true`` but TLS is not configured correctly,
+    ``sysmaster`` keeps running and the Web API stays disabled with an error log.
+
+    The Swagger UI is typically available at ``https://<HOST>:<PORT>/doc/``.
     Default port is ``4202``.
 
     .. note::
@@ -547,6 +550,13 @@ Example configuration for the Sysinspect Master:
             fileserver.models:
               - my_model
               - my_other_model
+
+            api.enabled: false
+            # To enable the embedded Web API, configure TLS first:
+            # api.enabled: true
+            # api.tls.enabled: true
+            # api.tls.cert-file: etc/web/api.crt
+            # api.tls.key-file: etc/web/api.key
 
 ``datastore.path``
 ###################
