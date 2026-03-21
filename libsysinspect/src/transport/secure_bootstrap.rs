@@ -3,16 +3,19 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use libcommon::SysinspectError;
 use libsysproto::secure::{
-    SECURE_PROTOCOL_VERSION, SecureBootstrapAck, SecureBootstrapDiagnostic, SecureBootstrapHello, SecureDiagnosticCode, SecureFailureSemantics,
-    SecureFrame, SecureRotationMode, SecureSessionBinding,
+    SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapAck, SecureBootstrapDiagnostic, SecureBootstrapHello, SecureDiagnosticCode,
+    SecureFailureSemantics, SecureFrame, SecureRotationMode, SecureSessionBinding,
 };
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
-use sodiumoxide::crypto::secretbox::{self, Key};
+use sodiumoxide::crypto::{
+    box_,
+    secretbox::{self, Key},
+};
 use std::sync::OnceLock;
 use uuid::Uuid;
 
-use crate::rsa::keys::{decrypt, encrypt, get_fingerprint, sign_data, verify_sign};
+use crate::rsa::keys::{get_fingerprint, sign_data, verify_sign};
 
 static SODIUM_INIT: OnceLock<()> = OnceLock::new();
 
@@ -20,9 +23,21 @@ static SODIUM_INIT: OnceLock<()> = OnceLock::new();
 #[derive(Debug, Clone)]
 pub struct SecureBootstrapSession {
     binding: SecureSessionBinding,
-    session_key: Key,
+    session_key: Option<Key>,
     key_id: String,
     session_id: Option<String>,
+    offered_versions: Vec<u16>,
+    local_ephemeral_public: box_::PublicKey,
+    local_ephemeral_secret: Option<box_::SecretKey>,
+}
+
+struct MasterBootstrapAckParams {
+    session_key: Key,
+    key_id: String,
+    session_id: String,
+    rotation: SecureRotationMode,
+    master_ephemeral_public: box_::PublicKey,
+    master_ephemeral_secret: box_::SecretKey,
 }
 
 /// Factory for the plaintext bootstrap diagnostics allowed before a secure session exists.
@@ -34,6 +49,7 @@ impl SecureBootstrapSession {
         sodium_ready()?;
         Self::ready(state)?;
         Self::fingerprint("master", master_pbk, &state.master_rsa_fingerprint)?;
+        let offered_versions = SECURE_SUPPORTED_PROTOCOL_VERSIONS.to_vec();
         let key_id = state.active_key_id.clone().or_else(|| state.last_key_id.clone()).unwrap_or_else(|| Uuid::new_v4().to_string());
         let binding = SecureSessionBinding::bootstrap_opening(
             state.minion_id.clone(),
@@ -43,13 +59,7 @@ impl SecureBootstrapSession {
             Uuid::new_v4().to_string(),
             Utc::now().timestamp(),
         );
-        Self::hello(
-            binding.clone(),
-            state.key_material(&key_id).as_deref().map(|material| Self::derive_session_key(material, &binding)).unwrap_or_else(secretbox::gen_key),
-            key_id,
-            minion_prk,
-            master_pbk,
-        )
+        Self::hello(binding.clone(), offered_versions, key_id, minion_prk, master_pbk)
     }
 
     /// Validate a bootstrap hello on the master side and return a signed acknowledgement frame.
@@ -58,22 +68,38 @@ impl SecureBootstrapSession {
         key_id: Option<String>, rotation: Option<SecureRotationMode>,
     ) -> Result<(Self, SecureFrame), SysinspectError> {
         Self::ready(state)?;
-        Self::opening(state, &hello.binding)?;
+        let negotiated_version = Self::negotiate_version(hello)?;
+        Self::opening(state, &hello.binding, &hello.supported_versions)?;
         Self::fingerprint("minion", minion_pbk, &state.minion_rsa_fingerprint)?;
         Self::fingerprint("master", &RsaPublicKey::from(master_prk), &state.master_rsa_fingerprint)?;
+        Self::verify_hello(hello, minion_pbk)?;
+        let mut accepted_binding = hello.binding.clone();
+        accepted_binding.protocol_version = negotiated_version;
+        let minion_ephemeral_public = Self::ephemeral_public_key(&hello.client_ephemeral_pubkey)?;
+        let (master_ephemeral_public, master_ephemeral_secret) = box_::gen_keypair();
+        let session_key = Self::derive_session_key(
+            &accepted_binding,
+            &minion_ephemeral_public,
+            &master_ephemeral_public,
+            &box_::precompute(&minion_ephemeral_public, &master_ephemeral_secret),
+        );
         Self::ack(
-            hello.binding.clone(),
-            Self::verify_hello(hello, minion_pbk, master_prk)?,
-            hello
-                .key_id
-                .clone()
-                .or_else(|| key_id.clone())
-                .or_else(|| state.active_key_id.clone())
-                .or_else(|| state.last_key_id.clone())
-                .unwrap_or_else(|| Uuid::new_v4().to_string()),
+            accepted_binding,
             master_prk,
-            session_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
-            rotation.unwrap_or(SecureRotationMode::None),
+            MasterBootstrapAckParams {
+                session_key,
+                key_id: hello
+                    .key_id
+                    .clone()
+                    .or_else(|| key_id.clone())
+                    .or_else(|| state.active_key_id.clone())
+                    .or_else(|| state.last_key_id.clone())
+                    .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                session_id: session_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+                rotation: rotation.unwrap_or(SecureRotationMode::None),
+                master_ephemeral_public,
+                master_ephemeral_secret,
+            },
         )
     }
 
@@ -88,9 +114,16 @@ impl SecureBootstrapSession {
         if ack.key_id.trim().is_empty() {
             return Err(SysinspectError::ProtoError("Secure bootstrap ack has an empty key id".to_string()));
         }
+        if !self.offered_versions.contains(&ack.binding.protocol_version) || !SECURE_SUPPORTED_PROTOCOL_VERSIONS.contains(&ack.binding.protocol_version) {
+            return Err(SysinspectError::ProtoError(format!(
+                "Negotiated secure bootstrap version {} is not supported by this minion",
+                ack.binding.protocol_version
+            )));
+        }
+        let master_ephemeral_public = Self::ephemeral_public_key(&ack.master_ephemeral_pubkey)?;
         if !verify_sign(
             master_pbk,
-            &Self::ack_material(&ack.binding, &ack.session_id, &ack.key_id, &ack.rotation)?,
+            &Self::ack_material(&ack.binding, &ack.session_id, &ack.key_id, &ack.rotation, &ack.master_ephemeral_pubkey)?,
             STANDARD
                 .decode(&ack.binding_signature)
                 .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure bootstrap ack signature: {err}")))?,
@@ -102,6 +135,18 @@ impl SecureBootstrapSession {
         self.binding = ack.binding.clone();
         self.key_id = ack.key_id.clone();
         self.session_id = Some(ack.session_id.clone());
+        self.session_key = Some(Self::derive_session_key(
+            &self.binding,
+            &self.local_ephemeral_public,
+            &master_ephemeral_public,
+            &box_::precompute(
+                &master_ephemeral_public,
+                self.local_ephemeral_secret
+                    .as_ref()
+                    .ok_or_else(|| SysinspectError::ProtoError("Secure bootstrap opening is missing the local ephemeral secret key".to_string()))?,
+            ),
+        ));
+        self.local_ephemeral_secret = None;
         Ok(self)
     }
 
@@ -122,26 +167,35 @@ impl SecureBootstrapSession {
 
     /// Return the negotiated libsodium session key for the secure channel.
     pub fn session_key(&self) -> &Key {
-        &self.session_key
+        self.session_key
+            .as_ref()
+            .expect("secure bootstrap session key is only available after the bootstrap exchange completes")
     }
 
     /// Encode the minion's opening bootstrap frame and keep the local bootstrap state.
     fn hello(
-        binding: SecureSessionBinding, session_key: Key, key_id: String, minion_prk: &RsaPrivateKey, master_pbk: &RsaPublicKey,
+        binding: SecureSessionBinding, offered_versions: Vec<u16>, key_id: String, minion_prk: &RsaPrivateKey, _master_pbk: &RsaPublicKey,
     ) -> Result<(Self, SecureFrame), SysinspectError> {
-        let session_key_cipher = STANDARD.encode(
-            encrypt(master_pbk.clone(), session_key.0.to_vec())
-                .map_err(|_| SysinspectError::RSAError("Failed to encrypt secure session key for the master".to_string()))?,
-        );
+        let (client_ephemeral_public, client_ephemeral_secret) = box_::gen_keypair();
+        let client_ephemeral_pubkey = STANDARD.encode(client_ephemeral_public.0);
         let binding_signature = STANDARD.encode(
-            sign_data(minion_prk.clone(), &Self::hello_material(&binding, &session_key_cipher, Some(&key_id))?)
+            sign_data(minion_prk.clone(), &Self::hello_material(&binding, &offered_versions, &client_ephemeral_pubkey, Some(&key_id))?)
                 .map_err(|_| SysinspectError::RSAError("Failed to sign secure bootstrap binding".to_string()))?,
         );
         Ok((
-            Self { binding: binding.clone(), session_key: session_key.clone(), key_id: key_id.clone(), session_id: None },
+            Self {
+                binding: binding.clone(),
+                session_key: None,
+                key_id: key_id.clone(),
+                session_id: None,
+                offered_versions: offered_versions.clone(),
+                local_ephemeral_public: client_ephemeral_public,
+                local_ephemeral_secret: Some(client_ephemeral_secret),
+            },
             SecureFrame::BootstrapHello(SecureBootstrapHello {
                 binding: binding.clone(),
-                session_key_cipher,
+                supported_versions: offered_versions,
+                client_ephemeral_pubkey,
                 binding_signature,
                 key_id: Some(key_id),
             }),
@@ -150,26 +204,41 @@ impl SecureBootstrapSession {
 
     /// Encode the master's bootstrap acknowledgement after the hello was authenticated successfully.
     fn ack(
-        mut binding: SecureSessionBinding, session_key: Key, key_id: String, master_prk: &RsaPrivateKey, session_id: String,
-        rotation: SecureRotationMode,
+        mut binding: SecureSessionBinding, master_prk: &RsaPrivateKey, params: MasterBootstrapAckParams,
     ) -> Result<(Self, SecureFrame), SysinspectError> {
         binding.master_nonce = Uuid::new_v4().to_string();
+        let master_ephemeral_pubkey = STANDARD.encode(params.master_ephemeral_public.0);
         let binding_signature = STANDARD.encode(
-            sign_data(master_prk.clone(), &Self::ack_material(&binding, &session_id, &key_id, &rotation)?)
+            sign_data(master_prk.clone(), &Self::ack_material(&binding, &params.session_id, &params.key_id, &params.rotation, &master_ephemeral_pubkey)?)
                 .map_err(|_| SysinspectError::RSAError("Failed to sign secure bootstrap acknowledgement".to_string()))?,
         );
         Ok((
-            Self { binding: binding.clone(), session_key, key_id: key_id.clone(), session_id: Some(session_id.clone()) },
-            SecureFrame::BootstrapAck(SecureBootstrapAck { binding, session_id: session_id.clone(), key_id, rotation, binding_signature }),
+            Self {
+                binding: binding.clone(),
+                session_key: Some(params.session_key),
+                key_id: params.key_id.clone(),
+                session_id: Some(params.session_id.clone()),
+                offered_versions: vec![binding.protocol_version],
+                local_ephemeral_public: params.master_ephemeral_public,
+                local_ephemeral_secret: Some(params.master_ephemeral_secret),
+            },
+            SecureFrame::BootstrapAck(SecureBootstrapAck {
+                binding,
+                session_id: params.session_id.clone(),
+                key_id: params.key_id,
+                rotation: params.rotation,
+                master_ephemeral_pubkey,
+                binding_signature,
+            }),
         ))
     }
 
     /// Check that the stored peer state is approved and matches the active protocol version.
     fn ready(state: &TransportPeerState) -> Result<(), SysinspectError> {
-        if state.protocol_version != SECURE_PROTOCOL_VERSION {
+        if !SECURE_SUPPORTED_PROTOCOL_VERSIONS.contains(&state.protocol_version) {
             return Err(SysinspectError::ProtoError(format!(
-                "Secure transport version mismatch in state: expected {}, found {}",
-                SECURE_PROTOCOL_VERSION, state.protocol_version
+                "Secure transport version {} in state is not supported locally",
+                state.protocol_version
             )));
         }
         if state.approved_at.is_none() {
@@ -179,9 +248,15 @@ impl SecureBootstrapSession {
     }
 
     /// Verify that an opening bootstrap binding matches the trusted peer state before accepting it.
-    fn opening(state: &TransportPeerState, binding: &SecureSessionBinding) -> Result<(), SysinspectError> {
-        if binding.protocol_version != SECURE_PROTOCOL_VERSION {
-            return Err(SysinspectError::ProtoError(format!("Unsupported secure bootstrap version {}", binding.protocol_version)));
+    fn opening(state: &TransportPeerState, binding: &SecureSessionBinding, supported_versions: &[u16]) -> Result<(), SysinspectError> {
+        if supported_versions.is_empty() {
+            return Err(SysinspectError::ProtoError("Secure bootstrap hello is missing supported protocol versions".to_string()));
+        }
+        if !supported_versions.contains(&binding.protocol_version) {
+            return Err(SysinspectError::ProtoError(format!(
+                "Secure bootstrap hello preferred version {} is not present in supported_versions",
+                binding.protocol_version
+            )));
         }
         if binding.master_nonce.is_empty()
             && binding.minion_id == state.minion_id
@@ -197,7 +272,7 @@ impl SecureBootstrapSession {
 
     /// Verify that an acknowledgement binding is still tied to the same handshake attempt and peer identities.
     fn accepted(state: &TransportPeerState, opening: &SecureSessionBinding, binding: &SecureSessionBinding) -> Result<(), SysinspectError> {
-        if binding.protocol_version != SECURE_PROTOCOL_VERSION {
+        if !SECURE_SUPPORTED_PROTOCOL_VERSIONS.contains(&binding.protocol_version) {
             return Err(SysinspectError::ProtoError(format!("Unsupported secure bootstrap ack version {}", binding.protocol_version)));
         }
         if binding.master_nonce.trim().is_empty() {
@@ -214,11 +289,11 @@ impl SecureBootstrapSession {
         Err(SysinspectError::ProtoError("Secure bootstrap ack does not match the opening handshake binding".to_string()))
     }
 
-    /// Decrypt and authenticate the opening bootstrap frame sent by the minion.
-    fn verify_hello(hello: &SecureBootstrapHello, minion_pbk: &RsaPublicKey, master_prk: &RsaPrivateKey) -> Result<Key, SysinspectError> {
+    /// Authenticate the opening bootstrap frame sent by the minion.
+    fn verify_hello(hello: &SecureBootstrapHello, minion_pbk: &RsaPublicKey) -> Result<(), SysinspectError> {
         if !verify_sign(
             minion_pbk,
-            &Self::hello_material(&hello.binding, &hello.session_key_cipher, hello.key_id.as_deref())?,
+            &Self::hello_material(&hello.binding, &hello.supported_versions, &hello.client_ephemeral_pubkey, hello.key_id.as_deref())?,
             STANDARD
                 .decode(&hello.binding_signature)
                 .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure bootstrap signature: {err}")))?,
@@ -227,60 +302,81 @@ impl SecureBootstrapSession {
         {
             return Err(SysinspectError::RSAError("Secure bootstrap hello signature verification failed".to_string()));
         }
-        let session_key = Self::key(&hello.session_key_cipher, master_prk)?;
-        Ok(session_key)
+        Ok(())
     }
 
-    /// Decrypt the RSA-wrapped libsodium session key from the opening bootstrap frame.
-    fn key(cipher: &str, master_prk: &RsaPrivateKey) -> Result<Key, SysinspectError> {
-        Key::from_slice(
-            &decrypt(
-                master_prk.clone(),
-                STANDARD
-                    .decode(cipher)
-                    .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure bootstrap session key: {err}")))?,
-            )
-            .map_err(|_| SysinspectError::RSAError("Failed to decrypt secure bootstrap session key".to_string()))?,
+    fn ephemeral_public_key(encoded: &str) -> Result<box_::PublicKey, SysinspectError> {
+        box_::PublicKey::from_slice(
+            &STANDARD
+                .decode(encoded)
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to decode secure bootstrap ephemeral public key: {err}")))?,
         )
-        .ok_or_else(|| SysinspectError::RSAError("Secure bootstrap session key has invalid size".to_string()))
+        .ok_or_else(|| SysinspectError::ProtoError("Secure bootstrap ephemeral public key has invalid size".to_string()))
     }
 
-    /// Derive a fresh bootstrap session key from persisted transport material and the opening handshake tuple.
-    /// Derive a per-bootstrap session key from persisted transport material and the unique opening binding.
-    fn derive_session_key(material: &[u8], binding: &SecureSessionBinding) -> Key {
+    /// Derive a per-bootstrap session key from the authenticated ephemeral key exchange and the handshake binding.
+    fn derive_session_key(
+        binding: &SecureSessionBinding, client_ephemeral_public: &box_::PublicKey, master_ephemeral_public: &box_::PublicKey,
+        shared: &box_::PrecomputedKey,
+    ) -> Key {
         let mut digest = Sha256::new();
-        digest.update(b"sysinspect-secure-bootstrap");
-        digest.update(material);
+        digest.update(b"sysinspect-secure-bootstrap-pfs");
+        digest.update(shared.0);
         digest.update(binding.minion_id.as_bytes());
         digest.update(binding.minion_rsa_fingerprint.as_bytes());
         digest.update(binding.master_rsa_fingerprint.as_bytes());
         digest.update(binding.connection_id.as_bytes());
         digest.update(binding.client_nonce.as_bytes());
+        digest.update(binding.master_nonce.as_bytes());
+        digest.update(client_ephemeral_public.0);
+        digest.update(master_ephemeral_public.0);
+        digest.update(binding.timestamp.to_be_bytes());
         digest.update(binding.protocol_version.to_be_bytes());
         Key::from_slice(&digest.finalize()).unwrap_or_else(secretbox::gen_key)
     }
 
-    /// Build the signed material for a bootstrap hello from the binding, ciphered session key bytes and negotiated key id.
-    fn hello_material(binding: &SecureSessionBinding, session_key_cipher: &str, key_id: Option<&str>) -> Result<Vec<u8>, SysinspectError> {
-        Self::material(binding, Some(session_key_cipher.as_bytes()), key_id, None, None)
+    /// Build the signed material for a bootstrap hello from the binding, client ephemeral key and negotiated key id.
+    fn hello_material(
+        binding: &SecureSessionBinding, supported_versions: &[u16], client_ephemeral_pubkey: &str, key_id: Option<&str>,
+    ) -> Result<Vec<u8>, SysinspectError> {
+        Self::material(
+            binding,
+            Some(client_ephemeral_pubkey.as_bytes()),
+            Some(supported_versions),
+            key_id,
+            None,
+            None,
+            None,
+        )
     }
 
     /// Build the signed material for a bootstrap acknowledgement from the binding, session id, activated key id and rotation state.
     fn ack_material(
-        binding: &SecureSessionBinding, session_id: &str, key_id: &str, rotation: &SecureRotationMode,
+        binding: &SecureSessionBinding, session_id: &str, key_id: &str, rotation: &SecureRotationMode, master_ephemeral_pubkey: &str,
     ) -> Result<Vec<u8>, SysinspectError> {
-        Self::material(binding, None, Some(key_id), Some(session_id), Some(rotation))
+        Self::material(
+            binding,
+            None,
+            None,
+            Some(key_id),
+            Some(session_id),
+            Some(rotation),
+            Some(master_ephemeral_pubkey.as_bytes()),
+        )
     }
 
     /// Serialize the binding and append the extra authenticated bootstrap material used for signatures.
     fn material(
-        binding: &SecureSessionBinding, session_key: Option<&[u8]>, key_id: Option<&str>, session_id: Option<&str>,
-        rotation: Option<&SecureRotationMode>,
+        binding: &SecureSessionBinding, ephemeral_key: Option<&[u8]>, supported_versions: Option<&[u16]>, key_id: Option<&str>,
+        session_id: Option<&str>, rotation: Option<&SecureRotationMode>, peer_ephemeral_key: Option<&[u8]>,
     ) -> Result<Vec<u8>, SysinspectError> {
         serde_json::to_vec(binding)
             .map(|mut out| {
-                if let Some(chunk) = session_key {
+                if let Some(chunk) = ephemeral_key {
                     out.extend_from_slice(chunk);
+                }
+                if let Some(chunk) = supported_versions {
+                    out.extend_from_slice(serde_json::to_string(chunk).unwrap_or_default().as_bytes());
                 }
                 if let Some(chunk) = key_id {
                     out.extend_from_slice(chunk.as_bytes());
@@ -291,9 +387,37 @@ impl SecureBootstrapSession {
                 if let Some(chunk) = rotation {
                     out.extend_from_slice(format!("{chunk:?}").as_bytes());
                 }
+                if let Some(chunk) = peer_ephemeral_key {
+                    out.extend_from_slice(chunk);
+                }
                 out
             })
             .map_err(|err| SysinspectError::SerializationError(format!("Failed to serialise secure bootstrap material: {err}")))
+    }
+
+    fn negotiate_version(hello: &SecureBootstrapHello) -> Result<u16, SysinspectError> {
+        if hello.supported_versions.is_empty() {
+            return Err(SysinspectError::ProtoError("Secure bootstrap hello did not advertise any supported protocol versions".to_string()));
+        }
+        let common: Vec<u16> = hello
+            .supported_versions
+            .iter()
+            .copied()
+            .filter(|version| SECURE_SUPPORTED_PROTOCOL_VERSIONS.contains(version))
+            .collect();
+        if common.is_empty() {
+            return Err(SysinspectError::ProtoError(format!(
+                "No common secure transport protocol version exists between peer {:?} and local {:?}",
+                hello.supported_versions, SECURE_SUPPORTED_PROTOCOL_VERSIONS
+            )));
+        }
+        if common.contains(&hello.binding.protocol_version) {
+            return Ok(hello.binding.protocol_version);
+        }
+        common
+            .into_iter()
+            .max()
+            .ok_or_else(|| SysinspectError::ProtoError("Secure bootstrap version negotiation failed".to_string()))
     }
 
     /// Verify that the presented RSA public key fingerprint matches the trusted transport state.

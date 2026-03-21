@@ -13,7 +13,7 @@ use libsysinspect::{
 use libsysproto::{
     MasterMessage, MinionMessage, ProtoConversion,
     rqtypes::RequestType,
-    secure::{SecureBootstrapHello, SecureFrame, SecureSessionBinding},
+    secure::{SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureFrame, SecureSessionBinding},
 };
 use rsa::RsaPublicKey;
 use std::{
@@ -147,7 +147,16 @@ impl PeerTransport {
         if let Some(diag) = Self::plaintext_diag(raw) {
             return Ok(IncomingFrame::Reply(diag));
         }
-        Ok(IncomingFrame::Forward(raw.to_vec()))
+        match serde_json::from_slice::<MinionMessage>(raw) {
+            Ok(req) if matches!(req.req_type(), RequestType::Add) => Ok(IncomingFrame::Forward(raw.to_vec())),
+            Ok(_) => Ok(IncomingFrame::Reply(
+                serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
+                    "Plaintext minion traffic is not allowed; secure bootstrap is required",
+                ))
+                .map_err(SysinspectError::from)?,
+            )),
+            Err(_) => Err(SysinspectError::ProtoError("Unsupported pre-bootstrap peer traffic".to_string())),
+        }
     }
 
     /// Accept a bootstrap hello from a registered minion and store the resulting session for that peer.
@@ -155,6 +164,19 @@ impl PeerTransport {
         &mut self, peer_addr: &str, hello: &SecureBootstrapHello, cfg: &MasterConfig, mkr: &mut MinionsKeyRegistry,
     ) -> Result<Vec<u8>, SysinspectError> {
         let now = Instant::now();
+        if hello.supported_versions.is_empty() {
+            return serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
+                "Secure bootstrap hello did not advertise any supported protocol versions",
+            ))
+            .map_err(SysinspectError::from);
+        }
+        if !hello.supported_versions.iter().any(|version| SECURE_SUPPORTED_PROTOCOL_VERSIONS.contains(version)) {
+            return serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(format!(
+                "No common secure transport protocol version exists between peer {:?} and local {:?}",
+                hello.supported_versions, SECURE_SUPPORTED_PROTOCOL_VERSIONS
+            )))
+            .map_err(SysinspectError::from);
+        }
         if self.peers.iter().any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id) {
             log::warn!("Rejecting duplicate bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
             return serde_json::to_vec(&SecureBootstrapDiagnostics::duplicate_session(format!(

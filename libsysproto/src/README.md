@@ -60,8 +60,9 @@ Sent by the minion to begin a new secure session.
 Fields:
 
 - `binding`: initial `SecureSessionBinding`
-- `session_key_cipher`: fresh symmetric session key encrypted to the master's registered RSA key
-- `binding_signature`: minion RSA signature over the binding and raw session key
+- `supported_versions`: secure transport protocol versions supported by the minion
+- `client_ephemeral_pubkey`: minion ephemeral Curve25519 public key
+- `binding_signature`: minion RSA signature over the binding and ephemeral public key
 - `key_id`: optional transport key identifier for reconnect or rotation continuity
 
 #### `bootstrap_ack`
@@ -74,7 +75,8 @@ Fields:
 - `session_id`: master-assigned secure session id
 - `key_id`: accepted transport key id
 - `rotation`: `none`, `rekey`, or `reregister`
-- `binding_signature`: master RSA signature over the completed binding and accepted session id
+- `master_ephemeral_pubkey`: master ephemeral Curve25519 public key
+- `binding_signature`: master RSA signature over the completed binding, accepted session id, and master ephemeral public key
 
 #### `bootstrap_diagnostic`
 
@@ -121,7 +123,7 @@ Rules:
 - only one active secure session may exist per minion
 - reconnects must create a new connection id and fresh nonces
 - replay protection is per direction and tied to the session id and active key id
-- RSA remains only the bootstrap and rotation trust anchor
+- RSA authenticates the ephemeral bootstrap exchange and remains the rotation trust anchor
 - steady-state traffic uses libsodium-protected frames only
 
 ## Message Structure
