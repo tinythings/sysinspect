@@ -1,6 +1,6 @@
-use crate::{MasterInterfaceType, api::v1::TAG_MODELS};
+use crate::{MasterInterfaceType, api::v1::{TAG_MODELS, minions::authorize_request}};
 use actix_web::{
-    HttpResponse, Result, get,
+    HttpRequest, HttpResponse, Result, get,
     web::{Data, Json, Query},
 };
 use indexmap::IndexMap;
@@ -92,15 +92,19 @@ pub struct ModelNameResponse {
     tag = TAG_MODELS,
     operation_id = "listModels",
     description = "Lists all available models in the SysInspect system. Each model includes details such as its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.",
+    security(
+        ("bearer_auth" = [])
+    ),
     responses(
         (status = 200, description = "List of available models", body = ModelNameResponse)
     )
 )]
 #[allow(unused)]
 #[get("/api/v1/model/names")]
-pub async fn model_names_handler(master: Data<MasterInterfaceType>) -> Json<ModelNameResponse> {
+pub async fn model_names_handler(req: HttpRequest, master: Data<MasterInterfaceType>) -> Result<Json<ModelNameResponse>> {
+    authorize_request(&req).map_err(actix_web::error::ErrorUnauthorized)?;
     let mut master = master.lock().await;
-    Json(ModelNameResponse { models: master.cfg().await.fileserver_models().to_owned() })
+    Ok(Json(ModelNameResponse { models: master.cfg().await.fileserver_models().to_owned() }))
 }
 #[utoipa::path(
     get,
@@ -108,6 +112,9 @@ pub async fn model_names_handler(master: Data<MasterInterfaceType>) -> Json<Mode
     tag = TAG_MODELS,
     operation_id = "getModelDetails",
     description = "Retrieves detailed information about a specific model in the SysInspect system. The model includes its name, description, version, maintainer, and statistics about its entities, actions, constraints, and events.",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("name" = String, Query, description = "Name of the model to retrieve details for")
     ),
@@ -117,7 +124,8 @@ pub async fn model_names_handler(master: Data<MasterInterfaceType>) -> Json<Mode
 )]
 #[allow(unused)]
 #[get("/api/v1/model/descr")]
-pub async fn model_descr_handler(master: Data<MasterInterfaceType>, query: Query<IndexMap<String, String>>) -> Result<HttpResponse> {
+pub async fn model_descr_handler(req: HttpRequest, master: Data<MasterInterfaceType>, query: Query<IndexMap<String, String>>) -> Result<HttpResponse> {
+    authorize_request(&req).map_err(actix_web::error::ErrorUnauthorized)?;
     let mid = query.get("name").cloned().unwrap_or_default(); // Model Id
     if mid.is_empty() {
         return Ok(HttpResponse::BadRequest().json(ModelResponseError { error: "Missing 'name' query parameter".to_string() }));

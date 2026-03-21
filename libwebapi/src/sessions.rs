@@ -57,6 +57,18 @@ impl SessionStore {
         Ok(sid)
     }
 
+    pub fn open_with_sid(&mut self, uid: String, sid: String) -> Result<String, libcommon::SysinspectError> {
+        reap_expired!(self);
+
+        if let Some(esid) = self.sessions.iter().find_map(|(existing_sid, s)| if s.uid == uid { Some(existing_sid.clone()) } else { None }) {
+            self.sessions.remove(&esid);
+        }
+
+        self.sessions.insert(sid.clone(), Session { uid, created: Instant::now(), timeout: self.default_timeout });
+
+        Ok(sid)
+    }
+
     /// Returns the user ID associated with the session ID, if it exists and not expired.
     /// If the session is expired, it will be removed from the store.
     /// Returns `None` if the session does not exist or is expired.

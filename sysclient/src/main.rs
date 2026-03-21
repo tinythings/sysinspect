@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates how to use the Sysinspect client to authenticate a user.
 //! It prompts the user for their username and password, then attempts to authenticate with the Sysinspect
-//! server. If successful, it prints the session ID; otherwise, it indicates that authentication failed.
+//! server. If successful, it prints the bearer token; otherwise, it indicates that authentication failed.
 //!
 
 use libcommon::SysinspectError;
@@ -29,8 +29,8 @@ async fn main() -> Result<(), SysinspectError> {
 
     let mut client = SysClient::new(cfg);
     match client.authenticate(&uid, &pwd).await {
-        Ok(sid) => {
-            println!("Authentication successful, session ID: {sid}");
+        Ok(token) => {
+            println!("Authentication successful, bearer token: {token}");
         }
         Err(e) => {
             return Err(SysinspectError::MasterGeneralError(format!("Authentication error: {e}")));

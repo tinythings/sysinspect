@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use crate::MasterInterfaceType;
+use crate::{MasterInterfaceType, api::v1::minions::authorize_request};
 use actix_files::NamedFile;
 use actix_web::Result as ActixResult;
-use actix_web::{HttpResponse, Responder, get, post, web};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use futures_util::StreamExt;
 use libdatastore::resources::DataItemMeta;
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,9 @@ fn get_meta_files(root: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     get,
     path = "/store/{sha256}",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("sha256" = String, Path, description = "SHA256 of the stored object")
     ),
@@ -65,7 +68,10 @@ fn get_meta_files(root: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     )
 )]
 #[get("/store/{sha256:[0-9a-fA-F]{64}}")]
-pub async fn store_meta_handler(master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> impl Responder {
+pub async fn store_meta_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> impl Responder {
+    if let Err(err) = authorize_request(&req) {
+        return HttpResponse::Unauthorized().body(err.to_string());
+    }
     let ds = {
         let m = master.lock().await;
         m.datastore().await
@@ -91,6 +97,9 @@ pub async fn store_meta_handler(master: web::Data<MasterInterfaceType>, sha256: 
     get,
     path = "/store/{sha256}/blob",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("sha256" = String, Path, description = "SHA256 of the stored object")
     ),
@@ -101,7 +110,8 @@ pub async fn store_meta_handler(master: web::Data<MasterInterfaceType>, sha256: 
     )
 )]
 #[get("/store/{sha256:[0-9a-fA-F]{64}}/blob")]
-pub async fn store_blob_handler(master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> ActixResult<NamedFile> {
+pub async fn store_blob_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> ActixResult<NamedFile> {
+    authorize_request(&req).map_err(actix_web::error::ErrorUnauthorized)?;
     let ds = {
         let m = master.lock().await;
         m.datastore().await
@@ -121,6 +131,9 @@ pub async fn store_blob_handler(master: web::Data<MasterInterfaceType>, sha256: 
     post,
     path = "/store",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     request_body(
         content = Vec<u8>,
         content_type = "application/octet-stream",
@@ -134,6 +147,9 @@ pub async fn store_blob_handler(master: web::Data<MasterInterfaceType>, sha256: 
 )]
 #[post("/store")]
 pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data<MasterInterfaceType>, mut payload: web::Payload) -> impl Responder {
+    if let Err(err) = authorize_request(&req) {
+        return HttpResponse::Unauthorized().body(err.to_string());
+    }
     // full path goes into fname (as you demanded)
     let origin = req.headers().get("X-Filename").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
 
@@ -223,6 +239,9 @@ pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data
     get,
     path = "/store/resolve",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("fname" = String, Query, description = "Full path stored in metadata (meta.fname)")
     ),
@@ -233,7 +252,10 @@ pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data
     )
 )]
 #[get("/store/resolve")]
-pub async fn store_resolve_handler(master: web::Data<MasterInterfaceType>, q: web::Query<StoreResolveQuery>) -> impl Responder {
+pub async fn store_resolve_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, q: web::Query<StoreResolveQuery>) -> impl Responder {
+    if let Err(err) = authorize_request(&req) {
+        return HttpResponse::Unauthorized().body(err.to_string());
+    }
     let (root, want) = {
         let m = master.lock().await;
         (m.cfg().await.datastore_path(), q.fname.clone())

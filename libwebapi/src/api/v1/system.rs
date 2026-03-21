@@ -75,38 +75,29 @@ impl AuthRequest {
 #[derive(ToSchema, Deserialize, Serialize)]
 pub struct AuthResponse {
     pub status: String,
-    pub sid: String,
+    pub access_token: String,
+    pub token_type: String,
     pub error: String,
 }
 
 impl AuthResponse {
     pub(crate) fn error(error: &str) -> Self {
-        AuthResponse { status: "error".into(), sid: String::new(), error: error.into() }
+        AuthResponse { status: "error".into(), access_token: String::new(), token_type: String::new(), error: error.into() }
     }
 }
 
 #[utoipa::path(
     post,
     path = "/api/v1/authenticate",
-        request_body = AuthRequest,
+    request_body = AuthRequest,
     responses(
-            (status = 200, description = "Authentication successful. Returns a plain session identifier.",
-             body = AuthResponse, example = json!({"status": "authenticated", "sid": "session-id", "error": ""})),
+        (status = 200, description = "Authentication successful. Returns a bearer token.",
+             body = AuthResponse, example = json!({"status": "authenticated", "access_token": "session-token", "token_type": "Bearer", "error": ""})),
         (status = 400, description = "Bad Request. Returned if payload is missing, invalid, or credentials are incorrect.",
-             body = AuthResponse, example = json!({"status": "error", "sid": "", "error": "Invalid payload"}))),
+             body = AuthResponse, example = json!({"status": "error", "access_token": "", "token_type": "", "error": "Invalid payload"}))),
     tag = TAG_SYSTEM,
     operation_id = "authenticateUser",
-    description =
-        "Authenticates a user using configured authentication method. The payload \
-        is a plain JSON object with username and password fields as follows:\n\n\
-        ```json\n\
-        {\n\
-          \"username\": \"darth_vader\",\n\
-                    \"password\": \"I am your father\"\n\
-        }\n\
-                        ```\n\n\
-                    If `api.devmode` is enabled, the handler returns a static token without \
-                    performing authentication.",
+    description = "Authenticates a user using configured authentication method and returns a bearer token for subsequent HTTPS JSON requests.",
 )]
 #[post("/api/v1/authenticate")]
 pub async fn authenticate_handler(master: web::Data<MasterInterfaceType>, body: web::Json<AuthRequest>) -> impl Responder {
@@ -114,7 +105,15 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceType>, body: 
     let cfg = master.cfg().await;
     if cfg.api_devmode() {
         log::warn!("Web API development auth bypass is enabled, returning static token.");
-        return HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid: "dev-token".into(), error: String::new() });
+        return match get_session_store().lock().unwrap().open_with_sid("dev".into(), "dev-token".into()) {
+            Ok(token) => HttpResponse::Ok().json(AuthResponse {
+                status: "authenticated".into(),
+                access_token: token,
+                token_type: "Bearer".into(),
+                error: String::new(),
+            }),
+            Err(err) => HttpResponse::BadRequest().json(AuthResponse::error(&format!("Session error: {err}"))),
+        };
     }
 
     if body.username.trim().is_empty() || body.password.trim().is_empty() {
@@ -123,7 +122,12 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceType>, body: 
 
     if cfg.api_auth() == Pam {
         match AuthRequest::pam_auth(body.username.clone(), body.password.clone()) {
-            Ok(sid) => HttpResponse::Ok().json(AuthResponse { status: "authenticated".into(), sid, error: String::new() }),
+            Ok(token) => HttpResponse::Ok().json(AuthResponse {
+                status: "authenticated".into(),
+                access_token: token,
+                token_type: "Bearer".into(),
+                error: String::new(),
+            }),
             Err(err) => HttpResponse::BadRequest().json(AuthResponse::error(&err)),
         }
     } else {

@@ -9,7 +9,9 @@ use crate::api::v1::{
     system::{AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
 use actix_web::Scope;
+use utoipa::Modify;
 use utoipa::OpenApi;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa_swagger_ui::SwaggerUi;
 
 pub mod minions;
@@ -23,6 +25,16 @@ const API_VERSION: &str = "0.1.1";
 pub static TAG_MINIONS: &str = "Minions";
 pub static TAG_SYSTEM: &str = "System";
 pub static TAG_MODELS: &str = "Models";
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme("bearer_auth", SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()));
+        }
+    }
+}
 
 /// API Version 1 implementation
 pub struct V1 {
@@ -72,6 +84,7 @@ impl super::ApiVersion for V1 {
           components(schemas(QueryRequest, QueryResponse, QueryError,
                              HealthInfo, HealthResponse, AuthRequest, AuthResponse,
                              ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
+modifiers(&SecurityAddon),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDoc;
 
@@ -91,5 +104,6 @@ pub struct ApiDoc;
           components(schemas(QueryRequest, QueryResponse, QueryError,
                              HealthInfo, HealthResponse, AuthRequest, AuthResponse,
                              ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
+modifiers(&SecurityAddon),
 info(title = "SysInspect API", version = API_VERSION, description = "SysInspect Web API for interacting with the master interface."))]
 pub struct ApiDocDev;

@@ -23,7 +23,7 @@ impl SysClientConfiguration {
 
 impl Default for SysClientConfiguration {
     fn default() -> Self {
-        SysClientConfiguration { master_url: "http://localhost:4202".to_string() }
+        SysClientConfiguration { master_url: "https://localhost:4202".to_string() }
     }
 }
 
@@ -36,13 +36,13 @@ pub struct AuthRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AuthResponse {
     pub status: String,
-    pub sid: String,
+    pub access_token: String,
+    pub token_type: String,
     pub error: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct QueryRequest {
-    pub sid: String,
     pub model: String,
     pub query: String,
     pub traits: String,
@@ -83,16 +83,16 @@ pub struct ModelResponse {
 ///
 /// # Fields
 /// * `cfg` - The configuration for the SysClient, which includes the master URL.
-/// * `sid` - The session ID for the authenticated user.
+/// * `access_token` - The bearer token for the authenticated user.
 #[derive(Debug, Clone)]
 pub struct SysClient {
     cfg: SysClientConfiguration,
-    sid: String,
+    access_token: String,
 }
 
 impl SysClient {
     pub fn new(cfg: SysClientConfiguration) -> Self {
-        SysClient { cfg, sid: String::new() }
+        SysClient { cfg, access_token: String::new() }
     }
 
     /// Authenticate a user with the SysInspect system.
@@ -123,7 +123,7 @@ impl SysClient {
             .await
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Authentication decode error: {e}")))?;
 
-        if response.status != "authenticated" || response.sid.trim().is_empty() {
+        if response.status != "authenticated" || response.access_token.trim().is_empty() {
             return Err(SysinspectError::MasterGeneralError(if response.error.is_empty() {
                 "Authentication failed".to_string()
             } else {
@@ -131,14 +131,14 @@ impl SysClient {
             }));
         }
 
-        self.sid = response.sid;
-        log::debug!("Authenticated user: {uid}, session ID: {}", self.sid);
+        self.access_token = response.access_token;
+        log::debug!("Authenticated user: {uid}");
 
-        Ok(self.sid.clone())
+        Ok(self.access_token.clone())
     }
 
     /// Query the SysInspect system with a given query string.
-    /// This method requires the client to be authenticated (i.e., `sid` must not be empty).
+    /// This method requires the client to be authenticated.
     ///
     /// # Arguments
     /// * `query` - The query string to send to the SysInspect system.
@@ -151,17 +151,16 @@ impl SysClient {
     /// * Returns `SysinspectError::MasterGeneralError` if the client is not authenticated (i.e., `sid` is empty),
     /// * Returns `SysinspectError::MasterGeneralError` if there is an error during the query process, such as network issues or server errors.
     ///
-    /// This function constructs a plain JSON payload containing the session ID and query,
+    /// This function constructs a plain JSON payload containing the query,
     /// sends it to the `query_handler` API, and returns the decoded JSON response.
     pub async fn query(
         &self, model: &str, query: &str, traits: &str, mid: &str, context: Value,
     ) -> Result<QueryResponse, SysinspectError> {
-        if self.sid.is_empty() {
+        if self.access_token.is_empty() {
             return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
         }
 
         let query_request = QueryRequest {
-            sid: self.sid.clone(),
             model: model.to_string(),
             query: query.to_string(),
             traits: traits.to_string(),
@@ -173,6 +172,7 @@ impl SysClient {
             .cfg
             .client()
             .post(format!("{}/api/v1/query", self.cfg.master_url.trim_end_matches('/')))
+            .bearer_auth(&self.access_token)
             .json(&query_request)
             .send()
             .await
@@ -198,9 +198,14 @@ impl SysClient {
     /// Returns a `ModelNameResponse` containing the list of models on success, or a `SysinspectError` if the API call fails.
     /// This enables the caller to access the models provided by the SysInspect system.
     pub async fn models(&self) -> Result<ModelNameResponse, SysinspectError> {
+        if self.access_token.is_empty() {
+            return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
+        }
+
         self.cfg
             .client()
             .get(format!("{}/api/v1/model/names", self.cfg.master_url.trim_end_matches('/')))
+            .bearer_auth(&self.access_token)
             .send()
             .await
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to list models: {e}")))?
@@ -212,9 +217,14 @@ impl SysClient {
     }
 
     pub async fn model_descr(&self, name: &str) -> Result<ModelResponse, SysinspectError> {
+        if self.access_token.is_empty() {
+            return Err(SysinspectError::MasterGeneralError("Client is not authenticated".to_string()));
+        }
+
         self.cfg
             .client()
             .get(format!("{}/api/v1/model/descr", self.cfg.master_url.trim_end_matches('/')))
+            .bearer_auth(&self.access_token)
             .query(&[("name", name)])
             .send()
             .await

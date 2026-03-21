@@ -1,6 +1,7 @@
 pub use crate::api::v1::system::health_handler;
 use crate::{MasterInterfaceType, api::v1::TAG_MINIONS, sessions::get_session_store};
 use actix_web::{
+    HttpRequest,
     Result, post,
     web::{Data, Json},
 };
@@ -11,7 +12,6 @@ use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
 pub struct QueryRequest {
-    pub sid: String,
     pub model: String,
     pub query: String,
     pub traits: String,
@@ -20,27 +20,15 @@ pub struct QueryRequest {
 }
 
 impl QueryRequest {
-    /// Validate the session and convert the request into the internal query format.
     pub fn to_query(&self) -> Result<String, SysinspectError> {
-        if self.sid.trim().is_empty() {
-            return Err(SysinspectError::WebAPIError("Session ID cannot be empty".to_string()));
-        }
-
-        let mut sessions = get_session_store().lock().unwrap();
-        match sessions.uid(&self.sid) {
-            Some(_) => Ok(format!(
-                "{};{};{};{};{}",
-                self.model,
-                self.query,
-                self.traits,
-                self.mid,
-                self.context.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",")
-            )),
-            None => {
-                log::debug!("Session {} is missing or expired", self.sid);
-                Err(SysinspectError::WebAPIError("Invalid or expired session".to_string()))
-            }
-        }
+        Ok(format!(
+            "{};{};{};{};{}",
+            self.model,
+            self.query,
+            self.traits,
+            self.mid,
+            self.context.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",")
+        ))
     }
 }
 #[derive(Serialize, ToSchema)]
@@ -61,18 +49,52 @@ impl Display for QueryError {
     }
 }
 
+pub(crate) fn authorize_request(req: &HttpRequest) -> Result<String, SysinspectError> {
+    let header = req
+        .headers()
+        .get(actix_web::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| SysinspectError::WebAPIError("Missing Authorization header".to_string()))?;
+    let token = header
+        .strip_prefix("Bearer ")
+        .ok_or_else(|| SysinspectError::WebAPIError("Authorization header must use Bearer token".to_string()))?
+        .trim();
+    if token.is_empty() {
+        return Err(SysinspectError::WebAPIError("Bearer token cannot be empty".to_string()));
+    }
+
+    let mut sessions = get_session_store().lock().unwrap();
+    match sessions.uid(token) {
+        Some(uid) => {
+            sessions.ping(token);
+            Ok(uid)
+        }
+        None => Err(SysinspectError::WebAPIError("Invalid or expired bearer token".to_string())),
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/query",
     request_body = QueryRequest,
     tag = TAG_MINIONS,
+    security(
+        ("bearer_auth" = [])
+    ),
     responses(
         (status = 200, description = "Success", body = QueryResponse),
-        (status = 400, description = "Bad Request", body = QueryError)
+        (status = 400, description = "Bad Request", body = QueryError),
+        (status = 401, description = "Unauthorized", body = QueryError)
     )
 )]
 #[post("/api/v1/query")]
-async fn query_handler(master: Data<MasterInterfaceType>, body: Json<QueryRequest>) -> Result<Json<QueryResponse>> {
+async fn query_handler(req: HttpRequest, master: Data<MasterInterfaceType>, body: Json<QueryRequest>) -> Result<Json<QueryResponse>> {
+    if let Err(e) = authorize_request(&req) {
+        use actix_web::http::StatusCode;
+        let err_body = Json(QueryError { status: "error".to_string(), error: e.to_string() });
+        return Err(actix_web::error::InternalError::new(err_body, StatusCode::UNAUTHORIZED).into());
+    }
+
     let mut master = master.lock().await;
     let query = match body.to_query() {
         Ok(q) => q,
