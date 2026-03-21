@@ -634,4 +634,65 @@ mod tests {
         // Should not panic
         minion.request(b"abc".to_vec()).await;
     }
+
+    #[tokio::test]
+    async fn bootstrap_secure_fails_on_truncated_reply_frame() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut lenb = [0u8; 4];
+            sock.read_exact(&mut lenb).await.unwrap();
+            let mut hello = vec![0u8; u32::from_be_bytes(lenb) as usize];
+            sock.read_exact(&mut hello).await.unwrap();
+            assert!(!hello.is_empty());
+
+            sock.write_all(&32u32.to_be_bytes()).await.unwrap();
+            sock.write_all(br#"{"kind":"bootstrap_ack""#).await.unwrap();
+            sock.flush().await.unwrap();
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, master_pbk) = keygen(2048).unwrap();
+        key_to_file(&Public(master_pbk), tmp.path().to_str().unwrap(), CFG_MASTER_KEY_PUB).unwrap();
+
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        let err = minion.bootstrap_secure().await.unwrap_err().to_string();
+
+        assert!(err.contains("decode secure bootstrap reply") || err.contains("early eof"));
+    }
+
+    #[tokio::test]
+    async fn repeated_reconnect_signals_do_not_hang_instance_shutdown() {
+        let _guard = TEST_LOCK.lock().await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = mk_cfg(format!("{addr}"), "127.0.0.1:1".to_string(), tmp.path());
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let handle = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let _ = CONNECTION_TX.send(());
+        let _ = CONNECTION_TX.send(());
+        let _ = CONNECTION_TX.send(());
+
+        assert!(timeout(Duration::from_secs(2), handle).await.is_ok(), "instance did not exit under reconnect storm");
+    }
 }

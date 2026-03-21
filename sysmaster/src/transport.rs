@@ -21,6 +21,10 @@ use std::{
     time::{Duration as StdDuration, Instant},
 };
 
+#[cfg(test)]
+#[path = "transport_ut.rs"]
+mod transport_ut;
+
 const BOOTSTRAP_MALFORMED_WINDOW: StdDuration = StdDuration::from_secs(30);
 const BOOTSTRAP_REPLAY_WINDOW: StdDuration = StdDuration::from_secs(300);
 
