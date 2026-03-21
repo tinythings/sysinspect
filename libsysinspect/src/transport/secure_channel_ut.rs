@@ -203,3 +203,22 @@ fn secure_channel_rejects_tampered_nonce() {
 
     assert!(master.open::<serde_json::Value>(&serde_json::to_vec(&parsed).unwrap()).is_err());
 }
+
+#[test]
+fn secure_channel_uses_distinct_first_frame_nonces_per_direction() {
+    let (mut master, mut minion) = channels();
+    let minion_frame = minion.seal(&serde_json::json!({"from":"minion"})).unwrap();
+    let master_frame = master.seal(&serde_json::json!({"from":"master"})).unwrap();
+
+    let minion_frame = serde_json::from_slice::<SecureFrame>(&minion_frame).unwrap();
+    let master_frame = serde_json::from_slice::<SecureFrame>(&master_frame).unwrap();
+
+    match (minion_frame, master_frame) {
+        (SecureFrame::Data(minion_data), SecureFrame::Data(master_data)) => {
+            assert_eq!(minion_data.counter, 1);
+            assert_eq!(master_data.counter, 1);
+            assert_ne!(minion_data.nonce, master_data.nonce);
+        }
+        _ => panic!("expected data frames"),
+    }
+}

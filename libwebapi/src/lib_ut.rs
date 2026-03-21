@@ -60,6 +60,23 @@ fn load_tls_server_config_accepts_valid_certificate_pair() {
 }
 
 #[test]
+fn load_tls_server_config_accepts_valid_ca_bundle_for_client_auth() {
+    let root = tempfile::tempdir().unwrap();
+    let (cert, key) = write_tls_fixture(root.path());
+    let cfg = write_cfg(
+        root.path(),
+        &format!(
+            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n",
+            cert.display(),
+            key.display(),
+            cert.display()
+        ),
+    );
+
+    assert!(load_tls_server_config(&cfg).is_ok());
+}
+
+#[test]
 fn load_tls_server_config_rejects_missing_private_key() {
     let root = tempfile::tempdir().unwrap();
     let (cert, _) = write_tls_fixture(root.path());
