@@ -80,8 +80,8 @@ Out of scope:
 - compromise of the master or minion host itself
 - theft of private keys from a compromised host
 - manual trust mistakes during initial fingerprint verification
-- operator misuse of ``allow-insecure`` or other weak client-side trust
-  settings
+- deliberate operator choice to allow self-signed Web API TLS
+- weak client-side trust settings outside Sysinspect server configuration
 - generic browser, PAM, LDAP, or operating-system hardening outside
   Sysinspect itself
 

@@ -154,10 +154,15 @@ Optional configuration:
    config:
      master:
        api.tls.ca-file: trust/ca.pem
-       api.tls.allow-insecure: false
+       api.tls.allow-insecure: true
 
 If ``api.tls.ca-file`` is set, the Web API requires client certificates signed
 by that CA bundle.
+
+If the configured Web API certificate is self-signed, set
+``api.tls.allow-insecure: true`` only when you intentionally want to allow
+that certificate posture. Sysinspect will log a warning when it starts in that
+mode.
 
 Behavior:
 

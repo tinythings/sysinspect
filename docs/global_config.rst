@@ -398,7 +398,14 @@ Below are directives for the configuration of the File Server service:
 
     Type: **boolean**
 
-    Allow explicitly using insecure client trust handling for the Web API TLS setup.
+    Allow the embedded Web API to start with a self-signed or otherwise
+    non-public TLS certificate.
+
+    When this option is ``false``, Sysinspect rejects a self-signed Web API
+    certificate during startup.
+
+    When this option is ``true``, Sysinspect allows that setup and logs a
+    warning so operators know clients must explicitly trust the certificate.
 
     Default is ``false``.
 
