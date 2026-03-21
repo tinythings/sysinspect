@@ -59,7 +59,7 @@ fn master_transport_paths_are_under_managed_transport_root() {
 #[test]
 fn master_api_tls_relative_paths_are_resolved_under_root() {
     let cfg = MasterConfig::new(write_master_cfg(
-        "config:\n  master:\n    fileserver.models: []\n    api.tls.enabled: true\n    api.tls.cert-file: etc/web/api.crt\n    api.tls.key-file: etc/web/api.key\n    api.tls.ca-file: trust/ca.pem\n    api.tls.trust-self-signed: true\n",
+        "config:\n  master:\n    fileserver.models: []\n    api.tls.enabled: true\n    api.tls.cert-file: etc/web/api.crt\n    api.tls.key-file: etc/web/api.key\n    api.tls.ca-file: trust/ca.pem\n    api.tls.allow-insecure: true\n",
     ))
     .unwrap();
 
@@ -67,7 +67,7 @@ fn master_api_tls_relative_paths_are_resolved_under_root() {
     assert_eq!(cfg.api_tls_cert_file().unwrap(), cfg.root_dir().join("etc/web/api.crt"));
     assert_eq!(cfg.api_tls_key_file().unwrap(), cfg.root_dir().join("etc/web/api.key"));
     assert_eq!(cfg.api_tls_ca_file().unwrap(), cfg.root_dir().join("trust/ca.pem"));
-    assert!(cfg.api_tls_trust_self_signed());
+    assert!(cfg.api_tls_allow_insecure());
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn master_api_tls_absolute_paths_stay_absolute() {
     assert_eq!(cfg.api_tls_key_file().unwrap(), std::path::PathBuf::from("/srv/tls/api.key"));
     assert_eq!(cfg.api_tls_ca_file().unwrap(), std::path::PathBuf::from("/srv/tls/ca.pem"));
     assert!(!cfg.api_tls_enabled());
-    assert!(!cfg.api_tls_trust_self_signed());
+    assert!(!cfg.api_tls_allow_insecure());
 }
 
 #[test]
