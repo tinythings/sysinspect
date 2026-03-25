@@ -85,6 +85,18 @@ fn master_api_tls_absolute_paths_stay_absolute() {
 }
 
 #[test]
+fn master_api_doc_defaults_preserve_current_behavior() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
+
+    assert!(cfg.api_doc_enabled());
+}
+
+#[test]
+fn master_api_doc_config_overrides_defaults() {
+    assert!(!MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n    api.doc: false\n")).unwrap().api_doc_enabled());
+}
+
+#[test]
 fn minion_transport_paths_are_under_managed_transport_root() {
     let mut cfg = MinionConfig::default();
     cfg.set_root_dir("/srv/sysinspect");

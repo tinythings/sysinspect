@@ -845,6 +845,10 @@ pub struct MasterConfig {
     #[serde(rename = "api.tls.allow-insecure")]
     api_tls_allow_insecure: Option<bool>,
 
+    /// Enable the Web API documentation endpoints.
+    #[serde(rename = "api.doc")]
+    api_doc_enabled: Option<bool>,
+
     /// Enable development-only Web API shortcuts.
     ///
     /// This keeps the normal Web API enabled, but allows the authentication
@@ -1039,6 +1043,11 @@ impl MasterConfig {
     /// Return whether self-signed or otherwise non-public Web API TLS certificates are allowed.
     pub fn api_tls_allow_insecure(&self) -> bool {
         self.api_tls_allow_insecure.unwrap_or(false)
+    }
+
+    /// Return whether the Web API documentation endpoints are enabled.
+    pub fn api_doc_enabled(&self) -> bool {
+        self.api_doc_enabled.unwrap_or(true)
     }
 
     /// Get API authentication method
