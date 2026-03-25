@@ -191,3 +191,69 @@ When Wi-Fi state changes, the sensor emits one of:
 - `connected`
 - `disconnected`
 - `changed`
+
+## Net Throughput Demo
+
+### Purpose
+
+This demo also includes the new `net.throughput` sensor from `libsensors`.
+
+The sensor watches interface counters through `omnitrace/nettools` and emits
+stable JSON events with calculated byte and packet rates.
+
+### Files
+
+- `sensors.cfg` example sensor configuration for `net.throughput`
+
+### Config Shape
+
+`net.throughput` currently supports:
+
+- `listener: net.throughput`
+- `interval` poll interval for throughput sampling
+- `args.locked` enable duplicate suppression through the event id hub
+- `tag` optional listener tag, added as `@tag` in the listener id and event id
+
+### Emitted Payload
+
+The sensor emits the usual `libsensors` envelope.
+
+For example:
+
+```json
+{
+  "eid": "throughput-watch|net.throughput|updated@eth0|0",
+  "sensor": "throughput-watch",
+  "listener": "net.throughput",
+  "data": {
+    "action": "updated",
+    "sample": {
+      "iface": "eth0",
+      "interval_ms": 1000,
+      "rx_bytes_per_sec": 1024,
+      "tx_bytes_per_sec": 2048,
+      "rx_packets_per_sec": 10,
+      "tx_packets_per_sec": 12
+    }
+  }
+}
+```
+
+### How To Run
+
+Load the demo config from this directory with the normal `libsensors` or
+`sysinspect` sensor loading flow, then generate traffic on one or more
+interfaces.
+
+Examples:
+
+```bash
+curl -I https://example.com
+ping -c 5 1.1.1.1
+scp somefile host:/tmp/
+```
+
+### Expected Result
+
+When interface counters change, the sensor emits `updated` events with
+calculated byte and packet rates for that interface.
