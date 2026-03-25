@@ -19,7 +19,7 @@ mod loader_events_negative_test {
             r#"
 sensors:
   root-one:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp }
 "#,
         );
@@ -30,7 +30,7 @@ sensors:
             r#"
 sensors:
   should-not-appear:
-    listener: procnotify
+    listener: sys.proc
     args: { process: [bash] }
 "#,
         );
@@ -54,7 +54,7 @@ sensors:
             r#"
 sensors:
   x:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp }
 events: [1, 2, 3]
 "#,

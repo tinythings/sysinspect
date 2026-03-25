@@ -200,6 +200,11 @@ Here are the available sensors. This list is not exhaustive and may be updated a
   procnotify
   mountnotify
   netnotify
+  net_hostname
+  net_health
+  net_route
+  net_throughput
+  net_wifi
   ifacenotify
   socknotify
   menotify

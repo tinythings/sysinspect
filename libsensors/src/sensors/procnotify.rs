@@ -34,7 +34,7 @@ impl ProcessSensor {
                     "appeared" => mask |= ProcDogMask::APPEARED,
                     "disappeared" => mask |= ProcDogMask::DISAPPEARED,
                     "missing" => mask |= ProcDogMask::MISSING,
-                    _ => log::warn!("procnotify '{}' unknown opt '{}'", self.sid, o),
+                    _ => log::warn!("sys.proc '{}' unknown opt '{}'", self.sid, o),
                 }
             }
         }
@@ -95,7 +95,7 @@ impl Sensor for ProcessSensor {
 
     /// Return the listener name.
     fn id() -> String {
-        "procnotify".to_string()
+        "sys.proc".to_string()
     }
 
     /// Run the sensor.
@@ -169,14 +169,14 @@ impl Callback<ProcDogEvent> for BridgeCb {
         let pname = r.get("process").and_then(|v| v.as_str()).unwrap_or("unknown");
         let eid = format!("{}|{}|{}@{}|{}", self.sid, self.lstid, action, pname, 0);
 
-        if self.locked && !libcommon::eidhub::get_eidhub().add("procnotify", &eid).await {
+        if self.locked && !libcommon::eidhub::get_eidhub().add("sys.proc", &eid).await {
             return None;
         }
 
         Some(json!({
             "eid": eid,
             "sensor": self.sid,
-            "listener": "procnotify",
+            "listener": "sys.proc",
             "data": r,
         }))
     }

@@ -44,7 +44,7 @@ impl IfaceSensor {
                     "link-down" => mask |= IfaceMask::LINK_DOWN,
                     "addr-added" => mask |= IfaceMask::ADDR_ADDED,
                     "addr-removed" => mask |= IfaceMask::ADDR_REMOVED,
-                    _ => log::warn!("ifacenotify '{}' unknown opt '{}'", self.sid, o),
+                    _ => log::warn!("net.iface '{}' unknown opt '{}'", self.sid, o),
                 }
             }
         }
@@ -63,7 +63,7 @@ impl Sensor for IfaceSensor {
     }
 
     fn id() -> String {
-        "ifacenotify".to_string()
+        "net.iface".to_string()
     }
 
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
@@ -115,14 +115,14 @@ impl Callback<IfaceEvent> for BridgeCb {
             IfaceEvent::LinkUp { ifindex, .. } => {
                 let mut guard = self.baseline_link_state.lock().await;
                 if guard.insert(*ifindex, true).is_none() {
-                    log::debug!("[ifacenotify] '{}' suppressing baseline link-up for ifindex {}", self.sid, ifindex);
+                    log::debug!("[net.iface] '{}' suppressing baseline link-up for ifindex {}", self.sid, ifindex);
                     return None;
                 }
             }
             IfaceEvent::LinkDown { ifindex, .. } => {
                 let mut guard = self.baseline_link_state.lock().await;
                 if guard.insert(*ifindex, false).is_none() {
-                    log::debug!("[ifacenotify] '{}' suppressing baseline link-down for ifindex {}", self.sid, ifindex);
+                    log::debug!("[net.iface] '{}' suppressing baseline link-down for ifindex {}", self.sid, ifindex);
                     return None;
                 }
             }
@@ -142,14 +142,14 @@ impl Callback<IfaceEvent> for BridgeCb {
         let ifname = r.get("ifname").and_then(|v| v.as_str()).unwrap_or("unknown");
         let eid = format!("{}|{}|{}@{}|{}", self.sid, self.lstid, action, ifname, 0);
 
-        if self.locked && !libcommon::eidhub::get_eidhub().add("ifacenotify", &eid).await {
+        if self.locked && !libcommon::eidhub::get_eidhub().add("net.iface", &eid).await {
             return None;
         }
 
         Some(json!({
             "eid": eid,
             "sensor": self.sid,
-            "listener": "ifacenotify",
+            "listener": "net.iface",
             "data": r,
         }))
     }

@@ -37,7 +37,7 @@ impl NetNotifySensor {
                 match o.as_str() {
                     "opened" => mask |= NetNotifyMask::OPENED,
                     "closed" => mask |= NetNotifyMask::CLOSED,
-                    _ => log::warn!("netnotify '{}' unknown opt '{}'", self.sid, o),
+                    _ => log::warn!("net.packet '{}' unknown opt '{}'", self.sid, o),
                 }
             }
         }
@@ -57,7 +57,7 @@ impl Sensor for NetNotifySensor {
     }
 
     fn id() -> String {
-        "netnotify".to_string()
+        "net.packet".to_string()
     }
 
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
@@ -158,14 +158,14 @@ impl Callback<NetNotifyEvent> for BridgeCb {
         let remote = conn.remote_dec.as_deref().unwrap_or("-");
         let eid = self.make_eid(action, remote);
 
-        if self.locked && !libcommon::eidhub::get_eidhub().add("netnotify", &eid).await {
+        if self.locked && !libcommon::eidhub::get_eidhub().add("net.packet", &eid).await {
             return None;
         }
 
         Some(json!({
             "eid": eid,
             "sensor": self.sid,
-            "listener": "netnotify",
+            "listener": "net.packet",
             "data": {
                 "action": action,
                 "proto": conn.proto,

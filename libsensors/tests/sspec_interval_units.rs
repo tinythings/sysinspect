@@ -11,7 +11,7 @@ sensors:
     max: {max}
     unit: {unit}
   a:
-    listener: fsnotify
+    listener: sys.filesystem
     args: {{ path: /tmp }}
 "#
         )
@@ -57,13 +57,13 @@ sensors:
     max: 10
     unit: seconds
   explicit:
-    listener: fsnotify
+    listener: sys.filesystem
     interval:
       secs: 2
       nanos: 0
     args: { path: /tmp/a }
   inherited:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/b }
 "#;
 

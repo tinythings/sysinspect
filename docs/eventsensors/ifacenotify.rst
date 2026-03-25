@@ -1,7 +1,7 @@
-``ifacenotify``: React to Network Interface Events
+``net.iface``: React to Network Interface Events
 ==================================================
 
-The ``ifacenotify`` sensor watches network interface/link/address changes and emits
+The ``net.iface`` sensor watches network interface/link/address changes and emits
 events for add/remove and up/down transitions.
 
 Synopsis
@@ -15,12 +15,12 @@ Sensor configuration as follows:
         [profile]:
           - <id>
         description: <description>
-        listener: ifacenotify
+        listener: net.iface
         opts:
             - <iface event> # iface-added | iface-removed | link-up | link-down | addr-added | addr-removed
         args:
             locked: true|false # optional, default false (emit once until handler unlocks)
-        tag: <event name> # optional, default is ifacenotify
+        tag: <event name> # optional, default is net.iface
 
 ``opts``
 ^^^^^^^^
@@ -39,7 +39,7 @@ Sensor configuration as follows:
 ``args``
 ^^^^^^^^
 
-    Arguments specific to ``ifacenotify``:
+    Arguments specific to ``net.iface``:
 
     - ``locked`` (optional): if ``true``, the same event is sent only once and then muted.
       It will be sent again only after your event handler explicitly releases/unlocks it.
@@ -51,7 +51,7 @@ Sensor configuration as follows:
 
     .. code-block:: text
 
-        <sensor-id>|ifacenotify[@tag]|<action>@<ifname>|0
+        <sensor-id>|net.iface[@tag]|<action>@<ifname>|0
 
 Example
 -------
@@ -60,7 +60,7 @@ Example
 
     interfaces:
         description: Track interface state transitions
-        listener: ifacenotify
+        listener: net.iface
         opts:
             - link-up
             - link-down

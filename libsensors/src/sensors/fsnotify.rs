@@ -25,7 +25,7 @@ impl Sensor for FsNotifySensor {
     }
 
     fn id() -> String {
-        "fsnotify".to_string()
+        "sys.filesystem".to_string()
     }
 
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
@@ -56,7 +56,7 @@ impl Sensor for FsNotifySensor {
                     "created" => mask |= filescream::events::FileScreamMask::CREATED,
                     "changed" => mask |= filescream::events::FileScreamMask::CHANGED,
                     "deleted" => mask |= filescream::events::FileScreamMask::REMOVED,
-                    _ => log::warn!("fsnotify '{}' unknown opt '{}'", self.sid, o),
+                    _ => log::warn!("sys.filesystem '{}' unknown opt '{}'", self.sid, o),
                 }
             }
         }
@@ -101,14 +101,14 @@ impl Callback<FileScreamEvent> for BridgeCb {
         let file = r.get("file").and_then(|v| v.as_str()).unwrap_or("unknown");
         let eid = format!("{}|{}|{}@{}|{}", self.sid, self.lstid, action, file, 0);
 
-        if self.locked && !libcommon::eidhub::get_eidhub().add("fsnotify", &eid).await {
+        if self.locked && !libcommon::eidhub::get_eidhub().add("sys.filesystem", &eid).await {
             return None;
         }
 
         Some(serde_json::json!({
             "eid": eid,
             "sensor": self.sid,
-            "listener": "fsnotify",
+            "listener": "sys.filesystem",
             "data": r,
         }))
     }

@@ -1,7 +1,7 @@
-``netnotify``: React to Network Connection Events
+``net.packet``: React to Network Connection Events
 =================================================
 
-The ``netnotify`` sensor monitors network socket table changes and emits events
+The ``net.packet`` sensor monitors network socket table changes and emits events
 when connections are opened or closed.
 
 This sensor is useful for watching outbound/inbound connection activity, filtering
@@ -19,7 +19,7 @@ Sensor configuration as follows:
         [profile]:
           - <id>
         description: <description>
-        listener: netnotify
+        listener: net.packet
         opts:
             - <network event> # opened | closed
         args:
@@ -31,7 +31,7 @@ Sensor configuration as follows:
             dns-ttl: <duration> # optional, default 60s
             sni-interface: <iface> # optional, Linux TLS SNI capture pinning
             locked: true|false # optional, default false (emit once until handler unlocks)
-        tag: <event name> # optional, default is netnotify
+        tag: <event name> # optional, default is net.packet
 
 ``profile``
 ^^^^^^^^^^^
@@ -49,7 +49,7 @@ Sensor configuration as follows:
 ``listener``
 ^^^^^^^^^^^^
 
-    The type of listener used by the sensor. In this case, it is ``netnotify``.
+    The type of listener used by the sensor. In this case, it is ``net.packet``.
 
 ``opts``
 ^^^^^^^^
@@ -64,7 +64,7 @@ Sensor configuration as follows:
 ``args``
 ^^^^^^^^
 
-    Arguments specific to ``netnotify``:
+    Arguments specific to ``net.packet``:
 
     - ``patterns`` (**required**): list of match patterns.
     - ``ignore`` (optional): list of patterns to exclude.
@@ -79,7 +79,7 @@ Sensor configuration as follows:
 Pattern Types
 ^^^^^^^^^^^^^
 
-    ``netnotify`` supports three pattern classes:
+    ``net.packet`` supports three pattern classes:
 
     - Host globs: ``*.comcast.net`` (matches remote reverse DNS/PTR hostname and, for HTTPS, TLS SNI hostname)
     - IP / IP:port globs: ``1.2.3.*`` or ``1.2.3.4:443`` (matches decoded remote IP endpoint)
@@ -92,7 +92,7 @@ SNI Interface Selection
 ^^^^^^^^^^^^^^^^^^^^^^^
 
     ``sni-interface`` pins TLS SNI sniffing to one interface (for example ``eth0``).
-    Without this setting, ``netnotify`` sniffs on all UP non-loopback interfaces.
+    Without this setting, ``net.packet`` sniffs on all UP non-loopback interfaces.
 
     Notes:
 
@@ -110,7 +110,7 @@ SNI Interface Selection
 
     .. code-block:: text
 
-        <sensor-id>|netnotify[@tag]|<action>@<remote-ip:port>|0
+        <sensor-id>|net.packet[@tag]|<action>@<remote-ip:port>|0
 
 Example
 -------
@@ -121,7 +121,7 @@ Here is an example of how to watch selected remote domains while ignoring UDP tr
 
     google:
         profile: [default]
-        listener: netnotify
+        listener: net.packet
         opts:
             - opened
             - closed
