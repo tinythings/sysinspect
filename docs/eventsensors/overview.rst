@@ -196,15 +196,15 @@ Here are the available sensors. This list is not exhaustive and may be updated a
 .. toctree::
   :maxdepth: 1
 
-  sys.filesystem
-  sys.proc
-  sys.mount
-  net.packet
+  fsnotify
+  procnotify
+  mountnotify
+  netnotify
   net_hostname
   net_health
   net_route
   net_throughput
   net_wifi
-  net.iface
-  net.socket
+  ifacenotify
+  socknotify
   menotify

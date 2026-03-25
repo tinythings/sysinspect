@@ -16,8 +16,8 @@ Where:
 
 * ``sensor-id`` is the ID of the sensor that emitted the event (e.g., ``my-tmp-dir`` — a check you run)
 * ``listener`` is the listener ID that processed the sensor (e.g., ``sys.filesystem`` — the sensor plugin that runs the check)
-* ``action`` is the action the sensor emits. For example, for ``sys.filesystem`` listener, the action is the event type like ``create``, ``modify``, ``delete``
-* ``specifier`` is an optional part that can be used to further specify the event details, like a specific file path or a glob pattern. For example, ``create@/tmp/$``.
+* ``action`` is the action the sensor emits. For example, for ``sys.filesystem`` listener, the action is the event type like ``created``, ``changed``, ``deleted``
+* ``specifier`` is an optional part that can be used to further specify the event details, like a specific file path or a glob pattern. For example, ``created@/tmp/$``.
 * ``exit-code`` is always ``0`` for sensor events, since they don't have a return code like actions do
 
 An event routing is essentially defined like this:
