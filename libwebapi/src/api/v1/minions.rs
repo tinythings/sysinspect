@@ -1,4 +1,7 @@
 pub use crate::api::v1::system::health_handler;
+#[cfg(test)]
+#[path = "minions_ut.rs"]
+mod minions_ut;
 use crate::{MasterInterfaceType, api::v1::TAG_MINIONS, sessions::get_session_store};
 use actix_web::{
     HttpRequest,
@@ -56,9 +59,9 @@ pub(crate) fn authorize_request(req: &HttpRequest) -> Result<String, SysinspectE
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| SysinspectError::WebAPIError("Missing Authorization header".to_string()))?;
     let token = header
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| SysinspectError::WebAPIError("Authorization header must use Bearer token".to_string()))?
-        .trim();
+        .split_once(char::is_whitespace)
+        .and_then(|(scheme, token)| scheme.eq_ignore_ascii_case("bearer").then_some(token.trim()))
+        .ok_or_else(|| SysinspectError::WebAPIError("Authorization header must use Bearer token".to_string()))?;
     if token.is_empty() {
         return Err(SysinspectError::WebAPIError("Bearer token cannot be empty".to_string()));
     }
