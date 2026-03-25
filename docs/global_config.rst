@@ -317,6 +317,32 @@ Below are directives for the configuration of the File Server service:
     When ``false``, Sysinspect keeps the Web API itself enabled but does not
     expose the Swagger UI or OpenAPI document endpoint.
 
+    Typical usage:
+
+    .. code-block:: yaml
+
+        config:
+          master:
+            api.enabled: true
+            api.doc: true
+            api.tls.enabled: true
+            api.tls.cert-file: /etc/sysinspect/webapi/server.crt
+            api.tls.key-file: /etc/sysinspect/webapi/server.key
+
+    To require trusted client certificates for the Web API and its
+    documentation endpoints, add a CA bundle:
+
+    .. code-block:: yaml
+
+        config:
+          master:
+            api.enabled: true
+            api.doc: true
+            api.tls.enabled: true
+            api.tls.cert-file: /etc/sysinspect/webapi/server.crt
+            api.tls.key-file: /etc/sysinspect/webapi/server.key
+            api.tls.ca-file: /etc/sysinspect/webapi/clients-ca.pem
+
     Default is ``true``.
 
 ``api.bind.ip``
@@ -358,6 +384,8 @@ Below are directives for the configuration of the File Server service:
 
         This option is exclusively for development purposes. If enabled, the
         authentication endpoint returns a static token and the development query
+        helpers remain available. Do not combine ``api.devmode: true`` with
+        production exposure of the Web API documentation.
         endpoint is exposed.
 
     Default is ``false``.

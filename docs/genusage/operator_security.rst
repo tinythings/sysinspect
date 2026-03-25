@@ -171,6 +171,18 @@ Behavior:
 - ``sysmaster`` itself keeps running
 - Swagger UI is served over ``https://<host>:4202/doc/`` when ``api.doc`` is ``true``
 
+Operator guidance:
+
+- with ``api.doc: false``, ``/doc/`` and ``/api-doc/openapi.json`` return
+  ``404 Not Found``
+- with a self-signed Web API certificate, browsers and tools must explicitly
+  trust that certificate before Swagger UI can load
+- with ``api.tls.ca-file`` configured, the same trusted client certificate is
+  required for both the Web API and Swagger UI
+- if a client certificate is missing or untrusted, the TLS handshake fails and
+  the documentation page is not served
+- keep ``api.devmode: false`` for production systems
+
 Re-Registration And Replacement
 -------------------------------
 
