@@ -72,4 +72,12 @@ sensors:
         let listener = cfg.listener().to_string();
         assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
     }
+
+    #[test]
+    fn net_health_is_registered() {
+        sensors::init_registry();
+        let (sid, cfg) = cfg_for("net.health");
+        let listener = cfg.listener().to_string();
+        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+    }
 }
