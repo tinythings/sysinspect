@@ -40,13 +40,14 @@ impl MasterInterface for TestMaster {
     }
 }
 
-fn write_cfg(root: &Path, devmode: bool) -> MasterConfig {
+fn write_cfg(root: &Path, devmode: bool, doc_enabled: bool) -> MasterConfig {
     let cfg_path = root.join("sysinspect.conf");
     fs::write(
         &cfg_path,
         format!(
-            "config:\n  master:\n    fileserver.models: [cm, net]\n    api.bind.ip: 127.0.0.1\n    api.bind.port: 4202\n    api.devmode: {}\n",
-            if devmode { "true" } else { "false" }
+            "config:\n  master:\n    fileserver.models: [cm, net]\n    api.bind.ip: 127.0.0.1\n    api.bind.port: 4202\n    api.devmode: {}\n    api.doc: {}\n",
+            if devmode { "true" } else { "false" },
+            if doc_enabled { "true" } else { "false" }
         ),
     )
     .unwrap();
@@ -81,15 +82,15 @@ fn tls_config(require_client_auth: bool) -> ServerConfig {
     builder.with_single_cert(certs, key).unwrap()
 }
 
-async fn spawn_https_server(devmode: bool, require_client_auth: bool) -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std::io::Result<()>>) {
+async fn spawn_https_server(devmode: bool, doc_enabled: bool, require_client_auth: bool) -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std::io::Result<()>>) {
     let root = tempfile::tempdir().unwrap();
-    let cfg = write_cfg(root.path(), devmode);
+    let cfg = write_cfg(root.path(), devmode, doc_enabled);
     let queries = Arc::new(Mutex::new(Vec::new()));
     let datastore = Arc::new(Mutex::new(DataStorage::new(DataStorageConfig::new(), root.path().join("datastore")).unwrap()));
     let master: MasterInterfaceType = Arc::new(Mutex::new(TestMaster { cfg, queries: Arc::clone(&queries), datastore }));
 
     let server = HttpServer::new(move || {
-        let scope = api::get(devmode, ApiVersions::V1).unwrap().load(web::scope(""));
+        let scope = api::get(devmode, doc_enabled, ApiVersions::V1).unwrap().load(web::scope(""));
         App::new().app_data(web::Data::new(master.clone())).service(scope)
     })
     .bind_rustls_0_23(("127.0.0.1", 0), tls_config(require_client_auth))
@@ -125,7 +126,7 @@ fn trusted_client_with_identity() -> reqwest::Client {
 
 #[tokio::test]
 async fn https_server_rejects_default_certificate_validation_for_self_signed_cert() {
-    let (base, _, handle) = spawn_https_server(true, false).await;
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
 
     let err = reqwest::Client::new()
         .post(format!("{base}/api/v1/health"))
@@ -139,8 +140,26 @@ async fn https_server_rejects_default_certificate_validation_for_self_signed_cer
 }
 
 #[tokio::test]
+async fn https_swagger_ui_rejects_default_certificate_validation_for_self_signed_cert() {
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
+    let err = reqwest::Client::new().get(format!("{base}/doc/")).send().await.unwrap_err().to_string();
+
+    handle.abort();
+    assert!(!err.is_empty());
+}
+
+#[tokio::test]
+async fn https_openapi_json_rejects_default_certificate_validation_for_self_signed_cert() {
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
+    let err = reqwest::Client::new().get(format!("{base}/api-doc/openapi.json")).send().await.unwrap_err().to_string();
+
+    handle.abort();
+    assert!(!err.is_empty());
+}
+
+#[tokio::test]
 async fn https_auth_and_query_use_plain_json_and_bearer_token() {
-    let (base, queries, handle) = spawn_https_server(true, false).await;
+    let (base, queries, handle) = spawn_https_server(true, true, false).await;
     let client = trusted_client();
 
     let auth = client
@@ -182,7 +201,7 @@ async fn https_auth_and_query_use_plain_json_and_bearer_token() {
 
 #[tokio::test]
 async fn https_query_rejects_missing_bearer_token() {
-    let (base, _, handle) = spawn_https_server(true, false).await;
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
     let client = trusted_client();
 
     let response = client
@@ -204,7 +223,7 @@ async fn https_query_rejects_missing_bearer_token() {
 
 #[tokio::test]
 async fn https_model_names_returns_plain_json_list() {
-    let (base, _, handle) = spawn_https_server(true, false).await;
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
     let client = trusted_client();
     let auth = client
         .post(format!("{base}/api/v1/authenticate"))
@@ -234,7 +253,7 @@ async fn https_model_names_returns_plain_json_list() {
 
 #[tokio::test]
 async fn https_model_names_rejects_missing_bearer_token_with_json_error() {
-    let (base, _, handle) = spawn_https_server(true, false).await;
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
     let client = trusted_client();
 
     let response = client
@@ -251,7 +270,7 @@ async fn https_model_names_rejects_missing_bearer_token_with_json_error() {
 
 #[tokio::test]
 async fn https_store_list_rejects_missing_bearer_token_with_json_error() {
-    let (base, _, handle) = spawn_https_server(true, false).await;
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
     let client = trusted_client();
 
     let response = client
@@ -268,7 +287,7 @@ async fn https_store_list_rejects_missing_bearer_token_with_json_error() {
 
 #[tokio::test]
 async fn https_server_rejects_requests_without_required_client_certificate() {
-    let (base, _, handle) = spawn_https_server(true, true).await;
+    let (base, _, handle) = spawn_https_server(true, true, true).await;
     let err = trusted_mtls_client()
         .post(format!("{base}/api/v1/health"))
         .send()
@@ -282,7 +301,7 @@ async fn https_server_rejects_requests_without_required_client_certificate() {
 
 #[tokio::test]
 async fn https_server_accepts_requests_with_trusted_client_certificate() {
-    let (base, _, handle) = spawn_https_server(true, true).await;
+    let (base, _, handle) = spawn_https_server(true, true, true).await;
     let response = trusted_client_with_identity()
         .post(format!("{base}/api/v1/health"))
         .send()
@@ -295,5 +314,83 @@ async fn https_server_accepts_requests_with_trusted_client_certificate() {
         .unwrap();
 
     assert_eq!(response["status"], "healthy");
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_server_rejects_swagger_without_required_client_certificate() {
+    let (base, _, handle) = spawn_https_server(true, true, true).await;
+    let err = trusted_mtls_client().get(format!("{base}/doc/")).send().await.unwrap_err().to_string();
+
+    assert!(!err.is_empty());
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_server_accepts_swagger_with_trusted_client_certificate() {
+    let (base, _, handle) = spawn_https_server(true, true, true).await;
+    let response = trusted_client_with_identity().get(format!("{base}/doc/")).send().await.unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_swagger_ui_is_available_when_api_doc_is_enabled() {
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
+    let response = trusted_client().get(format!("{base}/doc/")).send().await.unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_swagger_ui_is_not_available_when_api_doc_is_disabled() {
+    let (base, _, handle) = spawn_https_server(true, false, false).await;
+    let response = trusted_client().get(format!("{base}/doc/")).send().await.unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_openapi_json_is_available_when_api_doc_is_enabled() {
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
+    let response = trusted_client().get(format!("{base}/api-doc/openapi.json")).send().await.unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.headers().get(reqwest::header::CONTENT_TYPE).unwrap(), "application/json");
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_openapi_json_is_not_available_when_api_doc_is_disabled() {
+    let (base, _, handle) = spawn_https_server(true, false, false).await;
+    let response = trusted_client().get(format!("{base}/api-doc/openapi.json")).send().await.unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_swagger_asset_is_not_available_when_api_doc_is_disabled() {
+    let (base, _, handle) = spawn_https_server(true, false, false).await;
+    let response = trusted_client().get(format!("{base}/doc/swagger-ui.css")).send().await.unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_auth_endpoint_still_works_when_api_doc_is_disabled() {
+    let (base, _, handle) = spawn_https_server(true, false, false).await;
+    let response = trusted_client()
+        .post(format!("{base}/api/v1/authenticate"))
+        .json(&serde_json::json!({"username":"dev","password":"dev"}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
     handle.abort();
 }

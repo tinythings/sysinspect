@@ -4,8 +4,8 @@ use colored::Colorize;
 use libcommon::SysinspectError;
 use libdatastore::resources::DataStorage;
 use libsysinspect::cfg::mmconf::MasterConfig;
-use rustls::ServerConfig;
 use rustls::RootCertStore;
+use rustls::ServerConfig;
 use rustls::server::WebPkiClientVerifier;
 use std::{fs::File, io::BufReader, sync::Arc, thread};
 use tokio::sync::Mutex;
@@ -44,6 +44,23 @@ fn advertised_api_host(bind_addr: &str) -> String {
 pub(crate) fn advertised_doc_url(bind_addr: &str, bind_port: u32, tls_enabled: bool) -> String {
     let scheme = if tls_enabled { "https" } else { "http" };
     format!("{scheme}://{}:{bind_port}/doc/", advertised_api_host(bind_addr))
+}
+
+fn advertised_doc_message(bind_addr: &str, bind_port: u32, tls_enabled: bool, doc_enabled: bool) -> String {
+    if doc_enabled {
+        return format!("Embedded Web API enabled. Swagger UI available at {}", advertised_doc_url(bind_addr, bind_port, tls_enabled));
+    }
+
+    "Embedded Web API enabled. API documentation is not enabled.".to_string()
+}
+
+fn tls_context_summary(cfg: &MasterConfig) -> String {
+    format!(
+        "doc={}, client-auth={}, {}",
+        if cfg.api_doc_enabled() { "enabled" } else { "disabled" },
+        if cfg.api_tls_ca_file().is_some() { "required" } else { "disabled" },
+        tls_paths_summary(cfg)
+    )
 }
 
 /// Returns a user-friendly error message about TLS setup for WebAPI, pointing to the relevant documentation section.
@@ -170,7 +187,7 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
         Err(err) => {
             log::error!("{}", tls_setup_err_message());
             log::error!("Embedded Web API TLS setup error: {err}");
-            log::error!("Embedded Web API TLS paths: {}", tls_paths_summary(&cfg));
+            log::error!("Embedded Web API TLS context: {}", tls_context_summary(&cfg));
             return Ok(());
         }
     };
@@ -189,14 +206,15 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
         };
 
         log::info!("Starting embedded Web API inside sysmaster at {} over {}", listen_addr.bright_yellow(), "HTTPS/TLS");
-        log::info!("Embedded Web API enabled. Swagger UI available at {}", advertised_doc_url(&bind_addr, bind_port, true).bright_yellow());
+        log::info!("{}", advertised_doc_message(&bind_addr, bind_port, true, ccfg.api_doc_enabled()).yellow());
+        log::info!("Embedded Web API TLS context: {}", tls_context_summary(&ccfg));
         if ccfg.api_tls_allow_insecure() {
             log::warn!("{}", tls_self_signed_warning_message());
         }
         actix_web::rt::System::new().block_on(async move {
             let server = HttpServer::new(move || {
                 let mut scope = web::scope("");
-                if let Some(ver) = api::get(devmode, version) {
+                if let Some(ver) = api::get(devmode, ccfg.api_doc_enabled(), version) {
                     scope = ver.load(scope);
                 }
                 App::new().app_data(web::Data::new(cmaster.clone())).service(scope)

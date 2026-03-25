@@ -39,16 +39,15 @@ impl Modify for SecurityAddon {
 /// API Version 1 implementation
 pub struct V1 {
     dev_mode: bool,
+    doc_enabled: bool,
 }
 
 impl V1 {
-    pub fn new(dev_mode: bool) -> Self {
-        V1 { dev_mode }
+    pub fn new(dev_mode: bool, doc_enabled: bool) -> Self {
+        V1 { dev_mode, doc_enabled }
     }
-}
 
-impl super::ApiVersion for V1 {
-    fn load(&self, scope: Scope) -> Scope {
+    fn api_scope(&self, scope: Scope) -> Scope {
         scope
             .service(query_handler)
             .service(health_handler)
@@ -60,11 +59,24 @@ impl super::ApiVersion for V1 {
             .service(store_meta_handler)
             .service(store_blob_handler)
             .service(store_upload_handler)
-            .service(if self.dev_mode {
-                SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDocDev::openapi())
-            } else {
-                SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())
-            })
+    }
+
+    fn doc_service(&self) -> SwaggerUi {
+        if self.dev_mode {
+            SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDocDev::openapi())
+        } else {
+            SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())
+        }
+    }
+}
+
+impl super::ApiVersion for V1 {
+    fn load(&self, scope: Scope) -> Scope {
+        if self.doc_enabled {
+            return self.api_scope(scope).service(self.doc_service());
+        }
+
+        self.api_scope(scope)
     }
 }
 

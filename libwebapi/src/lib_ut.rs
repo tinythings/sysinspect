@@ -1,4 +1,4 @@
-use super::{advertised_doc_url, load_tls_server_config, tls_paths_summary, tls_self_signed_warning_message, tls_setup_err_message};
+use super::{advertised_doc_message, advertised_doc_url, load_tls_server_config, tls_context_summary, tls_paths_summary, tls_self_signed_warning_message, tls_setup_err_message};
 use libsysinspect::cfg::mmconf::MasterConfig;
 use std::{fs, path::Path, path::PathBuf};
 
@@ -33,6 +33,43 @@ fn advertised_doc_url_uses_http_without_tls() {
 #[test]
 fn advertised_doc_url_uses_https_with_tls() {
     assert_eq!(advertised_doc_url("127.0.0.1", 4202, true), "https://127.0.0.1:4202/doc/");
+}
+
+#[test]
+fn advertised_doc_message_is_present_when_docs_are_enabled() {
+    assert_eq!(
+        advertised_doc_message("127.0.0.1", 4202, true, true),
+        "Embedded Web API enabled. Swagger UI available at https://127.0.0.1:4202/doc/".to_string()
+    );
+}
+
+#[test]
+fn advertised_doc_message_reports_when_docs_are_disabled() {
+    assert_eq!(
+        advertised_doc_message("127.0.0.1", 4202, true, false),
+        "Embedded Web API enabled. API documentation is not enabled.".to_string()
+    );
+}
+
+#[test]
+fn tls_context_summary_reports_doc_and_client_auth_state() {
+    let root = tempfile::tempdir().unwrap();
+    let (cert, key) = write_tls_fixture(root.path());
+    let cfg = write_cfg(
+        root.path(),
+        &format!(
+            "    api.doc: false\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n",
+            cert.display(),
+            key.display(),
+            cert.display()
+        ),
+    );
+
+    let summary = tls_context_summary(&cfg);
+    assert!(summary.contains("doc=disabled"));
+    assert!(summary.contains("client-auth=required"));
+    assert!(summary.contains(&cert.display().to_string()));
+    assert!(summary.contains(&key.display().to_string()));
 }
 
 #[test]
