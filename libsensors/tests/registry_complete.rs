@@ -64,4 +64,12 @@ sensors:
         let listener = cfg.listener().to_string();
         assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
     }
+
+    #[test]
+    fn net_throughput_is_registered() {
+        sensors::init_registry();
+        let (sid, cfg) = cfg_for("net.throughput");
+        let listener = cfg.listener().to_string();
+        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+    }
 }
