@@ -221,7 +221,7 @@ impl ActionResponse {
     /// Build an ActionResponse from sensor JSON event payload.
     /// ```
     /// {
-    ///   "eid": "tmp-watch/fsnotify/created/0",
+    ///   "eid": "tmp-watch|sys.filesystem|created@/tmp/x|0",
     ///   "sensor": "...",
     ///   "listener": "...",
     ///   "data": {...}

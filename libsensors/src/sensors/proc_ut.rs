@@ -13,7 +13,7 @@ mod tests {
 
     fn mk_cfg(process: Option<&str>, opts: &[&str], tag: Option<&str>) -> SensorConf {
         from_value(json!({
-            "listener": "procnotify",
+            "listener": "sys.proc",
             "tag": tag,
             "opts": opts,
             "args": {
@@ -95,7 +95,7 @@ mod tests {
         let s = ProcessSensor::new("SID".into(), mk_cfg(Some("sleep"), &["appeared"], None));
         let eid = s.make_eid("appeared", "sleep");
 
-        assert_eq!(eid, "SID|procnotify|appeared@sleep|0");
+        assert_eq!(eid, "SID|sys.proc|appeared@sleep|0");
     }
 
     #[test]
@@ -103,7 +103,7 @@ mod tests {
         let s = ProcessSensor::new("SID".into(), mk_cfg(Some("sleep"), &["appeared"], Some("grim")));
         let eid = s.make_eid("appeared", "sleep");
 
-        assert_eq!(eid, "SID|procnotify@grim|appeared@sleep|0");
+        assert_eq!(eid, "SID|sys.proc@grim|appeared@sleep|0");
     }
 
     #[tokio::test]

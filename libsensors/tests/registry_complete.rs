@@ -18,25 +18,25 @@ sensors:
     }
 
     #[test]
-    fn procnotify_is_registered() {
+    fn sys_proc_is_registered() {
         sensors::init_registry();
-        let (sid, cfg) = cfg_for("procnotify");
+        let (sid, cfg) = cfg_for("sys.proc");
         let listener = cfg.listener().to_string();
         assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
     }
 
     #[test]
-    fn mountnotify_is_registered() {
+    fn sys_mount_is_registered() {
         sensors::init_registry();
-        let (sid, cfg) = cfg_for("mountnotify");
+        let (sid, cfg) = cfg_for("sys.mount");
         let listener = cfg.listener().to_string();
         assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
     }
 
     #[test]
-    fn netnotify_is_registered() {
+    fn net_packet_is_registered() {
         sensors::init_registry();
-        let (sid, cfg) = cfg_for("netnotify");
+        let (sid, cfg) = cfg_for("net.packet");
         let listener = cfg.listener().to_string();
         assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
     }

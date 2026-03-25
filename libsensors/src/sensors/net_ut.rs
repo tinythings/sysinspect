@@ -12,7 +12,7 @@ mod tests {
         let patterns_json = patterns.map(|v| v.into_iter().map(|s| json!(s)).collect::<Vec<_>>());
 
         from_value(json!({
-            "listener": "netnotify",
+            "listener": "net.packet",
             "tag": tag,
             "opts": opts,
             "args": {

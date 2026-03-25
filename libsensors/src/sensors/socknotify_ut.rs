@@ -4,7 +4,7 @@ use crate::sspec::SensorConf;
 fn mk_cfg(opts: Vec<&str>) -> SensorConf {
     serde_yaml::from_str(&format!(
         r#"
-listener: socknotify
+listener: net.socket
 opts: [{}]
 "#,
         opts.into_iter().map(|s| format!(r#""{s}""#)).collect::<Vec<_>>().join(", ")

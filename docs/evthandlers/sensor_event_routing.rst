@@ -15,8 +15,8 @@ A sensor event is a single positional string, delimited by ``|``:
 Where:
 
 * ``sensor-id`` is the ID of the sensor that emitted the event (e.g., ``my-tmp-dir`` — a check you run)
-* ``listener`` is the listener ID that processed the sensor (e.g., ``fsnotify`` — the sensor plugin that runs the check)
-* ``action`` is the action the sensor emits. For example, for ``fsnotify`` listener, the action is the event type like ``create``, ``modify``, ``delete``
+* ``listener`` is the listener ID that processed the sensor (e.g., ``sys.filesystem`` — the sensor plugin that runs the check)
+* ``action`` is the action the sensor emits. For example, for ``sys.filesystem`` listener, the action is the event type like ``create``, ``modify``, ``delete``
 * ``specifier`` is an optional part that can be used to further specify the event details, like a specific file path or a glob pattern. For example, ``create@/tmp/$``.
 * ``exit-code`` is always ``0`` for sensor events, since they don't have a return code like actions do
 
@@ -33,7 +33,7 @@ An event routing is essentially defined like this:
             ...
 
 Each segment can be wildcarded using ``$``.
-Example: ``tmp-watch|fsnotify|$|0``
+Example: ``tmp-watch|sys.filesystem|$|0``
 
 Events for sensors are defined with the following synopsis:
 

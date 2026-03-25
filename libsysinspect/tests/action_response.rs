@@ -14,16 +14,16 @@ mod tests {
     #[test]
     fn from_sensor_parses_4_parts_and_sets_fields() {
         let v = json!({
-            "eid": "tmp-watch|fsnotify|deleted@/tmp/x|0",
+            "eid": "tmp-watch|sys.filesystem|deleted@/tmp/x|0",
             "sensor": "tmp-watch",
-            "listener": "fsnotify",
+            "listener": "sys.filesystem",
             "data": {"kind":"deleted","path":"/tmp/x"}
         });
 
         let ar = ActionResponse::from_sensor(v.clone());
 
         assert_eq!(ar.aid(), "tmp-watch");
-        assert_eq!(ar.eid(), "fsnotify");
+        assert_eq!(ar.eid(), "sys.filesystem");
         assert_eq!(ar.sid(), "deleted@/tmp/x");
         // current behavior: retcode forced to 0 even if eid contains "|123"
         assert_eq!(ar.response.retcode(), 0);
@@ -141,11 +141,11 @@ mod tests {
 
     #[test]
     fn match_eid_exact_match_all_parts() {
-        let ar = mk_ar("tmp-watch", "fsnotify", "deleted@/tmp/x", 0);
-        assert!(ar.match_eid("tmp-watch|fsnotify|deleted@/tmp/x|0"));
-        assert!(!ar.match_eid("tmp-watch|fsnotify|deleted@/tmp/y|0"));
+        let ar = mk_ar("tmp-watch", "sys.filesystem", "deleted@/tmp/x", 0);
+        assert!(ar.match_eid("tmp-watch|sys.filesystem|deleted@/tmp/x|0"));
+        assert!(!ar.match_eid("tmp-watch|sys.filesystem|deleted@/tmp/y|0"));
         assert!(!ar.match_eid("tmp-watch|other|deleted@/tmp/x|0"));
-        assert!(!ar.match_eid("other|fsnotify|deleted@/tmp/x|0"));
+        assert!(!ar.match_eid("other|sys.filesystem|deleted@/tmp/x|0"));
     }
 
     #[test]

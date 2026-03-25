@@ -33,7 +33,7 @@ impl SockTraySensor {
                 match o.as_str() {
                     "opened" => mask |= SockTrayMask::OPENED,
                     "closed" => mask |= SockTrayMask::CLOSED,
-                    _ => log::warn!("socknotify '{}' unknown opt '{}'", self.sid, o),
+                    _ => log::warn!("net.socket '{}' unknown opt '{}'", self.sid, o),
                 }
             }
         }
@@ -52,7 +52,7 @@ impl Sensor for SockTraySensor {
     }
 
     fn id() -> String {
-        "socknotify".to_string()
+        "net.socket".to_string()
     }
 
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
@@ -125,14 +125,14 @@ impl Callback<SockTrayEvent> for BridgeCb {
         let remote = sock.remote_dec.as_deref().unwrap_or(&sock.remote);
         let eid = format!("{}|{}|{}@{}|{}", self.sid, self.lstid, action, remote, 0);
 
-        if self.locked && !libcommon::eidhub::get_eidhub().add("socknotify", &eid).await {
+        if self.locked && !libcommon::eidhub::get_eidhub().add("net.socket", &eid).await {
             return None;
         }
 
         Some(json!({
             "eid": eid,
             "sensor": self.sid,
-            "listener": "socknotify",
+            "listener": "net.socket",
             "data": {
                 "action": action,
                 "proto": sock.proto,

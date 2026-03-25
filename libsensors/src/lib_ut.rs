@@ -118,7 +118,7 @@ events:
             "a.cfg",
             r#"
 events:
-  a|fsnotify|changed@/tmp/x|0:
+  a|sys.filesystem|changed@/tmp/x|0:
     handlers: [console-logger]
 "#,
         );
@@ -129,7 +129,7 @@ events:
             "b.cfg",
             r#"
 events:
-  b|procnotify|appeared@bash|0:
+  b|sys.proc|appeared@bash|0:
     handlers: [console-logger]
 "#,
         );
@@ -149,8 +149,8 @@ events:
         let map = ev.as_mapping().unwrap();
 
         assert!(map.contains_key(serde_yaml::Value::String("root|file|ok@r|0".into())));
-        assert!(map.contains_key(serde_yaml::Value::String("a|fsnotify|changed@/tmp/x|0".into())));
-        assert!(map.contains_key(serde_yaml::Value::String("b|procnotify|appeared@bash|0".into())));
+        assert!(map.contains_key(serde_yaml::Value::String("a|sys.filesystem|changed@/tmp/x|0".into())));
+        assert!(map.contains_key(serde_yaml::Value::String("b|sys.proc|appeared@bash|0".into())));
         assert!(!map.contains_key(serde_yaml::Value::String("SHOULD|NOT|APPEAR|0".into())));
     }
 }

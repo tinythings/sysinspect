@@ -34,7 +34,7 @@ impl MountSensor {
                     "mounted" => mask |= XMountMask::MOUNTED,
                     "unmounted" => mask |= XMountMask::UNMOUNTED,
                     "changed" => mask |= XMountMask::CHANGED,
-                    _ => log::warn!("mountnotify '{}' unknown opt '{}'", self.sid, o),
+                    _ => log::warn!("sys.mount '{}' unknown opt '{}'", self.sid, o),
                 }
             }
         }
@@ -53,7 +53,7 @@ impl Sensor for MountSensor {
     }
 
     fn id() -> String {
-        "mountnotify".to_string()
+        "sys.mount".to_string()
     }
 
     async fn run(&self, emit: &(dyn Fn(SensorEvent) + Send + Sync)) {
@@ -140,14 +140,14 @@ impl Callback<XMountEvent> for BridgeCb {
         let tgt = r.get("target").and_then(|v| v.as_str()).unwrap_or("unknown");
         let eid = format!("{}|{}|{}@{}|{}", self.sid, self.lstid, action, tgt, 0);
 
-        if self.locked && !libcommon::eidhub::get_eidhub().add("mountnotify", &eid).await {
+        if self.locked && !libcommon::eidhub::get_eidhub().add("sys.mount", &eid).await {
             return None;
         }
 
         Some(json!({
             "eid": eid,
             "sensor": self.sid,
-            "listener": "mountnotify",
+            "listener": "sys.mount",
             "data": r,
         }))
     }

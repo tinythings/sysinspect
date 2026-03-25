@@ -12,7 +12,7 @@ mod sensor_run_early_returns_test {
 
     fn fs_cfg_missing_path() -> SensorConf {
         from_value(json!({
-            "listener": "fsnotify",
+            "listener": "sys.filesystem",
             "args": {}
         }))
         .unwrap()
@@ -20,7 +20,7 @@ mod sensor_run_early_returns_test {
 
     fn mount_cfg_missing_mountpoints() -> SensorConf {
         from_value(json!({
-            "listener": "mountnotify",
+            "listener": "sys.mount",
             "args": {}
         }))
         .unwrap()

@@ -155,14 +155,14 @@ which runs a script that modifies that file, causing an infinite loop:
             profile:
                 - default
             description: How to shoot yourself into the foot (or not)
-            listener: fsnotify
+            listener: sys.filesystem
             opts:
                 - changed
             args:
                 path: /tmp/loop/
 
     events:
-        cirquit-break|fsnotify|changed@/tmp/loop/foo.txt|0:
+        cirquit-break|sys.filesystem|changed@/tmp/loop/foo.txt|0:
             handlers:
                 - pipescript
 
