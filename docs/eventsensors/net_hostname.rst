@@ -112,4 +112,4 @@ See the demo material under:
 
 .. code-block:: text
 
-    libsensors/demos/net/
+    examples/demos/net/
