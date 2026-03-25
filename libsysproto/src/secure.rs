@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 /// Version of the planned secure Master/Minion transport protocol.
 pub const SECURE_PROTOCOL_VERSION: u16 = 1;
+/// Explicit set of secure transport protocol versions currently supported locally.
+pub const SECURE_SUPPORTED_PROTOCOL_VERSIONS: &[u16] = &[SECURE_PROTOCOL_VERSION];
 
 /// Master/Minion transport goals fixed by Phase 1 decisions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,9 +129,11 @@ impl SecureFailureSemantics {
 pub struct SecureBootstrapHello {
     /// Session binding input that must later be authenticated and echoed.
     pub binding: SecureSessionBinding,
-    /// Fresh symmetric session key encrypted to the master's registered RSA key.
-    pub session_key_cipher: String,
-    /// RSA signature over the bootstrap binding, wrapped session key ciphertext and negotiated key id.
+    /// Ordered secure transport protocol versions supported by the opening peer.
+    pub supported_versions: Vec<u16>,
+    /// Minion ephemeral Curve25519 public key for the bootstrap key exchange.
+    pub client_ephemeral_pubkey: String,
+    /// RSA signature over the bootstrap binding, ephemeral public key and negotiated key id.
     pub binding_signature: String,
     /// Optional transport key identifier when reconnecting or rotating.
     pub key_id: Option<String>,
@@ -146,7 +150,9 @@ pub struct SecureBootstrapAck {
     pub key_id: String,
     /// Rotation state communicated during handshake.
     pub rotation: SecureRotationMode,
-    /// RSA signature over the completed binding, accepted session identifier, activated key id and rotation state.
+    /// Master ephemeral Curve25519 public key for the bootstrap key exchange.
+    pub master_ephemeral_pubkey: String,
+    /// RSA signature over the completed binding, accepted session identifier, activated key id, rotation state and master ephemeral public key.
     pub binding_signature: String,
 }
 

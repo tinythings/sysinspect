@@ -1211,7 +1211,7 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     log::info!("Fileserver started on directory {}", cfg.fileserver_root().to_str().unwrap_or_default());
 
     // Start web API (if configured/enabled)
-    libwebapi::start_webapi(cfg.clone(), master.clone())?;
+    libwebapi::start_embedded_webapi(cfg.clone(), master.clone())?;
 
     // Start services
     let ipc = SysMaster::do_ipc_service(Arc::clone(&master)).await;

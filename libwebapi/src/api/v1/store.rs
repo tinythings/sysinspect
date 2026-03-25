@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use crate::MasterInterfaceType;
+use crate::{MasterInterfaceType, api::v1::minions::authorise_request};
 use actix_files::NamedFile;
 use actix_web::Result as ActixResult;
-use actix_web::{HttpResponse, Responder, get, post, web};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use futures_util::StreamExt;
 use libdatastore::resources::DataItemMeta;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,20 @@ pub struct StoreResolveQuery {
 pub struct StoreListQuery {
     pub prefix: Option<String>,
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StoreErrorResponse {
+    pub error: String,
+}
+
+fn unauthorised_store_error(err: libcommon::SysinspectError) -> actix_web::Error {
+    let msg = err.to_string();
+    actix_web::error::InternalError::from_response(
+        err,
+        HttpResponse::Unauthorized().json(StoreErrorResponse { error: msg }),
+    )
+    .into()
 }
 
 /// Get a list of all meta files within the datastore.
@@ -55,17 +69,24 @@ fn get_meta_files(root: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     get,
     path = "/store/{sha256}",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("sha256" = String, Path, description = "SHA256 of the stored object")
     ),
     responses(
         (status = 200, description = "Metadata for object", body = StoreMetaResponse),
+        (status = 401, description = "Unauthorized", body = StoreErrorResponse),
         (status = 404, description = "Not found"),
         (status = 500, description = "Datastore error")
     )
 )]
 #[get("/store/{sha256:[0-9a-fA-F]{64}}")]
-pub async fn store_meta_handler(master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> impl Responder {
+pub async fn store_meta_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> impl Responder {
+    if let Err(err) = authorise_request(&req).await {
+        return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
+    }
     let ds = {
         let m = master.lock().await;
         m.datastore().await
@@ -91,17 +112,22 @@ pub async fn store_meta_handler(master: web::Data<MasterInterfaceType>, sha256: 
     get,
     path = "/store/{sha256}/blob",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("sha256" = String, Path, description = "SHA256 of the stored object")
     ),
     responses(
+        (status = 401, description = "Unauthorized", body = StoreErrorResponse),
         (status = 200, description = "Binary blob"),
         (status = 404, description = "Not found"),
         (status = 500, description = "Datastore error")
     )
 )]
 #[get("/store/{sha256:[0-9a-fA-F]{64}}/blob")]
-pub async fn store_blob_handler(master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> ActixResult<NamedFile> {
+pub async fn store_blob_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> ActixResult<NamedFile> {
+    authorise_request(&req).await.map_err(unauthorised_store_error)?;
     let ds = {
         let m = master.lock().await;
         m.datastore().await
@@ -121,12 +147,16 @@ pub async fn store_blob_handler(master: web::Data<MasterInterfaceType>, sha256: 
     post,
     path = "/store",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     request_body(
         content = Vec<u8>,
         content_type = "application/octet-stream",
         description = "Raw bytes to store"
     ),
     responses(
+        (status = 401, description = "Unauthorized", body = StoreErrorResponse),
         (status = 200, description = "Stored successfully", body = StoreMetaResponse),
         (status = 413, description = "Payload too large"),
         (status = 500, description = "Datastore error")
@@ -134,6 +164,9 @@ pub async fn store_blob_handler(master: web::Data<MasterInterfaceType>, sha256: 
 )]
 #[post("/store")]
 pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data<MasterInterfaceType>, mut payload: web::Payload) -> impl Responder {
+    if let Err(err) = authorise_request(&req).await {
+        return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
+    }
     // full path goes into fname (as you demanded)
     let origin = req.headers().get("X-Filename").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
 
@@ -223,17 +256,24 @@ pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data
     get,
     path = "/store/resolve",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("fname" = String, Query, description = "Full path stored in metadata (meta.fname)")
     ),
     responses(
         (status = 200, description = "Resolved metadata", body = StoreMetaResponse),
+        (status = 401, description = "Unauthorized", body = StoreErrorResponse),
         (status = 404, description = "Not found"),
         (status = 500, description = "Error")
     )
 )]
 #[get("/store/resolve")]
-pub async fn store_resolve_handler(master: web::Data<MasterInterfaceType>, q: web::Query<StoreResolveQuery>) -> impl Responder {
+pub async fn store_resolve_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, q: web::Query<StoreResolveQuery>) -> impl Responder {
+    if let Err(err) = authorise_request(&req).await {
+        return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
+    }
     let (root, want) = {
         let m = master.lock().await;
         (m.cfg().await.datastore_path(), q.fname.clone())
@@ -297,17 +337,24 @@ pub async fn store_resolve_handler(master: web::Data<MasterInterfaceType>, q: we
     get,
     path = "/store/list",
     tag = "Datastore",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("prefix" = Option<String>, Query, description = "Only return items where meta.fname starts with this prefix"),
         ("limit" = Option<usize>, Query, description = "Max items to return (default 200)")
     ),
     responses(
         (status = 200, description = "List of metadata", body = Vec<StoreMetaResponse>),
+        (status = 401, description = "Unauthorized", body = StoreErrorResponse),
         (status = 500, description = "Error")
     )
 )]
 #[get("/store/list")]
-pub async fn store_list_handler(master: web::Data<MasterInterfaceType>, q: web::Query<StoreListQuery>) -> impl Responder {
+pub async fn store_list_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, q: web::Query<StoreListQuery>) -> impl Responder {
+    if let Err(err) = authorise_request(&req).await {
+        return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
+    }
     let (root, prefix, limit) = {
         let m = master.lock().await;
         (m.cfg().await.datastore_path(), q.prefix.clone(), q.limit.unwrap_or(200).min(5000))

@@ -7,7 +7,6 @@ use crate::rsa::keys::{get_fingerprint, keygen};
 use chrono::Utc;
 use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
 use rsa::RsaPublicKey;
-use sodiumoxide::crypto::secretbox;
 
 fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
     TransportPeerState {
@@ -33,7 +32,7 @@ fn channels() -> (SecureChannel, SecureChannel) {
     let (minion_prk, minion_pbk) = keygen(2048).unwrap();
     let state = state(&master_pbk, &minion_pbk);
     let (opening, hello) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
-    let ack = match SecureBootstrapSession::accept(
+    let accepted = SecureBootstrapSession::accept(
         &state,
         match &hello {
             SecureFrame::BootstrapHello(hello) => hello,
@@ -45,27 +44,13 @@ fn channels() -> (SecureChannel, SecureChannel) {
         Some("kid-1".to_string()),
         None,
     )
-    .unwrap()
-    .1
-    {
+    .unwrap();
+    let ack = match accepted.1 {
         SecureFrame::BootstrapAck(ack) => ack,
         _ => panic!("expected bootstrap ack"),
     };
     let minion = opening.verify_ack(&state, &ack, &master_pbk).unwrap();
-    let master = SecureBootstrapSession::accept(
-        &state,
-        match &hello {
-            SecureFrame::BootstrapHello(hello) => hello,
-            _ => panic!("expected bootstrap hello"),
-        },
-        &master_prk,
-        &minion_pbk,
-        Some("sid-1".to_string()),
-        Some("kid-1".to_string()),
-        None,
-    )
-    .unwrap()
-    .0;
+    let master = accepted.0;
 
     (SecureChannel::new(SecurePeerRole::Master, &master).unwrap(), SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap())
 }
@@ -105,12 +90,10 @@ fn secure_channel_rejects_oversized_payloads() {
 }
 
 #[test]
-fn secure_channel_first_frame_differs_across_reconnects_with_same_persisted_material() {
+fn secure_channel_first_frame_differs_across_reconnects() {
     let (master_prk, master_pbk) = keygen(2048).unwrap();
     let (minion_prk, minion_pbk) = keygen(2048).unwrap();
-    let mut state = state(&master_pbk, &minion_pbk);
-    let material = secretbox::gen_key();
-    state.upsert_key_with_material("kid-1", super::TransportKeyStatus::Active, Some(&material.0));
+    let state = state(&master_pbk, &minion_pbk);
 
     let (opening_one, hello_one) = SecureBootstrapSession::open(&state, &minion_prk, &master_pbk).unwrap();
     let ack_one = match SecureBootstrapSession::accept(
@@ -158,4 +141,84 @@ fn secure_channel_first_frame_differs_across_reconnects_with_same_persisted_mate
     let frame_two = minion_two.seal(&serde_json::json!({"hello":"world"})).unwrap();
 
     assert_ne!(frame_one, frame_two);
+}
+
+#[test]
+fn secure_channel_accepts_consecutive_frames() {
+    let (mut master, mut minion) = channels();
+    let first = minion.seal(&serde_json::json!({"n":1})).unwrap();
+    let second = minion.seal(&serde_json::json!({"n":2})).unwrap();
+
+    let first_payload: serde_json::Value = master.open(&first).unwrap();
+    let second_payload: serde_json::Value = master.open(&second).unwrap();
+
+    assert_eq!(first_payload["n"], 1);
+    assert_eq!(second_payload["n"], 2);
+}
+
+#[test]
+fn secure_channel_rejects_truncated_frame_bytes() {
+    let (mut master, mut minion) = channels();
+    let mut frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    frame.pop();
+
+    assert!(master.open::<serde_json::Value>(&frame).is_err());
+}
+
+#[test]
+fn secure_channel_rejects_tampered_session_id() {
+    let (mut master, mut minion) = channels();
+    let frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    let mut parsed = serde_json::from_slice::<SecureFrame>(&frame).unwrap();
+    match &mut parsed {
+        SecureFrame::Data(data) => data.session_id = "wrong-session".to_string(),
+        _ => panic!("expected data frame"),
+    }
+
+    assert!(master.open::<serde_json::Value>(&serde_json::to_vec(&parsed).unwrap()).is_err());
+}
+
+#[test]
+fn secure_channel_rejects_tampered_key_id() {
+    let (mut master, mut minion) = channels();
+    let frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    let mut parsed = serde_json::from_slice::<SecureFrame>(&frame).unwrap();
+    match &mut parsed {
+        SecureFrame::Data(data) => data.key_id = "wrong-key".to_string(),
+        _ => panic!("expected data frame"),
+    }
+
+    assert!(master.open::<serde_json::Value>(&serde_json::to_vec(&parsed).unwrap()).is_err());
+}
+
+#[test]
+fn secure_channel_rejects_tampered_nonce() {
+    let (mut master, mut minion) = channels();
+    let frame = minion.seal(&serde_json::json!({"hello":"world"})).unwrap();
+    let mut parsed = serde_json::from_slice::<SecureFrame>(&frame).unwrap();
+    match &mut parsed {
+        SecureFrame::Data(data) => data.nonce = "AA==".to_string(),
+        _ => panic!("expected data frame"),
+    }
+
+    assert!(master.open::<serde_json::Value>(&serde_json::to_vec(&parsed).unwrap()).is_err());
+}
+
+#[test]
+fn secure_channel_uses_distinct_first_frame_nonces_per_direction() {
+    let (mut master, mut minion) = channels();
+    let minion_frame = minion.seal(&serde_json::json!({"from":"minion"})).unwrap();
+    let master_frame = master.seal(&serde_json::json!({"from":"master"})).unwrap();
+
+    let minion_frame = serde_json::from_slice::<SecureFrame>(&minion_frame).unwrap();
+    let master_frame = serde_json::from_slice::<SecureFrame>(&master_frame).unwrap();
+
+    match (minion_frame, master_frame) {
+        (SecureFrame::Data(minion_data), SecureFrame::Data(master_data)) => {
+            assert_eq!(minion_data.counter, 1);
+            assert_eq!(master_data.counter, 1);
+            assert_ne!(minion_data.nonce, master_data.nonce);
+        }
+        _ => panic!("expected data frames"),
+    }
 }

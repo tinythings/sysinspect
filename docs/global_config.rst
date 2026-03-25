@@ -280,19 +280,68 @@ Below are directives for the configuration of the File Server service:
 
     Type: **boolean**
 
-    Enable or disable the WebAPI service to control Sysinspect Master remotely.
+    Enable or disable the embedded Web API listener inside the ``sysmaster``
+    process so Sysinspect Master can be controlled remotely.
+
+    This listener is part of ``sysmaster`` itself. Sysinspect does not start a
+    separate Web API daemon for this interface.
 
     .. important::
 
         When enabled, the WebAPI serves its OpenAPI documentation through Swagger UI.
-        The documentation endpoint is available at ``http://<HOST>:<PORT>/doc/``.
+        The documentation endpoint is available at ``https://<HOST>:<PORT>/doc/``.
 
-    The Swagger UI is typically available at ``http://<HOST>:<PORT>/doc/``.
+    If ``api.enabled`` is ``true`` but TLS is not configured correctly,
+    ``sysmaster`` keeps running and the Web API stays disabled with an error log.
+
+    The Swagger UI is typically available at ``https://<HOST>:<PORT>/doc/``.
     Default port is ``4202``.
 
     .. note::
 
-        Swagger UI is served whenever the WebAPI is enabled.
+        Swagger UI is served whenever the WebAPI is enabled and ``api.doc`` is ``true``.
+
+    Default is ``true``.
+
+``api.doc``
+###########
+
+    Type: **boolean**
+
+    Enable or disable the embedded Web API documentation endpoints served by
+    Swagger UI.
+
+    When ``true``, the documentation endpoint is available at
+    ``https://<HOST>:<PORT>/doc/`` on the same HTTPS listener as the Web API.
+
+    When ``false``, Sysinspect keeps the Web API itself enabled but does not
+    expose the Swagger UI or OpenAPI document endpoint.
+
+    Typical usage:
+
+    .. code-block:: yaml
+
+        config:
+          master:
+            api.enabled: true
+            api.doc: true
+            api.tls.enabled: true
+            api.tls.cert-file: /etc/sysinspect/webapi/server.crt
+            api.tls.key-file: /etc/sysinspect/webapi/server.key
+
+    To require trusted client certificates for the Web API and its
+    documentation endpoints, add a CA bundle:
+
+    .. code-block:: yaml
+
+        config:
+          master:
+            api.enabled: true
+            api.doc: true
+            api.tls.enabled: true
+            api.tls.cert-file: /etc/sysinspect/webapi/server.crt
+            api.tls.key-file: /etc/sysinspect/webapi/server.key
+            api.tls.ca-file: /etc/sysinspect/webapi/clients-ca.pem
 
     Default is ``true``.
 
@@ -301,7 +350,7 @@ Below are directives for the configuration of the File Server service:
 
     Type: **string**
 
-    IPv4 address on which the WebAPI service is listening for all incoming and outgoing traffic.
+    IPv4 address on which the embedded Web API listener accepts traffic.
 
     Default value is ``0.0.0.0``.
 
@@ -310,16 +359,16 @@ Below are directives for the configuration of the File Server service:
 
     Type: **integer**
 
-    Network port number on which the WebAPI service is listening.
+    Network port number on which the embedded Web API listener is listening.
 
-    WebAPI service port is ``4202``.
+    The embedded Web API listener uses port ``4202`` by default.
 
 ``api.auth``
 ############
 
     Type: **string**
 
-    Authentication method to be used for the WebAPI service. This is a string and can be one of the following:
+    Authentication method to be used for the embedded Web API. This is a string and can be one of the following:
 
         - ``pam``
         - ``ldap`` `(planned, not implemented yet)`
@@ -329,13 +378,78 @@ Below are directives for the configuration of the File Server service:
 
     Type: **boolean**
 
-    Enable or disable development-only helpers for the WebAPI service.
+    Enable or disable development-only helpers for the embedded Web API.
 
     .. danger::
 
         This option is exclusively for development purposes. If enabled, the
         authentication endpoint returns a static token and the development query
+        helpers remain available. Do not combine ``api.devmode: true`` with
+        production exposure of the Web API documentation.
         endpoint is exposed.
+
+    Default is ``false``.
+
+``api.tls.enabled``
+###################
+
+    Type: **boolean**
+
+    Enable TLS for the embedded Web API listener.
+
+    Default is ``false``.
+
+``api.tls.cert-file``
+#####################
+
+    Type: **string**
+
+    Path to the PEM certificate chain used by the Web API TLS listener.
+
+    If the path is relative, it is resolved under the Sysinspect root. If it is
+    absolute, it is used as-is.
+
+    When ``api.tls.enabled`` is ``true``, this option is required.
+
+``api.tls.key-file``
+####################
+
+    Type: **string**
+
+    Path to the PEM private key used by the Web API TLS listener.
+
+    If the path is relative, it is resolved under the Sysinspect root. If it is
+    absolute, it is used as-is.
+
+    When ``api.tls.enabled`` is ``true``, this option is required.
+
+``api.tls.ca-file``
+###################
+
+    Type: **string**
+
+    Optional CA bundle path used to verify client certificates for the Web API
+    TLS listener.
+
+    If the path is relative, it is resolved under the Sysinspect root. If it is
+    absolute, it is used as-is.
+
+    When set, clients must present a certificate chain that validates against
+    this CA bundle.
+
+``api.tls.allow-insecure``
+##########################
+
+    Type: **boolean**
+
+    Allow the embedded Web API to start with a self-signed or otherwise
+    non-public TLS certificate.
+
+    When this option is ``false``, Sysinspect rejects a self-signed Web API
+    certificate during startup.
+
+    When this option is ``true``, Sysinspect allows that setup and logs a
+    warning so operators know clients must explicitly trust the certificate.
 
     Default is ``false``.
 
@@ -491,6 +605,13 @@ Example configuration for the Sysinspect Master:
             fileserver.models:
               - my_model
               - my_other_model
+
+            api.enabled: false
+            # To enable the embedded Web API, configure TLS first:
+            # api.enabled: true
+            # api.tls.enabled: true
+            # api.tls.cert-file: etc/web/api.crt
+            # api.tls.key-file: etc/web/api.key
 
 ``datastore.path``
 ###################

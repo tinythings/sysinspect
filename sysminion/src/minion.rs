@@ -376,6 +376,7 @@ impl SysMinion {
         let (opening, hello) = match SecureBootstrapSession::open(&state, &self.kman.private_key()?, &master_pbk) {
             Ok(opening) => opening,
             Err(err) => {
+                log::error!("Unable to prepare secure bootstrap for master {}: {}", self.cfg.master(), err);
                 self.mark_broken_transport(&store, &mut state, None);
                 return Err(err);
             }
@@ -393,6 +394,12 @@ impl SysMinion {
                 let session = match opening.verify_ack(&state, &ack, &master_pbk) {
                     Ok(session) => session,
                     Err(err) => {
+                        log::error!(
+                            "Secure bootstrap ack verification failed for master {} using key {}: {}",
+                            self.cfg.master(),
+                            opening_key_id,
+                            err
+                        );
                         self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
                         return Err(err);
                     }
@@ -408,10 +415,19 @@ impl SysMinion {
                 Ok(())
             }
             SecureFrame::BootstrapDiagnostic(diag) => {
+                log::error!(
+                    "Master {} rejected secure bootstrap with {:?}: {} (retryable={}, rate_limit={})",
+                    self.cfg.master(),
+                    diag.code,
+                    diag.message,
+                    diag.failure.retryable,
+                    diag.failure.rate_limit
+                );
                 self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
                 Err(SysinspectError::ProtoError(format!("Master rejected secure bootstrap with {:?}: {}", diag.code, diag.message)))
             }
             _ => {
+                log::error!("Master {} replied with a non-bootstrap frame during secure bootstrap", self.cfg.master());
                 self.mark_broken_transport(&store, &mut state, Some(&opening_key_id));
                 Err(SysinspectError::ProtoError("Master replied with a non-bootstrap frame during secure bootstrap".to_string()))
             }

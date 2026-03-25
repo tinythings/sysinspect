@@ -16,7 +16,7 @@
 .. role:: bi
    :class: bolditalic
 
-.. _global_configuration:
+.. _virtual_minions:
 
 Clusters and Virtual Minions
 ============================

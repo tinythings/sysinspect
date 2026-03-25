@@ -1,0 +1,9 @@
+{
+  "kind": "data",
+  "protocol_version": 1,
+  "session_id": "sid-1",
+  "key_id": "trk-current",
+  "counter": 1,
+  "nonce": "<base64>",
+  "payload": "<base64>"
+}

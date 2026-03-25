@@ -6,7 +6,7 @@ use libsysinspect::{
         TransportKeyExchangeModel, TransportPeerState, TransportProvisioningMode, TransportRotationStatus, secure_bootstrap::SecureBootstrapSession,
     },
 };
-use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureBootstrapHello, SecureFrame, SecureSessionBinding};
+use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding};
 use rsa::RsaPublicKey;
 use std::{collections::HashMap, time::Instant};
 
@@ -47,7 +47,8 @@ fn unsupported_peer_bounces_secure_bootstrap_hello() {
                 "nonce-1".to_string(),
                 fresh_timestamp(),
             ),
-            session_key_cipher: "cipher".to_string(),
+            supported_versions: SECURE_SUPPORTED_PROTOCOL_VERSIONS.to_vec(),
+            client_ephemeral_pubkey: "pubkey".to_string(),
             binding_signature: "sig".to_string(),
             key_id: Some("kid-1".to_string()),
         }))
@@ -79,7 +80,8 @@ fn plaintext_ehlo_is_rejected_when_secure_transport_is_enabled() {
     assert!(matches!(
         serde_json::from_slice::<SecureFrame>(&bounced).unwrap(),
         SecureFrame::BootstrapDiagnostic(frame)
-            if frame.message.contains("secure bootstrap is required")
+            if matches!(frame.code, SecureDiagnosticCode::BootstrapRejected)
+                && frame.message.contains("secure bootstrap is required")
     ));
 }
 

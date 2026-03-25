@@ -57,6 +57,46 @@ fn master_transport_paths_are_under_managed_transport_root() {
 }
 
 #[test]
+fn master_api_tls_relative_paths_are_resolved_under_root() {
+    let cfg = MasterConfig::new(write_master_cfg(
+        "config:\n  master:\n    fileserver.models: []\n    api.tls.enabled: true\n    api.tls.cert-file: etc/web/api.crt\n    api.tls.key-file: etc/web/api.key\n    api.tls.ca-file: trust/ca.pem\n    api.tls.allow-insecure: true\n",
+    ))
+    .unwrap();
+
+    assert!(cfg.api_tls_enabled());
+    assert_eq!(cfg.api_tls_cert_file().unwrap(), cfg.root_dir().join("etc/web/api.crt"));
+    assert_eq!(cfg.api_tls_key_file().unwrap(), cfg.root_dir().join("etc/web/api.key"));
+    assert_eq!(cfg.api_tls_ca_file().unwrap(), cfg.root_dir().join("trust/ca.pem"));
+    assert!(cfg.api_tls_allow_insecure());
+}
+
+#[test]
+fn master_api_tls_absolute_paths_stay_absolute() {
+    let cfg = MasterConfig::new(write_master_cfg(
+        "config:\n  master:\n    fileserver.models: []\n    api.tls.cert-file: /srv/tls/api.crt\n    api.tls.key-file: /srv/tls/api.key\n    api.tls.ca-file: /srv/tls/ca.pem\n",
+    ))
+    .unwrap();
+
+    assert_eq!(cfg.api_tls_cert_file().unwrap(), std::path::PathBuf::from("/srv/tls/api.crt"));
+    assert_eq!(cfg.api_tls_key_file().unwrap(), std::path::PathBuf::from("/srv/tls/api.key"));
+    assert_eq!(cfg.api_tls_ca_file().unwrap(), std::path::PathBuf::from("/srv/tls/ca.pem"));
+    assert!(!cfg.api_tls_enabled());
+    assert!(!cfg.api_tls_allow_insecure());
+}
+
+#[test]
+fn master_api_doc_defaults_preserve_current_behavior() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
+
+    assert!(cfg.api_doc_enabled());
+}
+
+#[test]
+fn master_api_doc_config_overrides_defaults() {
+    assert!(!MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n    api.doc: false\n")).unwrap().api_doc_enabled());
+}
+
+#[test]
 fn minion_transport_paths_are_under_managed_transport_root() {
     let mut cfg = MinionConfig::default();
     cfg.set_root_dir("/srv/sysinspect");

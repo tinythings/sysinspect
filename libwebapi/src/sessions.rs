@@ -1,9 +1,13 @@
 //! In-memory Web API sessions.
 
+#[cfg(test)]
+#[path = "sessions_ut.rs"]
+mod sessions_ut;
+
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 pub struct Session {
     pub uid: String,
@@ -47,14 +51,35 @@ impl SessionStore {
     pub fn open(&mut self, uid: String) -> Result<String, libcommon::SysinspectError> {
         reap_expired!(self);
 
-        if let Some(esid) = self.sessions.iter().find_map(|(sid, s)| if s.uid == uid { Some(sid.clone()) } else { None }) {
-            self.sessions.remove(&esid);
-        }
+        self.close_uid_session(&uid);
 
         let sid = uuid::Uuid::new_v4().to_string();
         self.sessions.insert(sid.clone(), Session { uid, created: Instant::now(), timeout: self.default_timeout });
 
         Ok(sid)
+    }
+
+    pub(crate) fn open_with_sid(&mut self, uid: String, sid: String) -> Result<String, libcommon::SysinspectError> {
+        reap_expired!(self);
+
+        if sid.trim().is_empty() {
+            return Err(libcommon::SysinspectError::WebAPIError("Session ID cannot be empty".to_string()));
+        }
+
+        if self.sessions.get(&sid).is_some_and(|session| session.uid != uid) {
+            return Err(libcommon::SysinspectError::WebAPIError("Session ID is already bound to a different user".to_string()));
+        }
+
+        self.close_uid_session(&uid);
+        self.sessions.insert(sid.clone(), Session { uid, created: Instant::now(), timeout: self.default_timeout });
+
+        Ok(sid)
+    }
+
+    fn close_uid_session(&mut self, uid: &str) {
+        if let Some(esid) = self.sessions.iter().find_map(|(sid, session)| (session.uid == uid).then(|| sid.clone())) {
+            self.sessions.remove(&esid);
+        }
     }
 
     /// Returns the user ID associated with the session ID, if it exists and not expired.

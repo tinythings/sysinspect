@@ -13,13 +13,17 @@ use libsysinspect::{
 use libsysproto::{
     MasterMessage, MinionMessage, ProtoConversion,
     rqtypes::RequestType,
-    secure::{SecureBootstrapHello, SecureFrame, SecureSessionBinding},
+    secure::{SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureFrame, SecureSessionBinding},
 };
 use rsa::RsaPublicKey;
 use std::{
     collections::{HashMap, HashSet},
     time::{Duration as StdDuration, Instant},
 };
+
+#[cfg(test)]
+#[path = "transport_ut.rs"]
+mod transport_ut;
 
 const BOOTSTRAP_MALFORMED_WINDOW: StdDuration = StdDuration::from_secs(30);
 const BOOTSTRAP_REPLAY_WINDOW: StdDuration = StdDuration::from_secs(300);
@@ -105,7 +109,7 @@ impl PeerTransport {
     pub(crate) fn plaintext_diag(data: &[u8]) -> Option<Vec<u8>> {
         match serde_json::from_slice::<MinionMessage>(data) {
             Ok(req) if matches!(req.req_type(), RequestType::Add) => None,
-            Ok(_) => serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
+            Ok(_) => serde_json::to_vec(&SecureBootstrapDiagnostics::bootstrap_rejected(
                 "Plaintext minion traffic is not allowed; secure bootstrap is required",
             ))
             .ok(),
@@ -132,8 +136,8 @@ impl PeerTransport {
                 .ok_or_else(|| SysinspectError::ProtoError(format!("Peer transport state for {peer_addr} disappeared")))?
                 .channel
                 .open_bytes(raw);
-            if decoded.is_err() {
-                log::warn!("Session for peer {} became invalid; dropping channel state", peer_addr);
+            if let Err(err) = &decoded {
+                log::warn!("Session for peer {} became invalid: {}; dropping channel state", peer_addr, err);
                 self.peers.remove(peer_addr);
             }
             return decoded.map(IncomingFrame::Forward);
@@ -147,7 +151,16 @@ impl PeerTransport {
         if let Some(diag) = Self::plaintext_diag(raw) {
             return Ok(IncomingFrame::Reply(diag));
         }
-        Ok(IncomingFrame::Forward(raw.to_vec()))
+        match serde_json::from_slice::<MinionMessage>(raw) {
+            Ok(req) if matches!(req.req_type(), RequestType::Add) => Ok(IncomingFrame::Forward(raw.to_vec())),
+            Ok(_) => Ok(IncomingFrame::Reply(
+                serde_json::to_vec(&SecureBootstrapDiagnostics::bootstrap_rejected(
+                    "Plaintext minion traffic is not allowed; secure bootstrap is required",
+                ))
+                .map_err(SysinspectError::from)?,
+            )),
+            Err(_) => Err(SysinspectError::ProtoError("Unsupported pre-bootstrap peer traffic".to_string())),
+        }
     }
 
     /// Accept a bootstrap hello from a registered minion and store the resulting session for that peer.
@@ -155,6 +168,19 @@ impl PeerTransport {
         &mut self, peer_addr: &str, hello: &SecureBootstrapHello, cfg: &MasterConfig, mkr: &mut MinionsKeyRegistry,
     ) -> Result<Vec<u8>, SysinspectError> {
         let now = Instant::now();
+        if hello.supported_versions.is_empty() {
+            return serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
+                "Secure bootstrap hello did not advertise any supported protocol versions",
+            ))
+            .map_err(SysinspectError::from);
+        }
+        if !hello.supported_versions.iter().any(|version| SECURE_SUPPORTED_PROTOCOL_VERSIONS.contains(version)) {
+            return serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(format!(
+                "No common secure transport protocol version exists between peer {:?} and local {:?}",
+                hello.supported_versions, SECURE_SUPPORTED_PROTOCOL_VERSIONS
+            )))
+            .map_err(SysinspectError::from);
+        }
         if self.peers.iter().any(|(addr, peer)| addr != peer_addr && peer.minion_id == hello.binding.minion_id) {
             log::warn!("Rejecting duplicate bootstrap for minion {} from {}", hello.binding.minion_id, peer_addr);
             return serde_json::to_vec(&SecureBootstrapDiagnostics::duplicate_session(format!(
@@ -172,7 +198,7 @@ impl PeerTransport {
             .ok_or_else(|| SysinspectError::ProtoError(format!("No managed transport state exists for {}", hello.binding.minion_id)))?;
         let master_prk = mkr.master_private_key()?;
         let minion_pbk = mkr.minion_public_key(&hello.binding.minion_id)?;
-        let (bootstrap, ack) = SecureBootstrapSession::accept(
+        let (bootstrap, ack) = match SecureBootstrapSession::accept(
             &state,
             hello,
             &master_prk,
@@ -180,17 +206,29 @@ impl PeerTransport {
             None,
             state.active_key_id.clone().or_else(|| state.last_key_id.clone()),
             None,
-        )?;
+        ) {
+            Ok(result) => result,
+            Err(err) => {
+                log::warn!(
+                    "Secure bootstrap authentication failed for minion {} from {}: {}",
+                    hello.binding.minion_id,
+                    peer_addr,
+                    err
+                );
+                return Err(err);
+            }
+        };
         Self::record_bootstrap_replay(&mut self.bootstrap_replay_cache, &hello.binding, now);
 
         Self::promote_bootstrap_key(cfg, mkr, &mut state, hello, bootstrap.key_id())?;
         TransportStore::for_master_minion(cfg, &hello.binding.minion_id)?.save(&state)?;
         log::info!(
-            "Session established for minion {} from {} using key {} and protocol v{}",
+            "Session established for minion {} from {} using key {} and protocol v{} (rotation state: {:?})",
             hello.binding.minion_id,
             peer_addr,
             bootstrap.key_id(),
-            hello.binding.protocol_version
+            hello.binding.protocol_version,
+            state.rotation
         );
         self.peers.insert(
             peer_addr.to_string(),
@@ -250,7 +288,25 @@ impl PeerTransport {
             let _ = rotator.retire_elapsed_keys(Utc::now(), overlap)?;
             *state = rotator.state().clone();
             state.set_pending_rotation_context(None);
+            log::info!(
+                "Applied staged transport rotation for {} using key {} with {}s overlap",
+                hello.binding.minion_id,
+                bootstrap_key_id,
+                payload.grace_seconds
+            );
             return Ok(());
+        }
+        if let Some(context) = state.pending_rotation_context.clone()
+            && let Ok(payload) = serde_json::from_str::<RotationCommandPayload>(&context)
+            && payload.intent.intent().next_key_id() != bootstrap_key_id
+        {
+            log::warn!(
+                "Minion {} bootstrapped with key {} while staged rotation expects {}; leaving rotation state as {:?}",
+                hello.binding.minion_id,
+                bootstrap_key_id,
+                payload.intent.intent().next_key_id(),
+                state.rotation
+            );
         }
         state.upsert_key(bootstrap_key_id, libsysinspect::transport::TransportKeyStatus::Active);
         Ok(())
