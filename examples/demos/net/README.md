@@ -127,3 +127,67 @@ When a route changes, the sensor emits one of:
 - `default-added`
 - `default-removed`
 - `default-changed`
+
+## Net Wi-Fi Demo
+
+### Purpose
+
+This demo also includes the new `net.wifi` sensor from `libsensors`.
+
+The sensor watches Wi-Fi state through `omnitrace/nettools` and emits stable
+JSON events for connect, disconnect, and change transitions.
+
+### Files
+
+- `sensors.cfg` example sensor configuration for `net.wifi`
+
+### Config Shape
+
+`net.wifi` currently supports:
+
+- `listener: net.wifi`
+- `interval` poll interval for Wi-Fi sampling
+- `opts` Wi-Fi transition filters:
+  `connected`, `disconnected`, `changed`
+- `args.locked` enable duplicate suppression through the event id hub
+- `tag` optional listener tag, added as `@tag` in the listener id and event id
+
+### Emitted Payload
+
+The sensor emits the usual `libsensors` envelope.
+
+For example:
+
+```json
+{
+  "eid": "wifi-watch|net.wifi|connected@wlan0|0",
+  "sensor": "wifi-watch",
+  "listener": "net.wifi",
+  "data": {
+    "action": "connected",
+    "wifi": {
+      "iface": "wlan0",
+      "connected": true,
+      "link_quality": 42.0,
+      "signal_level_dbm": -61.0,
+      "noise_level_dbm": -95.0,
+      "ssid": "garage-ap",
+      "bssid": "aa:bb:cc:dd:ee:ff"
+    }
+  }
+}
+```
+
+### How To Run
+
+Load the demo config from this directory with the normal `libsensors` or
+`sysinspect` sensor loading flow, then move between Wi-Fi conditions, roam, or
+connect and disconnect the interface.
+
+### Expected Result
+
+When Wi-Fi state changes, the sensor emits one of:
+
+- `connected`
+- `disconnected`
+- `changed`
