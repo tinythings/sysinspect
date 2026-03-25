@@ -11,7 +11,7 @@ use libsysinspect::{
 use libsysproto::{
     MasterMessage, ProtoConversion,
     rqtypes::RequestType,
-    secure::{SECURE_PROTOCOL_VERSION, SecureFrame},
+    secure::{SECURE_PROTOCOL_VERSION, SecureDiagnosticCode, SecureFrame},
 };
 use rsa::RsaPublicKey;
 
@@ -139,7 +139,9 @@ fn plaintext_diag_rejects_non_registration_traffic() {
 
     assert!(matches!(
         serde_json::from_slice::<SecureFrame>(&diag).unwrap(),
-        SecureFrame::BootstrapDiagnostic(frame) if frame.message.contains("secure bootstrap is required")
+        SecureFrame::BootstrapDiagnostic(frame)
+            if matches!(frame.code, SecureDiagnosticCode::BootstrapRejected)
+                && frame.message.contains("secure bootstrap is required")
     ));
 }
 
