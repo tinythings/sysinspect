@@ -3,12 +3,15 @@ pub mod ifacenotify;
 pub mod menotify;
 pub mod mountnotify;
 pub mod netnotify;
+pub mod net_hostname;
 pub mod procnotify;
 pub mod sensor;
 pub mod socknotify;
 
 #[cfg(test)]
 mod ifacenotify_ut;
+#[cfg(test)]
+mod net_hostname_ut;
 mod net_ut;
 #[cfg(test)]
 mod proc_ut;
@@ -39,6 +42,7 @@ pub fn init_registry() {
     REGISTRY.insert(procnotify::ProcessSensor::id(), |sid: String, cfg: SensorConf| Box::new(procnotify::ProcessSensor::new(sid, cfg)));
     REGISTRY.insert(mountnotify::MountSensor::id(), |sid: String, cfg: SensorConf| Box::new(mountnotify::MountSensor::new(sid, cfg)));
     REGISTRY.insert(netnotify::NetNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(netnotify::NetNotifySensor::new(sid, cfg)));
+    REGISTRY.insert(net_hostname::NetHostnameSensor::id(), |sid: String, cfg: SensorConf| Box::new(net_hostname::NetHostnameSensor::new(sid, cfg)));
     REGISTRY.insert(ifacenotify::IfaceSensor::id(), |sid: String, cfg: SensorConf| Box::new(ifacenotify::IfaceSensor::new(sid, cfg)));
     REGISTRY.insert(menotify::MeNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(menotify::MeNotifySensor::new(sid, cfg)));
     REGISTRY.insert(socknotify::SockTraySensor::id(), |sid: String, cfg: SensorConf| Box::new(socknotify::SockTraySensor::new(sid, cfg)));

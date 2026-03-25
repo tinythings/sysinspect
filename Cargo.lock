@@ -2280,7 +2280,6 @@ dependencies = [
 [[package]]
 name = "filescream"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -3213,7 +3212,6 @@ dependencies = [
 [[package]]
 name = "iface"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -3904,6 +3902,7 @@ dependencies = [
  "libsysinspect",
  "log",
  "netpacket",
+ "nettools",
  "omnitrace-core",
  "procdog",
  "serde",
@@ -4547,7 +4546,6 @@ dependencies = [
 [[package]]
 name = "netpacket"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -4556,6 +4554,20 @@ dependencies = [
  "log",
  "omnitrace-core",
  "pnet",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "nettools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitflags 2.11.0",
+ "libc",
+ "log",
+ "omnitrace-core",
  "serde",
  "serde_json",
  "tokio",
@@ -4783,7 +4795,6 @@ dependencies = [
 [[package]]
 name = "omnitrace-core"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -5631,7 +5642,6 @@ dependencies = [
 [[package]]
 name = "procdog"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -7554,7 +7564,6 @@ dependencies = [
 [[package]]
 name = "socktray"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
@@ -10393,7 +10402,6 @@ checksum = "b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a"
 [[package]]
 name = "xmount"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#1db45b2c736f45d021df2da405041b36b62b6a62"
 dependencies = [
  "async-trait",
  "bitflags 2.11.0",
