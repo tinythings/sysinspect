@@ -355,11 +355,17 @@ async fn https_swagger_ui_is_not_available_when_api_doc_is_disabled() {
 
 #[tokio::test]
 async fn https_openapi_json_is_available_when_api_doc_is_enabled() {
-    let (base, _, handle) = spawn_https_server(true, true, false).await;
+    let (base, _, handle) = spawn_https_server(false, true, false).await;
     let response = trusted_client().get(format!("{base}/api-doc/openapi.json")).send().await.unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     assert_eq!(response.headers().get(reqwest::header::CONTENT_TYPE).unwrap(), "application/json");
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["components"]["securitySchemes"]["bearer_auth"]["type"], "http");
+    assert_eq!(body["components"]["securitySchemes"]["bearer_auth"]["scheme"], "bearer");
+    assert!(body["info"]["description"].as_str().unwrap().contains("Use HTTPS/TLS for all requests"));
+    assert!(body["info"]["description"].as_str().unwrap().contains("POST /api/v1/authenticate"));
+    assert!(body["info"]["description"].as_str().unwrap().contains("api.doc"));
     handle.abort();
 }
 
@@ -369,6 +375,23 @@ async fn https_openapi_json_is_not_available_when_api_doc_is_disabled() {
     let response = trusted_client().get(format!("{base}/api-doc/openapi.json")).send().await.unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn https_openapi_json_in_dev_mode_mentions_development_auth_behavior() {
+    let (base, _, handle) = spawn_https_server(true, true, false).await;
+    let body = trusted_client()
+        .get(format!("{base}/api-doc/openapi.json"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    assert!(body["info"]["description"].as_str().unwrap().contains("Development mode is enabled"));
+    assert!(body["info"]["description"].as_str().unwrap().contains("development token"));
     handle.abort();
 }
 

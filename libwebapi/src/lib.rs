@@ -54,6 +54,12 @@ fn advertised_doc_message(bind_addr: &str, bind_port: u32, tls_enabled: bool, do
     "Embedded Web API enabled. API documentation is not enabled.".to_string()
 }
 
+fn devmode_doc_warning_message(dev_mode: bool, doc_enabled: bool) -> Option<String> {
+    (dev_mode && doc_enabled).then(|| {
+        "Embedded Web API is running with api.devmode=true while API documentation is enabled. Swagger UI reflects development authentication behavior and should not be exposed in production.".to_string()
+    })
+}
+
 fn tls_context_summary(cfg: &MasterConfig) -> String {
     format!(
         "doc={}, client-auth={}, {}",
@@ -208,6 +214,9 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
         log::info!("Starting embedded Web API inside sysmaster at {} over {}", listen_addr.bright_yellow(), "HTTPS/TLS");
         log::info!("{}", advertised_doc_message(&bind_addr, bind_port, true, ccfg.api_doc_enabled()).yellow());
         log::info!("Embedded Web API TLS context: {}", tls_context_summary(&ccfg));
+        if let Some(msg) = devmode_doc_warning_message(devmode, ccfg.api_doc_enabled()) {
+            log::warn!("{msg}");
+        }
         if ccfg.api_tls_allow_insecure() {
             log::warn!("{}", tls_self_signed_warning_message());
         }

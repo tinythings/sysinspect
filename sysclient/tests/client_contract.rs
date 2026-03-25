@@ -46,7 +46,7 @@ async fn spawn_http_server() -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std
     let datastore = Arc::new(Mutex::new(DataStorage::new(DataStorageConfig::new(), root.path().join("datastore")).unwrap()));
     let master: MasterInterfaceType = Arc::new(Mutex::new(TestMaster { cfg, queries: Arc::clone(&queries), datastore }));
     let server = HttpServer::new(move || {
-        let scope = api::get(true, ApiVersions::V1).unwrap().load(web::scope(""));
+        let scope = api::get(true, true, ApiVersions::V1).unwrap().load(web::scope(""));
         App::new().app_data(web::Data::new(master.clone())).service(scope)
     })
     .bind(("127.0.0.1", 0))

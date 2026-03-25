@@ -1,4 +1,4 @@
-use super::{advertised_doc_message, advertised_doc_url, load_tls_server_config, tls_context_summary, tls_paths_summary, tls_self_signed_warning_message, tls_setup_err_message};
+use super::{advertised_doc_message, advertised_doc_url, devmode_doc_warning_message, load_tls_server_config, tls_context_summary, tls_paths_summary, tls_self_signed_warning_message, tls_setup_err_message};
 use libsysinspect::cfg::mmconf::MasterConfig;
 use std::{fs, path::Path, path::PathBuf};
 
@@ -49,6 +49,13 @@ fn advertised_doc_message_reports_when_docs_are_disabled() {
         advertised_doc_message("127.0.0.1", 4202, true, false),
         "Embedded Web API enabled. API documentation is not enabled.".to_string()
     );
+}
+
+#[test]
+fn devmode_doc_warning_is_present_only_when_docs_are_exposed_in_dev_mode() {
+    assert!(devmode_doc_warning_message(true, true).unwrap().contains("api.devmode=true"));
+    assert_eq!(devmode_doc_warning_message(true, false), None);
+    assert_eq!(devmode_doc_warning_message(false, true), None);
 }
 
 #[test]
