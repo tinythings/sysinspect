@@ -2,6 +2,7 @@ pub mod fsnotify;
 pub mod ifacenotify;
 pub mod menotify;
 pub mod mountnotify;
+pub mod net_health;
 pub mod net_route;
 pub mod net_throughput;
 pub mod net_wifi;
@@ -13,6 +14,8 @@ pub mod socknotify;
 
 #[cfg(test)]
 mod ifacenotify_ut;
+#[cfg(test)]
+mod net_health_ut;
 #[cfg(test)]
 mod net_hostname_ut;
 #[cfg(test)]
@@ -50,6 +53,7 @@ pub fn init_registry() {
     REGISTRY.insert(fsnotify::FsNotifySensor::id(), |sid: String, cfg: SensorConf| Box::new(fsnotify::FsNotifySensor::new(sid, cfg)));
     REGISTRY.insert(procnotify::ProcessSensor::id(), |sid: String, cfg: SensorConf| Box::new(procnotify::ProcessSensor::new(sid, cfg)));
     REGISTRY.insert(mountnotify::MountSensor::id(), |sid: String, cfg: SensorConf| Box::new(mountnotify::MountSensor::new(sid, cfg)));
+    REGISTRY.insert(net_health::NetHealthSensor::id(), |sid: String, cfg: SensorConf| Box::new(net_health::NetHealthSensor::new(sid, cfg)));
     REGISTRY.insert(net_route::NetRouteSensor::id(), |sid: String, cfg: SensorConf| Box::new(net_route::NetRouteSensor::new(sid, cfg)));
     REGISTRY.insert(net_throughput::NetThroughputSensor::id(), |sid: String, cfg: SensorConf| Box::new(net_throughput::NetThroughputSensor::new(sid, cfg)));
     REGISTRY.insert(net_wifi::NetWifiSensor::id(), |sid: String, cfg: SensorConf| Box::new(net_wifi::NetWifiSensor::new(sid, cfg)));
