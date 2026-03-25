@@ -52,7 +52,7 @@ impl Display for QueryError {
     }
 }
 
-pub(crate) fn authorize_request(req: &HttpRequest) -> Result<String, SysinspectError> {
+pub(crate) async fn authorise_request(req: &HttpRequest) -> Result<String, SysinspectError> {
     let header = req
         .headers()
         .get(actix_web::http::header::AUTHORIZATION)
@@ -66,7 +66,7 @@ pub(crate) fn authorize_request(req: &HttpRequest) -> Result<String, SysinspectE
         return Err(SysinspectError::WebAPIError("Bearer token cannot be empty".to_string()));
     }
 
-    let mut sessions = get_session_store().lock().unwrap();
+    let mut sessions = get_session_store().lock().await;
     match sessions.uid(token) {
         Some(uid) => {
             sessions.ping(token);
@@ -92,7 +92,7 @@ pub(crate) fn authorize_request(req: &HttpRequest) -> Result<String, SysinspectE
 )]
 #[post("/api/v1/query")]
 async fn query_handler(req: HttpRequest, master: Data<MasterInterfaceType>, body: Json<QueryRequest>) -> Result<Json<QueryResponse>> {
-    if let Err(e) = authorize_request(&req) {
+    if let Err(e) = authorise_request(&req).await {
         use actix_web::http::StatusCode;
         let err_body = Json(QueryError { status: "error".to_string(), error: e.to_string() });
         return Err(actix_web::error::InternalError::new(err_body, StatusCode::UNAUTHORIZED).into());

@@ -109,7 +109,7 @@ impl PeerTransport {
     pub(crate) fn plaintext_diag(data: &[u8]) -> Option<Vec<u8>> {
         match serde_json::from_slice::<MinionMessage>(data) {
             Ok(req) if matches!(req.req_type(), RequestType::Add) => None,
-            Ok(_) => serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
+            Ok(_) => serde_json::to_vec(&SecureBootstrapDiagnostics::bootstrap_rejected(
                 "Plaintext minion traffic is not allowed; secure bootstrap is required",
             ))
             .ok(),
@@ -154,7 +154,7 @@ impl PeerTransport {
         match serde_json::from_slice::<MinionMessage>(raw) {
             Ok(req) if matches!(req.req_type(), RequestType::Add) => Ok(IncomingFrame::Forward(raw.to_vec())),
             Ok(_) => Ok(IncomingFrame::Reply(
-                serde_json::to_vec(&SecureBootstrapDiagnostics::unsupported_version(
+                serde_json::to_vec(&SecureBootstrapDiagnostics::bootstrap_rejected(
                     "Plaintext minion traffic is not allowed; secure bootstrap is required",
                 ))
                 .map_err(SysinspectError::from)?,

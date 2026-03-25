@@ -1,4 +1,4 @@
-use crate::{MasterInterfaceType, api::v1::{TAG_MODELS, minions::authorize_request}};
+use crate::{MasterInterfaceType, api::v1::{TAG_MODELS, minions::authorise_request}};
 use actix_web::{
     HttpRequest, HttpResponse, Result, get,
     web::{Data, Query},
@@ -103,7 +103,7 @@ pub struct ModelNameResponse {
 #[allow(unused)]
 #[get("/api/v1/model/names")]
 pub async fn model_names_handler(req: HttpRequest, master: Data<MasterInterfaceType>) -> Result<HttpResponse> {
-    if let Err(err) = authorize_request(&req) {
+    if let Err(err) = authorise_request(&req).await {
         return Ok(HttpResponse::Unauthorized().json(ModelResponseError { error: err.to_string() }));
     }
     let mut master = master.lock().await;
@@ -132,7 +132,7 @@ pub async fn model_names_handler(req: HttpRequest, master: Data<MasterInterfaceT
 #[allow(unused)]
 #[get("/api/v1/model/descr")]
 pub async fn model_descr_handler(req: HttpRequest, master: Data<MasterInterfaceType>, query: Query<IndexMap<String, String>>) -> Result<HttpResponse> {
-    if let Err(err) = authorize_request(&req) {
+    if let Err(err) = authorise_request(&req).await {
         return Ok(HttpResponse::Unauthorized().json(ModelResponseError { error: err.to_string() }));
     }
     let mid = query.get("name").cloned().unwrap_or_default(); // Model Id

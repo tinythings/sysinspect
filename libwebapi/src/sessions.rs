@@ -6,8 +6,8 @@ mod sessions_ut;
 
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 pub struct Session {
     pub uid: String,

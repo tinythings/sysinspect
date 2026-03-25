@@ -71,11 +71,7 @@ fn tls_context_summary(cfg: &MasterConfig) -> String {
 
 /// Returns a user-friendly error message about TLS setup for WebAPI, pointing to the relevant documentation section.
 pub(crate) fn tls_setup_err_message() -> String {
-    format!(
-        "TLS is not setup for WebAPI. For more information, see Documentation chapter \"{}\", section \"{}\".",
-        "Configuration".bright_yellow(),
-        "api.tls.enabled".bright_yellow()
-    )
+    "TLS is not setup for WebAPI. For more information, see Documentation chapter \"Configuration\", section \"api.tls.enabled\".".to_string()
 }
 
 /// Returns a user-friendly warning message about using a self-signed TLS certificate for WebAPI, pointing to the relevant configuration option.
@@ -184,14 +180,24 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
     }
 
     if !cfg.api_tls_enabled() {
-        log::error!("{}", tls_setup_err_message());
+        log::error!(
+            "{}",
+            "TLS is not setup for WebAPI. For more information, see Documentation chapter \"Configuration\", section \"api.tls.enabled\"."
+                .replace("\"Configuration\"", &format!("\"{}\"", "Configuration".bright_yellow()))
+                .replace("\"api.tls.enabled\"", &format!("\"{}\"", "api.tls.enabled".bright_yellow()))
+        );
         return Ok(());
     }
 
     let tls_config = match load_tls_server_config(&cfg) {
         Ok(tls_config) => tls_config,
         Err(err) => {
-            log::error!("{}", tls_setup_err_message());
+            log::error!(
+                "{}",
+                "TLS is not setup for WebAPI. For more information, see Documentation chapter \"Configuration\", section \"api.tls.enabled\"."
+                    .replace("\"Configuration\"", &format!("\"{}\"", "Configuration".bright_yellow()))
+                    .replace("\"api.tls.enabled\"", &format!("\"{}\"", "api.tls.enabled".bright_yellow()))
+            );
             log::error!("Embedded Web API TLS setup error: {err}");
             log::error!("Embedded Web API TLS context: {}", tls_context_summary(&cfg));
             return Ok(());

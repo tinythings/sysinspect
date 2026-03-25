@@ -66,9 +66,9 @@ pub struct AuthRequest {
 }
 
 impl AuthRequest {
-    pub fn pam_auth(username: String, password: String) -> Result<String, String> {
+    pub async fn pam_auth(username: String, password: String) -> Result<String, String> {
         pamauth::authenticate(&username, &password).map_err(|err| format!("Authentication failed: {err}"))?;
-        get_session_store().lock().unwrap().open(username.clone()).map_err(|e| format!("Session error: {e}"))
+        get_session_store().lock().await.open(username.clone()).map_err(|e| format!("Session error: {e}"))
     }
 }
 
@@ -105,7 +105,7 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceType>, body: 
     let cfg = master.cfg().await;
     if cfg.api_devmode() {
         log::warn!("Web API development auth bypass is enabled, returning static token.");
-        return match get_session_store().lock().unwrap().open_with_sid("dev".into(), "dev-token".into()) {
+        return match get_session_store().lock().await.open_with_sid("dev".into(), "dev-token".into()) {
             Ok(token) => HttpResponse::Ok().json(AuthResponse {
                 status: "authenticated".into(),
                 access_token: token,
@@ -121,7 +121,7 @@ pub async fn authenticate_handler(master: web::Data<MasterInterfaceType>, body: 
     }
 
     if cfg.api_auth() == Pam {
-        match AuthRequest::pam_auth(body.username.clone(), body.password.clone()) {
+        match AuthRequest::pam_auth(body.username.clone(), body.password.clone()).await {
             Ok(token) => HttpResponse::Ok().json(AuthResponse {
                 status: "authenticated".into(),
                 access_token: token,

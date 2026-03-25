@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::{MasterInterfaceType, api::v1::minions::authorize_request};
+use crate::{MasterInterfaceType, api::v1::minions::authorise_request};
 use actix_files::NamedFile;
 use actix_web::Result as ActixResult;
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
@@ -35,7 +35,7 @@ pub struct StoreErrorResponse {
     pub error: String,
 }
 
-fn unauthorized_store_error(err: libcommon::SysinspectError) -> actix_web::Error {
+fn unauthorised_store_error(err: libcommon::SysinspectError) -> actix_web::Error {
     let msg = err.to_string();
     actix_web::error::InternalError::from_response(
         err,
@@ -84,7 +84,7 @@ fn get_meta_files(root: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
 )]
 #[get("/store/{sha256:[0-9a-fA-F]{64}}")]
 pub async fn store_meta_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> impl Responder {
-    if let Err(err) = authorize_request(&req) {
+    if let Err(err) = authorise_request(&req).await {
         return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
     }
     let ds = {
@@ -127,7 +127,7 @@ pub async fn store_meta_handler(req: HttpRequest, master: web::Data<MasterInterf
 )]
 #[get("/store/{sha256:[0-9a-fA-F]{64}}/blob")]
 pub async fn store_blob_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, sha256: web::Path<String>) -> ActixResult<NamedFile> {
-    authorize_request(&req).map_err(unauthorized_store_error)?;
+    authorise_request(&req).await.map_err(unauthorised_store_error)?;
     let ds = {
         let m = master.lock().await;
         m.datastore().await
@@ -164,7 +164,7 @@ pub async fn store_blob_handler(req: HttpRequest, master: web::Data<MasterInterf
 )]
 #[post("/store")]
 pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data<MasterInterfaceType>, mut payload: web::Payload) -> impl Responder {
-    if let Err(err) = authorize_request(&req) {
+    if let Err(err) = authorise_request(&req).await {
         return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
     }
     // full path goes into fname (as you demanded)
@@ -271,7 +271,7 @@ pub async fn store_upload_handler(req: actix_web::HttpRequest, master: web::Data
 )]
 #[get("/store/resolve")]
 pub async fn store_resolve_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, q: web::Query<StoreResolveQuery>) -> impl Responder {
-    if let Err(err) = authorize_request(&req) {
+    if let Err(err) = authorise_request(&req).await {
         return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
     }
     let (root, want) = {
@@ -352,7 +352,7 @@ pub async fn store_resolve_handler(req: HttpRequest, master: web::Data<MasterInt
 )]
 #[get("/store/list")]
 pub async fn store_list_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>, q: web::Query<StoreListQuery>) -> impl Responder {
-    if let Err(err) = authorize_request(&req) {
+    if let Err(err) = authorise_request(&req).await {
         return HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() });
     }
     let (root, prefix, limit) = {
