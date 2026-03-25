@@ -36,7 +36,7 @@ Master:
 - ``master.rsa.pub``: master RSA public key
 - ``console.rsa``: local console private key
 - ``console.rsa.pub``: local console public key
-- ``console-keys/``: authorized console client public keys
+- ``console-keys/``: authorised console client public keys
 - ``transport/minions/<minion-id>/state.json``: managed transport state for
   one minion
 
