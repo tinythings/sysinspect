@@ -48,4 +48,12 @@ sensors:
         let listener = cfg.listener().to_string();
         assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
     }
+
+    #[test]
+    fn net_route_is_registered() {
+        sensors::init_registry();
+        let (sid, cfg) = cfg_for("net.route");
+        let listener = cfg.listener().to_string();
+        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+    }
 }
