@@ -14,6 +14,9 @@ use utoipa::OpenApi;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa_swagger_ui::SwaggerUi;
 
+#[cfg(test)]
+mod mod_ut;
+
 pub mod minions;
 pub mod model;
 pub mod store;
@@ -51,6 +54,10 @@ impl V1 {
         V1 { dev_mode, doc_enabled }
     }
 
+    fn docs_are_enabled(&self) -> bool {
+        self.doc_enabled
+    }
+
     fn api_scope(&self, scope: Scope) -> Scope {
         scope
             .service(query_handler)
@@ -72,11 +79,20 @@ impl V1 {
             SwaggerUi::new("/doc/{_:.*}").url("/api-doc/openapi.json", ApiDoc::openapi())
         }
     }
+
+    #[cfg(test)]
+    fn openapi_document(&self) -> utoipa::openapi::OpenApi {
+        if self.dev_mode {
+            return ApiDocDev::openapi();
+        }
+
+        ApiDoc::openapi()
+    }
 }
 
 impl super::ApiVersion for V1 {
     fn load(&self, scope: Scope) -> Scope {
-        if self.doc_enabled {
+        if self.docs_are_enabled() {
             return self.api_scope(scope).service(self.doc_service());
         }
 
