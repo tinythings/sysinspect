@@ -257,3 +257,69 @@ scp somefile host:/tmp/
 
 When interface counters change, the sensor emits `updated` events with
 calculated byte and packet rates for that interface.
+
+## Net Health Demo
+
+### Purpose
+
+This demo also includes the new `net.health` sensor from `libsensors`.
+
+The sensor watches active probe health through `omnitrace/nettools` and emits
+stable JSON events when health changes between `Healthy`, `Degraded`, and
+`Down`.
+
+### Files
+
+- `sensors.cfg` example sensor configuration for `net.health`
+
+### Config Shape
+
+`net.health` currently supports:
+
+- `listener: net.health`
+- `interval` poll interval for probe rounds
+- `args.targets` required probe targets in `host:port` form
+- `args.window` rolling sample window size
+- `args.timeout` per-probe timeout
+- `args.latency-degraded-ms` degraded latency threshold
+- `args.loss-degraded-pct` degraded loss threshold
+- `args.locked` enable duplicate suppression through the event id hub
+- `tag` optional listener tag, added as `@tag` in the listener id and event id
+
+### Emitted Payload
+
+The sensor emits the usual `libsensors` envelope.
+
+For example:
+
+```json
+{
+  "eid": "health-watch|net.health|changed@degraded|0",
+  "sensor": "health-watch",
+  "listener": "net.health",
+  "data": {
+    "action": "changed",
+    "old": {
+      "level": "Healthy",
+      "avg_rtt_ms": 12,
+      "loss_pct": 0
+    },
+    "new": {
+      "level": "Degraded",
+      "avg_rtt_ms": 180,
+      "loss_pct": 50
+    }
+  }
+}
+```
+
+### How To Run
+
+Load the demo config from this directory with the normal `libsensors` or
+`sysinspect` sensor loading flow, then disturb network connectivity or
+introduce latency and packet loss against the configured targets.
+
+### Expected Result
+
+When health changes, the sensor emits `changed` with the old and new health
+state.
