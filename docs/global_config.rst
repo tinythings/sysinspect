@@ -299,7 +299,23 @@ Below are directives for the configuration of the File Server service:
 
     .. note::
 
-        Swagger UI is served whenever the WebAPI is enabled.
+        Swagger UI is served whenever the WebAPI is enabled and ``api.doc`` is ``true``.
+
+    Default is ``true``.
+
+``api.doc``
+###########
+
+    Type: **boolean**
+
+    Enable or disable the embedded Web API documentation endpoints served by
+    Swagger UI.
+
+    When ``true``, the documentation endpoint is available at
+    ``https://<HOST>:<PORT>/doc/`` on the same HTTPS listener as the Web API.
+
+    When ``false``, Sysinspect keeps the Web API itself enabled but does not
+    expose the Swagger UI or OpenAPI document endpoint.
 
     Default is ``true``.
 

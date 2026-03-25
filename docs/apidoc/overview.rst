@@ -18,6 +18,9 @@ This interface runs on default port **4202**.
 The embedded Web API only starts when TLS is configured correctly under
 ``api.tls.*`` in ``sysinspect.conf``.
 
+The documentation endpoints are controlled by ``api.doc``. When
+``api.doc: false``, ``/doc/`` is not exposed.
+
 Authentication And Requests
 ---------------------------
 

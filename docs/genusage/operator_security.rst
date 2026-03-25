@@ -169,7 +169,7 @@ Behavior:
 - if ``api.enabled`` is ``true`` but TLS is not configured correctly, the Web
   API stays disabled
 - ``sysmaster`` itself keeps running
-- Swagger UI is served over ``https://<host>:4202/doc/`` by default
+- Swagger UI is served over ``https://<host>:4202/doc/`` when ``api.doc`` is ``true``
 
 Re-Registration And Replacement
 -------------------------------
