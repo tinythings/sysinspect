@@ -1,7 +1,7 @@
-``mountnotify``: React to Mount Table Events
+``sys.mount``: React to Mount Table Events
 ============================================
 
-The ``mountnotify`` sensor monitors mount table changes and emits events when
+The ``sys.mount`` sensor monitors mount table changes and emits events when
 filesystems are mounted, unmounted, or changed.
 
 Synopsis
@@ -15,7 +15,7 @@ Sensor configuration as follows:
         [profile]:
           - <id>
         description: <description>
-        listener: mountnotify
+        listener: sys.mount
         opts:
             - <mount event> # mounted | unmounted | changed
         args:
@@ -23,7 +23,7 @@ Sensor configuration as follows:
               - <mountpoint path>
               - <mountpoint path>
             locked: true|false # optional, default false (emit once until handler unlocks)
-        tag: <event name> # optional, default is mountnotify
+        tag: <event name> # optional, default is sys.mount
 
 ``profile``
 ^^^^^^^^^^^
@@ -41,7 +41,7 @@ Sensor configuration as follows:
 ``listener``
 ^^^^^^^^^^^^
 
-    The type of listener used by the sensor. In this case, it is ``mountnotify``.
+    The type of listener used by the sensor. In this case, it is ``sys.mount``.
 
 ``opts``
 ^^^^^^^^
@@ -57,7 +57,7 @@ Sensor configuration as follows:
 ``args``
 ^^^^^^^^
 
-    Arguments specific to ``mountnotify``:
+    Arguments specific to ``sys.mount``:
 
     - ``mountpoints`` (**required**): list of mountpoint paths to watch.
     - ``locked`` (optional): if ``true``, the same event is sent only once and then muted.
@@ -73,7 +73,7 @@ Sensor configuration as follows:
 
     .. code-block:: text
 
-        <sensor-id>|mountnotify[@tag]|<action>@<target>|0
+        <sensor-id>|sys.mount[@tag]|<action>@<target>|0
 
 Example
 -------
@@ -84,7 +84,7 @@ Here is an example of how to monitor ``/`` and ``/mnt/data`` mount changes:
 
     mounts:
         description: Track critical mountpoint changes
-        listener: mountnotify
+        listener: sys.mount
         opts:
             - mounted
             - unmounted

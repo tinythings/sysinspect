@@ -19,7 +19,7 @@ mod loader_scopes_test {
             r#"
 sensors:
   zed:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/z }
 "#,
         );
@@ -30,7 +30,7 @@ sensors:
             r#"
 sensors:
   aaa:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/a }
 "#,
         );
@@ -41,7 +41,7 @@ sensors:
             r#"
 sensors:
   bbb:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/b }
 "#,
         );
@@ -62,7 +62,7 @@ sensors:
             r#"
 sensors:
   root-sensor:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/root }
 "#,
         );
@@ -74,7 +74,7 @@ sensors:
             r#"
 sensors:
   must-not-load:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/nope }
 "#,
         );
@@ -86,7 +86,7 @@ sensors:
             r#"
 sensors:
   nested-ok:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/ok }
 "#,
         );
@@ -110,7 +110,7 @@ sensors:
             r#"
 sensors:
   in-scope:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/in }
 "#,
         );
@@ -121,7 +121,7 @@ sensors:
             r#"
 sensors:
   out-of-scope:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp/out }
 "#,
         );

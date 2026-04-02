@@ -20,7 +20,7 @@ fn rejects_missing_module() {
 #[test]
 fn rejects_wrong_listener_family() {
     assert!(matches!(
-        MeNotifyModuleRef::new("fsnotify.foo").expect_err("listener should fail"),
-        MeNotifyError::InvalidListener(listener) if listener == "fsnotify.foo"
+        MeNotifyModuleRef::new("sys.filesystem.foo").expect_err("listener should fail"),
+        MeNotifyError::InvalidListener(listener) if listener == "sys.filesystem.foo"
     ));
 }

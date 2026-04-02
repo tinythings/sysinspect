@@ -1,7 +1,7 @@
-``socknotify``: React to Socket Open/Close Events
+``net.socket``: React to Socket Open/Close Events
 =================================================
 
-The ``socknotify`` sensor monitors socket table changes and emits events when
+The ``net.socket`` sensor monitors socket table changes and emits events when
 sockets are opened or closed.
 
 Synopsis
@@ -15,7 +15,7 @@ Sensor configuration as follows:
         [profile]:
           - <id>
         description: <description>
-        listener: socknotify
+        listener: net.socket
         opts:
             - <socket event> # opened | closed
         args:
@@ -27,7 +27,7 @@ Sensor configuration as follows:
             dns-ttl: <duration>  # optional, default 60s
             skip-reverse-dns: true|false # optional, default false
             locked: true|false   # optional, default false (emit once until handler unlocks)
-        tag: <event name> # optional, default is socknotify
+        tag: <event name> # optional, default is net.socket
 
 ``opts``
 ^^^^^^^^
@@ -42,7 +42,7 @@ Sensor configuration as follows:
 ``args``
 ^^^^^^^^
 
-    Arguments specific to ``socknotify``:
+    Arguments specific to ``net.socket``:
 
     - ``patterns`` (optional): list of glob patterns applied to the normalized tuple
       ``<proto> <local> <remote> <remote-host> <state>``.
@@ -61,7 +61,7 @@ Sensor configuration as follows:
 
     .. code-block:: text
 
-        <sensor-id>|socknotify[@tag]|<action>@<remote-ip:port>|0
+        <sensor-id>|net.socket[@tag]|<action>@<remote-ip:port>|0
 
 Example
 -------
@@ -70,7 +70,7 @@ Example
 
     sockets:
         description: Watch internet-facing TCP sockets
-        listener: socknotify
+        listener: net.socket
         opts:
             - opened
             - closed

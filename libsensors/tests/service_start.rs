@@ -8,7 +8,7 @@ mod service_start_test {
         let y = r#"
 sensors:
   ok:
-    listener: procnotify
+    listener: sys.proc
   bad:
     listener: listener-does-not-exist
 "#;
@@ -28,7 +28,7 @@ sensors:
         let y = r#"
 sensors:
   p:
-    listener: procnotify
+    listener: sys.proc
 "#;
         let spec = SensorSpec::from_str(y).unwrap();
         let mut svc = SensorService::new(spec);
@@ -46,7 +46,7 @@ sensors:
         let y = r#"
 sensors:
   p:
-    listener: procnotify
+    listener: sys.proc
 "#;
         let spec = SensorSpec::from_str(y).unwrap();
         let svc = SensorService::new(spec);

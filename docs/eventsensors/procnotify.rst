@@ -1,7 +1,7 @@
-``procnotify``: React to Process Events
+``sys.proc``: React to Process Events
 =================================================
 
-The ``procnotify`` sensor is watching for OS process events, such as process creation and termination.
+The ``sys.proc`` sensor is watching for OS process events, such as process creation and termination.
 This sensor is portable across Unix-like systems and can be used to monitor specific processes for
 security, performance, or operational reasons.
 
@@ -17,8 +17,8 @@ Sensor configuration as follows:
           - <id>
 
         description: <description>
-        listener: procnotify
-        tag: <event name> # optional, default is procnotify
+        listener: sys.proc
+        tag: <event name> # optional, default is sys.proc
 
         opts:
             - <process event> # appeared | disappeared | missing
@@ -47,7 +47,7 @@ Sensor configuration as follows:
 ``listener``
 ^^^^^^^^^^^^
 
-    The type of listener used by the sensor. In this case, it is ``procnotify``.
+    The type of listener used by the sensor. In this case, it is ``sys.proc``.
 
 ``opts``
 ^^^^^^^^^^
@@ -62,7 +62,7 @@ Sensor configuration as follows:
 
 ``args``
 ^^^^^^^^^^
-    Arguments specific to the listener. For the ``procnotify`` sensor, the following argument is required:
+    Arguments specific to the listener. For the ``sys.proc`` sensor, the following argument is required:
 
     - ``process``: list of names of the processes to monitor.
     - ``emit-on-start``: Optional argument to specify whether to emit an event immediately upon starting
@@ -95,18 +95,18 @@ Sensor configuration as follows:
 
     .. code-block:: text
 
-        some-id|procnotify@my-tag|appeared@bash|0
+        some-id|sys.proc@my-tag|appeared@bash|0
 
 Example
 -------
 
-Here is an example of how to use the ``procnotify`` sensor to monitor a process for appearance events:
+Here is an example of how to use the ``sys.proc`` sensor to monitor a process for appearance events:
 
 .. code-block:: yaml
 
     ssh_config_change:
         description: Monitor SSH configuration changes
-        listener: procnotify
+        listener: sys.proc
         opts:
             - appeared
         args:
@@ -114,5 +114,5 @@ Here is an example of how to use the ``procnotify`` sensor to monitor a process 
                 - bash
 
         # If defined, an extra tag will be added to the event name:
-        # ssh_config_change|procnotify@my-tag|appeared@bash|0
+        # ssh_config_change|sys.proc@my-tag|appeared@bash|0
         tag: my-tag

@@ -20,6 +20,7 @@ procdog = { git = "https://github.com/tinythings/omnitrace.git", branch = "maste
 netpacket = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
 iface = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
 socktray = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
+nettools = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
 indexmap = { version = "2.13.0", features = ["serde"] }
 lazy_static = "1.5.0"
 log = "0.4.29"

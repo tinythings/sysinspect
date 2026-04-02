@@ -4,14 +4,14 @@ mod registry_test {
     use std::str::FromStr;
 
     #[test]
-    fn test_registry_has_fsnotify_after_init() {
+    fn test_registry_has_sys_filesystem_after_init() {
         sensors::init_registry();
 
         // should be able to create sensor by listener id
         let y = r#"
 sensors:
   ssh-conf:
-    listener: fsnotify
+    listener: sys.filesystem
     opts: [changed]
     args:
       path: /tmp
@@ -22,7 +22,7 @@ sensors:
         let (sid, cfg) = items.iter().next().unwrap();
 
         let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
-        assert!(s.is_some(), "fsnotify must be registered");
+        assert!(s.is_some(), "sys.filesystem must be registered");
     }
 
     #[test]
@@ -90,13 +90,13 @@ sensors:
     }
 
     #[test]
-    fn test_registry_has_ifacenotify_after_init() {
+    fn test_registry_has_net_iface_after_init() {
         sensors::init_registry();
 
         let y = r#"
 sensors:
   netif:
-    listener: ifacenotify
+    listener: net.iface
 "#;
 
         let mut spec = SensorSpec::from_str(y).unwrap();
@@ -104,17 +104,17 @@ sensors:
         let (sid, cfg) = items.iter().next().unwrap();
 
         let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
-        assert!(s.is_some(), "ifacenotify must be registered");
+        assert!(s.is_some(), "net.iface must be registered");
     }
 
     #[test]
-    fn test_registry_has_socknotify_after_init() {
+    fn test_registry_has_net_socket_after_init() {
         sensors::init_registry();
 
         let y = r#"
 sensors:
   sockets:
-    listener: socknotify
+    listener: net.socket
 "#;
 
         let mut spec = SensorSpec::from_str(y).unwrap();
@@ -122,6 +122,6 @@ sensors:
         let (sid, cfg) = items.iter().next().unwrap();
 
         let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
-        assert!(s.is_some(), "socknotify must be registered");
+        assert!(s.is_some(), "net.socket must be registered");
     }
 }

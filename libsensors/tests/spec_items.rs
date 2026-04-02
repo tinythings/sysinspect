@@ -7,10 +7,10 @@ mod spec_items_test {
         let y = r#"
 sensors:
   b:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /tmp }
   a:
-    listener: fsnotify
+    listener: sys.filesystem
     args: { path: /etc }
 "#;
 
@@ -24,7 +24,7 @@ sensors:
         let y = r#"
 not_sensors:
   a:
-    listener: fsnotify
+    listener: sys.filesystem
 "#;
 
         let r = SensorSpec::from_str(y);
