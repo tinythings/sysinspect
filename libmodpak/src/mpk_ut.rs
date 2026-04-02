@@ -95,3 +95,18 @@ library:
     assert!(filtered.contains_key("runtime/lua/reader.lua"));
     assert!(!filtered.contains_key("runtime/py3/reader.py"));
 }
+
+#[test]
+fn minion_index_roundtrip() {
+    let mut repo = ModPakRepoIndex::new();
+    repo.index_minion("linux", "x86_64", PathBuf::from("minion/linux/x86_64/sysminion"), "deadbeef", "0.4.0").expect("minion build should index");
+    let repo = ModPakRepoIndex::from_yaml(&repo.to_yaml().expect("repo index should serialize")).expect("repo index should deserialize");
+
+    let minion = repo.minion();
+    let archset = minion.get("linux").expect("linux minion set should exist");
+    let file = archset.get("x86_64").expect("x86_64 minion build should exist");
+
+    assert_eq!(file.file(), &PathBuf::from("minion/linux/x86_64/sysminion"));
+    assert_eq!(file.checksum(), "deadbeef");
+    assert_eq!(file.version(), "0.4.0");
+}

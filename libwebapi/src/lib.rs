@@ -14,6 +14,7 @@ use x509_parser::prelude::parse_x509_certificate;
 pub mod api;
 #[cfg(test)]
 mod lib_ut;
+#[cfg(feature = "pam")]
 pub mod pamauth;
 pub mod sessions;
 

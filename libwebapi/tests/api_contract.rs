@@ -2,13 +2,20 @@ use actix_web::{App, HttpServer, web};
 use async_trait::async_trait;
 use libdatastore::{cfg::DataStorageConfig, resources::DataStorage};
 use libsysinspect::cfg::mmconf::MasterConfig;
-use libwebapi::{MasterInterface, MasterInterfaceType, api::{self, ApiVersions}};
+use libwebapi::{
+    MasterInterface, MasterInterfaceType,
+    api::{self, ApiVersions},
+};
 use reqwest::{Certificate, Identity};
-use rustls::ServerConfig;
 use rustls::RootCertStore;
+use rustls::ServerConfig;
 use rustls::server::WebPkiClientVerifier;
 use std::{fs, io::BufReader, path::Path, sync::Arc};
-use tokio::{sync::Mutex, task::JoinHandle, time::{Duration, sleep}};
+use tokio::{
+    sync::Mutex,
+    task::JoinHandle,
+    time::{Duration, sleep},
+};
 
 const CERT_PEM: &str = include_str!("data/sysmaster-dev.crt");
 const KEY_PEM: &str = include_str!("data/sysmaster-dev.key");
@@ -55,11 +62,8 @@ fn write_cfg(root: &Path, devmode: bool, doc_enabled: bool) -> MasterConfig {
 }
 
 fn tls_config(require_client_auth: bool) -> ServerConfig {
-    let (server_cert_pem, server_key_pem, ca_cert_pem) = if require_client_auth {
-        (MTLS_SERVER_CERT_PEM, MTLS_SERVER_KEY_PEM, Some(MTLS_CA_CERT_PEM))
-    } else {
-        (CERT_PEM, KEY_PEM, None)
-    };
+    let (server_cert_pem, server_key_pem, ca_cert_pem) =
+        if require_client_auth { (MTLS_SERVER_CERT_PEM, MTLS_SERVER_KEY_PEM, Some(MTLS_CA_CERT_PEM)) } else { (CERT_PEM, KEY_PEM, None) };
 
     let mut cert_reader = BufReader::new(server_cert_pem.as_bytes());
     let certs = rustls_pemfile::certs(&mut cert_reader).collect::<Result<Vec<_>, _>>().unwrap();
@@ -82,7 +86,9 @@ fn tls_config(require_client_auth: bool) -> ServerConfig {
     builder.with_single_cert(certs, key).unwrap()
 }
 
-async fn spawn_https_server(devmode: bool, doc_enabled: bool, require_client_auth: bool) -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std::io::Result<()>>) {
+async fn spawn_https_server(
+    devmode: bool, doc_enabled: bool, require_client_auth: bool,
+) -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std::io::Result<()>>) {
     let root = tempfile::tempdir().unwrap();
     let cfg = write_cfg(root.path(), devmode, doc_enabled);
     let queries = Arc::new(Mutex::new(Vec::new()));
@@ -103,17 +109,11 @@ async fn spawn_https_server(devmode: bool, doc_enabled: bool, require_client_aut
 }
 
 fn trusted_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .add_root_certificate(Certificate::from_pem(CERT_PEM.as_bytes()).unwrap())
-        .build()
-        .unwrap()
+    reqwest::Client::builder().add_root_certificate(Certificate::from_pem(CERT_PEM.as_bytes()).unwrap()).build().unwrap()
 }
 
 fn trusted_mtls_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .add_root_certificate(Certificate::from_pem(MTLS_CA_CERT_PEM.as_bytes()).unwrap())
-        .build()
-        .unwrap()
+    reqwest::Client::builder().add_root_certificate(Certificate::from_pem(MTLS_CA_CERT_PEM.as_bytes()).unwrap()).build().unwrap()
 }
 
 fn trusted_client_with_identity() -> reqwest::Client {
@@ -128,12 +128,7 @@ fn trusted_client_with_identity() -> reqwest::Client {
 async fn https_server_rejects_default_certificate_validation_for_self_signed_cert() {
     let (base, _, handle) = spawn_https_server(true, true, false).await;
 
-    let err = reqwest::Client::new()
-        .post(format!("{base}/api/v1/health"))
-        .send()
-        .await
-        .unwrap_err()
-        .to_string();
+    let err = reqwest::Client::new().post(format!("{base}/api/v1/health")).send().await.unwrap_err().to_string();
 
     handle.abort();
     assert!(!err.is_empty());
@@ -256,11 +251,7 @@ async fn https_model_names_rejects_missing_bearer_token_with_json_error() {
     let (base, _, handle) = spawn_https_server(true, true, false).await;
     let client = trusted_client();
 
-    let response = client
-        .get(format!("{base}/api/v1/model/names"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(format!("{base}/api/v1/model/names")).send().await.unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
     let body = response.json::<serde_json::Value>().await.unwrap();
@@ -273,11 +264,7 @@ async fn https_store_list_rejects_missing_bearer_token_with_json_error() {
     let (base, _, handle) = spawn_https_server(true, true, false).await;
     let client = trusted_client();
 
-    let response = client
-        .get(format!("{base}/store/list"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(format!("{base}/store/list")).send().await.unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
     let body = response.json::<serde_json::Value>().await.unwrap();
@@ -288,12 +275,7 @@ async fn https_store_list_rejects_missing_bearer_token_with_json_error() {
 #[tokio::test]
 async fn https_server_rejects_requests_without_required_client_certificate() {
     let (base, _, handle) = spawn_https_server(true, true, true).await;
-    let err = trusted_mtls_client()
-        .post(format!("{base}/api/v1/health"))
-        .send()
-        .await
-        .unwrap_err()
-        .to_string();
+    let err = trusted_mtls_client().post(format!("{base}/api/v1/health")).send().await.unwrap_err().to_string();
 
     assert!(!err.is_empty());
     handle.abort();
@@ -381,14 +363,7 @@ async fn https_openapi_json_is_not_available_when_api_doc_is_disabled() {
 #[tokio::test]
 async fn https_openapi_json_in_dev_mode_mentions_development_auth_behavior() {
     let (base, _, handle) = spawn_https_server(true, true, false).await;
-    let body = trusted_client()
-        .get(format!("{base}/api-doc/openapi.json"))
-        .send()
-        .await
-        .unwrap()
-        .json::<serde_json::Value>()
-        .await
-        .unwrap();
+    let body = trusted_client().get(format!("{base}/api-doc/openapi.json")).send().await.unwrap().json::<serde_json::Value>().await.unwrap();
 
     assert!(body["info"]["description"].as_str().unwrap().contains("Development mode is enabled"));
     assert!(body["info"]["description"].as_str().unwrap().contains("development token"));

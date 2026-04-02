@@ -123,12 +123,7 @@ impl NetRouteSensor {
         let (tx, rx) = mpsc::channel::<serde_json::Value>(0xfff);
         let mut hub = omnitrace_core::callbacks::CallbackHub::<NetToolsEvent>::new();
         hub.set_result_channel(tx);
-        hub.add(BridgeCb::new(
-            self.sid.clone(),
-            self.listener_id_with_tag(),
-            self.cfg.arg_bool("locked").unwrap_or(false),
-            self.build_mask().bits(),
-        ));
+        hub.add(BridgeCb::new(self.sid.clone(), self.listener_id_with_tag(), self.cfg.arg_bool("locked").unwrap_or(false), self.build_mask().bits()));
         SensorCtx::new(Arc::new(hub)).pipe(|(ctx, h)| (h, tokio::spawn((self.mk)(self.sid.clone(), self.cfg.clone()).run(ctx)), rx))
     }
 
@@ -157,11 +152,7 @@ impl<T> Pipe for T {}
 impl Sensor for NetRouteSensor {
     /// Creates a production `net.route` sensor instance.
     fn new(id: String, cfg: SensorConf) -> Self {
-        Self {
-            sid: id,
-            cfg: cfg.clone(),
-            mk: Arc::new(Self::make_sensor),
-        }
+        Self { sid: id, cfg: cfg.clone(), mk: Arc::new(Self::make_sensor) }
     }
 
     /// Returns the public listener id for this sensor type.
@@ -224,26 +215,24 @@ impl Callback<NetToolsEvent> for BridgeCb {
     /// JSON envelope.
     async fn call(&self, ev: &NetToolsEvent) -> Option<serde_json::Value> {
         match ev {
-            NetToolsEvent::RouteAdded { route } => self.emit("route-added", Self::dst(route), json!({ "action": "route-added", "route": route })).await,
-            NetToolsEvent::RouteRemoved { route } => self.emit("route-removed", Self::dst(route), json!({ "action": "route-removed", "route": route })).await,
-            NetToolsEvent::RouteChanged { old, new } => self.emit(
-                "route-changed",
-                Self::dst(new),
-                json!({ "action": "route-changed", "old": old, "new": new }),
-            )
-            .await,
+            NetToolsEvent::RouteAdded { route } => {
+                self.emit("route-added", Self::dst(route), json!({ "action": "route-added", "route": route })).await
+            }
+            NetToolsEvent::RouteRemoved { route } => {
+                self.emit("route-removed", Self::dst(route), json!({ "action": "route-removed", "route": route })).await
+            }
+            NetToolsEvent::RouteChanged { old, new } => {
+                self.emit("route-changed", Self::dst(new), json!({ "action": "route-changed", "old": old, "new": new })).await
+            }
             NetToolsEvent::DefaultRouteAdded { route } => {
                 self.emit("default-added", Self::dst(route), json!({ "action": "default-added", "route": route })).await
             }
             NetToolsEvent::DefaultRouteRemoved { route } => {
                 self.emit("default-removed", Self::dst(route), json!({ "action": "default-removed", "route": route })).await
             }
-            NetToolsEvent::DefaultRouteChanged { old, new } => self.emit(
-                "default-changed",
-                Self::dst(new),
-                json!({ "action": "default-changed", "old": old, "new": new }),
-            )
-            .await,
+            NetToolsEvent::DefaultRouteChanged { old, new } => {
+                self.emit("default-changed", Self::dst(new), json!({ "action": "default-changed", "old": old, "new": new })).await
+            }
             _ => None,
         }
     }

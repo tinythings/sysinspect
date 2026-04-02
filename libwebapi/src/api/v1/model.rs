@@ -1,4 +1,7 @@
-use crate::{MasterInterfaceType, api::v1::{TAG_MODELS, minions::authorise_request}};
+use crate::{
+    MasterInterfaceType,
+    api::v1::{TAG_MODELS, minions::authorise_request},
+};
 use actix_web::{
     HttpRequest, HttpResponse, Result, get,
     web::{Data, Query},
@@ -131,7 +134,9 @@ pub async fn model_names_handler(req: HttpRequest, master: Data<MasterInterfaceT
 )]
 #[allow(unused)]
 #[get("/api/v1/model/descr")]
-pub async fn model_descr_handler(req: HttpRequest, master: Data<MasterInterfaceType>, query: Query<IndexMap<String, String>>) -> Result<HttpResponse> {
+pub async fn model_descr_handler(
+    req: HttpRequest, master: Data<MasterInterfaceType>, query: Query<IndexMap<String, String>>,
+) -> Result<HttpResponse> {
     if let Err(err) = authorise_request(&req).await {
         return Ok(HttpResponse::Unauthorized().json(ModelResponseError { error: err.to_string() }));
     }

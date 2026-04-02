@@ -1,14 +1,8 @@
 use crate::{
-    sensors::{
-        net_throughput::NetThroughputSensor,
-        sensor::Sensor,
-    },
+    sensors::{net_throughput::NetThroughputSensor, sensor::Sensor},
     sspec::SensorConf,
 };
-use nettools::{
-    NetTools, NetToolsConfig, ThroughputBackend,
-    events::InterfaceCounters,
-};
+use nettools::{NetTools, NetToolsConfig, ThroughputBackend, events::InterfaceCounters};
 use serde_json::{from_value, json};
 use std::{
     collections::{HashMap, VecDeque},
@@ -55,10 +49,7 @@ impl SeqTp {
     /// Creates a backend that returns queued counter snapshots and then keeps
     /// the last one stable.
     fn new(v: Vec<HashMap<String, InterfaceCounters>>) -> Self {
-        Self {
-            d: v.last().cloned().unwrap_or_default(),
-            q: Mutex::new(v.into()),
-        }
+        Self { d: v.last().cloned().unwrap_or_default(), q: Mutex::new(v.into()) }
     }
 }
 
@@ -108,10 +99,7 @@ fn build_mask_is_throughput_updated() {
 
 #[test]
 fn make_eid_with_tag() {
-    assert_eq!(
-        NetThroughputSensor::new("sid".to_string(), mk_cfg(Some("car"), false, 10)).make_eid("eth0"),
-        "sid|net.throughput@car|updated@eth0|0"
-    );
+    assert_eq!(NetThroughputSensor::new("sid".to_string(), mk_cfg(Some("car"), false, 10)).make_eid("eth0"), "sid|net.throughput@car|updated@eth0|0");
 }
 
 #[tokio::test]

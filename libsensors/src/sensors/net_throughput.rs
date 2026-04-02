@@ -98,12 +98,7 @@ impl NetThroughputSensor {
         let (tx, rx) = mpsc::channel::<serde_json::Value>(0xfff);
         let mut hub = omnitrace_core::callbacks::CallbackHub::<NetToolsEvent>::new();
         hub.set_result_channel(tx);
-        hub.add(BridgeCb::new(
-            self.sid.clone(),
-            self.listener_id_with_tag(),
-            self.cfg.arg_bool("locked").unwrap_or(false),
-            self.build_mask().bits(),
-        ));
+        hub.add(BridgeCb::new(self.sid.clone(), self.listener_id_with_tag(), self.cfg.arg_bool("locked").unwrap_or(false), self.build_mask().bits()));
         SensorCtx::new(Arc::new(hub)).pipe(|(ctx, h)| (h, tokio::spawn((self.mk)(self.sid.clone(), self.cfg.clone()).run(ctx)), rx))
     }
 
@@ -132,11 +127,7 @@ impl<T> Pipe for T {}
 impl Sensor for NetThroughputSensor {
     /// Creates a production `net.throughput` sensor instance.
     fn new(id: String, cfg: SensorConf) -> Self {
-        Self {
-            sid: id,
-            cfg: cfg.clone(),
-            mk: Arc::new(Self::make_sensor),
-        }
+        Self { sid: id, cfg: cfg.clone(), mk: Arc::new(Self::make_sensor) }
     }
 
     /// Returns the public listener id for this sensor type.

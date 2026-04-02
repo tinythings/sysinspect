@@ -1,8 +1,5 @@
 use crate::{
-    sensors::{
-        net_route::NetRouteSensor,
-        sensor::Sensor,
-    },
+    sensors::{net_route::NetRouteSensor, sensor::Sensor},
     sspec::SensorConf,
 };
 use nettools::{
@@ -33,12 +30,7 @@ fn mk_cfg(opts: Vec<&str>, tag: Option<&str>, lock: bool, ms: u64) -> SensorConf
 
 /// Creates a simple route entry for tests.
 fn mk_route(dst: &str, gw: &str, ifc: &str) -> RouteEntry {
-    RouteEntry {
-        family: RouteFamily::Inet,
-        destination: dst.to_string(),
-        gateway: gw.to_string(),
-        iface: ifc.to_string(),
-    }
+    RouteEntry { family: RouteFamily::Inet, destination: dst.to_string(), gateway: gw.to_string(), iface: ifc.to_string() }
 }
 
 /// Provides a deterministic route snapshot sequence for `NetTools` tests.
@@ -51,10 +43,7 @@ impl SeqRoute {
     /// Creates a backend that returns queued route snapshots and then keeps the
     /// last one stable.
     fn new(v: Vec<Vec<RouteEntry>>) -> Self {
-        Self {
-            d: v.last().cloned().unwrap_or_default(),
-            q: Mutex::new(v.into()),
-        }
+        Self { d: v.last().cloned().unwrap_or_default(), q: Mutex::new(v.into()) }
     }
 }
 
@@ -127,10 +116,7 @@ async fn recv_once_emits_route_changed_envelope() {
     let s = NetRouteSensor::with_factory(
         "sid".to_string(),
         mk_cfg(vec!["route-changed"], Some("car"), false, 10),
-        mk_factory(vec![
-            vec![mk_route("10.0.0.0/24", "10.0.0.1", "eth0")],
-            vec![mk_route("10.0.0.0/24", "10.0.0.254", "eth1")],
-        ]),
+        mk_factory(vec![vec![mk_route("10.0.0.0/24", "10.0.0.1", "eth0")], vec![mk_route("10.0.0.0/24", "10.0.0.254", "eth1")]]),
     );
     let v = s.recv_once(Duration::from_millis(150)).await.unwrap();
 
@@ -146,10 +132,7 @@ async fn recv_once_emits_default_route_changed_envelope() {
     let s = NetRouteSensor::with_factory(
         "sid".to_string(),
         mk_cfg(vec!["default-changed"], None, false, 10),
-        mk_factory(vec![
-            vec![mk_route("default", "10.0.0.1", "eth0")],
-            vec![mk_route("default", "10.0.0.254", "eth1")],
-        ]),
+        mk_factory(vec![vec![mk_route("default", "10.0.0.1", "eth0")], vec![mk_route("default", "10.0.0.254", "eth1")]]),
     );
     let v = s.recv_once(Duration::from_millis(150)).await.unwrap();
 

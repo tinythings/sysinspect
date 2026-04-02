@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{SysInspectModPak, mpk::ModPakMetadata};
+    use crate::{MinionRow, SysInspectModPak, mpk::ModPakMetadata};
     use colored::control;
     use libsysinspect::cfg::mmconf::CFG_PROFILES_ROOT;
     use libsysinspect::{cfg::mmconf::MinionConfig, traits::effective_profiles};
@@ -145,6 +145,34 @@ mod tests {
     }
 
     #[test]
+    fn remove_minion_build_supports_exact_slots() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let dst = root.path().join("minion/linux/x86_64/sysminion");
+        fs::create_dir_all(dst.parent().expect("minion parent should exist")).expect("minion parent should be created");
+        fs::write(&dst, "sysminion").expect("minion build should be written");
+        fs::write(dst.with_extension("checksum.sha256"), "deadbeef").expect("checksum should be written");
+        repo.idx
+            .index_minion("linux", "x86_64", std::path::PathBuf::from("minion/linux/x86_64/sysminion"), "deadbeef", "0.4.0")
+            .expect("minion should be indexed");
+        fs::write(root.path().join("mod.index"), repo.idx.to_yaml().expect("index should serialise")).expect("index should be written");
+
+        repo.remove_minion_build(vec!["linux/x86_64".to_string()]).expect("minion removal should succeed");
+
+        assert!(!root.path().join("minion/linux/x86_64/sysminion").exists());
+        assert!(!root.path().join("minion/linux/x86_64/sysminion.checksum.sha256").exists());
+        assert!(repo.idx.minion().get("linux").is_none());
+    }
+
+    #[test]
+    fn remove_minion_build_rejects_invalid_slots() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+
+        assert!(repo.remove_minion_build(vec!["linux".to_string()]).is_err());
+    }
+
+    #[test]
     fn format_library_name_highlights_runtime_filenames() {
         control::set_override(true);
 
@@ -225,6 +253,68 @@ mod tests {
             }
         }
         assert!(found, "runtime.lua should be indexed");
+    }
+
+    #[test]
+    fn add_minion_build_rejects_non_elf() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let src = tempfile::tempdir().expect("src tempdir should be created");
+        let file = src.path().join("sysminion");
+        fs::write(&file, "#!/bin/sh\necho nope\n").expect("text payload should be written");
+
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        assert!(repo.add_minion_build(file).is_err());
+    }
+
+    #[test]
+    fn add_minion_build_rejects_dynamic_elf() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let src = tempfile::tempdir().expect("src tempdir should be created");
+        let file = src.path().join("sysminion");
+        fs::copy("/bin/sh", &file).expect("dynamic elf should be copied");
+
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        assert!(repo.add_minion_build(file).is_err());
+    }
+
+    #[test]
+    fn add_minion_build_rejects_non_sysminion_static_elf() {
+        let Some(src) = std::env::current_dir().ok().map(|p| p.join("target/x86_64-unknown-linux-musl/debug/sysinspect")).filter(|p| p.exists())
+        else {
+            return;
+        };
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+
+        assert!(repo.add_minion_build(src).is_err());
+    }
+
+    #[test]
+    fn add_minion_build_accepts_static_pie() {
+        let Some(src) = std::env::current_dir().ok().map(|p| p.join("target/x86_64-unknown-linux-musl/debug/sysminion")).filter(|p| p.exists())
+        else {
+            return;
+        };
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+
+        repo.add_minion_build(src.clone()).expect("static pie should be accepted");
+        assert!(root.path().join("minion/linux/x86_64/sysminion").exists(), "minion build should be indexed");
+        assert_eq!(repo.idx.minion().get("linux").and_then(|v| v.get("x86_64")).map(|v| v.version()), Some("0.4.0"));
+    }
+
+    #[test]
+    fn render_minion_table_blanks_repeated_arch_cells() {
+        let table = SysInspectModPak::render_minion_table(vec![
+            MinionRow { arch: "arm64".to_string(), os: "Linux".to_string(), version: "0.1.1".to_string(), sha256: "aaa...333".to_string() },
+            MinionRow { arch: "".to_string(), os: "FreeBSD".to_string(), version: "0.1.2".to_string(), sha256: "bbb...444".to_string() },
+        ]);
+
+        assert!(table.contains("ARCH"));
+        assert!(table.contains("Linux"));
+        assert!(table.contains("FreeBSD"));
+        assert!(table.contains("0.1.1"));
+        assert!(table.contains("0.1.2"));
     }
 
     #[test]

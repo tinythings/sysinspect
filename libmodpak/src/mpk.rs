@@ -104,8 +104,43 @@ impl ModPakRepoLibFile {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Indexed minion build stored in the repository.
+pub struct ModPakRepoMinionFile {
+    file: PathBuf,
+    checksum: String,
+    #[serde(default = "default_minion_version")]
+    version: String,
+}
+
+impl ModPakRepoMinionFile {
+    /// Create one indexed minion build entry.
+    pub fn new(file: PathBuf, checksum: &str, version: &str) -> Self {
+        Self { file, checksum: checksum.to_string(), version: version.to_string() }
+    }
+
+    /// Return the stored minion file path.
+    pub fn file(&self) -> &PathBuf {
+        &self.file
+    }
+
+    /// Return the stored minion checksum.
+    pub fn checksum(&self) -> &str {
+        &self.checksum
+    }
+
+    /// Return the stored minion version.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+}
+
 fn default_library_kind() -> String {
     "script".to_string()
+}
+
+fn default_minion_version() -> String {
+    "unknown".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -319,6 +354,10 @@ pub struct ModPakRepoIndex {
     /// there, but they have to be unique in naming for each platform/arch and linked
     /// accordingly.
     library: IndexMap<String, ModPakRepoLibFile>,
+
+    /// Statically linked sysminion builds grouped by platform and architecture.
+    #[serde(default)]
+    minion: IndexMap<String, IndexMap<String, ModPakRepoMinionFile>>,
 }
 
 impl Default for ModPakRepoIndex {
@@ -330,7 +369,7 @@ impl Default for ModPakRepoIndex {
 impl ModPakRepoIndex {
     /// Creates a new ModPakRepoIndex.
     pub fn new() -> Self {
-        Self { platform: IndexMap::new(), library: IndexMap::new() }
+        Self { platform: IndexMap::new(), library: IndexMap::new(), minion: IndexMap::new() }
     }
 
     fn detect_library_kind(path: &Path) -> String {
@@ -421,6 +460,23 @@ impl ModPakRepoIndex {
         Ok(())
     }
 
+    /// Add one sysminion build to the index.
+    pub fn index_minion(&mut self, platform: &str, arch: &str, file: PathBuf, checksum: &str, version: &str) -> Result<(), SysinspectError> {
+        self.minion.entry(platform.to_string()).or_default().insert(arch.to_string(), ModPakRepoMinionFile::new(file, checksum, version));
+        Ok(())
+    }
+
+    /// Remove one sysminion build from the index.
+    pub fn remove_minion(&mut self, platform: &str, arch: &str) -> Result<(), SysinspectError> {
+        if let Some(archset) = self.minion.get_mut(platform) {
+            archset.shift_remove(arch);
+            if archset.is_empty() {
+                self.minion.shift_remove(platform);
+            }
+        }
+        Ok(())
+    }
+
     /// Returns scanned library data
     pub fn library(&self) -> IndexMap<String, ModPakRepoLibFile> {
         {
@@ -428,6 +484,16 @@ impl ModPakRepoIndex {
             sorted_library.sort_keys();
             sorted_library
         }
+    }
+
+    /// Return indexed sysminion builds sorted by platform.
+    pub fn minion(&self) -> IndexMap<String, IndexMap<String, ModPakRepoMinionFile>> {
+        let mut minion = self.minion.clone();
+        minion.sort_keys();
+        for archset in minion.values_mut() {
+            archset.sort_keys();
+        }
+        minion
     }
 
     /// Serializes the index to a YAML string.

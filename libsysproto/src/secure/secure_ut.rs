@@ -1,6 +1,6 @@
 use super::{
-    SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapAck, SecureBootstrapDiagnostic, SecureBootstrapHello, SecureDataFrame,
-    SecureDiagnosticCode, SecureFailureSemantics, SecureFrame, SecureRotationMode, SecureSessionBinding, SecureTransportGoals,
+    SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapAck, SecureBootstrapDiagnostic, SecureBootstrapHello,
+    SecureDataFrame, SecureDiagnosticCode, SecureFailureSemantics, SecureFrame, SecureRotationMode, SecureSessionBinding, SecureTransportGoals,
 };
 
 fn binding() -> SecureSessionBinding {

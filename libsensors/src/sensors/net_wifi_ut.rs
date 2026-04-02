@@ -1,14 +1,8 @@
 use crate::{
-    sensors::{
-        net_wifi::NetWifiSensor,
-        sensor::Sensor,
-    },
+    sensors::{net_wifi::NetWifiSensor, sensor::Sensor},
     sspec::SensorConf,
 };
-use nettools::{
-    NetTools, NetToolsConfig, WifiBackend,
-    events::WifiDetails,
-};
+use nettools::{NetTools, NetToolsConfig, WifiBackend, events::WifiDetails};
 use serde_json::{from_value, json};
 use std::{
     collections::{HashMap, VecDeque},
@@ -54,10 +48,7 @@ impl SeqWifi {
     /// Creates a backend that returns queued Wi-Fi snapshots and then keeps the
     /// last one stable.
     fn new(v: Vec<HashMap<String, WifiDetails>>) -> Self {
-        Self {
-            d: v.last().cloned().unwrap_or_default(),
-            q: Mutex::new(v.into()),
-        }
+        Self { d: v.last().cloned().unwrap_or_default(), q: Mutex::new(v.into()) }
     }
 }
 

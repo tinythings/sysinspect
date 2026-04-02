@@ -2,10 +2,17 @@ use actix_web::{App, HttpServer, web};
 use async_trait::async_trait;
 use libdatastore::{cfg::DataStorageConfig, resources::DataStorage};
 use libsysinspect::cfg::mmconf::MasterConfig;
-use libwebapi::{MasterInterface, MasterInterfaceType, api::{self, ApiVersions}};
+use libwebapi::{
+    MasterInterface, MasterInterfaceType,
+    api::{self, ApiVersions},
+};
 use std::{fs, path::Path, sync::Arc};
 use sysinspect_client::{ModelNameResponse, QueryResponse, SysClient, SysClientConfiguration};
-use tokio::{sync::Mutex, task::JoinHandle, time::{Duration, sleep}};
+use tokio::{
+    sync::Mutex,
+    task::JoinHandle,
+    time::{Duration, sleep},
+};
 
 struct TestMaster {
     cfg: MasterConfig,
@@ -43,8 +50,10 @@ async fn spawn_http_server() -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std
     let root = tempfile::tempdir().unwrap();
     let cfg = write_cfg(root.path());
     let queries = Arc::new(Mutex::new(Vec::new()));
-    let datastore = Arc::new(Mutex::new(DataStorage::new(DataStorageConfig::new(), root.path().join("datastore")).unwrap()));
-    let master: MasterInterfaceType = Arc::new(Mutex::new(TestMaster { cfg, queries: Arc::clone(&queries), datastore }));
+    let datastore =
+        Arc::new(Mutex::new(DataStorage::new(DataStorageConfig::new(), root.path().join("datastore")).unwrap()));
+    let master: MasterInterfaceType =
+        Arc::new(Mutex::new(TestMaster { cfg, queries: Arc::clone(&queries), datastore }));
     let server = HttpServer::new(move || {
         let scope = api::get(true, true, ApiVersions::V1).unwrap().load(web::scope(""));
         App::new().app_data(web::Data::new(master.clone())).service(scope)
@@ -61,10 +70,11 @@ async fn spawn_http_server() -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<std
 #[tokio::test]
 async fn client_authenticates_and_executes_plain_json_query() {
     let (base, queries, handle) = spawn_http_server().await;
-    let mut client = SysClient::new(SysClientConfiguration { master_url: base, });
+    let mut client = SysClient::new(SysClientConfiguration { master_url: base });
 
     let token = client.authenticate("dev", "dev").await.unwrap();
-    let response: QueryResponse = client.query("cm/file-ops", "*", "", "", serde_json::json!({"reason":"test"})).await.unwrap();
+    let response: QueryResponse =
+        client.query("cm/file-ops", "*", "", "", serde_json::json!({"reason":"test"})).await.unwrap();
 
     assert_eq!(token, "dev-token");
     assert_eq!(response.status, "success");

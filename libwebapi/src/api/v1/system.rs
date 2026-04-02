@@ -1,4 +1,4 @@
-use crate::{MasterInterfaceType, api::v1::TAG_SYSTEM, pamauth, sessions::get_session_store};
+use crate::{MasterInterfaceType, api::v1::TAG_SYSTEM, sessions::get_session_store};
 use actix_web::{HttpResponse, Responder, post, web};
 use libsysinspect::cfg::mmconf::AuthMethod::Pam;
 use serde::{Deserialize, Serialize};
@@ -66,9 +66,16 @@ pub struct AuthRequest {
 }
 
 impl AuthRequest {
+    #[cfg(feature = "pam")]
     pub async fn pam_auth(username: String, password: String) -> Result<String, String> {
+        use crate::pamauth;
         pamauth::authenticate(&username, &password).map_err(|err| format!("Authentication failed: {err}"))?;
         get_session_store().lock().await.open(username.clone()).map_err(|e| format!("Session error: {e}"))
+    }
+
+    #[cfg(not(feature = "pam"))]
+    pub async fn pam_auth(_username: String, _password: String) -> Result<String, String> {
+        Err("PAM authentication is not available in this build".to_string())
     }
 }
 

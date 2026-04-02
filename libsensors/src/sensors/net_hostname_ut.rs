@@ -1,15 +1,9 @@
 use crate::{
-    sensors::{
-        net_hostname::NetHostnameSensor,
-        sensor::Sensor,
-    },
+    sensors::{net_hostname::NetHostnameSensor, sensor::Sensor},
     sspec::SensorConf,
 };
 use async_trait::async_trait;
-use nettools::{
-    HostnameBackend, NetTools, NetToolsConfig,
-    events::NetToolsEvent,
-};
+use nettools::{HostnameBackend, NetTools, NetToolsConfig, events::NetToolsEvent};
 use omnitrace_core::callbacks::Callback;
 use serde_json::{from_value, json};
 use std::{
@@ -42,10 +36,7 @@ impl SeqHost {
     /// Creates a hostname backend that returns the queued values in order and
     /// then keeps returning the last value.
     fn new(v: Vec<&str>) -> Self {
-        Self {
-            d: v.last().unwrap_or(&"host").to_string(),
-            q: Mutex::new(v.into_iter().map(str::to_string).collect()),
-        }
+        Self { d: v.last().unwrap_or(&"host").to_string(), q: Mutex::new(v.into_iter().map(str::to_string).collect()) }
     }
 }
 
@@ -95,7 +86,10 @@ fn make_eid_without_tag() {
 
 #[test]
 fn make_eid_with_tag() {
-    assert_eq!(NetHostnameSensor::new("sid".to_string(), mk_cfg(Some("car"), false, 10)).make_eid("new-host"), "sid|net.hostname@car|changed@new-host|0");
+    assert_eq!(
+        NetHostnameSensor::new("sid".to_string(), mk_cfg(Some("car"), false, 10)).make_eid("new-host"),
+        "sid|net.hostname@car|changed@new-host|0"
+    );
 }
 
 #[tokio::test]
@@ -113,16 +107,18 @@ async fn bridge_ignores_non_hostname_events() {
         }
     }
 
-    assert!(Cb.call(&NetToolsEvent::RouteAdded {
-        route: nettools::events::RouteEntry {
-            family: nettools::events::RouteFamily::Inet,
-            destination: "0.0.0.0/0".to_string(),
-            gateway: "1.1.1.1".to_string(),
-            iface: "eth0".to_string(),
-        },
-    })
-    .await
-    .is_none());
+    assert!(
+        Cb.call(&NetToolsEvent::RouteAdded {
+            route: nettools::events::RouteEntry {
+                family: nettools::events::RouteFamily::Inet,
+                destination: "0.0.0.0/0".to_string(),
+                gateway: "1.1.1.1".to_string(),
+                iface: "eth0".to_string(),
+            },
+        })
+        .await
+        .is_none()
+    );
 }
 
 #[tokio::test]

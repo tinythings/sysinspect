@@ -209,12 +209,7 @@ impl PeerTransport {
         ) {
             Ok(result) => result,
             Err(err) => {
-                log::warn!(
-                    "Secure bootstrap authentication failed for minion {} from {}: {}",
-                    hello.binding.minion_id,
-                    peer_addr,
-                    err
-                );
+                log::warn!("Secure bootstrap authentication failed for minion {} from {}: {}", hello.binding.minion_id, peer_addr, err);
                 return Err(err);
             }
         };

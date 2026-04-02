@@ -6,7 +6,9 @@ use libsysinspect::{
         TransportKeyExchangeModel, TransportPeerState, TransportProvisioningMode, TransportRotationStatus, secure_bootstrap::SecureBootstrapSession,
     },
 };
-use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding};
+use libsysproto::secure::{
+    SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding,
+};
 use rsa::RsaPublicKey;
 use std::{collections::HashMap, time::Instant};
 

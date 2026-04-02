@@ -35,7 +35,11 @@ fn state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerS
 fn establish_channels(state: &TransportPeerState) -> (SecureChannel, SecureChannel) {
     let (master_prk, master_pbk) = keygen(2048).unwrap();
     let (minion_prk, minion_pbk) = keygen(2048).unwrap();
-    let rebound = TransportPeerState { master_rsa_fingerprint: get_fingerprint(&master_pbk).unwrap(), minion_rsa_fingerprint: get_fingerprint(&minion_pbk).unwrap(), ..state.clone() };
+    let rebound = TransportPeerState {
+        master_rsa_fingerprint: get_fingerprint(&master_pbk).unwrap(),
+        minion_rsa_fingerprint: get_fingerprint(&minion_pbk).unwrap(),
+        ..state.clone()
+    };
     let (opening, hello) = SecureBootstrapSession::open(&rebound, &minion_prk, &master_pbk).unwrap();
     let accepted = SecureBootstrapSession::accept(
         &rebound,
@@ -57,10 +61,7 @@ fn establish_channels(state: &TransportPeerState) -> (SecureChannel, SecureChann
     let minion = opening.verify_ack(&rebound, &ack, &master_pbk).unwrap();
     let master = accepted.0;
 
-    (
-        SecureChannel::new(SecurePeerRole::Master, &master).unwrap(),
-        SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap(),
-    )
+    (SecureChannel::new(SecurePeerRole::Master, &master).unwrap(), SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap())
 }
 
 #[test]
@@ -113,9 +114,7 @@ fn rotated_transport_state_reconnects_with_new_key_id() {
     .unwrap();
     let plan = rotator.plan("manual");
     let signed = rotator.sign_plan(&plan, &master_prk).unwrap();
-    let rollback = rotator
-        .execute_signed_intent_with_overlap(&signed, &RsaPublicKey::from(&master_prk), ChronoDuration::seconds(60))
-        .unwrap();
+    let rollback = rotator.execute_signed_intent_with_overlap(&signed, &RsaPublicKey::from(&master_prk), ChronoDuration::seconds(60)).unwrap();
     state = rotator.state().clone();
 
     assert_eq!(state.rotation, TransportRotationStatus::Idle);

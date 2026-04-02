@@ -37,7 +37,12 @@ use tokio::{
 
 mod clidef;
 mod clifmt;
+mod netadd;
+mod sshprobe;
 mod ui;
+
+#[cfg(test)]
+mod netadd_ut;
 
 static VERSION: &str = "0.4.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
@@ -235,7 +240,7 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
 // Print help?
 fn help(cli: &mut Command, params: &ArgMatches) -> bool {
     if let Some(sub) = params.subcommand_matches("module")
-        && sub.get_flag("help")
+        && (sub.get_flag("help") || !(sub.get_flag("add") || sub.get_flag("remove") || sub.get_flag("list") || sub.get_flag("info")))
     {
         if let Some(s_cli) = cli.find_subcommand_mut("module") {
             _ = s_cli.print_help();
@@ -262,7 +267,8 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         return false;
     }
     if let Some(sub) = params.subcommand_matches("network")
-        && (sub.get_flag("help") || !(sub.get_flag("rotate") || sub.get_flag("status") || sub.get_flag("online") || sub.get_flag("info")))
+        && (sub.get_flag("help")
+            || !(sub.get_flag("add") || sub.get_flag("rotate") || sub.get_flag("status") || sub.get_flag("online") || sub.get_flag("info")))
     {
         if let Some(s_cli) = cli.find_subcommand_mut("network") {
             _ = s_cli.print_help();
@@ -331,7 +337,19 @@ async fn main() {
         };
 
         if sub.get_flag("add") {
-            if sub.get_flag("lib") {
+            if sub.get_flag("platform") {
+                let path = match sub.get_one::<String>("path") {
+                    Some(path) => PathBuf::from(path),
+                    None => {
+                        log::error!("Specify the sysminion build path ({})", "--path".bright_yellow());
+                        exit(1);
+                    }
+                };
+                if let Err(err) = repo.add_minion_build(path) {
+                    log::error!("Failed to add minion build: {err}");
+                    exit(1);
+                }
+            } else if sub.get_flag("lib") {
                 log::info!("Processing library in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
                 if let Err(err) = repo.add_library(PathBuf::from(sub.get_one::<String>("path").unwrap_or(&"".to_string()))) {
                     log::error!("Failed to add library: {err}");
@@ -352,7 +370,12 @@ async fn main() {
                 }
             }
         } else if sub.get_flag("list") {
-            if sub.get_flag("lib") {
+            if sub.get_flag("platform") {
+                repo.list_minion_builds().unwrap_or_else(|err| {
+                    log::error!("Failed to list minion builds: {err}");
+                    exit(1);
+                });
+            } else if sub.get_flag("lib") {
                 repo.list_libraries(sub.get_one::<String>("match").map(String::as_str)).unwrap_or_else(|err| {
                     log::error!("Failed to list libraries: {err}");
                     exit(1);
@@ -373,7 +396,23 @@ async fn main() {
                 log::error!("Specify the module or library name ({}).", "--name".bright_yellow());
                 exit(1);
             }
-            if sub.get_flag("lib") {
+            if sub.get_flag("platform") {
+                let names: Vec<String> = sub
+                    .get_one::<String>("name")
+                    .unwrap_or(&String::new())
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if names.is_empty() {
+                    log::error!("No minion build names provided for removal.");
+                    exit(1);
+                }
+                repo.remove_minion_build(names).unwrap_or_else(|err| {
+                    log::error!("Failed to remove minion builds: {err}");
+                    exit(1);
+                });
+            } else if sub.get_flag("lib") {
                 let names: Vec<String> = sub
                     .get_one::<String>("name")
                     .unwrap_or(&String::new())
@@ -465,6 +504,14 @@ async fn main() {
     }
 
     if let Some(network) = params.subcommand_matches("network") {
+        if network.get_flag("add") {
+            match netadd::parse(network) {
+                Ok(plan) => println!("{}", netadd::render(&plan)),
+                Err(err) => log::error!("{err}"),
+            }
+            return;
+        }
+
         let query = network.get_one::<String>("query").or_else(|| network.get_one::<String>("query-pos")).cloned().unwrap_or("*".to_string());
         let direct_id = network.get_one::<String>("id").map(String::as_str);
 

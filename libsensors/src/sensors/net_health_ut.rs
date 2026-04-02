@@ -1,16 +1,10 @@
 use crate::{
     argparse::SensorArgs,
-    sensors::{
-        net_health::NetHealthSensor,
-        sensor::Sensor,
-    },
+    sensors::{net_health::NetHealthSensor, sensor::Sensor},
     sspec::SensorConf,
 };
 use async_trait::async_trait;
-use nettools::{
-    NetHealthBackend, NetTools, NetToolsConfig,
-    events::NetHealthTarget,
-};
+use nettools::{NetHealthBackend, NetTools, NetToolsConfig, events::NetHealthTarget};
 use serde_json::{from_value, json};
 use std::{
     collections::VecDeque,
@@ -51,9 +45,7 @@ struct SeqProbe {
 impl SeqProbe {
     /// Creates a probe backend from a queued sequence of results.
     fn new(v: Vec<Probe>) -> Self {
-        Self {
-            q: Mutex::new(v.into()),
-        }
+        Self { q: Mutex::new(v.into()) }
     }
 }
 
@@ -143,12 +135,7 @@ async fn recv_once_emits_nethealth_changed_envelope() {
     let s = NetHealthSensor::with_factory(
         "sid".to_string(),
         mk_cfg(Some("car"), false, 10),
-        mk_factory(vec![
-            Probe::Ok(10),
-            Probe::Ok(10),
-            Probe::Ok(80),
-            Probe::Err,
-        ]),
+        mk_factory(vec![Probe::Ok(10), Probe::Ok(10), Probe::Ok(80), Probe::Err]),
     );
     let v = s.recv_once(Duration::from_millis(200)).await.unwrap();
 

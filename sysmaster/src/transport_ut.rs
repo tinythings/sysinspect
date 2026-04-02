@@ -59,10 +59,7 @@ fn channels() -> (SecureChannel, SecureChannel) {
     let minion = opening.verify_ack(&state, &ack, &master_pbk).unwrap();
     let master = accepted.0;
 
-    (
-        SecureChannel::new(SecurePeerRole::Master, &master).unwrap(),
-        SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap(),
-    )
+    (SecureChannel::new(SecurePeerRole::Master, &master).unwrap(), SecureChannel::new(SecurePeerRole::Minion, &minion).unwrap())
 }
 
 #[test]
@@ -79,10 +76,7 @@ fn encode_message_stays_plaintext_without_session() {
 fn encode_message_seals_payload_with_active_session() {
     let mut transport = PeerTransport::new();
     let (master_channel, mut minion_channel) = channels();
-    transport.peers.insert(
-        "127.0.0.1:4200".to_string(),
-        PeerConnection { minion_id: "mid-1".to_string(), channel: master_channel },
-    );
+    transport.peers.insert("127.0.0.1:4200".to_string(), PeerConnection { minion_id: "mid-1".to_string(), channel: master_channel });
     let msg = MasterMessage::new(RequestType::Ping, serde_json::json!("general"));
 
     let encoded = transport.encode_message("127.0.0.1:4200", &msg).unwrap();
@@ -95,10 +89,7 @@ fn encode_message_seals_payload_with_active_session() {
 fn decode_frame_drops_invalid_secure_session_state() {
     let mut transport = PeerTransport::new();
     let (master_channel, mut minion_channel) = channels();
-    transport.peers.insert(
-        "127.0.0.1:4200".to_string(),
-        PeerConnection { minion_id: "mid-1".to_string(), channel: master_channel },
-    );
+    transport.peers.insert("127.0.0.1:4200".to_string(), PeerConnection { minion_id: "mid-1".to_string(), channel: master_channel });
     let mut frame = minion_channel.seal(&serde_json::json!({"hello":"world"})).unwrap();
     frame.pop();
 
@@ -122,10 +113,7 @@ fn remove_peer_clears_secure_and_plaintext_tracking() {
     let mut transport = PeerTransport::new();
     let (master_channel, _) = channels();
     transport.allow_plaintext("127.0.0.1:4200");
-    transport.peers.insert(
-        "127.0.0.1:4200".to_string(),
-        PeerConnection { minion_id: "mid-1".to_string(), channel: master_channel },
-    );
+    transport.peers.insert("127.0.0.1:4200".to_string(), PeerConnection { minion_id: "mid-1".to_string(), channel: master_channel });
 
     transport.remove_peer("127.0.0.1:4200");
 

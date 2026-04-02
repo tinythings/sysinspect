@@ -6,20 +6,14 @@ use actix_web::{http::header::AUTHORIZATION, test::TestRequest};
 async fn authorise_request_accepts_lowercase_bearer_scheme() {
     get_session_store().lock().await.open_with_sid("dev".to_string(), "dev-token".to_string()).unwrap();
 
-    assert_eq!(
-        authorise_request(&TestRequest::default().insert_header((AUTHORIZATION, "bearer dev-token")).to_http_request()).await.unwrap(),
-        "dev"
-    );
+    assert_eq!(authorise_request(&TestRequest::default().insert_header((AUTHORIZATION, "bearer dev-token")).to_http_request()).await.unwrap(), "dev");
 }
 
 #[tokio::test]
 async fn authorise_request_accepts_mixed_case_bearer_scheme() {
     get_session_store().lock().await.open_with_sid("dev".to_string(), "dev-token".to_string()).unwrap();
 
-    assert_eq!(
-        authorise_request(&TestRequest::default().insert_header((AUTHORIZATION, "BeArEr dev-token")).to_http_request()).await.unwrap(),
-        "dev"
-    );
+    assert_eq!(authorise_request(&TestRequest::default().insert_header((AUTHORIZATION, "BeArEr dev-token")).to_http_request()).await.unwrap(), "dev");
 }
 
 #[tokio::test]
