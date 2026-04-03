@@ -1,4 +1,4 @@
-use crate::netadd::{parse, resolve_remote_path};
+use crate::netadd::{NetworkAddWorkflow, parse, resolve_remote_path};
 use std::path::Path;
 
 fn network_args(args: &[&str]) -> clap::ArgMatches {
@@ -7,7 +7,7 @@ fn network_args(args: &[&str]) -> clap::ArgMatches {
 
 #[test]
 fn parses_inline_names_with_defaults() {
-    let args = network_args(&["sysinspect", "network", "--add", "--names", "foo.com,bar.com", "--user", "hans"]);
+    let args = network_args(&["sysinspect", "network", "--add", "--hostnames", "foo.com,bar.com", "--user", "hans"]);
     let plan = parse(args.subcommand_matches("network").unwrap()).unwrap();
 
     assert_eq!(plan.items.len(), 2);
@@ -19,7 +19,7 @@ fn parses_inline_names_with_defaults() {
 
 #[test]
 fn inline_user_overrides_default_user() {
-    let args = network_args(&["sysinspect", "network", "--add", "--names", "root@foo.com", "--user", "hans"]);
+    let args = network_args(&["sysinspect", "network", "--add", "-n", "root@foo.com", "-u", "hans"]);
     let plan = parse(args.subcommand_matches("network").unwrap()).unwrap();
 
     assert_eq!(plan.items.len(), 1);
@@ -32,7 +32,25 @@ fn rejects_missing_input_source() {
     let args = network_args(&["sysinspect", "network", "--add"]);
     let err = parse(args.subcommand_matches("network").unwrap()).unwrap_err();
 
-    assert!(err.to_string().contains("--names") || err.to_string().contains("--list"));
+    assert!(err.to_string().contains("--hostnames") || err.to_string().contains("--list"));
+}
+
+#[test]
+fn rejects_duplicates_after_normalisation() {
+    let args = network_args(&["sysinspect", "network", "--add", "-n", "foo.com,root@foo.com,foo.com", "-u", "root"]);
+    let err = parse(args.subcommand_matches("network").unwrap()).unwrap_err();
+
+    assert!(err.to_string().contains("Duplicate host entry"));
+}
+
+#[test]
+fn renders_planned_outcomes() {
+    let args = network_args(&["sysinspect", "network", "--add", "--hn", "foo.com", "-u", "hans"]);
+    let out = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap().render().unwrap();
+
+    assert!(out.contains("STATE"));
+    assert!(out.contains("planned"));
+    assert!(out.contains("validated"));
 }
 
 #[test]
