@@ -2,7 +2,7 @@ use crate::netadd::{
     ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, normalise_host, normalise_path, parse, parse_entry, resolve_dest,
     resolve_remote_path,
 };
-use crate::sshprobe::detect::{CpuArch, PlatformFamily, ProbeInfo, ProbePath, ProbePathKind};
+use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libmodpak::mpk::ModPakRepoIndex;
 use std::{
     fs,
@@ -41,6 +41,8 @@ fn probe_linux_x86_64() -> ProbeInfo {
         user: "hans".to_string(),
         family: PlatformFamily::Linux,
         arch: CpuArch::X86_64,
+        exec_mode: ExecMode::Userland,
+        privilege: PrivilegeMode::User,
         os_name: "Linux".to_string(),
         release: "6.0".to_string(),
         version: "test".to_string(),

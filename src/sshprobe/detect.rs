@@ -1,7 +1,7 @@
 //! Reusable SSH platform detection for remote onboarding.
 
 use libcommon::SysinspectError;
-use std::{collections::BTreeSet, env, process::Command, sync::Arc};
+use std::{collections::{BTreeSet, HashMap}, env, process::Command, sync::Arc};
 
 const SSH_TIMEOUT_SECS: u64 = 5;
 const SYSTEM_DIRS: [&str; 5] = ["/usr/bin", "/etc", "/var/run", "/var/tmp", "/usr/share"];
@@ -30,6 +30,21 @@ pub(crate) enum CpuArch {
     Unknown,
 }
 
+/// How probe data was collected on the remote host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExecMode {
+    Userland,
+    Hybrid,
+}
+
+/// Effective privilege mode of the SSH login.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PrivilegeMode {
+    Root,
+    Sudo,
+    User,
+}
+
 /// Probed destination status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProbePath {
@@ -53,6 +68,8 @@ pub(crate) struct ProbeInfo {
     pub(crate) user: String,
     pub(crate) family: PlatformFamily,
     pub(crate) arch: CpuArch,
+    pub(crate) exec_mode: ExecMode,
+    pub(crate) privilege: PrivilegeMode,
     pub(crate) os_name: String,
     pub(crate) release: String,
     pub(crate) version: String,
@@ -107,15 +124,25 @@ impl SSHPlatformDetector {
             .clone()
             .or_else(current_user)
             .ok_or_else(|| SysinspectError::ConfigError(format!("No SSH user could be resolved for {}", self.host)))?;
-        let mut raw = std::collections::HashMap::new();
-        for line in self.runner.run(&self.host, &user, &basic_script())?.lines() {
-            let Some((k, v)) = line.split_once('=') else {
-                continue;
-            };
-            raw.insert(k.to_string(), v.to_string());
+        let mut raw = parse_kv(&self.runner.run(&self.host, &user, &userland_script())?);
+        let mut exec_mode = ExecMode::Userland;
+        if needs_proc_fallback(&raw) {
+            merge_missing(&mut raw, parse_kv(&self.runner.run(&self.host, &user, &procfs_script())?));
+            exec_mode = ExecMode::Hybrid;
         }
         let home = raw.get("home").cloned().filter(|v| !v.is_empty());
         let tmp = raw.get("tmp").cloned().filter(|v| !v.is_empty());
+        let family = PlatformFamily::from_uname(raw.get("os").map(String::as_str).unwrap_or_default());
+        let arch = CpuArch::from_uname(raw.get("arch").map(String::as_str).unwrap_or_default());
+        if family == PlatformFamily::Unknown || arch == CpuArch::Unknown || tmp.is_none() {
+            return Err(SysinspectError::MinionGeneralError(format!(
+                "Unsupported target {}: probe could not determine platform={}, arch={}, tmp={}",
+                self.host,
+                raw.get("os").cloned().unwrap_or_else(|| "unknown".to_string()),
+                raw.get("arch").cloned().unwrap_or_else(|| "unknown".to_string()),
+                tmp.clone().unwrap_or_else(|| "missing".to_string())
+            )));
+        }
         let dest = self.destination_status(&user, home.as_deref())?;
         let (free_path, free_bytes) = self.disk_free_target(&user, &dest, home.as_deref(), tmp.as_deref())?;
         let writable_paths =
@@ -124,8 +151,10 @@ impl SSHPlatformDetector {
         Ok(ProbeInfo {
             host: self.host.clone(),
             user,
-            family: PlatformFamily::from_uname(raw.get("os").map(String::as_str).unwrap_or_default()),
-            arch: CpuArch::from_uname(raw.get("arch").map(String::as_str).unwrap_or_default()),
+            family,
+            arch,
+            exec_mode,
+            privilege: privilege_mode(raw.get("sudo").is_some_and(|v| v == "yes"), raw.get("uid").map(String::as_str)),
             os_name: raw.get("os").cloned().unwrap_or_else(|| "unknown".to_string()),
             release: raw.get("release").cloned().unwrap_or_else(|| "unknown".to_string()),
             version: raw.get("version").cloned().unwrap_or_else(|| "unknown".to_string()),
@@ -201,6 +230,17 @@ impl PlatformFamily {
             _ => Self::Unknown,
         }
     }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Linux => "Linux",
+            Self::FreeBsd => "FreeBSD",
+            Self::NetBsd => "NetBSD",
+            Self::OpenBsd => "OpenBSD",
+            Self::Qnx => "QNX",
+            Self::Unknown => "Unknown",
+        }
+    }
 }
 
 impl CpuArch {
@@ -214,6 +254,51 @@ impl CpuArch {
             "ppc64le" => Self::Ppc64Le,
             _ => Self::Unknown,
         }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::X86_64 => "x86_64",
+            Self::Aarch64 => "arm64",
+            Self::Arm => "arm",
+            Self::X86 => "x86",
+            Self::RiscV64 => "riscv64",
+            Self::Ppc64Le => "ppc64le",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl ExecMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Userland => "userland",
+            Self::Hybrid => "hybrid",
+        }
+    }
+}
+
+impl PrivilegeMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::Sudo => "sudo",
+            Self::User => "user",
+        }
+    }
+}
+
+impl ProbeInfo {
+    /// Return a compact operator-facing summary.
+    pub(crate) fn summary(&self) -> String {
+        format!(
+            "{}/{} tmp={} priv={} exec={}",
+            self.family.label(),
+            self.arch.label(),
+            self.tmp.as_deref().unwrap_or("?"),
+            self.privilege.label(),
+            self.exec_mode.label()
+        )
     }
 }
 
@@ -241,19 +326,38 @@ impl ProbeRunner for SystemRunner {
     }
 }
 
-fn basic_script() -> String {
+fn userland_script() -> String {
     [
         "os=$(uname -s 2>/dev/null || printf unknown)",
         "arch=$(uname -m 2>/dev/null || printf unknown)",
         "release=$(uname -r 2>/dev/null || printf unknown)",
         "version=$(uname -v 2>/dev/null || printf unknown)",
+        "uid=$(id -u 2>/dev/null || printf unknown)",
         "home=${HOME:-}",
         "shell=${SHELL:-}",
         "sudo=no",
         "command -v sudo >/dev/null 2>&1 && sudo=yes",
         "tmp=",
         "for d in \"${TMPDIR:-}\" /tmp /var/tmp /dev/shm .; do [ -n \"$d\" ] || continue; [ -d \"$d\" ] || continue; tmp=$d; break; done",
-        "printf 'os=%s\\narch=%s\\nrelease=%s\\nversion=%s\\nhome=%s\\nshell=%s\\ntmp=%s\\nsudo=%s\\n' \"$os\" \"$arch\" \"$release\" \"$version\" \"$home\" \"$shell\" \"$tmp\" \"$sudo\"",
+        "printf 'os=%s\\narch=%s\\nrelease=%s\\nversion=%s\\nuid=%s\\nhome=%s\\nshell=%s\\ntmp=%s\\nsudo=%s\\n' \"$os\" \"$arch\" \"$release\" \"$version\" \"$uid\" \"$home\" \"$shell\" \"$tmp\" \"$sudo\"",
+    ]
+    .join("; ")
+}
+
+fn procfs_script() -> String {
+    [
+        "os=unknown",
+        "release=unknown",
+        "version=unknown",
+        "arch=unknown",
+        "uid=unknown",
+        "[ -r /proc/sys/kernel/ostype ] && IFS= read -r os </proc/sys/kernel/ostype",
+        "[ -r /proc/sys/kernel/osrelease ] && IFS= read -r release </proc/sys/kernel/osrelease",
+        "[ -r /proc/sys/kernel/version ] && IFS= read -r version </proc/sys/kernel/version",
+        "if [ -r /proc/cpuinfo ]; then while IFS= read -r line; do case \"$line\" in *AArch64*|*ARMv8*|*arm64*) arch=aarch64; break ;; *x86_64*|*amd64*) arch=x86_64; break ;; *riscv64*) arch=riscv64; break ;; *ppc64le*) arch=ppc64le; break ;; *ARMv7*|*ARMv6*|*armv7l*|*armv6l*|*arm*) arch=arm; break ;; *i386*|*i486*|*i586*|*i686*) arch=i386; break ;; esac; done </proc/cpuinfo; fi",
+        "tmp=",
+        "for d in /tmp /var/tmp /dev/shm .; do [ -d \"$d\" ] || continue; tmp=$d; break; done",
+        "printf 'os=%s\\narch=%s\\nrelease=%s\\nversion=%s\\nuid=%s\\ntmp=%s\\n' \"$os\" \"$arch\" \"$release\" \"$version\" \"$uid\" \"$tmp\"",
     ]
     .join("; ")
 }
@@ -297,4 +401,43 @@ fn current_user() -> Option<String> {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn parse_kv(raw: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for line in raw.lines() {
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        out.insert(k.to_string(), v.to_string());
+    }
+    out
+}
+
+fn merge_missing(dst: &mut HashMap<String, String>, src: HashMap<String, String>) {
+    for (k, v) in src {
+        if v.is_empty() || v == "unknown" {
+            continue;
+        }
+        match dst.get(&k) {
+            Some(cur) if !cur.is_empty() && cur != "unknown" => {}
+            _ => {
+                dst.insert(k, v);
+            }
+        }
+    }
+}
+
+fn needs_proc_fallback(raw: &HashMap<String, String>) -> bool {
+    ["os", "arch", "tmp"].into_iter().any(|k| raw.get(k).is_none_or(|v| v.is_empty() || v == "unknown"))
+}
+
+fn privilege_mode(has_sudo: bool, uid: Option<&str>) -> PrivilegeMode {
+    if uid == Some("0") {
+        PrivilegeMode::Root
+    } else if has_sudo {
+        PrivilegeMode::Sudo
+    } else {
+        PrivilegeMode::User
+    }
 }

@@ -505,7 +505,7 @@ async fn main() {
 
     if let Some(network) = params.subcommand_matches("network") {
         if network.get_flag("add") {
-            match netadd::NetworkAddWorkflow::from_matches(network).and_then(|wf| wf.render()) {
+            match netadd::NetworkAddWorkflow::from_matches(network).and_then(|wf| wf.probe_render()) {
                 Ok(output) => println!("{output}"),
                 Err(err) => log::error!("{err}"),
             }

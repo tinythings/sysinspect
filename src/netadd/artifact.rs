@@ -170,10 +170,4 @@ impl MinionCatalogue {
         }
         Ok(item)
     }
-
-    /// Select one sysminion artefact directly from probed host data.
-    #[cfg(test)]
-    pub(crate) fn select_probe(&self, info: &ProbeInfo) -> Result<MinionArtifact, SysinspectError> {
-        self.select(&PlatformId::from_probe(info)?)
-    }
 }

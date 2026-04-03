@@ -4,7 +4,7 @@ use crate::netadd::{
     render::render_outcomes,
     types::{AddOutcome, AddPlan, AddRequest},
 };
-use crate::sshprobe::detect::ProbeInfo;
+use crate::sshprobe::detect::{ProbeInfo, SSHPlatformDetector};
 use clap::ArgMatches;
 use libcommon::SysinspectError;
 use std::path::Path;
@@ -31,6 +31,22 @@ impl NetworkAddWorkflow {
         Ok(render_outcomes(
             &self.plan()?.items.into_iter().map(|host| AddOutcome { detail: "validated".to_string(), host, state: "planned" }).collect::<Vec<_>>(),
         ))
+    }
+
+    /// Probe every planned host and render the discovered target details.
+    pub(crate) fn probe_render(&self) -> Result<String, SysinspectError> {
+        let mut rows = Vec::new();
+        for host in self.plan()?.items {
+            let mut det = SSHPlatformDetector::new(&host.host).set_user(&host.user).check_writable(true);
+            if let Some(path) = &host.path {
+                det = det.set_destination(path);
+            }
+            match det.info() {
+                Ok(info) => rows.push(AddOutcome { detail: info.summary(), host, state: "probed" }),
+                Err(err) => rows.push(AddOutcome { detail: err.to_string(), host, state: "error" }),
+            }
+        }
+        Ok(render_outcomes(&rows))
     }
 
     /// Select one local sysminion artefact for a probed target.
