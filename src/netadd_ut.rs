@@ -1,6 +1,6 @@
 use crate::netadd::{
-    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, normalise_host, normalise_path, parse, parse_entry, resolve_dest,
-    resolve_remote_path,
+    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, normalise_host, normalise_path, parse, parse_entry,
+    registration_mismatch_id, resolve_dest, resolve_remote_path,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libmodpak::mpk::ModPakRepoIndex;
@@ -52,7 +52,7 @@ fn probe_linux_x86_64() -> ProbeInfo {
         has_sudo: false,
         disk_free_bytes: Some(10),
         disk_free_path: Some("/tmp".to_string()),
-        destination: ProbePath { kind: ProbePathKind::System, requested: None, resolved: None, writable: true },
+        destination: ProbePath { kind: ProbePathKind::Home, requested: None, resolved: Some("/home/hans/sysinspect".to_string()), writable: true },
         writable_paths: vec!["/tmp".to_string()],
     }
 }
@@ -204,6 +204,13 @@ fn workflow_selects_artefact_from_probe() {
 
     assert_eq!(art.version, "0.4.0");
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn extracts_registration_mismatch_id() {
+    let msg = "Error registering minion: Error loading protocol data: Registration key mismatch for be806ac5c8134836b316399e21a76a1f: stored old, requested new";
+
+    assert_eq!(registration_mismatch_id(msg).as_deref(), Some("be806ac5c8134836b316399e21a76a1f"));
 }
 
 #[test]

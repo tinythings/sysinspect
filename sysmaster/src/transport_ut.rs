@@ -122,6 +122,16 @@ fn remove_peer_clears_secure_and_plaintext_tracking() {
 }
 
 #[test]
+fn peer_addr_finds_existing_minion_session() {
+    let mut transport = PeerTransport::new();
+    let (master_channel, _) = channels();
+    transport.peers.insert("127.0.0.1:4200".to_string(), PeerConnection { minion_id: "mid-1".to_string(), channel: master_channel });
+
+    assert_eq!(transport.peer_addr("mid-1", "127.0.0.1:4201").as_deref(), Some("127.0.0.1:4200"));
+    assert!(transport.peer_addr("mid-1", "127.0.0.1:4200").is_none());
+}
+
+#[test]
 fn plaintext_diag_rejects_non_registration_traffic() {
     let diag = PeerTransport::plaintext_diag(br#"{"id":"mid-1","r":"ehlo","d":{},"c":0,"sid":"sid-1"}"#).unwrap();
 

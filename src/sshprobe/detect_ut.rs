@@ -53,7 +53,7 @@ fn probes_custom_destination_and_fallbacks() {
 }
 
 #[test]
-fn probes_system_destination() {
+fn probes_home_destination() {
     let runner = FakeRunner::with(vec![
         Ok("os=FreeBSD\narch=amd64\nrelease=14.0\nversion=GENERIC\nuid=0\nhome=/usr/home/hans\nshell=/bin/sh\ntmp=/var/tmp\nsudo=no\n".to_string()),
         Ok("yes".to_string()),
@@ -66,7 +66,8 @@ fn probes_system_destination() {
     assert_eq!(info.exec_mode, ExecMode::Userland);
     assert_eq!(info.privilege, PrivilegeMode::Root);
     assert_eq!(info.os_name, "FreeBSD");
-    assert_eq!(info.destination.kind, ProbePathKind::System);
+    assert_eq!(info.destination.kind, ProbePathKind::Home);
+    assert_eq!(info.destination.resolved.as_deref(), Some("/usr/home/hans/sysinspect"));
     assert!(info.destination.writable);
     assert_eq!(info.disk_free_bytes, Some(4096 * 1024));
     assert!(info.writable_paths.is_empty());

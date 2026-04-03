@@ -1,5 +1,6 @@
 mod registry_test {
     use libsensors::sensors;
+    use libsensors::sensors::SensorCtx;
     use libsensors::sspec::SensorSpec;
     use std::str::FromStr;
 
@@ -21,7 +22,7 @@ sensors:
         let items = spec.items();
         let (sid, cfg) = items.iter().next().unwrap();
 
-        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone(), SensorCtx::default());
         assert!(s.is_some(), "sys.filesystem must be registered");
     }
 
@@ -39,7 +40,7 @@ sensors:
         let items = spec.items();
         let (sid, cfg) = items.iter().next().unwrap();
 
-        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone(), SensorCtx::default());
         assert!(s.is_none(), "unknown listener must return None");
     }
 
@@ -57,7 +58,7 @@ sensors:
         let items = spec.items();
         let (sid, cfg) = items.iter().next().unwrap();
 
-        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone(), SensorCtx::default());
         assert!(s.is_some(), "dotted menotify listener must resolve via listener root");
     }
 
@@ -75,7 +76,7 @@ sensors:
         let items = spec.items();
         let (sid, cfg) = items.iter().next().unwrap();
 
-        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone(), SensorCtx::default());
         assert!(s.is_none(), "unknown dotted listener root must return None");
     }
 
@@ -103,7 +104,7 @@ sensors:
         let items = spec.items();
         let (sid, cfg) = items.iter().next().unwrap();
 
-        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone(), SensorCtx::default());
         assert!(s.is_some(), "net.iface must be registered");
     }
 
@@ -121,7 +122,7 @@ sensors:
         let items = spec.items();
         let (sid, cfg) = items.iter().next().unwrap();
 
-        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone());
+        let s = sensors::init_sensor(cfg.listener(), sid.to_string(), cfg.clone(), SensorCtx::default());
         assert!(s.is_some(), "net.socket must be registered");
     }
 }
