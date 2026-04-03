@@ -61,6 +61,7 @@ pub(crate) struct ProbePath {
 /// Kind of destination check performed by the detector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProbePathKind {
+    Home,
     System,
     Custom,
 }
@@ -186,12 +187,11 @@ impl SSHPlatformDetector {
                 let writable = self.runner.run(&self.host, user, &writable_script(resolved.as_deref().unwrap_or(path)))?.trim().eq("yes");
                 Ok(ProbePath { kind: ProbePathKind::Custom, requested: Some(path.to_string()), resolved, writable })
             }
-            None => Ok(ProbePath {
-                kind: ProbePathKind::System,
-                requested: None,
-                resolved: None,
-                writable: self.runner.run(&self.host, user, &system_writable_script())?.trim().eq("yes"),
-            }),
+            None => {
+                let resolved = default_home_root(home);
+                let writable = self.runner.run(&self.host, user, &writable_script(resolved.as_deref().unwrap_or("sysinspect")))?.trim().eq("yes");
+                Ok(ProbePath { kind: ProbePathKind::Home, requested: None, resolved, writable })
+            }
         }
     }
 
@@ -221,6 +221,10 @@ impl SSHPlatformDetector {
         }
         Ok(out)
     }
+}
+
+fn default_home_root(home: Option<&str>) -> Option<String> {
+    resolve_remote_path(home, "sysinspect").or_else(|| Some("sysinspect".to_string()))
 }
 
 impl PlatformFamily {

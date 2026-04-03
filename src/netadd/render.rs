@@ -2,7 +2,7 @@ use crate::netadd::types::AddOutcome;
 use colored::Colorize;
 use libsysinspect::util::pad_visible;
 
-const DEFAULT_DEST: &str = "<system>";
+const DEFAULT_DEST: &str = "$HOME/sysinspect";
 
 /// Render structured onboarding outcomes.
 pub(crate) fn render_outcomes(rows: &[AddOutcome]) -> String {

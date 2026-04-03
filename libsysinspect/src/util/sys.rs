@@ -70,11 +70,7 @@ pub fn to_fqdn_ip(hostname: &str) -> Option<(String, IpAddr)> {
         freeaddrinfo(res);
     }
 
-    if let Some(ip) = ipaddr
-        && ip.is_loopback()
-    {
-        ipaddr = ext_ipaddr();
-    }
+    ipaddr = preferred_host_ip(ipaddr, primary_ip());
 
     match (fqdn, ipaddr) {
         (Some(fqdn), Some(ip)) => Some((fqdn, ip)),
@@ -82,8 +78,8 @@ pub fn to_fqdn_ip(hostname: &str) -> Option<(String, IpAddr)> {
     }
 }
 
-/// Enumerate network interfaces to find the first non-loopback IP address.
-fn ext_ipaddr() -> Option<IpAddr> {
+/// Return the first non-loopback interface address on the current host.
+pub fn primary_ip() -> Option<IpAddr> {
     if let Ok(interfaces) = get_if_addrs() {
         for iface in interfaces {
             if !iface.is_loopback() {
@@ -92,6 +88,13 @@ fn ext_ipaddr() -> Option<IpAddr> {
         }
     }
     None
+}
+
+pub(crate) fn preferred_host_ip(host_ip: Option<IpAddr>, iface_ip: Option<IpAddr>) -> Option<IpAddr> {
+    match host_ip {
+        Some(ip) if !ip.is_loopback() => Some(ip),
+        _ => iface_ip,
+    }
 }
 
 /// Extract an IP address (IPv4 or IPv6) from a raw sockaddr pointer.

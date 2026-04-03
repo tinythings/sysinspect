@@ -11,3 +11,5 @@ pub(crate) use artifact::{ArtifactArch, ArtifactFamily, MinionCatalogue, Platfor
 #[cfg(test)]
 pub(crate) use parser::{normalise_host, normalise_path, parse, parse_entry, resolve_dest, resolve_remote_path};
 pub(crate) use workflow::NetworkAddWorkflow;
+#[cfg(test)]
+pub(crate) use workflow::registration_mismatch_id;

@@ -21,6 +21,9 @@ mod rsa_ut;
 #[cfg(test)]
 mod registration_ut;
 
+#[cfg(test)]
+mod setup_ut;
+
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
@@ -155,11 +158,13 @@ fn main() -> std::io::Result<()> {
         let cfg = get_config(&params);
         if let Err(err) = register_minion(cfg, fp) {
             log::error!("Error registering minion: {err}");
+            exit(1);
         }
     } else if params.get_flag("start") {
         let cfg = get_config(&params);
         if let Err(err) = start_minion(cfg, None) {
             log::error!("Error starting minion: {err}");
+            exit(1);
         }
     } else if params.get_flag("daemon") {
         log::info!("Starting daemon");
@@ -207,10 +212,12 @@ fn main() -> std::io::Result<()> {
     } else if let Some(sub) = params.subcommand_matches("setup") {
         if let Err(err) = minion::setup(sub) {
             log::error!("Error running setup: {err}");
+            exit(1);
         }
     } else if let Some(sub) = params.subcommand_matches("module") {
         if let Err(err) = minion::launch_module(get_config(&params), sub) {
             log::error!("Error launching module: {err}");
+            exit(1);
         }
     } else if params.get_flag("info") {
         SysMinion::print_info(&get_config(&params));

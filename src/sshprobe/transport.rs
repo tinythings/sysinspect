@@ -60,7 +60,7 @@ pub(crate) struct SSHResponse {
 pub(crate) struct SSHFailure {
     pub(crate) op: &'static str,
     pub(crate) host: String,
-    pub(crate) stderr: String,
+    pub(crate) detail: String,
 }
 
 /// Remote path resolver using probed home data.
@@ -170,7 +170,7 @@ impl SSHSession {
         if rsp.code == 0 {
             return Ok(rsp);
         }
-        Err(ssh_fail("exec", &self.ep.host, &rsp.stderr))
+        Err(ssh_fail("exec", &self.ep.host, &rsp))
     }
 
     /// Upload one local file to the remote host using the configured fallback order.
@@ -188,7 +188,10 @@ impl SSHSession {
                 },
             }
         }
-        Err(last.unwrap_or_else(|| ssh_fail("upload", &self.ep.host, "no upload method succeeded")))
+        Err(last.unwrap_or_else(|| {
+            let rsp = SSHResponse { code: 255, stdout: String::new(), stderr: "no upload method succeeded".to_string() };
+            ssh_fail("upload", &self.ep.host, &rsp)
+        }))
     }
 
     fn upload_scp(&self, req: &UploadRequest) -> Result<(), SysinspectError> {
@@ -199,7 +202,7 @@ impl SSHSession {
         if rsp.code == 0 {
             return Ok(());
         }
-        Err(ssh_fail("upload", &self.ep.host, &rsp.stderr))
+        Err(ssh_fail("upload", &self.ep.host, &rsp))
     }
 
     fn upload_stream(&self, req: &UploadRequest) -> Result<(), SysinspectError> {
@@ -213,7 +216,7 @@ impl SSHSession {
         if rsp.code == 0 {
             return Ok(());
         }
-        Err(ssh_fail("upload", &self.ep.host, &rsp.stderr))
+        Err(ssh_fail("upload", &self.ep.host, &rsp))
     }
 }
 
@@ -265,9 +268,17 @@ fn into_rsp(out: Output) -> SSHResponse {
     }
 }
 
-fn ssh_fail(op: &'static str, host: &str, stderr: &str) -> SysinspectError {
-    let err = SSHFailure { op, host: host.to_string(), stderr: stderr.trim().to_string() };
-    SysinspectError::MinionGeneralError(format!("SSH {} failed on {}: {}", err.op, err.host, err.stderr))
+fn ssh_fail(op: &'static str, host: &str, rsp: &SSHResponse) -> SysinspectError {
+    let stderr = rsp.stderr.trim();
+    let stdout = rsp.stdout.trim();
+    let detail = match (stderr.is_empty(), stdout.is_empty()) {
+        (false, false) => format!("stderr: {stderr}; stdout: {stdout}"),
+        (false, true) => stderr.to_string(),
+        (true, false) => format!("stdout: {stdout}"),
+        (true, true) => format!("exit code {}", rsp.code),
+    };
+    let err = SSHFailure { op, host: host.to_string(), detail };
+    SysinspectError::MinionGeneralError(format!("SSH {} failed on {}: {}", err.op, err.host, err.detail))
 }
 
 pub(crate) fn shell_quote(value: &str) -> String {

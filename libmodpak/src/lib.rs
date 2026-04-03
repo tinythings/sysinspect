@@ -172,6 +172,10 @@ impl SysInspectModPakMinion {
             fs::create_dir_all(self.cfg.profiles_dir())?;
         }
 
+        if names == ["default"] {
+            return Ok(());
+        }
+
         for name in names {
             let profile = profiles
                 .get(name)
@@ -222,7 +226,7 @@ impl SysInspectModPakMinion {
     fn filtered_repo_index(
         &self, ridx: ModPakRepoIndex, profiles: &ModPakProfilesIndex, names: &[String],
     ) -> Result<ModPakRepoIndex, SysinspectError> {
-        if profiles.profiles().is_empty() {
+        if profiles.profiles().is_empty() || names == ["default"] {
             return Ok(ridx);
         }
 

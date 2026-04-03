@@ -157,7 +157,7 @@ impl MinionsKeyRegistry {
 
         let k_pth = self.root.join(format!("{mid}.rsa.pub"));
         if !k_pth.exists() {
-            log::error!("Minion {mid} requests RSA key, but the key is not found!");
+            log::info!("Minion {mid} requested initial RSA key bootstrap; no stored key exists yet");
             return None;
         }
 

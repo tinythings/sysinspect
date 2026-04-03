@@ -2,7 +2,7 @@
 
 include Makefile.in
 
-.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel clean check fix setup \
+.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
@@ -80,9 +80,48 @@ modules-dist-devel:
 	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_modules_dist)
 
-modules-refresh-devel: modules-dist-devel
+modules-refresh-devel:
 	$(call tgt,wasm32-wasip1)
+	@if [ -z "$(CURRENT_MUSL_TARGET)" ] || [ -z "$(CURRENT_MUSL_CC)" ]; then \
+		echo "modules-refresh-devel currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
+		exit 1; \
+	fi
+	$(call tgt,$(CURRENT_MUSL_TARGET))
+	$(call check_present,$(CURRENT_MUSL_CC))
+	$(call prep_layout,debug,$(CURRENT_MUSL_TARGET))
+	cargo build -v --target $(CURRENT_MUSL_TARGET) $(foreach pkg,$(MUSL_MODULE_PACKAGE_SPECS),-p $(pkg)) -p $(SYSMINION_SPEC)
+	cargo build -v $(foreach pkg,$(NATIVE_REFRESH_PACKAGE_SPECS),-p $(pkg))
+	$(call stage_modules_dist_from,debug,$(CURRENT_MUSL_TARGET))
+	$(call stage_native_modules_dist,debug)
 	$(call refresh_modules_repo)
+	$(call refresh_current_minion_repo)
+
+modules-refresh:
+	$(call tgt,wasm32-wasip1)
+	@if [ -z "$(CURRENT_MUSL_TARGET)" ] || [ -z "$(CURRENT_MUSL_CC)" ]; then \
+		echo "modules-refresh currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
+		exit 1; \
+	fi
+	$(call tgt,$(CURRENT_MUSL_TARGET))
+	$(call check_present,$(CURRENT_MUSL_CC))
+	$(call prep_layout,release,$(CURRENT_MUSL_TARGET))
+	cargo build --release --target $(CURRENT_MUSL_TARGET) $(foreach pkg,$(MUSL_MODULE_PACKAGE_SPECS),-p $(pkg)) -p $(SYSMINION_SPEC)
+	cargo build --release $(foreach pkg,$(NATIVE_REFRESH_PACKAGE_SPECS),-p $(pkg))
+	$(call stage_modules_dist_from,release,$(CURRENT_MUSL_TARGET))
+	$(call stage_native_modules_dist,release)
+	$(call refresh_modules_repo)
+	@sysbin=target/debug/sysinspect; \
+	if [ ! -x "$$sysbin" ]; then \
+		echo "Building debug sysinspect helper"; \
+		cargo build -v -p $(SYSINSPECT_SPEC); \
+	fi; \
+	minion=target/$(CURRENT_MUSL_TARGET)/release/sysminion; \
+	if [ ! -x "$$minion" ]; then \
+		echo "Missing built minion binary: $$minion" >&2; \
+		exit 1; \
+	fi; \
+	"$$sysbin" module -R -t --name $(CURRENT_MINION_SLOT) || true; \
+	"$$sysbin" module -A -t -p "$$minion"
 
 stats:
 	tokei . --exclude target --exclude .git

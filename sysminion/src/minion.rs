@@ -15,6 +15,7 @@ use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
 use libmodpak::{MODPAK_SYNC_STATE, SysInspectModPakMinion};
+use libsensors::sensors::SensorCtx;
 use libsensors::sensors::menotify::MeNotifySensor;
 use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
@@ -568,7 +569,7 @@ impl SysMinion {
 
         // Spawn service task and store it
         let sensors_task = {
-            let mut service = SensorService::new(spec);
+            let mut service = SensorService::new(spec).with_ctx(SensorCtx::default().with_sharelib_root(self.cfg.sharelib_dir()));
             service.set_event_processor(events.clone());
             service.spawn()
         };
@@ -1288,6 +1289,13 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
     });
 
+    async fn stop_instance(minion: &Arc<SysMinion>, runner: tokio::task::JoinHandle<()>) -> Result<(), tokio::task::JoinError> {
+        minion.as_ptr().stop_sensors().await;
+        minion.as_ptr().stop_background().await;
+        runner.abort();
+        runner.await
+    }
+
     // Messages
     if minion.fingerprint.is_some() {
         minion.as_ptr().do_proto().await?;
@@ -1316,6 +1324,7 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     } else {
         if let Err(err) = minion.bootstrap_secure().await {
             log::error!("Unable to bootstrap secure transport: {err}");
+            let _ = stop_instance(&minion, runner).await;
             return Err(err);
         }
         minion.as_ptr().do_proto().await?;
@@ -1323,7 +1332,10 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         if cfg.autosync_startup() {
             tokio::select! {
                 sync_res = modpak.sync() => {
-                    sync_res?;
+                    if let Err(err) = sync_res {
+                        let _ = stop_instance(&minion, runner).await;
+                        return Err(err);
+                    }
                 }
                 sig = reconnect_rx.recv() => {
                     match sig {
@@ -1487,8 +1499,9 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
 
     if args.get_flag("with-default-config") {
         let mut cfg = MinionConfig::default();
-        cfg.set_master_ip(args.get_one::<String>("master-addr").unwrap_or(&get_ssh_client_ip().unwrap_or_default()));
-        cfg.set_master_port(DEFAULT_PORT);
+        let (ip, port) = setup_master_addr(args.get_one::<String>("master-addr").map(String::as_str), get_ssh_client_ip())?;
+        cfg.set_master_ip(&ip);
+        cfg.set_master_port(port);
 
         if !alt_dir.is_empty() {
             cfg.set_root_dir(dir.to_str().unwrap_or_default());
@@ -1504,6 +1517,31 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
     }
 
     libsetup::mnsetup::MinionSetup::new().set_config(get_minion_config(None)?).set_alt_dir(dir.to_str().unwrap_or_default().to_string()).setup()
+}
+
+pub(crate) fn setup_master_addr(addr: Option<&str>, ssh_ip: Option<String>) -> Result<(String, u32), SysinspectError> {
+    let addr = addr
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned)
+        .or(ssh_ip)
+        .ok_or_else(|| SysinspectError::ConfigError("Master address is missing".to_string()))?;
+
+    Ok(match addr.strip_prefix('[').and_then(|v| v.split_once(']')) {
+        Some((host, "")) => (host.to_string(), DEFAULT_PORT),
+        Some((host, rest)) => (
+            host.to_string(),
+            rest.strip_prefix(':')
+                .ok_or_else(|| SysinspectError::ConfigError(format!("Invalid master address: {addr}")))?
+                .parse::<u32>()
+                .map_err(|_| SysinspectError::ConfigError(format!("Invalid master address: {addr}")))?,
+        ),
+        None if addr.matches(':').count() == 1 => {
+            let (host, port) = addr.rsplit_once(':').unwrap_or_default();
+            (host.to_string(), port.parse::<u32>().map_err(|_| SysinspectError::ConfigError(format!("Invalid master address: {addr}")))?)
+        }
+        None => (addr, DEFAULT_PORT),
+    })
 }
 
 /// Launch a module

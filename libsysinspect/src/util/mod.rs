@@ -3,6 +3,9 @@ pub mod iofs;
 pub mod sys;
 pub mod tty;
 
+#[cfg(test)]
+mod sys_ut;
+
 use libcommon::SysinspectError;
 use once_cell::sync::Lazy;
 use regex::Regex;

@@ -1,4 +1,5 @@
 use crate::{
+    sensors::SensorCtx,
     sensors::sensor::{Sensor, SensorEvent},
     sspec::SensorConf,
 };
@@ -9,6 +10,7 @@ use std::{
     collections::HashMap,
     fmt,
     panic::{AssertUnwindSafe, catch_unwind},
+    path::PathBuf,
     sync::{LazyLock, Mutex},
     time::Duration,
 };
@@ -30,7 +32,7 @@ impl fmt::Debug for MeNotifySensor {
 #[async_trait]
 impl Sensor for MeNotifySensor {
     fn new(id: String, cfg: SensorConf) -> Self {
-        Self { runtime: MeNotifyRuntime::new(id, cfg.listener().to_string()), cfg }
+        Self::with_ctx(id, cfg, SensorCtx::default())
     }
 
     fn id() -> String {
@@ -56,6 +58,16 @@ impl Sensor for MeNotifySensor {
 }
 
 impl MeNotifySensor {
+    /// Creates a MeNotify sensor with explicit runtime context.
+    pub fn with_ctx(id: String, cfg: SensorConf, ctx: SensorCtx) -> Self {
+        Self { runtime: Self::runtime(&id, &cfg, ctx.sharelib_root().map(PathBuf::from)), cfg }
+    }
+
+    fn runtime(id: &str, cfg: &SensorConf, root: Option<PathBuf>) -> MeNotifyRuntime {
+        root.map(|root| MeNotifyRuntime::with_sharelib_root(id.to_string(), cfg.listener().to_string(), root))
+            .unwrap_or_else(|| MeNotifyRuntime::new(id.to_string(), cfg.listener().to_string()))
+    }
+
     fn activate_generation(&self) -> u64 {
         let mut generations = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
         let generation = generations.get(self.runtime.sid()).copied().unwrap_or_default() + 1;

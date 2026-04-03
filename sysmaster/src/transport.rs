@@ -75,6 +75,11 @@ impl PeerTransport {
         self.plaintext_peers.remove(peer_addr);
     }
 
+    /// Return the current peer address for one minion identifier.
+    pub(crate) fn peer_addr(&self, minion_id: &str, skip: &str) -> Option<String> {
+        self.peers.iter().find(|(addr, peer)| addr.as_str() != skip && peer.minion_id == minion_id).map(|(addr, _)| addr.to_string())
+    }
+
     /// Return whether this peer may receive a broadcast frame right now.
     pub(crate) fn can_receive_broadcast(&self, peer_addr: &str) -> bool {
         Self::can_receive_broadcast_state(self.peers.contains_key(peer_addr), self.plaintext_peers.contains(peer_addr))

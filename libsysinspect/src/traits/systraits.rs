@@ -163,8 +163,11 @@ impl SystemTraits {
             self.put(SYS_NET_HOSTNAME.to_string(), json!(v));
         }
 
-        if let Some((fqdn, ipaddr)) = to_fqdn_ip(&sysinfo::System::host_name().unwrap_or_default()) {
+        let host_net = to_fqdn_ip(&sysinfo::System::host_name().unwrap_or_default());
+        if let Some((fqdn, _)) = &host_net {
             self.put(SYS_NET_HOSTNAME_FQDN.to_string(), json!(fqdn));
+        }
+        if let Some(ipaddr) = host_net.map(|(_, ip)| ip).or_else(crate::util::sys::primary_ip) {
             self.put(SYS_NET_HOSTNAME_IP.to_string(), json!(ipaddr.to_string()));
         }
 

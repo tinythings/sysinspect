@@ -282,11 +282,27 @@ impl SysMaster {
     }
 
     /// Decode one raw peer frame through the transport manager using the current master configuration and key registry.
-    fn decode_peer_frame(&mut self, peer_addr: &str, raw: &[u8]) -> Result<IncomingFrame, SysinspectError> {
+    async fn decode_peer_frame(&mut self, peer_addr: &str, raw: &[u8]) -> Result<IncomingFrame, SysinspectError> {
+        if let Ok(libsysproto::secure::SecureFrame::BootstrapHello(hello)) = serde_json::from_slice::<libsysproto::secure::SecureFrame>(raw)
+            && let Some(addr) = self.peer_transport.peer_addr(&hello.binding.minion_id, peer_addr)
+            && !self.conn_to_mid.contains_key(&addr)
+        {
+            self.drop_replaced_peer(&addr, &hello.binding.minion_id).await;
+        }
         let cfg = self.cfg.clone();
         let peer_transport = &mut self.peer_transport;
         let mkr = &mut self.mkr;
         peer_transport.decode_frame(peer_addr, raw, &cfg, mkr)
+    }
+
+    /// Drop replaced peer state for one reconnecting minion.
+    async fn drop_replaced_peer(&mut self, peer_addr: &str, minion_id: &str) {
+        log::warn!("Replacing stale peer {} for minion {}", peer_addr, minion_id);
+        if self.conn_to_mid.get(peer_addr).is_some_and(|mid| mid == minion_id) {
+            self.conn_to_mid.remove(peer_addr);
+        }
+        self.get_session().lock().await.remove(minion_id);
+        self.peer_transport.remove_peer(peer_addr);
     }
 
     /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
@@ -642,7 +658,7 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_bcast = bcast.clone();
                 let c_mid = req.id().to_string();
-                let c_payload = req.payload().to_string();
+                let c_payload = util::dataconv::as_str(Some(req.payload().clone()));
                 tokio::spawn(async move {
                     c_master.lock().await.on_registration_request(&minion_addr, &c_mid, &c_payload, &c_bcast).await;
                 });
@@ -654,7 +670,7 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_bcast = bcast.clone();
                 let c_id = req.id().to_string();
-                let c_payload = req.payload().to_string();
+                let c_payload = util::dataconv::as_str(Some(req.payload().clone()));
                 tokio::spawn(async move {
                     c_master.lock().await.on_ehlo_request(&minion_addr, &c_id, &c_payload, &c_bcast).await;
                 });
@@ -680,7 +696,7 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_bcast = bcast.clone();
                 let c_id = req.id().to_string();
-                let c_payload = req.payload().to_string();
+                let c_payload = util::dataconv::as_str(Some(req.payload().clone()));
                 tokio::spawn(async move {
                     c_master.lock().await.on_bye_request(&minion_addr, &c_id, &c_payload, &c_bcast).await;
                 });
@@ -1097,7 +1113,7 @@ impl SysMaster {
 
             let decoded = {
                 let mut guard = master.lock().await;
-                guard.decode_peer_frame(&peer_addr, &msg)
+                guard.decode_peer_frame(&peer_addr, &msg).await
             };
             match decoded {
                 Ok(IncomingFrame::Forward(msg)) => {
