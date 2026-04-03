@@ -1,9 +1,9 @@
 //! Reusable SSH platform detection for remote onboarding.
 
+use crate::sshprobe::transport::{RemoteCommand, SSHEndpoint, SSHSession, shell_quote};
 use libcommon::SysinspectError;
-use std::{collections::{BTreeSet, HashMap}, env, process::Command, sync::Arc};
+use std::{collections::{BTreeSet, HashMap}, env, sync::Arc};
 
-const SSH_TIMEOUT_SECS: u64 = 5;
 const SYSTEM_DIRS: [&str; 5] = ["/usr/bin", "/etc", "/var/run", "/var/tmp", "/usr/share"];
 const FALLBACK_DIRS: [&str; 4] = ["/tmp", "/var/tmp", "/dev/shm", "."];
 
@@ -310,19 +310,8 @@ struct SystemRunner;
 
 impl ProbeRunner for SystemRunner {
     fn run(&self, host: &str, user: &str, script: &str) -> Result<String, SysinspectError> {
-        let out = Command::new("ssh")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg(format!("ConnectTimeout={SSH_TIMEOUT_SECS}"))
-            .arg(format!("{user}@{host}"))
-            .arg(format!("sh -lc {}", shell_quote(script)))
-            .output()?;
-        if out.status.success() {
-            return String::from_utf8(out.stdout)
-                .map_err(|e| SysinspectError::DeserializationError(format!("SSH probe output is not valid UTF-8: {e}")));
-        }
-        Err(SysinspectError::MinionGeneralError(format!("SSH probe failed on {}: {}", host, String::from_utf8_lossy(&out.stderr).trim())))
+        let rsp = SSHSession::new(SSHEndpoint::new(host, user)).exec(&RemoteCommand::new(script))?;
+        Ok(rsp.stdout)
     }
 }
 
@@ -397,10 +386,6 @@ fn blocks_to_bytes(value: &str) -> Option<u64> {
 
 fn current_user() -> Option<String> {
     ["USER", "LOGNAME", "USERNAME"].into_iter().find_map(|key| env::var(key).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()))
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn parse_kv(raw: &str) -> HashMap<String, String> {
