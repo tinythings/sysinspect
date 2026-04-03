@@ -1,6 +1,7 @@
 [build]
 #target = "aarch64-unknown-linux-gnu"
 #target = "x86_64-unknown-linux-gnu"
+incremental = false
 
 [target.x86_64-unknown-linux-gnu]
 linker = "x86_64-linux-gnu-gcc"
