@@ -27,10 +27,11 @@ use daemonize::Daemonize;
 use libcommon::SysinspectError;
 use libsysinspect::{
     cfg::{get_minion_config, mmconf::MinionConfig},
+    inspector::SysInspectRunner,
     logger,
 };
 use log::LevelFilter;
-use std::{env, fs::File, process::exit, sync::OnceLock};
+use std::{env, fs::File, process::exit, sync::Arc, sync::OnceLock};
 use tokio::task::JoinHandle;
 
 use crate::minion::SysMinion;
@@ -38,6 +39,20 @@ use crate::minion::SysMinion;
 static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.4.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
+
+fn register_minion(cfg: MinionConfig, fp: String) -> Result<(), SysinspectError> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(2)
+        .enable_all()
+        .build()
+        .map_err(|e| SysinspectError::DynError(Box::new(e)))?;
+
+    let dpq = Arc::new(libdpq::DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks"))?);
+    SysInspectRunner::set_dpq(dpq.clone());
+    runtime.block_on(async { minion::_minion_instance(cfg, Some(fp), dpq).await })?;
+    Ok(())
+}
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -136,9 +151,14 @@ fn main() -> std::io::Result<()> {
 
     // Start
     let fp = params.get_one::<String>("register").cloned();
-    if params.get_flag("start") || fp.is_some() {
+    if let Some(fp) = fp {
         let cfg = get_config(&params);
-        if let Err(err) = start_minion(cfg, fp) {
+        if let Err(err) = register_minion(cfg, fp) {
+            log::error!("Error registering minion: {err}");
+        }
+    } else if params.get_flag("start") {
+        let cfg = get_config(&params);
+        if let Err(err) = start_minion(cfg, None) {
             log::error!("Error starting minion: {err}");
         }
     } else if params.get_flag("daemon") {
