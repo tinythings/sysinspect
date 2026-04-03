@@ -2,7 +2,11 @@
 
 use crate::sshprobe::transport::{RemoteCommand, SSHEndpoint, SSHSession, shell_quote};
 use libcommon::SysinspectError;
-use std::{collections::{BTreeSet, HashMap}, env, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    env,
+    sync::Arc,
+};
 
 const SYSTEM_DIRS: [&str; 5] = ["/usr/bin", "/etc", "/var/run", "/var/tmp", "/usr/share"];
 const FALLBACK_DIRS: [&str; 4] = ["/tmp", "/var/tmp", "/dev/shm", "."];

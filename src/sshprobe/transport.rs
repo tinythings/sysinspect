@@ -237,12 +237,7 @@ impl CommandRunner for SystemCommandRunner {
 }
 
 fn ssh_base_args(ep: &SSHEndpoint) -> Vec<String> {
-    let mut out = vec![
-        "-o".to_string(),
-        "BatchMode=yes".to_string(),
-        "-o".to_string(),
-        format!("ConnectTimeout={SSH_TIMEOUT_SECS}"),
-    ];
+    let mut out = vec!["-o".to_string(), "BatchMode=yes".to_string(), "-o".to_string(), format!("ConnectTimeout={SSH_TIMEOUT_SECS}")];
     if let Some(port) = ep.port {
         out.push("-p".to_string());
         out.push(port.to_string());
@@ -251,13 +246,8 @@ fn ssh_base_args(ep: &SSHEndpoint) -> Vec<String> {
 }
 
 fn scp_base_args(ep: &SSHEndpoint) -> Vec<String> {
-    let mut out = vec![
-        "-q".to_string(),
-        "-o".to_string(),
-        "BatchMode=yes".to_string(),
-        "-o".to_string(),
-        format!("ConnectTimeout={SSH_TIMEOUT_SECS}"),
-    ];
+    let mut out =
+        vec!["-q".to_string(), "-o".to_string(), "BatchMode=yes".to_string(), "-o".to_string(), format!("ConnectTimeout={SSH_TIMEOUT_SECS}")];
     if let Some(port) = ep.port {
         out.push("-P".to_string());
         out.push(port.to_string());

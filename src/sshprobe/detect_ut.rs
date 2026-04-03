@@ -74,9 +74,9 @@ fn probes_system_destination() {
 
 #[test]
 fn maps_qnx_and_unknown_arch() {
-    let runner = FakeRunner::with(vec![
-        Ok("os=QNX\narch=weirdcpu\nrelease=7\nversion=1\nuid=0\nhome=/home/qnx\nshell=/bin/sh\ntmp=/tmp\nsudo=no\n".to_string()),
-    ]);
+    let runner = FakeRunner::with(vec![Ok(
+        "os=QNX\narch=weirdcpu\nrelease=7\nversion=1\nuid=0\nhome=/home/qnx\nshell=/bin/sh\ntmp=/tmp\nsudo=no\n".to_string()
+    )]);
     let err = SSHPlatformDetector::new("qnx-box").set_user("root").with_runner(runner).info().unwrap_err();
 
     assert!(err.to_string().contains("Unsupported target"));

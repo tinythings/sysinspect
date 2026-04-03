@@ -11,6 +11,9 @@ mod util;
 #[cfg(test)]
 mod master_ut;
 
+#[cfg(test)]
+mod mkb_ut;
+
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;

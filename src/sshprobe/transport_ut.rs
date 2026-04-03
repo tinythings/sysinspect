@@ -49,10 +49,7 @@ fn exec_wraps_remote_command() {
 #[test]
 fn exec_supports_pfexec_for_solaris_like_targets() {
     let run = FakeRunner::with(vec![Ok(SSHResponse { code: 0, stdout: "ok".to_string(), stderr: String::new() })]);
-    SSHSession::new(SSHEndpoint::new("box", "hans"))
-        .with_runner(run.clone())
-        .exec(&RemoteCommand::new("id").elevate(ElevationMode::Pfexec))
-        .unwrap();
+    SSHSession::new(SSHEndpoint::new("box", "hans")).with_runner(run.clone()).exec(&RemoteCommand::new("id").elevate(ElevationMode::Pfexec)).unwrap();
 
     assert!(run.calls.lock().unwrap()[0].1.iter().any(|v| v.contains("pfexec sh -lc")));
 }
@@ -65,10 +62,7 @@ fn upload_falls_back_from_scp_to_stream() {
         Ok(SSHResponse { code: 1, stdout: String::new(), stderr: "scp failed".to_string() }),
         Ok(SSHResponse { code: 0, stdout: String::new(), stderr: String::new() }),
     ]);
-    SSHSession::new(SSHEndpoint::new("box", "hans"))
-        .with_runner(run.clone())
-        .upload(&UploadRequest::new(&file, "/tmp/foo"))
-        .unwrap();
+    SSHSession::new(SSHEndpoint::new("box", "hans")).with_runner(run.clone()).upload(&UploadRequest::new(&file, "/tmp/foo")).unwrap();
 
     let calls = run.calls.lock().unwrap();
     assert_eq!(calls[0].0, "scp");
@@ -101,10 +95,8 @@ fn upload_reports_failure_when_all_methods_fail() {
         Ok(SSHResponse { code: 1, stdout: String::new(), stderr: "scp failed".to_string() }),
         Ok(SSHResponse { code: 1, stdout: String::new(), stderr: "stream failed".to_string() }),
     ]);
-    let err = SSHSession::new(SSHEndpoint::new("box", "hans"))
-        .with_runner(run)
-        .upload(&UploadRequest::new(PathBuf::from(&file), "/tmp/foo"))
-        .unwrap_err();
+    let err =
+        SSHSession::new(SSHEndpoint::new("box", "hans")).with_runner(run).upload(&UploadRequest::new(PathBuf::from(&file), "/tmp/foo")).unwrap_err();
 
     assert!(err.to_string().contains("SSH upload failed"));
     let _ = std::fs::remove_file(file);

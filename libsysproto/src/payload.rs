@@ -170,3 +170,44 @@ impl PingPayload {
         self.cpu_usage
     }
 }
+
+/// Master reply sent after a minion registration attempt.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RegistrationReply {
+    accepted: bool,
+    message: String,
+    master_key_pem: Option<String>,
+    master_fingerprint: Option<String>,
+}
+
+impl RegistrationReply {
+    /// Build an accepted registration reply with trust-seeding material.
+    pub fn accepted(message: String, master_key_pem: String, master_fingerprint: String) -> Self {
+        Self { accepted: true, message, master_key_pem: Some(master_key_pem), master_fingerprint: Some(master_fingerprint) }
+    }
+
+    /// Build a rejected registration reply without trust-seeding material.
+    pub fn rejected(message: String) -> Self {
+        Self { accepted: false, message, master_key_pem: None, master_fingerprint: None }
+    }
+
+    /// Return whether the registration request was accepted.
+    pub fn accepted_flag(&self) -> bool {
+        self.accepted
+    }
+
+    /// Return the operator-visible registration message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Return the master's RSA public key PEM when trust seeding is included.
+    pub fn master_key_pem(&self) -> Option<&str> {
+        self.master_key_pem.as_deref()
+    }
+
+    /// Return the master's RSA fingerprint when trust seeding is included.
+    pub fn master_fingerprint(&self) -> Option<&str> {
+        self.master_fingerprint.as_deref()
+    }
+}

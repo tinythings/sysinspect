@@ -106,6 +106,36 @@ impl MinionRSAKeyManager {
         TransportStore::new(self.root.join(CFG_TRANSPORT_ROOT).join(CFG_TRANSPORT_MASTER).join(CFG_TRANSPORT_STATE))
     }
 
+    /// Persist one trusted master RSA identity and ensure the managed transport state exists.
+    pub fn trust_master_identity(&self, minion_id: &str, master_pem: &str, pinned: Option<&str>) -> Result<String, SysinspectError> {
+        let (_, master_pbk) = libsysinspect::rsa::keys::from_pem(None, Some(master_pem))?;
+        let master_pbk =
+            master_pbk.ok_or_else(|| SysinspectError::RSAError("Master public key is not present in the registration payload".to_string()))?;
+        let actual = libsysinspect::rsa::keys::get_fingerprint(&master_pbk).map_err(|err| SysinspectError::RSAError(err.to_string()))?;
+        if let Some(pinned) = pinned
+            && pinned.trim() != actual
+        {
+            return Err(SysinspectError::ProtoError(format!("Master fingerprint mismatch: expected {}, got {}", pinned.trim(), actual)));
+        }
+
+        let path = self.root.join(CFG_MASTER_KEY_PUB);
+        if path.exists() {
+            let (_, existing) = libsysinspect::rsa::keys::from_pem(None, Some(&fs::read_to_string(&path)?))?;
+            let existing = existing.ok_or_else(|| SysinspectError::RSAError(format!("Trusted master key at {} is invalid", path.display())))?;
+            let known = libsysinspect::rsa::keys::get_fingerprint(&existing).map_err(|err| SysinspectError::RSAError(err.to_string()))?;
+            if known != actual {
+                return Err(SysinspectError::ProtoError(format!("Trusted master key mismatch: stored {}, got {}", known, actual)));
+            }
+        } else {
+            fs::write(&path, master_pem)?;
+        }
+
+        if !self.ensure_transport_state(minion_id)? {
+            return Err(SysinspectError::ConfigError(format!("Managed transport state was not created for {minion_id}")));
+        }
+        Ok(actual)
+    }
+
     pub fn ensure_transport_state(&self, minion_id: &str) -> Result<bool, SysinspectError> {
         let master_pem_path = self.root.join(CFG_MASTER_KEY_PUB);
         if !master_pem_path.exists() {

@@ -18,6 +18,9 @@ mod proto_ut;
 #[cfg(test)]
 mod rsa_ut;
 
+#[cfg(test)]
+mod registration_ut;
+
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;

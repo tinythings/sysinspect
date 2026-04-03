@@ -49,7 +49,7 @@ use libsysinspect::{
 use libsysproto::{
     MasterMessage, MinionMessage, ProtoConversion,
     errcodes::ProtoErrorCode,
-    payload::{ModStatePayload, PayloadType},
+    payload::{ModStatePayload, PayloadType, RegistrationReply},
     query::{
         MinionQuery, SCHEME_COMMAND,
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
@@ -90,6 +90,15 @@ struct RotationCommandPayload {
     reregister: bool,
     intent: SignedRotationIntent,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+enum RegistrationOutcome {
+    #[default]
+    Pending,
+    Accepted,
+    Rejected(String),
+}
+
 #[derive(Debug)]
 pub struct SysMinion {
     cfg: MinionConfig,
@@ -110,6 +119,7 @@ pub struct SysMinion {
     secure: Mutex<Option<SecureChannel>>,
 
     minion_id: String,
+    registration: Mutex<RegistrationOutcome>,
 
     pub(crate) sensors_task: Mutex<Option<JoinHandle<()>>>,
     pub(crate) sensors_pump: Mutex<Option<JoinHandle<()>>>,
@@ -160,6 +170,7 @@ impl SysMinion {
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
             minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            registration: Mutex::new(RegistrationOutcome::Pending),
             sensors_task: Mutex::new(None),
             sensors_pump: Mutex::new(None),
             ping_task: Mutex::new(None),
@@ -629,7 +640,59 @@ impl SysMinion {
                     RequestType::Add => log::debug!("Master accepts registration"),
 
                     RequestType::Reconnect => {
-                        log::warn!("Master requires reconnection: {}", msg.payload());
+                        if let Some(pinned) = this.fingerprint.as_deref() {
+                            match serde_json::from_value::<RegistrationReply>(msg.payload().clone()) {
+                                Ok(reply) if !reply.accepted_flag() => {
+                                    log::error!("Registration rejected: {}", reply.message());
+                                    *this.registration.lock().await = RegistrationOutcome::Rejected(reply.message().to_string());
+                                }
+                                Ok(reply) => {
+                                    let master_pem = match reply.master_key_pem() {
+                                        Some(pem) if !pem.trim().is_empty() => pem,
+                                        _ => {
+                                            let err = "Registration reply did not include the master public key".to_string();
+                                            log::error!("{err}");
+                                            *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                            let _ = CONNECTION_TX.send(());
+                                            break;
+                                        }
+                                    };
+                                    let master_fp = match reply.master_fingerprint() {
+                                        Some(fp) if !fp.trim().is_empty() => fp,
+                                        _ => {
+                                            let err = "Registration reply did not include the master fingerprint".to_string();
+                                            log::error!("{err}");
+                                            *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                            let _ = CONNECTION_TX.send(());
+                                            break;
+                                        }
+                                    };
+                                    if master_fp.trim() != pinned.trim() {
+                                        let err = format!("Registration fingerprint mismatch: expected {}, got {}", pinned.trim(), master_fp.trim());
+                                        log::error!("{err}");
+                                        *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                    } else {
+                                        match this.kman.trust_master_identity(this.get_minion_id(), master_pem, Some(pinned)) {
+                                            Ok(fp) => {
+                                                log::info!("Trusted master fingerprint: {fp}");
+                                                *this.registration.lock().await = RegistrationOutcome::Accepted;
+                                            }
+                                            Err(err) => {
+                                                log::error!("Failed to persist trusted master identity: {err}");
+                                                *this.registration.lock().await = RegistrationOutcome::Rejected(err.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    let err = format!("Failed to decode registration reply: {err}");
+                                    log::error!("{err}");
+                                    *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                }
+                            }
+                        } else {
+                            log::warn!("Master requires reconnection: {}", msg.payload());
+                        }
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -1229,6 +1292,27 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     if minion.fingerprint.is_some() {
         minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_registration(minion.kman.get_pubkey_pem()).await?;
+        match reconnect_rx.recv().await {
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                runner.abort();
+                let _ = runner.await;
+                return Err(SysinspectError::ProtoError(format!("Missed {n} reconnect notification(s) while waiting for registration")));
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                runner.abort();
+                let _ = runner.await;
+                return Err(SysinspectError::ProtoError("Reconnect channel closed while waiting for registration".to_string()));
+            }
+        }
+        minion.as_ptr().stop_background().await;
+        runner.abort();
+        let _ = runner.await;
+        return match &*minion.registration.lock().await {
+            RegistrationOutcome::Accepted => Ok(()),
+            RegistrationOutcome::Rejected(err) => Err(SysinspectError::ProtoError(err.to_string())),
+            RegistrationOutcome::Pending => Err(SysinspectError::ProtoError("Registration ended without a trust decision".to_string())),
+        };
     } else {
         if let Err(err) = minion.bootstrap_secure().await {
             log::error!("Unable to bootstrap secure transport: {err}");
@@ -1303,6 +1387,7 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
 
 pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
     let mut reconnect_rx = CONNECTION_TX.subscribe();
+    let mut fp = fp;
     let mut ra = 0;
     let dpq = match DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks")) {
         Ok(dpq) => Arc::new(dpq),
@@ -1328,7 +1413,12 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             res = &mut mhdl => {
                 match res {
                     Ok(Ok(_)) => log::info!("Minion instance ended gracefully, reconnecting..."),
-                    Ok(Err(e)) => log::error!("Minion encountered an error: {e:?}"),
+                    Ok(Err(e)) => {
+                        log::error!("Minion encountered an error: {e:?}");
+                        if fp.is_some() {
+                            return;
+                        }
+                    }
                     Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
                 }
             }
@@ -1348,6 +1438,14 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
                     }
                 }
             }
+        }
+
+        if fp.is_some()
+            && cfg.root_dir().join(CFG_MASTER_KEY_PUB).exists()
+            && TransportStore::for_minion(&cfg).ok().and_then(|store| store.load().ok().flatten()).is_some()
+        {
+            log::info!("Registration trust is seeded; switching to secure startup.");
+            fp = None;
         }
 
         if !cfg.reconnect() {

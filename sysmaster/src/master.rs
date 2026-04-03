@@ -35,7 +35,7 @@ use libsysinspect::{
 use libsysproto::{
     self, MasterMessage, MinionMessage, MinionTarget,
     errcodes::ProtoErrorCode,
-    payload::{ModStatePayload, PingData},
+    payload::{ModStatePayload, PingData, RegistrationReply},
     query::{
         SCHEME_COMMAND,
         commands::{
@@ -493,11 +493,11 @@ impl SysMaster {
         m
     }
 
-    /// Accept registration
-    fn msg_registered(&self, mid: String, msg: &str) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::Reconnect, json!(msg)); // XXX: Should it be already encrypted?
+    /// Accept or reject one registration attempt.
+    fn msg_registered(&self, mid: String, reply: RegistrationReply) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::Reconnect, json!(reply));
         m.set_target(MinionTarget::new(&mid, ""));
-        m.set_retcode(ProtoErrorCode::Success);
+        m.set_retcode(if reply.accepted_flag() { ProtoErrorCode::Success } else { ProtoErrorCode::GeneralFailure });
 
         m
     }
@@ -540,18 +540,37 @@ impl SysMaster {
     async fn on_registration_request(&mut self, minion_addr: &str, minion_id: &str, payload: &str, bcast: &broadcast::Sender<MasterMessage>) {
         log::info!("Minion \"{minion_addr}\" requested registration");
         self.peer_transport.allow_plaintext(minion_addr);
-        let resp_msg = if !self.mkr().is_registered(minion_id) {
-            if let Err(err) = self.mkr().add_mn_key(minion_id, minion_addr, payload) {
-                log::error!("Unable to add minion RSA key: {err}");
+        let reply = match self.mkr().add_mn_key(minion_id, minion_addr, payload) {
+            Ok(crate::registry::mkb::RegistrationStatus::Added) => {
+                self.to_drop.insert(minion_addr.to_owned());
+                log::info!("Registered a minion at {minion_addr} ({minion_id})");
+                RegistrationReply::accepted(
+                    "Minion registration has been accepted".to_string(),
+                    self.mkr().get_master_key_pem().clone().unwrap_or_default(),
+                    self.mkr().get_master_key_fingerprint().unwrap_or_default(),
+                )
             }
-            self.to_drop.insert(minion_addr.to_owned());
-            log::info!("Registered a minion at {minion_addr} ({minion_id})");
-            "Minion registration has been accepted"
-        } else {
-            log::warn!("Minion {minion_addr} ({minion_id}) is already registered");
-            "Minion already registered"
+            Ok(crate::registry::mkb::RegistrationStatus::Exists) => {
+                self.to_drop.insert(minion_addr.to_owned());
+                log::warn!("Minion {minion_addr} ({minion_id}) is already registered");
+                RegistrationReply::accepted(
+                    "Minion already registered".to_string(),
+                    self.mkr().get_master_key_pem().clone().unwrap_or_default(),
+                    self.mkr().get_master_key_fingerprint().unwrap_or_default(),
+                )
+            }
+            Ok(crate::registry::mkb::RegistrationStatus::Conflict { current, requested }) => {
+                self.to_drop.insert(minion_addr.to_owned());
+                log::error!("Minion {minion_addr} ({minion_id}) registration key mismatch: stored {current}, requested {requested}");
+                RegistrationReply::rejected(format!("Registration key mismatch for {minion_id}: stored {current}, requested {requested}"))
+            }
+            Err(err) => {
+                self.to_drop.insert(minion_addr.to_owned());
+                log::error!("Unable to add minion RSA key: {err}");
+                RegistrationReply::rejected(format!("Unable to register {minion_id}: {err}"))
+            }
         };
-        _ = bcast.send(self.msg_registered(minion_id.to_string(), resp_msg));
+        _ = bcast.send(self.msg_registered(minion_id.to_string(), reply));
     }
 
     /// Process an `ehlo` request and either establish the runtime session or reject the peer.
