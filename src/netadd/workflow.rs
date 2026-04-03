@@ -1,5 +1,5 @@
 use crate::netadd::{
-    artifact::{MinionArtifact, MinionCatalogue},
+    artifact::{MinionArtifact, MinionCatalogue, PlatformId},
     parser::{parse_request, resolve_plan},
     render::render_outcomes,
     types::{AddOutcome, AddPlan, AddRequest},
@@ -35,6 +35,6 @@ impl NetworkAddWorkflow {
 
     /// Select one local sysminion artefact for a probed target.
     pub(crate) fn select_artifact(&self, repo_root: &Path, info: &ProbeInfo) -> Result<MinionArtifact, SysinspectError> {
-        MinionCatalogue::open(repo_root)?.select_probe(info)
+        MinionCatalogue::open(repo_root)?.select(&PlatformId::from_probe(info)?)
     }
 }
