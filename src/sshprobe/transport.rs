@@ -221,6 +221,8 @@ impl CommandRunner for SystemCommandRunner {
     fn run(&self, prog: &str, args: &[String], stdin: Option<Vec<u8>>) -> Result<SSHResponse, SysinspectError> {
         let mut cmd = Command::new(prog);
         cmd.args(args);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
         if stdin.is_some() {
             cmd.stdin(std::process::Stdio::piped());
         }

@@ -393,12 +393,17 @@ fn current_user() -> Option<String> {
 }
 
 fn parse_kv(raw: &str) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+    let mut out = HashMap::<String, String>::new();
     for line in raw.lines() {
         let Some((k, v)) = line.split_once('=') else {
             continue;
         };
-        out.insert(k.to_string(), v.to_string());
+        match out.get(k) {
+            Some(cur) if !cur.is_empty() && cur != "unknown" => {}
+            _ => {
+                out.insert(k.to_string(), v.to_string());
+            }
+        }
     }
     out
 }

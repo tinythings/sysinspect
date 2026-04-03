@@ -6,7 +6,7 @@ use crate::netadd::{
 };
 use crate::sshprobe::{
     detect::{ProbeInfo, ProbePathKind, SSHPlatformDetector},
-    transport::{ElevationMode, RemoteCommand, SSHEndpoint, SSHSession, UploadRequest, shell_quote},
+    transport::{ElevationMode, RemoteCommand, SSHEndpoint, SSHSession, UploadMethod, UploadRequest, shell_quote},
 };
 use clap::ArgMatches;
 use libcommon::SysinspectError;
@@ -18,6 +18,7 @@ use libsysinspect::{
 use libsysproto::query::{SCHEME_COMMAND, commands::CLUSTER_ONLINE_MINIONS};
 use std::{
     fs,
+    net::UdpSocket,
     path::Path,
     thread::sleep,
     time::{Duration, Instant},
@@ -27,8 +28,8 @@ use std::{
 struct SetupContext {
     repo_root: std::path::PathBuf,
     cfg: MasterConfig,
-    master_addr: String,
     master_fp: String,
+    master_port: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,20 +126,34 @@ impl NetworkAddWorkflow {
 
 impl SetupContext {
     fn from_cfg(cfg: &MasterConfig) -> Result<Self, SysinspectError> {
-        let master_addr = cfg.bind_addr();
-        let host = master_addr.split(':').next().unwrap_or_default();
-        if matches!(host, "" | "0.0.0.0" | "::" | "[::]") {
-            return Err(SysinspectError::ConfigError(format!("Master bind address {} is not a reachable remote address for auto-add", master_addr)));
-        }
         let pem = fs::read_to_string(cfg.root_dir().join(CFG_MASTER_KEY_PUB))?;
         let (_, pbk) = from_pem(None, Some(&pem))?;
         let pbk = pbk.ok_or_else(|| SysinspectError::ConfigError("Master RSA public key is missing from disk".to_string()))?;
         Ok(Self {
             repo_root: cfg.get_mod_repo_root(),
             cfg: cfg.clone(),
-            master_addr,
             master_fp: get_fingerprint(&pbk).map_err(|err| SysinspectError::RSAError(err.to_string()))?,
+            master_port: cfg
+                .bind_addr()
+                .rsplit(':')
+                .next()
+                .and_then(|v| v.parse::<u16>().ok())
+                .ok_or_else(|| SysinspectError::ConfigError(format!("Invalid master bind address: {}", cfg.bind_addr())))?,
         })
+    }
+
+    fn master_addr_for(&self, host: &str) -> Result<String, SysinspectError> {
+        let bind = self.cfg.bind_addr();
+        let ip = bind.split(':').next().unwrap_or_default();
+        if !matches!(ip, "" | "0.0.0.0" | "::" | "[::]") {
+            return Ok(bind);
+        }
+
+        let sock = UdpSocket::bind("0.0.0.0:0")?;
+        sock.connect((host, 22)).map_err(|err| {
+            SysinspectError::ConfigError(format!("Unable to derive a reachable master address for {host} from wildcard bind {}: {err}", bind))
+        })?;
+        Ok(format!("{}:{}", sock.local_addr()?.ip(), self.master_port))
     }
 }
 
@@ -175,10 +190,11 @@ impl RemoteLayout {
 impl HostSetup {
     fn run(&self, ctx: &SetupContext) -> Result<String, SysinspectError> {
         let ssh = SSHSession::new(SSHEndpoint::new(&self.host.host, &self.host.user));
-        ssh.upload(&UploadRequest::new(&self.art.path, &self.layout.stage_bin))?;
+        ssh.upload(&UploadRequest::new(&self.art.path, &self.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))?;
         let elevate = self.elevation()?;
         ssh.exec(&RemoteCommand::new(format!("chmod 0755 {}", shell_quote(&self.layout.stage_bin))))?;
-        ssh.exec(&RemoteCommand::new(self.setup_cmd(ctx)).elevate(elevate))?;
+        self.verify_stage_bin(&ssh)?;
+        ssh.exec(&RemoteCommand::new(self.setup_cmd(ctx)?).elevate(elevate))?;
         ssh.exec(&RemoteCommand::new(self.register_cmd(ctx)).elevate(elevate))?;
         ssh.exec(&RemoteCommand::new(self.start_cmd()).elevate(elevate))?;
         self.wait_runtime(&ssh, elevate)?;
@@ -197,13 +213,14 @@ impl HostSetup {
         Err(SysinspectError::MinionGeneralError(format!("Destination is not writable on {} and sudo is unavailable", self.host.host)))
     }
 
-    fn setup_cmd(&self, ctx: &SetupContext) -> String {
-        format!(
+    fn setup_cmd(&self, ctx: &SetupContext) -> Result<String, SysinspectError> {
+        let master_addr = ctx.master_addr_for(&self.host.host)?;
+        Ok(format!(
             "{} setup --with-default-config --master-addr {}{}",
             shell_quote(&self.layout.stage_bin),
-            shell_quote(&ctx.master_addr),
+            shell_quote(&master_addr),
             self.layout.dir.as_deref().map(|dir| format!(" --directory {}", shell_quote(dir))).unwrap_or_default()
-        )
+        ))
     }
 
     fn register_cmd(&self, ctx: &SetupContext) -> String {
@@ -212,6 +229,18 @@ impl HostSetup {
 
     fn start_cmd(&self) -> String {
         format!("{} -c {} --daemon", shell_quote(&self.layout.install_bin), shell_quote(&self.layout.config))
+    }
+
+    fn verify_stage_bin(&self, ssh: &SSHSession) -> Result<(), SysinspectError> {
+        let chk = format!("test -s {} && {} --version >/dev/null 2>&1", shell_quote(&self.layout.stage_bin), shell_quote(&self.layout.stage_bin));
+        match ssh.exec(&RemoteCommand::new(chk)) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(SysinspectError::MinionGeneralError(format!(
+                "Uploaded sysminion is not runnable on {}; {}",
+                self.host.host,
+                self.stage_snapshot(ssh)?
+            ))),
+        }
     }
 
     fn wait_runtime(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
@@ -300,6 +329,15 @@ impl HostSetup {
             "for p in {}; do if [ -f \"$p\" ]; then printf '%s: ' \"$p\"; tail -n 20 \"$p\" 2>/dev/null | tr '\\n' ' '; fi; done",
             self.log_candidates_expr()
         )
+    }
+
+    fn stage_snapshot(&self, ssh: &SSHSession) -> Result<String, SysinspectError> {
+        let rsp = ssh.exec(&RemoteCommand::new(format!(
+            "p={0}; d=$(dirname \"$p\"); ls -ld \"$d\" \"$p\" 2>/dev/null || true",
+            shell_quote(&self.layout.stage_bin)
+        )))?;
+        let out = rsp.stdout.trim();
+        Ok(if out.is_empty() { "uploaded file not visible on remote host".to_string() } else { out.to_string() })
     }
 
     fn log_candidates_expr(&self) -> String {
