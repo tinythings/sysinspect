@@ -26,12 +26,7 @@ impl NetworkAddWorkflow {
     /// Produce the current operator-facing console view.
     pub(crate) fn render(&self) -> Result<String, SysinspectError> {
         Ok(render_outcomes(
-            &self
-                .plan()?
-                .items
-                .into_iter()
-                .map(|host| AddOutcome { detail: "validated".to_string(), host, state: "planned" })
-                .collect::<Vec<_>>(),
+            &self.plan()?.items.into_iter().map(|host| AddOutcome { detail: "validated".to_string(), host, state: "planned" }).collect::<Vec<_>>(),
         ))
     }
 }
