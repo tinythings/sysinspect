@@ -78,6 +78,22 @@ fn upload_falls_back_from_scp_to_stream() {
 }
 
 #[test]
+fn upload_honours_custom_method_order_and_port() {
+    let file = std::env::temp_dir().join(format!("sshprobe-upload-order-{}", std::process::id()));
+    std::fs::write(&file, b"booya").unwrap();
+    let run = FakeRunner::with(vec![Ok(SSHResponse { code: 0, stdout: String::new(), stderr: String::new() })]);
+    SSHSession::new(SSHEndpoint::new("box", "hans").set_port(2222))
+        .with_runner(run.clone())
+        .upload(&UploadRequest::new(&file, "/tmp/foo").methods(vec![UploadMethod::Stream]))
+        .unwrap();
+
+    let calls = run.calls.lock().unwrap();
+    assert_eq!(calls[0].0, "ssh");
+    assert!(calls[0].1.iter().any(|v| v == "2222"));
+    let _ = std::fs::remove_file(file);
+}
+
+#[test]
 fn upload_reports_failure_when_all_methods_fail() {
     let file = std::env::temp_dir().join(format!("sshprobe-upload-fail-{}", std::process::id()));
     std::fs::write(&file, b"booya").unwrap();
