@@ -54,6 +54,48 @@ pub(crate) struct MinionRow {
     sha256: String,
 }
 
+/// One indexed sysminion build with its resolved repository path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MinionBuildRecord {
+    platform: String,
+    arch: String,
+    version: String,
+    checksum: String,
+    path: PathBuf,
+}
+
+impl MinionBuildRecord {
+    /// Create one indexed minion build record.
+    pub fn new(platform: String, arch: String, version: String, checksum: String, path: PathBuf) -> Self {
+        Self { platform, arch, version, checksum, path }
+    }
+
+    /// Return the indexed platform family label.
+    pub fn platform(&self) -> &str {
+        &self.platform
+    }
+
+    /// Return the indexed architecture label.
+    pub fn arch(&self) -> &str {
+        &self.arch
+    }
+
+    /// Return the indexed sysminion version.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Return the indexed artefact checksum.
+    pub fn checksum(&self) -> &str {
+        &self.checksum
+    }
+
+    /// Return the resolved repository path of the artefact.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 pub struct ModPakSyncState {
     state: Arc<Mutex<bool>>,
 }
@@ -1082,6 +1124,23 @@ impl SysInspectModPak {
 
         println!("{}", Self::render_minion_table(rows));
         Ok(())
+    }
+
+    /// Return all indexed sysminion builds with resolved repository paths.
+    pub fn minion_builds(&self) -> Vec<MinionBuildRecord> {
+        let mut out = Vec::new();
+        for (platform, archset) in self.idx.minion() {
+            for (arch, file) in archset {
+                out.push(MinionBuildRecord::new(
+                    platform.clone(),
+                    arch,
+                    file.version().to_string(),
+                    file.checksum().to_string(),
+                    self.root.join(file.file()),
+                ));
+            }
+        }
+        out
     }
 
     /// Resolves library removal expressions to concrete library names.

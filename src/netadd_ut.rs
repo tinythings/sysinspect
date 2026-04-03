@@ -1,8 +1,58 @@
-use crate::netadd::{NetworkAddWorkflow, normalise_host, normalise_path, parse, parse_entry, resolve_dest, resolve_remote_path};
-use std::{fs, path::Path};
+use crate::netadd::{
+    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, normalise_host, normalise_path, parse, parse_entry, resolve_dest,
+    resolve_remote_path,
+};
+use crate::sshprobe::detect::{CpuArch, PlatformFamily, ProbeInfo, ProbePath, ProbePathKind};
+use libmodpak::mpk::ModPakRepoIndex;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 fn network_args(args: &[&str]) -> clap::ArgMatches {
     crate::clidef::cli("test").try_get_matches_from(args).unwrap()
+}
+
+fn scratch_dir(name: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "sysinspect-{name}-{}-{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+
+fn seed_minion_repo() -> PathBuf {
+    let root = scratch_dir("modrepo");
+    let mut idx = ModPakRepoIndex::new();
+    let rel = PathBuf::from("minion/linux/x86_64/sysminion");
+    idx.index_minion("linux", "x86_64", rel.clone(), "deadbeef", "0.4.0").unwrap();
+    fs::create_dir_all(root.join("minion/linux/x86_64")).unwrap();
+    fs::write(root.join(&rel), "sysminion").unwrap();
+    fs::write(root.join("mod.index"), idx.to_yaml().unwrap()).unwrap();
+    root
+}
+
+fn probe_linux_x86_64() -> ProbeInfo {
+    ProbeInfo {
+        host: "foo.com".to_string(),
+        user: "hans".to_string(),
+        family: PlatformFamily::Linux,
+        arch: CpuArch::X86_64,
+        os_name: "Linux".to_string(),
+        release: "6.0".to_string(),
+        version: "test".to_string(),
+        home: Some("/home/hans".to_string()),
+        shell: Some("/bin/sh".to_string()),
+        tmp: Some("/tmp".to_string()),
+        has_sudo: false,
+        disk_free_bytes: Some(10),
+        disk_free_path: Some("/tmp".to_string()),
+        destination: ProbePath { kind: ProbePathKind::System, requested: None, resolved: None, writable: true },
+        writable_paths: vec!["/tmp".to_string()],
+    }
 }
 
 #[test]
@@ -99,6 +149,59 @@ fn resolves_destination_against_home() {
 
     assert_eq!(dst.input.as_deref(), Some("booya"));
     assert_eq!(dst.path.unwrap(), Path::new("/home/hans/booya"));
+}
+
+#[test]
+fn platform_id_maps_probe_fields() {
+    let id = PlatformId::from_probe(&probe_linux_x86_64()).unwrap();
+
+    assert_eq!(id.family, ArtifactFamily::Linux);
+    assert_eq!(id.arch, ArtifactArch::X86_64);
+    assert_eq!(id.abi, None);
+}
+
+#[test]
+fn selects_registered_minion_artefact() {
+    let root = seed_minion_repo();
+    let cat = MinionCatalogue::open(&root).unwrap();
+    let art = cat.select(&PlatformId { family: ArtifactFamily::Linux, arch: ArtifactArch::X86_64, abi: None }).unwrap();
+
+    assert_eq!(art.version, "0.4.0");
+    assert_eq!(art.checksum, "deadbeef");
+    assert!(art.path.ends_with("minion/linux/x86_64/sysminion"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rejects_missing_registered_minion_artefact() {
+    let root = seed_minion_repo();
+    let cat = MinionCatalogue::open(&root).unwrap();
+    let err = cat.select(&PlatformId { family: ArtifactFamily::FreeBsd, arch: ArtifactArch::X86_64, abi: None }).unwrap_err();
+
+    assert!(err.to_string().contains("Missing sysminion artefact"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rejects_stale_minion_index_entries() {
+    let root = seed_minion_repo();
+    fs::remove_file(root.join("minion/linux/x86_64/sysminion")).unwrap();
+    let cat = MinionCatalogue::open(&root).unwrap();
+    let err = cat.select(&PlatformId { family: ArtifactFamily::Linux, arch: ArtifactArch::X86_64, abi: None }).unwrap_err();
+
+    assert!(err.to_string().contains("missing on disk"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn workflow_selects_artefact_from_probe() {
+    let root = seed_minion_repo();
+    let args = network_args(&["sysinspect", "network", "--add", "-n", "foo.com", "-u", "hans"]);
+    let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
+    let art = wf.select_artifact(&root, &probe_linux_x86_64()).unwrap();
+
+    assert_eq!(art.version, "0.4.0");
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
