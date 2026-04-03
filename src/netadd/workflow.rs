@@ -12,13 +12,14 @@ use clap::ArgMatches;
 use libcommon::SysinspectError;
 use libsysinspect::{
     cfg::mmconf::{CFG_MASTER_KEY_PUB, MasterConfig},
-    console::{ConsoleOnlineMinionRow, ConsolePayload},
+    console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleTransportStatusRow},
     rsa::keys::{from_pem, get_fingerprint},
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
-    commands::{CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION},
+    commands::{CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_TRANSPORT_STATUS},
 };
+use serde_json::json;
 use std::{
     fs,
     net::UdpSocket,
@@ -55,6 +56,14 @@ struct HostSetup {
     art: MinionArtifact,
     layout: RemoteLayout,
     minion_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Readiness {
+    online: bool,
+    traits: bool,
+    transport: bool,
+    sensors: bool,
 }
 
 /// Dedicated host-onboarding workflow entrypoint.
@@ -207,8 +216,8 @@ impl HostSetup {
         this.wait_runtime(&ssh, elevate)?;
         log::info!("Auto-add {}: wait for bootstrap log", self.host.host);
         this.wait_attempt(&ssh, elevate)?;
-        log::info!("Auto-add {}: wait for network --online", self.host.host);
-        this.wait_online(ctx)?;
+        log::info!("Auto-add {}: wait for master readiness", self.host.host);
+        this.wait_ready(ctx, &ssh, elevate)?;
         Ok(format!("{} artefact={} daemon online", this.info.summary(), this.art.version))
     }
 
@@ -343,29 +352,63 @@ impl HostSetup {
         )))
     }
 
-    fn wait_online(&self, ctx: &SetupContext) -> Result<(), SysinspectError> {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        let ssh = SSHSession::new(SSHEndpoint::new(&self.host.host, &self.host.user));
-        let elevate = self.elevation()?;
+    fn wait_ready(&self, ctx: &SetupContext, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
+        let deadline = Instant::now() + Duration::from_secs(25);
         while Instant::now() < deadline {
-            if self.online(ctx)? {
+            if self.readiness(ctx, ssh, elevate)?.ready() {
                 return Ok(());
             }
             sleep(Duration::from_secs(1));
         }
         Err(SysinspectError::MinionGeneralError(format!(
-            "sysminion started on {} but did not appear in network --online in time; {}",
+            "sysminion started on {} but did not reach full master readiness in time; {} ({})",
             self.host.host,
-            self.log_snapshot(&ssh, elevate)?
+            self.readiness(ctx, ssh, elevate)?.detail(),
+            self.log_snapshot(ssh, elevate)?
         )))
     }
 
+    fn readiness(&self, ctx: &SetupContext, ssh: &SSHSession, elevate: ElevationMode) -> Result<Readiness, SysinspectError> {
+        Ok(Readiness {
+            online: self.online(ctx)?,
+            traits: self.has_traits(ctx)?,
+            transport: self.has_transport(ctx)?,
+            sensors: self.sensors_ready(ssh, elevate)?,
+        })
+    }
+
     fn online(&self, ctx: &SetupContext) -> Result<bool, SysinspectError> {
-        let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "*", None)?;
+        let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "*", None, None)?;
         let ConsolePayload::OnlineMinions { rows } = rsp.payload else {
             return Err(SysinspectError::MasterGeneralError("Master returned an unexpected payload while checking online minions".to_string()));
         };
         Ok(rows.into_iter().any(|row| row.alive && self.matches_online_row(&row)))
+    }
+
+    fn has_traits(&self, ctx: &SetupContext) -> Result<bool, SysinspectError> {
+        let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_INFO}"), "*", self.minion_id.as_deref(), None)?;
+        let ConsolePayload::MinionInfo { rows } = rsp.payload else {
+            return Err(SysinspectError::MasterGeneralError("Master returned an unexpected payload while checking minion traits".to_string()));
+        };
+        Ok(rows_have_traits(&rows))
+    }
+
+    fn has_transport(&self, ctx: &SetupContext) -> Result<bool, SysinspectError> {
+        let rsp = call_console(
+            &ctx.cfg,
+            &format!("{SCHEME_COMMAND}{CLUSTER_TRANSPORT_STATUS}"),
+            "*",
+            self.minion_id.as_deref(),
+            Some(&json!({ "filter": "all" }).to_string()),
+        )?;
+        let ConsolePayload::TransportStatus { rows } = rsp.payload else {
+            return Err(SysinspectError::MasterGeneralError("Master returned an unexpected payload while checking transport state".to_string()));
+        };
+        Ok(rows.into_iter().any(|row| self.matches_transport_row(&row) && row.active_key_id.is_some() && row.last_handshake_at.is_some()))
+    }
+
+    fn sensors_ready(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<bool, SysinspectError> {
+        ssh.exec(&RemoteCommand::new(self.sensors_probe_cmd()).elevate(elevate)).map(|rsp| rsp.stdout.trim() == "yes")
     }
 
     fn matches_online_row(&self, row: &ConsoleOnlineMinionRow) -> bool {
@@ -379,12 +422,24 @@ impl HostSetup {
             .any(|name| !name.is_empty() && name == host)
     }
 
+    fn matches_transport_row(&self, row: &ConsoleTransportStatusRow) -> bool {
+        self.minion_id.as_deref().is_some_and(|mid| row.minion_id == mid)
+    }
+
     fn attempt_probe_cmd(&self) -> String {
         format!(
             "state=no; for p in {}; do if [ -f \"$p\" ] && grep -Eq {} \"$p\"; then state=fail; break; fi; if [ -f \"$p\" ] && grep -Eq {} \"$p\"; then state=yes; break; fi; done; printf '%s' \"$state\"",
             self.log_candidates_expr(),
             shell_quote("Minion encountered an error:|Unable to bootstrap secure transport|failed to lookup address information"),
             shell_quote("Registration request to|Ehlo on|Secure session established|Unable to bootstrap secure transport")
+        )
+    }
+
+    fn sensors_probe_cmd(&self) -> String {
+        format!(
+            "state=no; for p in {}; do if [ -f \"$p\" ] && grep -Eq {} \"$p\"; then state=yes; break; fi; done; printf '%s' \"$state\"",
+            self.log_candidates_expr(),
+            shell_quote("Sending sensors sync callback for cycle|Received sensors sync response from master")
         )
     }
 
@@ -419,7 +474,7 @@ impl HostSetup {
     }
 
     fn unregister_stale(&self, ctx: &SetupContext, mid: &str) -> Result<(), SysinspectError> {
-        let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(mid))?;
+        let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(mid), None)?;
         match rsp.payload {
             ConsolePayload::Ack { .. } => Ok(()),
             payload => Err(SysinspectError::MasterGeneralError(format!("Unable to remove stale minion {mid} before retry: {payload:?}"))),
@@ -440,14 +495,32 @@ pub(crate) fn registration_mismatch_id(msg: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn call_console(cfg: &MasterConfig, model: &str, query: &str, mid: Option<&str>) -> Result<libsysinspect::console::ConsoleResponse, SysinspectError> {
+fn call_console(
+    cfg: &MasterConfig, model: &str, query: &str, mid: Option<&str>, context: Option<&String>,
+) -> Result<libsysinspect::console::ConsoleResponse, SysinspectError> {
     if let Ok(handle) = Handle::try_current() {
-        return block_in_place(|| handle.block_on(crate::call_master_console(cfg, model, query, None, mid, None)));
+        return block_in_place(|| handle.block_on(crate::call_master_console(cfg, model, query, None, mid, context)));
     }
 
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| SysinspectError::DynError(Box::new(e)))?
-        .block_on(crate::call_master_console(cfg, model, query, None, mid, None))
+        .block_on(crate::call_master_console(cfg, model, query, None, mid, context))
+}
+
+impl Readiness {
+    fn ready(&self) -> bool {
+        self.online && self.traits && self.transport && self.sensors
+    }
+
+    fn detail(&self) -> String {
+        format!("readiness online={}, traits={}, transport={}, sensors={}", self.online, self.traits, self.transport, self.sensors)
+    }
+}
+
+pub(crate) fn rows_have_traits(rows: &[ConsoleMinionInfoRow]) -> bool {
+    rows.iter().any(|row| row.key == "minion.online" && row.value.as_bool() == Some(true))
+        && rows.iter().any(|row| row.key == "system.id")
+        && rows.iter().any(|row| row.key == "system.hostname")
 }

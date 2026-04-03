@@ -1,9 +1,11 @@
 use crate::netadd::{
     ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, normalise_host, normalise_path, parse, parse_entry,
-    registration_mismatch_id, resolve_dest, resolve_remote_path,
+    registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libmodpak::mpk::ModPakRepoIndex;
+use libsysinspect::{console::ConsoleMinionInfoRow, traits::TraitSource};
+use serde_json::json;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -218,6 +220,27 @@ fn resolves_relative_remote_path() {
     let path = resolve_remote_path(Path::new("/home/hans"), Some("booya")).unwrap();
 
     assert_eq!(path, Path::new("/home/hans/booya"));
+}
+
+#[test]
+fn readiness_traits_require_online_and_persisted_identity() {
+    let rows = vec![
+        ConsoleMinionInfoRow { key: "minion.online".to_string(), value: json!(true), source: TraitSource::Preset },
+        ConsoleMinionInfoRow { key: "system.id".to_string(), value: json!("mid-1"), source: TraitSource::Preset },
+        ConsoleMinionInfoRow { key: "system.hostname".to_string(), value: json!("humpel"), source: TraitSource::Preset },
+    ];
+
+    assert!(rows_have_traits(&rows));
+}
+
+#[test]
+fn readiness_traits_reject_missing_hostname() {
+    let rows = vec![
+        ConsoleMinionInfoRow { key: "minion.online".to_string(), value: json!(true), source: TraitSource::Preset },
+        ConsoleMinionInfoRow { key: "system.id".to_string(), value: json!("mid-1"), source: TraitSource::Preset },
+    ];
+
+    assert!(!rows_have_traits(&rows));
 }
 
 #[test]
