@@ -12,13 +12,21 @@ use clap::ArgMatches;
 use libcommon::SysinspectError;
 use libsysinspect::{
     cfg::mmconf::{CFG_MASTER_KEY_PUB, MasterConfig},
+    console::{ConsoleOnlineMinionRow, ConsolePayload},
     rsa::keys::{from_pem, get_fingerprint},
 };
-use std::{fs, path::Path};
+use libsysproto::query::{SCHEME_COMMAND, commands::CLUSTER_ONLINE_MINIONS};
+use std::{
+    fs,
+    path::Path,
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct SetupContext {
     repo_root: std::path::PathBuf,
+    cfg: MasterConfig,
     master_addr: String,
     master_fp: String,
 }
@@ -29,6 +37,7 @@ struct RemoteLayout {
     install_bin: String,
     config: String,
     dir: Option<String>,
+    pidfile: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +135,7 @@ impl SetupContext {
         let pbk = pbk.ok_or_else(|| SysinspectError::ConfigError("Master RSA public key is missing from disk".to_string()))?;
         Ok(Self {
             repo_root: cfg.get_mod_repo_root(),
+            cfg: cfg.clone(),
             master_addr,
             master_fp: get_fingerprint(&pbk).map_err(|err| SysinspectError::RSAError(err.to_string()))?,
         })
@@ -151,11 +161,13 @@ impl RemoteLayout {
             ),
             ProbePathKind::System => None,
         };
+        let pidfile = dir.as_deref().map(|v| format!("{v}/run/sysinspect.pid")).unwrap_or_else(|| "/var/run/sysinspect.pid".to_string());
         Ok(Self {
             stage_bin: format!("{stage_root}/sysminion"),
             install_bin: dir.as_deref().map(|v| format!("{v}/bin/sysminion")).unwrap_or_else(|| "/usr/bin/sysminion".to_string()),
             config: dir.as_deref().map(|v| format!("{v}/etc/sysinspect.conf")).unwrap_or_else(|| "/etc/sysinspect/sysinspect.conf".to_string()),
             dir,
+            pidfile,
         })
     }
 }
@@ -169,7 +181,10 @@ impl HostSetup {
         ssh.exec(&RemoteCommand::new(self.setup_cmd(ctx)).elevate(elevate))?;
         ssh.exec(&RemoteCommand::new(self.register_cmd(ctx)).elevate(elevate))?;
         ssh.exec(&RemoteCommand::new(self.start_cmd()).elevate(elevate))?;
-        Ok(format!("{} artefact={} setup, registered, started", self.info.summary(), self.art.version))
+        self.wait_runtime(&ssh, elevate)?;
+        self.wait_attempt(&ssh, elevate)?;
+        self.wait_online(ctx)?;
+        Ok(format!("{} artefact={} daemon online", self.info.summary(), self.art.version))
     }
 
     fn elevation(&self) -> Result<ElevationMode, SysinspectError> {
@@ -198,4 +213,100 @@ impl HostSetup {
     fn start_cmd(&self) -> String {
         format!("{} -c {} --daemon", shell_quote(&self.layout.install_bin), shell_quote(&self.layout.config))
     }
+
+    fn wait_runtime(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let cmd = format!("test -s {0} && pid=$(cat {0}) && kill -0 \"$pid\"", shell_quote(&self.layout.pidfile));
+        while Instant::now() < deadline {
+            if ssh.exec(&RemoteCommand::new(cmd.clone()).elevate(elevate)).is_ok() {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(500));
+        }
+        Err(SysinspectError::MinionGeneralError(format!(
+            "sysminion daemon did not stay alive on {}; {}",
+            self.host.host,
+            self.log_snapshot(ssh, elevate)?
+        )))
+    }
+
+    fn wait_attempt(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let cmd = self.attempt_probe_cmd();
+        while Instant::now() < deadline {
+            let rsp = ssh.exec(&RemoteCommand::new(cmd.clone()).elevate(elevate));
+            if rsp.as_ref().is_ok_and(|rsp| rsp.stdout.trim() == "yes") {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(500));
+        }
+        Err(SysinspectError::MinionGeneralError(format!(
+            "sysminion did not log a registration/bootstrap attempt on {}; {}",
+            self.host.host,
+            self.log_snapshot(ssh, elevate)?
+        )))
+    }
+
+    fn wait_online(&self, ctx: &SetupContext) -> Result<(), SysinspectError> {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let ssh = SSHSession::new(SSHEndpoint::new(&self.host.host, &self.host.user));
+        let elevate = self.elevation()?;
+        while Instant::now() < deadline {
+            if self.online(ctx)? {
+                return Ok(());
+            }
+            sleep(Duration::from_secs(1));
+        }
+        Err(SysinspectError::MinionGeneralError(format!(
+            "sysminion started on {} but did not appear in network --online in time; {}",
+            self.host.host,
+            self.log_snapshot(&ssh, elevate)?
+        )))
+    }
+
+    fn online(&self, ctx: &SetupContext) -> Result<bool, SysinspectError> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| SysinspectError::DynError(Box::new(e)))?;
+        let rsp = rt.block_on(crate::call_master_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "*", None, None, None))?;
+        let ConsolePayload::OnlineMinions { rows } = rsp.payload else {
+            return Err(SysinspectError::MasterGeneralError("Master returned an unexpected payload while checking online minions".to_string()));
+        };
+        Ok(rows.into_iter().any(|row| row.alive && self.matches_online_row(&row)))
+    }
+
+    fn matches_online_row(&self, row: &ConsoleOnlineMinionRow) -> bool {
+        let host = self.host.host_norm.as_str();
+        [row.fqdn.as_str(), row.hostname.as_str(), row.ip.as_str()]
+            .into_iter()
+            .map(normalise_remote_name)
+            .any(|name| !name.is_empty() && name == host)
+    }
+
+    fn attempt_probe_cmd(&self) -> String {
+        format!(
+            "found=no; for p in {}; do if [ -f \"$p\" ] && grep -Eq {} \"$p\"; then found=yes; break; fi; done; printf '%s' \"$found\"",
+            self.log_candidates_expr(),
+            shell_quote("Registration request to|Ehlo on|Secure session established|Unable to bootstrap secure transport")
+        )
+    }
+
+    fn log_snapshot(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<String, SysinspectError> {
+        let rsp = ssh.exec(&RemoteCommand::new(self.log_snapshot_cmd()).elevate(elevate))?;
+        let out = rsp.stdout.trim();
+        Ok(if out.is_empty() { "no remote logs found".to_string() } else { format!("remote logs: {out}") })
+    }
+
+    fn log_snapshot_cmd(&self) -> String {
+        format!(
+            "for p in {}; do if [ -f \"$p\" ]; then printf '%s: ' \"$p\"; tail -n 20 \"$p\" 2>/dev/null | tr '\\n' ' '; fi; done",
+            self.log_candidates_expr()
+        )
+    }
+
+    fn log_candidates_expr(&self) -> String {
+        "/var/log/sysminion.standard.log /var/log/sysminion.errors.log \"$HOME/.local/state/sysminion.standard.log\" \"$HOME/.local/state/sysminion.errors.log\" /tmp/sysminion.standard.log /tmp/sysminion.errors.log".to_string()
+    }
+}
+
+fn normalise_remote_name(name: &str) -> String {
+    name.trim().trim_end_matches('.').to_ascii_lowercase()
 }
