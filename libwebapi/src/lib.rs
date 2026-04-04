@@ -4,6 +4,7 @@ use colored::Colorize;
 use libcommon::SysinspectError;
 use libdatastore::resources::DataStorage;
 use libsysinspect::cfg::mmconf::MasterConfig;
+use once_cell::sync::OnceCell;
 use rustls::RootCertStore;
 use rustls::ServerConfig;
 use rustls::server::WebPkiClientVerifier;
@@ -26,6 +27,18 @@ pub trait MasterInterface: Send + Sync {
 }
 
 pub type MasterInterfaceType = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
+
+static RUSTLS_PROVIDER: OnceCell<()> = OnceCell::new();
+
+pub fn ensure_rustls_crypto_provider() -> Result<(), SysinspectError> {
+    RUSTLS_PROVIDER.get_or_try_init(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .map_err(|_| SysinspectError::WebAPIError("Failed to install rustls crypto provider".to_string()))?;
+        Ok::<(), SysinspectError>(())
+    })?;
+    Ok(())
+}
 
 /// Determines the advertised API host for the Web API based on the bind address.
 fn advertised_api_host(bind_addr: &str) -> String {
@@ -179,6 +192,7 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
         log::info!("Embedded Web API disabled.");
         return Ok(());
     }
+    ensure_rustls_crypto_provider()?;
 
     if !cfg.api_tls_enabled() {
         log::error!(

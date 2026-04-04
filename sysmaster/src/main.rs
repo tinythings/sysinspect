@@ -55,6 +55,8 @@ fn help(cli: &mut Command, params: ArgMatches) -> bool {
 }
 
 fn main() -> Result<(), SysinspectError> {
+    libwebapi::ensure_rustls_crypto_provider()?;
+
     let mut cli = cli(VERSION, APPNAME);
     let params = cli.to_owned().get_matches();
 

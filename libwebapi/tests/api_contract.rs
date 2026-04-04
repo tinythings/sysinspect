@@ -5,6 +5,7 @@ use libsysinspect::cfg::mmconf::MasterConfig;
 use libwebapi::{
     MasterInterface, MasterInterfaceType,
     api::{self, ApiVersions},
+    ensure_rustls_crypto_provider,
 };
 use reqwest::{Certificate, Identity};
 use rustls::RootCertStore;
@@ -17,8 +18,6 @@ use tokio::{
     time::{Duration, sleep},
 };
 
-const CERT_PEM: &str = include_str!("data/sysmaster-dev.crt");
-const KEY_PEM: &str = include_str!("data/sysmaster-dev.key");
 const MTLS_CA_CERT_PEM: &str = include_str!("data/webapi-test-ca.crt");
 const MTLS_SERVER_CERT_PEM: &str = include_str!("data/webapi-test-server.crt");
 const MTLS_SERVER_KEY_PEM: &str = include_str!("data/webapi-test-server.key");
@@ -62,8 +61,11 @@ fn write_cfg(root: &Path, devmode: bool, doc_enabled: bool) -> MasterConfig {
 }
 
 fn tls_config(require_client_auth: bool) -> ServerConfig {
-    let (server_cert_pem, server_key_pem, ca_cert_pem) =
-        if require_client_auth { (MTLS_SERVER_CERT_PEM, MTLS_SERVER_KEY_PEM, Some(MTLS_CA_CERT_PEM)) } else { (CERT_PEM, KEY_PEM, None) };
+    ensure_rustls_crypto_provider().unwrap();
+
+    let server_cert_pem = MTLS_SERVER_CERT_PEM;
+    let server_key_pem = MTLS_SERVER_KEY_PEM;
+    let ca_cert_pem = require_client_auth.then_some(MTLS_CA_CERT_PEM);
 
     let mut cert_reader = BufReader::new(server_cert_pem.as_bytes());
     let certs = rustls_pemfile::certs(&mut cert_reader).collect::<Result<Vec<_>, _>>().unwrap();
@@ -99,6 +101,7 @@ async fn spawn_https_server(
         let scope = api::get(devmode, doc_enabled, ApiVersions::V1).unwrap().load(web::scope(""));
         App::new().app_data(web::Data::new(master.clone())).service(scope)
     })
+    .workers(1)
     .bind_rustls_0_23(("127.0.0.1", 0), tls_config(require_client_auth))
     .unwrap();
     let addr = server.addrs()[0];
@@ -109,7 +112,7 @@ async fn spawn_https_server(
 }
 
 fn trusted_client() -> reqwest::Client {
-    reqwest::Client::builder().add_root_certificate(Certificate::from_pem(CERT_PEM.as_bytes()).unwrap()).build().unwrap()
+    reqwest::Client::builder().add_root_certificate(Certificate::from_pem(MTLS_CA_CERT_PEM.as_bytes()).unwrap()).build().unwrap()
 }
 
 fn trusted_mtls_client() -> reqwest::Client {
