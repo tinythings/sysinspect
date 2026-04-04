@@ -1,5 +1,6 @@
 use super::mmconf::{
     CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CONSOLE_PORT, MasterConfig, MinionConfig,
+    MinionPerformanceProfile,
 };
 use std::{
     fs,
@@ -127,4 +128,28 @@ fn minion_system_layout_paths_follow_system_defaults() {
     assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/var/run/sysinspect.pid"));
     assert_eq!(cfg.managed_logfile_std_path(), std::path::PathBuf::from("/var/log/sysminion.standard.log"));
     assert_eq!(cfg.managed_logfile_err_path(), std::path::PathBuf::from("/var/log/sysminion.errors.log"));
+}
+
+#[test]
+fn minion_performance_defaults_to_default_profile() {
+    let cfg = MinionConfig::default();
+
+    assert!(matches!(cfg.performance(), MinionPerformanceProfile::Default));
+    assert_eq!(cfg.performance().register_threads(), (2, 2));
+    assert_eq!(cfg.performance().daemon_threads(), (4, 4));
+}
+
+#[test]
+fn minion_performance_can_be_set_to_embedded_or_server() {
+    let mut embedded = MinionConfig::default();
+    embedded.set_performance(MinionPerformanceProfile::Embedded);
+    assert!(matches!(embedded.performance(), MinionPerformanceProfile::Embedded));
+    assert_eq!(embedded.performance().register_threads(), (1, 1));
+    assert_eq!(embedded.performance().daemon_threads(), (2, 2));
+
+    let mut server = MinionConfig::default();
+    server.set_performance(MinionPerformanceProfile::Server);
+    assert!(matches!(server.performance(), MinionPerformanceProfile::Server));
+    assert_eq!(server.performance().register_threads(), (4, 4));
+    assert_eq!(server.performance().daemon_threads(), (8, 8));
 }
