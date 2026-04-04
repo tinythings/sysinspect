@@ -240,6 +240,15 @@ impl SysMaster {
         PeerTransport::accept_bootstrap_auth_then_replay_for_test(cache, state, hello, master_prk, minion_pbk, now)
     }
 
+    #[cfg(test)]
+    pub(crate) fn should_replace_existing_session_for_test(existing_sid: Option<&str>, incoming_sid: &str) -> bool {
+        Self::should_replace_existing_session(existing_sid, incoming_sid)
+    }
+
+    fn should_replace_existing_session(existing_sid: Option<&str>, incoming_sid: &str) -> bool {
+        existing_sid.is_some_and(|sid| !sid.is_empty() && sid == incoming_sid)
+    }
+
     /// Start sysmaster
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
         log::info!("Starting master at {}", self.cfg.bind_addr().bright_yellow());
@@ -303,6 +312,19 @@ impl SysMaster {
         }
         self.get_session().lock().await.remove(minion_id);
         self.peer_transport.remove_peer(peer_addr);
+    }
+
+    /// Drop one existing runtime session for a reconnecting minion when the supervisor reuses the same sid.
+    async fn drop_existing_runtime_session(&mut self, minion_addr: &str, minion_id: &str) {
+        if let Some(addr) = self.conn_to_mid.iter().find_map(|(addr, mid)| (addr != minion_addr && mid == minion_id).then_some(addr.clone())) {
+            log::warn!("Replacing stale runtime session {} for minion {}", addr, minion_id);
+            self.conn_to_mid.remove(&addr);
+            self.peer_transport.remove_peer(&addr);
+        } else if let Some(addr) = self.peer_transport.peer_addr(minion_id, minion_addr) {
+            log::warn!("Replacing stale pre-EHLO peer {} for minion {}", addr, minion_id);
+            self.peer_transport.remove_peer(&addr);
+        }
+        self.get_session().lock().await.remove(minion_id);
     }
 
     /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
@@ -590,7 +612,7 @@ impl SysMaster {
     }
 
     /// Process an `ehlo` request and either establish the runtime session or reject the peer.
-    async fn on_ehlo_request(&mut self, minion_addr: &str, minion_id: &str, payload: &str, bcast: &broadcast::Sender<MasterMessage>) {
+    async fn on_ehlo_request(&mut self, minion_addr: &str, minion_id: &str, sid: &str, bcast: &broadcast::Sender<MasterMessage>) {
         log::info!("EHLO from {}", minion_id);
         if !self.mkr().is_registered(minion_id) {
             log::info!("Minion at {minion_addr} ({minion_id}) is not registered");
@@ -598,17 +620,24 @@ impl SysMaster {
             _ = bcast.send(self.msg_not_registered(minion_id.to_string()));
             return;
         }
-        if self.get_session().lock().await.exists(minion_id) {
+        let existing_sid = {
+            let keeper = self.get_session();
+            let mut sessions = keeper.lock().await;
+            if sessions.exists(minion_id) { sessions.get_id(minion_id) } else { None }
+        };
+        if Self::should_replace_existing_session(existing_sid.as_deref(), sid) {
+            self.drop_existing_runtime_session(minion_addr, minion_id).await;
+        } else if existing_sid.is_some() {
             log::info!("Minion at {minion_addr} ({minion_id}) is already connected");
             self.to_drop.insert(minion_addr.to_owned());
-            _ = bcast.send(self.msg_already_connected(minion_id.to_string(), payload.to_string()));
+            _ = bcast.send(self.msg_already_connected(minion_id.to_string(), sid.to_string()));
             return;
         }
 
         log::info!("{minion_id} connected successfully");
         self.conn_to_mid.insert(minion_addr.to_string(), minion_id.to_string());
-        self.get_session().lock().await.ping(minion_id, Some(payload));
-        _ = bcast.send(self.msg_request_traits(minion_id.to_string(), payload.to_string()));
+        self.get_session().lock().await.ping(minion_id, Some(sid));
+        _ = bcast.send(self.msg_request_traits(minion_id.to_string(), sid.to_string()));
         log::info!("Syncing traits with minion at {minion_id}");
 
         match self.pending_rotation_message_for(minion_id).await {
@@ -670,9 +699,9 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_bcast = bcast.clone();
                 let c_id = req.id().to_string();
-                let c_payload = util::dataconv::as_str(Some(req.payload().clone()));
+                let c_sid = req.sid().to_string();
                 tokio::spawn(async move {
-                    c_master.lock().await.on_ehlo_request(&minion_addr, &c_id, &c_payload, &c_bcast).await;
+                    c_master.lock().await.on_ehlo_request(&minion_addr, &c_id, &c_sid, &c_bcast).await;
                 });
             }
             RequestType::Pong => {

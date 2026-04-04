@@ -24,25 +24,25 @@ fix:
 musl-aarch64-dev:
 	$(call check_present,aarch64-linux-musl-gcc)
 	$(call prep_layout,debug,aarch64-unknown-linux-musl)
-	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call move_bin,debug,aarch64-unknown-linux-musl)
 
 musl-aarch64:
 	$(call check_present,aarch64-linux-musl-gcc)
 	$(call prep_layout,release,aarch64-unknown-linux-musl)
-	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call move_bin,release,aarch64-unknown-linux-musl)
 
 musl-x86_64-dev:
 	$(call check_present,x86_64-linux-musl-gcc)
 	$(call prep_layout,debug,x86_64-unknown-linux-musl)
-	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call move_bin,debug,x86_64-unknown-linux-musl)
 
 musl-x86_64:
 	$(call check_present,x86_64-linux-musl-gcc)
 	$(call prep_layout,release,x86_64-unknown-linux-musl)
-	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call move_bin,release,x86_64-unknown-linux-musl)
 
 all-devel:

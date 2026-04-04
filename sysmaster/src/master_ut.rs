@@ -191,6 +191,14 @@ fn replay_cache_key_binds_minion_connection_and_nonce() {
 }
 
 #[test]
+fn same_sid_replaces_stale_session_but_different_sid_does_not() {
+    assert!(SysMaster::should_replace_existing_session_for_test(Some("sid-1"), "sid-1"));
+    assert!(!SysMaster::should_replace_existing_session_for_test(Some("sid-1"), "sid-2"));
+    assert!(!SysMaster::should_replace_existing_session_for_test(None, "sid-1"));
+    assert!(!SysMaster::should_replace_existing_session_for_test(Some(""), "sid-1"));
+}
+
+#[test]
 fn invalid_hello_does_not_poison_replay_cache_then_valid_retry_is_accepted() {
     let (master_prk, master_pbk) = keygen(2048).unwrap();
     let (minion_prk, minion_pbk) = keygen(2048).unwrap();

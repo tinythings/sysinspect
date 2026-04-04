@@ -119,7 +119,7 @@ fn trusted_mtls_client() -> reqwest::Client {
 fn trusted_client_with_identity() -> reqwest::Client {
     reqwest::Client::builder()
         .add_root_certificate(Certificate::from_pem(MTLS_CA_CERT_PEM.as_bytes()).unwrap())
-        .identity(Identity::from_pkcs8_pem(MTLS_CLIENT_CERT_PEM.as_bytes(), MTLS_CLIENT_KEY_PEM.as_bytes()).unwrap())
+        .identity(Identity::from_pem(format!("{MTLS_CLIENT_CERT_PEM}\n{MTLS_CLIENT_KEY_PEM}").as_bytes()).unwrap())
         .build()
         .unwrap()
 }

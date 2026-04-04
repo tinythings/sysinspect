@@ -2967,6 +2967,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2979,22 +2980,6 @@ dependencies = [
  "hyper-util",
  "pin-project-lite",
  "tokio",
- "tower-service",
-]
-
-[[package]]
-name = "hyper-tls"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper",
- "hyper-util",
- "native-tls",
- "tokio",
- "tokio-native-tls",
  "tower-service",
 ]
 
@@ -4115,9 +4100,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.25"
+version = "1.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d52f4c29e2a68ac30c9087e1b772dc9f44a2b66ed44edf2266cf2be9b03dafc1"
+checksum = "786a7c68b5bbe177567d237ec4940d11666206e97b20a983421b251092f24d7d"
 dependencies = [
  "cc",
  "libc",
@@ -4491,23 +4476,6 @@ name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
-
-[[package]]
-name = "native-tls"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "465500e14ea162429d264d44189adc38b199b62b1c21eea9f69e4b73cb03bbf2"
-dependencies = [
- "libc",
- "log",
- "openssl",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "security-framework",
- "security-framework-sys",
- "tempfile",
-]
 
 [[package]]
 name = "neli"
@@ -6254,31 +6222,28 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64",
  "bytes",
- "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.4.13",
  "http 1.4.0",
  "http-body",
  "http-body-util",
  "hyper",
  "hyper-rustls",
- "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
- "mime",
- "native-tls",
  "percent-encoding",
  "pin-project-lite",
+ "quinn",
+ "rustls",
  "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tokio-native-tls",
+ "tokio-rustls",
  "tower 0.5.3",
  "tower-http",
  "tower-service",
@@ -6286,6 +6251,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -6623,6 +6589,7 @@ dependencies = [
  "aws-lc-rs",
  "log",
  "once_cell",
+ "ring",
  "rustls-pki-types",
  "rustls-webpki",
  "subtle",
@@ -6702,7 +6669,7 @@ dependencies = [
 [[package]]
 name = "rustpython"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "cfg-if",
  "dirs-next",
@@ -6721,7 +6688,7 @@ dependencies = [
 [[package]]
 name = "rustpython-codegen"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "ahash 0.8.12",
  "bitflags 2.11.0",
@@ -6744,7 +6711,7 @@ dependencies = [
 [[package]]
 name = "rustpython-common"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "ascii",
  "bitflags 2.11.0",
@@ -6772,7 +6739,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "rustpython-codegen",
  "rustpython-compiler-core",
@@ -6786,7 +6753,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "bitflags 2.11.0",
  "bitflagset",
@@ -6801,7 +6768,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
@@ -6811,7 +6778,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive-impl"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "itertools 0.14.0",
  "maplit",
@@ -6827,7 +6794,7 @@ dependencies = [
 [[package]]
 name = "rustpython-doc"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "phf 0.13.1",
 ]
@@ -6835,7 +6802,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "hexf-parse",
  "icu_properties",
@@ -6848,7 +6815,7 @@ dependencies = [
 [[package]]
 name = "rustpython-pylib"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "glob",
  "rustpython-compiler-core",
@@ -6929,7 +6896,7 @@ dependencies = [
 [[package]]
 name = "rustpython-sre_engine"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "bitflags 2.11.0",
  "num_enum",
@@ -6940,7 +6907,7 @@ dependencies = [
 [[package]]
 name = "rustpython-stdlib"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "adler32",
  "ahash 0.8.12",
@@ -7025,7 +6992,7 @@ dependencies = [
 [[package]]
 name = "rustpython-vm"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "ahash 0.8.12",
  "ascii",
@@ -7094,7 +7061,7 @@ dependencies = [
 [[package]]
 name = "rustpython-wtf8"
 version = "0.5.0"
-source = "git+https://github.com/RustPython/RustPython.git#a09afab9127a124478024fa6e8c2138db00164b3"
+source = "git+https://github.com/RustPython/RustPython.git#eed618d85886ceb3f97f54164c7f53b392d3c5e5"
 dependencies = [
  "ascii",
  "bstr",
@@ -7258,9 +7225,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 dependencies = [
  "serde",
  "serde_core",
@@ -8248,16 +8215,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-native-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
-dependencies = [
- "native-tls",
- "tokio",
-]
-
-[[package]]
 name = "tokio-rustls"
 version = "0.26.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9091,12 +9048,12 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.246.1"
+version = "0.246.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e1929aad146499e47362c876fcbcbb0363f730951d93438f511178626e999a8"
+checksum = "61fb705ce81adde29d2a8e99d87995e39a6e927358c91398f374474746070ef7"
 dependencies = [
  "leb128fmt",
- "wasmparser 0.246.1",
+ "wasmparser 0.246.2",
 ]
 
 [[package]]
@@ -9175,9 +9132,9 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.246.1"
+version = "0.246.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d991c35d79bf8336dc1cd632ed4aacf0dc5fac4bc466c670625b037b972bb9c"
+checksum = "71cde4757396defafd25417cfb36aa3161027d06d865b0c24baaae229aac005d"
 dependencies = [
  "bitflags 2.11.0",
  "indexmap 2.13.1",
@@ -9533,24 +9490,24 @@ dependencies = [
 
 [[package]]
 name = "wast"
-version = "246.0.1"
+version = "246.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96cf2d50bc7478dcca61d00df4dadf922ef46c5924db20a97e6daaf09fe1cb09"
+checksum = "fe3fe8e3bf88ad96d031b4181ddbd64634b17cb0d06dfc3de589ef43591a9a62"
 dependencies = [
  "bumpalo",
  "leb128fmt",
  "memchr",
  "unicode-width 0.2.0",
- "wasm-encoder 0.246.1",
+ "wasm-encoder 0.246.2",
 ]
 
 [[package]]
 name = "wat"
-version = "1.246.1"
+version = "1.246.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "723f2473b47f738c12fc11c8e0bb8b27ce7cf9c78cf1a29dadbc2d34a2513292"
+checksum = "4bd7fda1199b94fff395c2d19a153f05dbe7807630316fa9673367666fd2ad8c"
 dependencies = [
- "wast 246.0.1",
+ "wast 246.0.2",
 ]
 
 [[package]]

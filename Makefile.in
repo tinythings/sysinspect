@@ -1,6 +1,8 @@
 ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
 ARC_NAME := sysinspect-${ARC_VERSION}
+PACK_STAGE_DIR := modules
 PACK_LAYOUT_DIRS := sys net fs runtime cfg
+PACK_LAYOUT_LINK_DIRS := sys fs runtime cfg
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 WASM_DEMO_COMPILER ?= $(shell if command -v go >/dev/null 2>&1; then printf go; elif command -v tinygo >/dev/null 2>&1; then printf tinygo; fi)
@@ -13,7 +15,8 @@ ALL_MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -p
 		END { if (name != "" && version != "") printf "%s@%s ", name, version }' "$$f"; \
 done)
 PY3_RUNTIME_SPEC := $(call PKG_SPEC_FROM_TOML,modules/runtime/py3-runtime/Cargo.toml)
-MUSL_UNSAFE_PACKAGE_SPECS := $(PY3_RUNTIME_SPEC)
+SSRUN_SPEC := $(call PKG_SPEC_FROM_TOML,modules/sys/ssrun/Cargo.toml)
+MUSL_UNSAFE_PACKAGE_SPECS := $(SSRUN_SPEC)
 ifeq ($(UNAME_S),NetBSD)
 MODULE_PACKAGE_SPECS := $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
 PLATFORM_WORKSPACE_EXCLUDES := --exclude $(PY3_RUNTIME_SPEC)
@@ -23,6 +26,7 @@ PLATFORM_WORKSPACE_EXCLUDES :=
 endif
 MUSL_MODULE_PACKAGE_SPECS := $(filter-out $(MUSL_UNSAFE_PACKAGE_SPECS),$(MODULE_PACKAGE_SPECS))
 NATIVE_REFRESH_PACKAGE_SPECS := $(filter $(MUSL_UNSAFE_PACKAGE_SPECS),$(MODULE_PACKAGE_SPECS))
+MUSL_WORKSPACE_EXCLUDES := $(PLATFORM_WORKSPACE_EXCLUDES) $(foreach pkg,$(MUSL_UNSAFE_PACKAGE_SPECS),--exclude $(pkg))
 SENSOR_PACKAGE_SPECS := $(foreach f,libsensors/Cargo.toml libmenotify/Cargo.toml,$(call PKG_SPEC_FROM_TOML,$(f)))
 CORE_PACKAGE_SPECS := $(strip \
 	$(call PKG_SPEC_FROM_TOML,Cargo.toml) \
@@ -136,36 +140,32 @@ endef
 
 define prep_layout
 	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
-	for layout in $(PACK_LAYOUT_DIRS); do \
-		if [ -d $$dir/$$layout ]; then rm -rf $$dir/$$layout; fi; \
+	rm -rf "$$dir/$(PACK_STAGE_DIR)" "$$dir/.net.bin" "$$dir/.http.bin"; \
+	for layout in $(PACK_LAYOUT_LINK_DIRS) net netmods; do \
+		if [ -e "$$dir/$$layout" ] || [ -L "$$dir/$$layout" ]; then rm -rf "$$dir/$$layout"; fi; \
 	done
 endef
 
 define move_bin
 	@dir=$$(if [ -n "$(2)" ]; then echo target/$(2)/$(1); else echo target/$(1); fi); \
-	echo "Moving binaries in $$dir"; \
-	if [ -f $$dir/net ]; then mv $$dir/net $$dir/.net.bin; fi; \
-	if [ -f $$dir/http ]; then mv $$dir/http $$dir/.http.bin; fi; \
-	rm -rf $$dir/sys; \
-	mkdir -p $$dir/sys; \
-	rm -rf $$dir/net; \
-	mkdir -p $$dir/net; \
-	rm -rf $$dir/fs; \
-	mkdir -p $$dir/fs; \
-	rm -rf $$dir/runtime; \
-	mkdir -p $$dir/runtime; \
-	rm -rf $$dir/cfg; \
-	mkdir -p $$dir/cfg; \
-	if [ -f $$dir/proc ]; then mv $$dir/proc $$dir/sys/; fi; \
-	if [ -f $$dir/.net.bin ]; then mv $$dir/.net.bin $$dir/sys/net; fi; \
-	if [ -f $$dir/run ]; then mv $$dir/run $$dir/sys/; fi; \
-	if [ -f $$dir/ssrun ]; then mv $$dir/ssrun $$dir/sys/; fi; \
-	if [ -f $$dir/.http.bin ]; then mv $$dir/.http.bin $$dir/net/http; fi; \
-	if [ -f $$dir/file ]; then mv $$dir/file $$dir/fs/; fi; \
-	if [ -f $$dir/lua-runtime ]; then mv $$dir/lua-runtime $$dir/runtime/; fi; \
-	if [ -f $$dir/py3-runtime ]; then mv $$dir/py3-runtime $$dir/runtime/; fi; \
-	if [ -f $$dir/wasm-runtime ]; then mv $$dir/wasm-runtime $$dir/runtime/; fi; \
-	if [ -f $$dir/resource ]; then mv $$dir/resource $$dir/cfg/; fi;
+	layout_root=$$dir/$(PACK_STAGE_DIR); \
+	echo "Staging binaries in $$layout_root"; \
+	rm -rf "$$layout_root"; \
+	mkdir -p "$$layout_root/sys" "$$layout_root/net" "$$layout_root/fs" "$$layout_root/runtime" "$$layout_root/cfg"; \
+	if [ -f "$$dir/proc" ]; then cp -f "$$dir/proc" "$$layout_root/sys/proc" && chmod +x "$$layout_root/sys/proc"; fi; \
+	if [ -f "$$dir/net" ]; then cp -f "$$dir/net" "$$layout_root/sys/net" && chmod +x "$$layout_root/sys/net"; fi; \
+	if [ -f "$$dir/run" ]; then cp -f "$$dir/run" "$$layout_root/sys/run" && chmod +x "$$layout_root/sys/run"; fi; \
+	if [ -f "$$dir/ssrun" ]; then cp -f "$$dir/ssrun" "$$layout_root/sys/ssrun" && chmod +x "$$layout_root/sys/ssrun"; fi; \
+	if [ -f "$$dir/http" ]; then cp -f "$$dir/http" "$$layout_root/net/http" && chmod +x "$$layout_root/net/http"; fi; \
+	if [ -f "$$dir/file" ]; then cp -f "$$dir/file" "$$layout_root/fs/file" && chmod +x "$$layout_root/fs/file"; fi; \
+	if [ -f "$$dir/lua-runtime" ]; then cp -f "$$dir/lua-runtime" "$$layout_root/runtime/lua-runtime" && chmod +x "$$layout_root/runtime/lua-runtime"; fi; \
+	if [ -f "$$dir/py3-runtime" ]; then cp -f "$$dir/py3-runtime" "$$layout_root/runtime/py3-runtime" && chmod +x "$$layout_root/runtime/py3-runtime"; fi; \
+	if [ -f "$$dir/wasm-runtime" ]; then cp -f "$$dir/wasm-runtime" "$$layout_root/runtime/wasm-runtime" && chmod +x "$$layout_root/runtime/wasm-runtime"; fi; \
+	if [ -f "$$dir/resource" ]; then cp -f "$$dir/resource" "$$layout_root/cfg/resource" && chmod +x "$$layout_root/cfg/resource"; fi; \
+	for layout in $(PACK_LAYOUT_LINK_DIRS); do \
+		ln -sfn $(PACK_STAGE_DIR)/$$layout "$$dir/$$layout"; \
+	done; \
+	ln -sfn $(PACK_STAGE_DIR)/net "$$dir/netmods"
 endef
 
 define stage_modules_dist

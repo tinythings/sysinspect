@@ -9,7 +9,7 @@ pam = ["dep:pam"]
 
 [dependencies]
 actix-web = { version = "4.12.1", features = ["rustls-0_23"] }
-reqwest = { version = "0.12.28", features = ["blocking", "json", "native-tls"] }
+reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.49.0", features = ["full"] }
