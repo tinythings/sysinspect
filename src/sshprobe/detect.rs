@@ -8,7 +8,6 @@ use std::{
     sync::Arc,
 };
 
-const SYSTEM_DIRS: [&str; 5] = ["/usr/bin", "/etc", "/var/run", "/var/tmp", "/usr/share"];
 const FALLBACK_DIRS: [&str; 4] = ["/tmp", "/var/tmp", "/dev/shm", "."];
 
 /// Remote platform family inferred from `uname -s`.
@@ -127,39 +126,100 @@ impl SSHPlatformDetector {
         let user = self
             .user
             .clone()
-            .or_else(current_user)
+            .or_else(|| {
+                ["USER", "LOGNAME", "USERNAME"]
+                    .into_iter()
+                    .find_map(|key| env::var(key).ok().filter(|v| !v.trim().is_empty()).map(|v| v.trim().to_string()))
+            })
             .ok_or_else(|| SysinspectError::ConfigError(format!("No SSH user could be resolved for {}", self.host)))?;
         let mut raw = parse_kv(&self.runner.run(&self.host, &user, &userland_script())?);
         let mut exec_mode = ExecMode::Userland;
-        if needs_proc_fallback(&raw) {
+        if ["os", "arch", "tmp"].into_iter().any(|k| raw.get(k).is_none_or(|v| v.is_empty() || v == "unknown")) {
             merge_missing(&mut raw, parse_kv(&self.runner.run(&self.host, &user, &procfs_script())?));
             exec_mode = ExecMode::Hybrid;
         }
-        let home = raw.get("home").cloned().filter(|v| !v.is_empty());
-        let tmp = raw.get("tmp").cloned().filter(|v| !v.is_empty());
-        let family = PlatformFamily::from_uname(raw.get("os").map(String::as_str).unwrap_or_default());
-        let arch = CpuArch::from_uname(raw.get("arch").map(String::as_str).unwrap_or_default());
-        if family == PlatformFamily::Unknown || arch == CpuArch::Unknown || tmp.is_none() {
+        if PlatformFamily::from_uname(raw.get("os").map(String::as_str).unwrap_or_default()) == PlatformFamily::Unknown
+            || CpuArch::from_uname(raw.get("arch").map(String::as_str).unwrap_or_default()) == CpuArch::Unknown
+            || raw.get("tmp").is_none_or(|v| v.is_empty())
+        {
             return Err(SysinspectError::MinionGeneralError(format!(
                 "Unsupported target {}: probe could not determine platform={}, arch={}, tmp={}",
                 self.host,
                 raw.get("os").cloned().unwrap_or_else(|| "unknown".to_string()),
                 raw.get("arch").cloned().unwrap_or_else(|| "unknown".to_string()),
-                tmp.clone().unwrap_or_else(|| "missing".to_string())
+                raw.get("tmp").cloned().filter(|v| !v.is_empty()).unwrap_or_else(|| "missing".to_string())
             )));
         }
-        let dest = self.destination_status(&user, home.as_deref())?;
-        let (free_path, free_bytes) = self.disk_free_target(&user, &dest, home.as_deref(), tmp.as_deref())?;
-        let writable_paths =
-            if self.check_writable && !dest.writable { self.scan_writable_paths(&user, home.as_deref(), tmp.as_deref())? } else { Vec::new() };
+        let home = raw.get("home").cloned().filter(|v| !v.is_empty());
+        let tmp = raw.get("tmp").cloned().filter(|v| !v.is_empty());
+        let destination = match self.destination.as_deref() {
+            Some(path) => ProbePath {
+                kind: ProbePathKind::Custom,
+                requested: Some(path.to_string()),
+                resolved: resolve_remote_path(home.as_deref(), path),
+                writable: self
+                    .runner
+                    .run(&self.host, &user, &writable_script(resolve_remote_path(home.as_deref(), path).as_deref().unwrap_or(path)))?
+                    .trim()
+                    .eq("yes"),
+            },
+            None => ProbePath {
+                kind: ProbePathKind::Home,
+                requested: None,
+                resolved: resolve_remote_path(home.as_deref(), "sysinspect").or_else(|| Some("sysinspect".to_string())),
+                writable: self
+                    .runner
+                    .run(&self.host, &user, &writable_script(resolve_remote_path(home.as_deref(), "sysinspect").as_deref().unwrap_or("sysinspect")))?
+                    .trim()
+                    .eq("yes"),
+            },
+        };
+        let (disk_free_path, disk_free_bytes) =
+            match destination.resolved.clone().or_else(|| tmp.as_deref().map(str::to_string)).or_else(|| home.as_deref().map(str::to_string)) {
+                Some(path) => (
+                    Some(path.clone()),
+                    self.runner
+                        .run(
+                            &self.host,
+                            &user,
+                            &format!(
+                                "df -Pk {} 2>/dev/null | {{ IFS= read -r _; IFS=' ' read -r _ _ _ avail _ || exit 0; printf '%s\\n' \"$avail\"; }}",
+                                shell_quote(&path)
+                            ),
+                        )?
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                        .and_then(|v| v.checked_mul(1024)),
+                ),
+                None => (None, None),
+            };
+        let writable_paths = if self.check_writable && !destination.writable {
+            let mut seen = BTreeSet::new();
+            let mut out = Vec::new();
+            for path in home.iter().cloned().chain(tmp.iter().cloned()).chain(FALLBACK_DIRS.into_iter().map(str::to_string)) {
+                if seen.insert(path.clone()) && self.runner.run(&self.host, &user, &writable_script(&path))?.trim().eq("yes") {
+                    out.push(path);
+                }
+            }
+            out
+        } else {
+            Vec::new()
+        };
 
         Ok(ProbeInfo {
             host: self.host.clone(),
             user,
-            family,
-            arch,
+            family: PlatformFamily::from_uname(raw.get("os").map(String::as_str).unwrap_or_default()),
+            arch: CpuArch::from_uname(raw.get("arch").map(String::as_str).unwrap_or_default()),
             exec_mode,
-            privilege: privilege_mode(raw.get("sudo").is_some_and(|v| v == "yes"), raw.get("uid").map(String::as_str)),
+            privilege: if raw.get("uid").map(String::as_str) == Some("0") {
+                PrivilegeMode::Root
+            } else if raw.get("sudo").is_some_and(|v| v == "yes") {
+                PrivilegeMode::Sudo
+            } else {
+                PrivilegeMode::User
+            },
             os_name: raw.get("os").cloned().unwrap_or_else(|| "unknown".to_string()),
             release: raw.get("release").cloned().unwrap_or_else(|| "unknown".to_string()),
             version: raw.get("version").cloned().unwrap_or_else(|| "unknown".to_string()),
@@ -167,10 +227,10 @@ impl SSHPlatformDetector {
             shell: raw.get("shell").cloned().filter(|v| !v.is_empty()),
             tmp,
             has_sudo: raw.get("sudo").is_some_and(|v| v == "yes"),
-            disk_free_bytes: free_bytes,
-            disk_free_path: free_path,
-            destination: dest,
+            disk_free_path,
+            disk_free_bytes,
             writable_paths,
+            destination,
         })
     }
 
@@ -179,52 +239,6 @@ impl SSHPlatformDetector {
         self.runner = runner;
         self
     }
-
-    fn destination_status(&self, user: &str, home: Option<&str>) -> Result<ProbePath, SysinspectError> {
-        match self.destination.as_deref() {
-            Some(path) => {
-                let resolved = resolve_remote_path(home, path);
-                let writable = self.runner.run(&self.host, user, &writable_script(resolved.as_deref().unwrap_or(path)))?.trim().eq("yes");
-                Ok(ProbePath { kind: ProbePathKind::Custom, requested: Some(path.to_string()), resolved, writable })
-            }
-            None => {
-                let resolved = default_home_root(home);
-                let writable = self.runner.run(&self.host, user, &writable_script(resolved.as_deref().unwrap_or("sysinspect")))?.trim().eq("yes");
-                Ok(ProbePath { kind: ProbePathKind::Home, requested: None, resolved, writable })
-            }
-        }
-    }
-
-    fn disk_free_target(
-        &self, user: &str, dest: &ProbePath, home: Option<&str>, tmp: Option<&str>,
-    ) -> Result<(Option<String>, Option<u64>), SysinspectError> {
-        let path = dest.resolved.clone().or_else(|| tmp.map(str::to_string)).or_else(|| home.map(str::to_string));
-        let Some(path) = path else {
-            return Ok((None, None));
-        };
-        let free = self.runner.run(&self.host, user, &disk_free_script(&path))?;
-        Ok((Some(path), blocks_to_bytes(free.trim())))
-    }
-
-    fn scan_writable_paths(&self, user: &str, home: Option<&str>, tmp: Option<&str>) -> Result<Vec<String>, SysinspectError> {
-        let mut seen = BTreeSet::new();
-        let mut out = Vec::new();
-        for path in
-            home.into_iter().map(str::to_string).chain(tmp.into_iter().map(str::to_string)).chain(FALLBACK_DIRS.into_iter().map(str::to_string))
-        {
-            if !seen.insert(path.clone()) {
-                continue;
-            }
-            if self.runner.run(&self.host, user, &writable_script(&path))?.trim().eq("yes") {
-                out.push(path);
-            }
-        }
-        Ok(out)
-    }
-}
-
-fn default_home_root(home: Option<&str>) -> Option<String> {
-    resolve_remote_path(home, "sysinspect").or_else(|| Some("sysinspect".to_string()))
 }
 
 impl PlatformFamily {
@@ -278,7 +292,7 @@ impl CpuArch {
 }
 
 impl ExecMode {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Userland => "userland",
             Self::Hybrid => "hybrid",
@@ -287,7 +301,7 @@ impl ExecMode {
 }
 
 impl PrivilegeMode {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Root => "root",
             Self::Sudo => "sudo",
@@ -297,16 +311,13 @@ impl PrivilegeMode {
 }
 
 impl ProbeInfo {
+    pub(crate) fn os_arch(&self) -> String {
+        format!("{}/{}", self.family.label(), self.arch.label())
+    }
+
     /// Return a compact operator-facing summary.
     pub(crate) fn summary(&self) -> String {
-        format!(
-            "{}/{} tmp={} priv={} exec={}",
-            self.family.label(),
-            self.arch.label(),
-            self.tmp.as_deref().unwrap_or("?"),
-            self.privilege.label(),
-            self.exec_mode.label()
-        )
+        format!("{} tmp={} priv={} exec={}", self.os_arch(), self.tmp.as_deref().unwrap_or("?"), self.privilege.label(), self.exec_mode.label())
     }
 }
 
@@ -318,8 +329,7 @@ struct SystemRunner;
 
 impl ProbeRunner for SystemRunner {
     fn run(&self, host: &str, user: &str, script: &str) -> Result<String, SysinspectError> {
-        let rsp = SSHSession::new(SSHEndpoint::new(host, user)).exec(&RemoteCommand::new(script))?;
-        Ok(rsp.stdout)
+        Ok(SSHSession::new(SSHEndpoint::new(host, user)).exec(&RemoteCommand::new(script))?.stdout)
     }
 }
 
@@ -366,15 +376,6 @@ fn writable_script(path: &str) -> String {
     )
 }
 
-fn system_writable_script() -> String {
-    let checks = SYSTEM_DIRS.iter().map(|path| format!("[ -d {0} ] && [ -w {0} ]", shell_quote(path))).collect::<Vec<_>>().join(" && ");
-    format!("{checks} && printf yes || printf no")
-}
-
-fn disk_free_script(path: &str) -> String {
-    format!("df -Pk {} 2>/dev/null | {{ IFS= read -r _; IFS=' ' read -r _ _ _ avail _ || exit 0; printf '%s\\n' \"$avail\"; }}", shell_quote(path))
-}
-
 fn resolve_remote_path(home: Option<&str>, path: &str) -> Option<String> {
     if path.trim().is_empty() {
         return None;
@@ -382,18 +383,10 @@ fn resolve_remote_path(home: Option<&str>, path: &str) -> Option<String> {
     if path.starts_with('/') {
         return Some(path.to_string());
     }
-    home.map(|home| {
-        let home = home.trim_end_matches('/');
-        if home.is_empty() { path.to_string() } else { format!("{home}/{path}") }
+    home.map(|home| match home.trim_end_matches('/') {
+        "" => path.to_string(),
+        home => format!("{home}/{path}"),
     })
-}
-
-fn blocks_to_bytes(value: &str) -> Option<u64> {
-    value.parse::<u64>().ok().and_then(|v| v.checked_mul(1024))
-}
-
-fn current_user() -> Option<String> {
-    ["USER", "LOGNAME", "USERNAME"].into_iter().find_map(|key| env::var(key).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()))
 }
 
 fn parse_kv(raw: &str) -> HashMap<String, String> {
@@ -423,19 +416,5 @@ fn merge_missing(dst: &mut HashMap<String, String>, src: HashMap<String, String>
                 dst.insert(k, v);
             }
         }
-    }
-}
-
-fn needs_proc_fallback(raw: &HashMap<String, String>) -> bool {
-    ["os", "arch", "tmp"].into_iter().any(|k| raw.get(k).is_none_or(|v| v.is_empty() || v == "unknown"))
-}
-
-fn privilege_mode(has_sudo: bool, uid: Option<&str>) -> PrivilegeMode {
-    if uid == Some("0") {
-        PrivilegeMode::Root
-    } else if has_sudo {
-        PrivilegeMode::Sudo
-    } else {
-        PrivilegeMode::User
     }
 }

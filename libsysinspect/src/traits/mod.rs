@@ -244,7 +244,7 @@ pub fn effective_profiles(cfg: &MinionConfig) -> Vec<String> {
 /// Get or initialise system traits
 fn __get_minion_traits(cfg: Option<&MinionConfig>, q: bool) -> SystemTraits {
     if let Some(cfg) = cfg {
-        return _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone(), q)).to_owned();
+        return SystemTraits::new(cfg.clone(), q);
     }
 
     _TRAITS.get_or_init(|| SystemTraits::new(MinionConfig::default(), q)).to_owned()

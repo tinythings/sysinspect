@@ -1,4 +1,4 @@
-use crate::{intp::functions::get_by_namespace, util};
+use crate::{cfg::APP_CONF, intp::functions::get_by_namespace, util};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use nix::libc;
@@ -67,6 +67,9 @@ pub static DEFAULT_MINION_LOG_STD: &str = "sysminion.standard.log";
 
 /// Default filename for the minion failures log
 pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
+pub static DEFAULT_MINION_BIN: &str = "sysminion";
+pub static DEFAULT_MINION_PID: &str = "sysinspect.pid";
+pub static CFG_PENDING_TASKS_ROOT: &str = "pending-tasks";
 
 pub static DEFAULT_DATASTORE_ROOT: &str = "/var/lib/sysinspect/datastore";
 
@@ -503,6 +506,51 @@ impl MinionConfig {
     /// Get minion root directory
     pub fn root_dir(&self) -> PathBuf {
         PathBuf::from(self.root.clone().unwrap_or(DEFAULT_SYSINSPECT_ROOT.to_string()))
+    }
+
+    fn uses_system_layout(&self) -> bool {
+        self.root_dir() == std::path::Path::new(DEFAULT_SYSINSPECT_ROOT)
+    }
+
+    /// Path to the installed minion executable for this layout.
+    pub fn install_bin_path(&self) -> PathBuf {
+        if self.uses_system_layout() {
+            PathBuf::from("/usr/bin").join(DEFAULT_MINION_BIN)
+        } else {
+            self.root_dir().join("bin").join(DEFAULT_MINION_BIN)
+        }
+    }
+
+    /// Path to the minion configuration file for this layout.
+    pub fn config_path(&self) -> PathBuf {
+        if self.uses_system_layout() { self.root_dir().join(APP_CONF) } else { self.root_dir().join("etc").join(APP_CONF) }
+    }
+
+    /// Managed daemon pidfile path for this layout.
+    pub fn managed_pidfile_path(&self) -> PathBuf {
+        if self.uses_system_layout() {
+            PathBuf::from("/var/run").join(DEFAULT_MINION_PID)
+        } else {
+            self.root_dir().join("run").join(DEFAULT_MINION_PID)
+        }
+    }
+
+    /// Managed foreground/bootstrapped stdout log path for this layout.
+    pub fn managed_logfile_std_path(&self) -> PathBuf {
+        if self.uses_system_layout() {
+            PathBuf::from("/var/log").join(DEFAULT_MINION_LOG_STD)
+        } else {
+            self.root_dir().join("tmp").join(DEFAULT_MINION_LOG_STD)
+        }
+    }
+
+    /// Managed foreground/bootstrapped stderr log path for this layout.
+    pub fn managed_logfile_err_path(&self) -> PathBuf {
+        if self.uses_system_layout() {
+            PathBuf::from("/var/log").join(DEFAULT_MINION_LOG_ERR)
+        } else {
+            self.root_dir().join("tmp").join(DEFAULT_MINION_LOG_ERR)
+        }
     }
 
     /// Get root directory for models

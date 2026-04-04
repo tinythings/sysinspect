@@ -109,6 +109,8 @@ fn cert_appears_self_signed(cert_der: &[u8]) -> Result<bool, SysinspectError> {
 /// the CA file for client certificate authentication.
 /// Returns a ServerConfig on success, or a SysinspectError with a user-friendly message on failure.
 fn load_tls_server_config(cfg: &MasterConfig) -> Result<ServerConfig, SysinspectError> {
+    ensure_rustls_crypto_provider()?;
+
     let cert_path = cfg
         .api_tls_cert_file()
         .ok_or_else(|| SysinspectError::ConfigError("Web API TLS is enabled, but api.tls.cert-file is not configured".to_string()))?;

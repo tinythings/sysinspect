@@ -37,8 +37,9 @@ pub(crate) struct AddPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AddOutcome {
     pub(crate) host: AddHost,
-    pub(crate) state: &'static str,
-    pub(crate) detail: String,
+    pub(crate) display_path: String,
+    pub(crate) platform: String,
+    pub(crate) note: Option<String>,
 }
 
 /// One canonical deduplication key.

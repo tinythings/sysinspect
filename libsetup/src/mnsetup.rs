@@ -1,8 +1,8 @@
 use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::{
-    CFG_AUTOSYNC_SHALLOW, CFG_SENSORS_ROOT, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, DEFAULT_SYSINSPECT_ROOT,
-    MinionConfig, SysInspectConfig,
+    CFG_AUTOSYNC_SHALLOW, CFG_PENDING_TASKS_ROOT, CFG_SENSORS_ROOT, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB,
+    DEFAULT_SYSINSPECT_ROOT, MinionConfig, SysInspectConfig,
 };
 use std::{
     fs::{self, File},
@@ -115,6 +115,13 @@ impl MinionSetup {
             self.get_run(),
             self.get_tmp(),
             self.get_db(),
+            self.cfg.models_dir().display().to_string(),
+            self.cfg.functions_dir().display().to_string(),
+            self.cfg.traits_dir().display().to_string(),
+            self.cfg.sensors_dir().display().to_string(),
+            self.cfg.profiles_dir().display().to_string(),
+            self.cfg.transport_root().display().to_string(),
+            self.cfg.transport_master_root().display().to_string(),
             self.get_shared_subdir(DEFAULT_MODULES_DIR),
             self.get_shared_subdir(DEFAULT_MODULES_LIB_DIR),
             self.get_shared_subdir(CFG_SENSORS_ROOT),
@@ -122,9 +129,12 @@ impl MinionSetup {
 
         for d in dirs {
             if !Path::new(&d).exists() {
+                log::info!("Creating missing directory at {}", d.bright_white().bold());
                 std::fs::create_dir_all(&d).map_err(|_| SysinspectError::ConfigError(format!("Unable to create directory {d}")))?;
             }
         }
+
+        ensure_minion_tree(&self.cfg)?;
 
         Ok(())
     }
@@ -246,4 +256,27 @@ impl MinionSetup {
         self.cfg = cfg;
         self
     }
+}
+
+pub fn ensure_minion_tree(cfg: &MinionConfig) -> Result<(), SysinspectError> {
+    for dir in [
+        cfg.root_dir(),
+        cfg.models_dir(),
+        cfg.functions_dir(),
+        cfg.traits_dir(),
+        cfg.sensors_dir(),
+        cfg.profiles_dir(),
+        cfg.transport_root(),
+        cfg.transport_master_root(),
+        cfg.root_dir().join(CFG_PENDING_TASKS_ROOT),
+    ] {
+        if !dir.exists() {
+            log::info!("Creating missing directory {}", dir.display());
+            fs::create_dir_all(&dir)?;
+        } else if !dir.is_dir() {
+            return Err(SysinspectError::ConfigError(format!("{} is not a directory", dir.display())));
+        }
+    }
+
+    Ok(())
 }

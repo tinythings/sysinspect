@@ -22,19 +22,20 @@ pub(crate) fn parse_request(am: &ArgMatches) -> Result<AddRequest, SysinspectErr
         return Err(SysinspectError::InvalidQuery("Invalid input: host onboarding does not accept positional selectors".to_string()));
     }
 
-    let hosts = if let Some(v) = am.get_one::<String>("hostnames") {
-        parse_hostnames(v)?
-    } else if let Some(p) = am.get_one::<String>("list") {
-        parse_list(Path::new(p))?
-    } else {
-        return Err(SysinspectError::InvalidQuery("Invalid input: specify either --hostnames or --list for --add".to_string()));
-    };
-    if hosts.is_empty() {
-        return Err(SysinspectError::InvalidQuery("Invalid input: no host entries were supplied for --add".to_string()));
-    }
-
     Ok(AddRequest {
-        hosts,
+        hosts: {
+            let hosts = match (am.get_one::<String>("hostnames"), am.get_one::<String>("list")) {
+                (Some(v), None) => parse_hostnames(v)?,
+                (None, Some(p)) => parse_list(Path::new(p))?,
+                (Some(_), Some(_)) | (None, None) => {
+                    return Err(SysinspectError::InvalidQuery("Invalid input: specify either --hostnames or --list for --add".to_string()));
+                }
+            };
+            if hosts.is_empty() {
+                return Err(SysinspectError::InvalidQuery("Invalid input: no host entries were supplied for --add".to_string()));
+            }
+            hosts
+        },
         user: am
             .get_one::<String>("user")
             .cloned()
@@ -48,22 +49,24 @@ pub(crate) fn resolve_plan(req: &AddRequest) -> Result<AddPlan, SysinspectError>
     let mut items = Vec::<AddHost>::new();
 
     for spec in &req.hosts {
-        let item = AddHost {
+        if !seen.insert(AddKey {
+            user: spec.user.clone().unwrap_or_else(|| req.user.clone()),
+            host: normalise_host(&spec.host),
+            path: normalise_path(spec.path.as_deref()),
+        }) {
+            return Err(SysinspectError::InvalidQuery(format!(
+                "Invalid input: duplicate host entry after normalisation: {}",
+                spec.raw.bright_yellow()
+            )));
+        }
+        items.push(AddHost {
             raw: spec.raw.clone(),
             host: spec.host.clone(),
             host_norm: normalise_host(&spec.host),
             user: spec.user.clone().unwrap_or_else(|| req.user.clone()),
             path: spec.path.clone(),
             path_norm: normalise_path(spec.path.as_deref()),
-        };
-        let key = AddKey { user: item.user.clone(), host: item.host_norm.clone(), path: item.path_norm.clone() };
-        if !seen.insert(key) {
-            return Err(SysinspectError::InvalidQuery(format!(
-                "Invalid input: duplicate host entry after normalisation: {}",
-                item.raw.bright_yellow()
-            )));
-        }
-        items.push(item);
+        });
     }
 
     items.sort_by(|a, b| (&a.host_norm, &a.user, &a.path_norm).cmp(&(&b.host_norm, &b.user, &b.path_norm)));
@@ -115,7 +118,7 @@ pub(crate) fn parse_entry(raw: &str) -> Result<HostSpec, SysinspectError> {
 }
 
 pub(crate) fn current_user() -> Option<String> {
-    ["USER", "LOGNAME", "USERNAME"].into_iter().find_map(|k| env::var(k).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()))
+    ["USER", "LOGNAME", "USERNAME"].into_iter().find_map(|k| env::var(k).ok().filter(|v| !v.trim().is_empty()).map(|v| v.trim().to_string()))
 }
 
 pub(crate) fn normalise_host(host: &str) -> String {

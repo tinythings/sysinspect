@@ -19,10 +19,11 @@ use libsensors::sensors::SensorCtx;
 use libsensors::sensors::menotify::MeNotifySensor;
 use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
+use libsetup::mnsetup::ensure_minion_tree;
 use libsysinspect::{
     cfg::{
         get_minion_config,
-        mmconf::{CFG_MASTER_KEY_PUB, DEFAULT_PORT, MinionConfig, SysInspectConfig},
+        mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
     context,
     inspector::SysInspectRunner,
@@ -153,6 +154,7 @@ impl SysMinion {
     pub async fn new(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<Arc<SysMinion>, SysinspectError> {
         log::debug!("Configuration: {cfg:#?}");
         log::debug!("Trying to connect at {}", cfg.master());
+        ensure_minion_tree(&cfg)?;
 
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
 
@@ -170,7 +172,7 @@ impl SysMinion {
             dpq,
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
-            minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            minion_id: dataconv::as_str(SystemTraits::new(cfg.clone(), true).get(traits::SYS_ID)),
             registration: Mutex::new(RegistrationOutcome::Pending),
             sensors_task: Mutex::new(None),
             sensors_pump: Mutex::new(None),
@@ -190,47 +192,21 @@ impl SysMinion {
     /// This creates all directory structures if none etc.
     fn init(&self) -> Result<(), SysinspectError> {
         log::info!("Initialising minion");
+        ensure_minion_tree(&self.cfg)?;
+
         // Machine id?
         if !self.cfg.machine_id_path().exists() {
             util::write_machine_id(Some(self.cfg.machine_id_path()))?;
         }
-
-        // Place for models
-        if !self.cfg.models_dir().exists() {
-            log::debug!("Creating directory for the models at {}", self.cfg.models_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.models_dir())?;
-        }
-
-        // Place for traits.d
-        if !self.cfg.traits_dir().exists() {
-            log::debug!("Creating directory for the drop-in traits at {}", self.cfg.traits_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.traits_dir())?;
-        }
         ensure_master_traits_file(&self.cfg)?;
-
-        // Place for trait functions
-        if !self.cfg.functions_dir().exists() {
-            log::debug!("Creating directory for the custom trait functions at {}", self.cfg.functions_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.functions_dir())?;
-        }
-
-        // Place for sensors config
-        if !self.cfg.sensors_dir().exists() {
-            log::debug!("Creating directory for the sensors config at {}", self.cfg.sensors_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.sensors_dir())?;
-        }
-
-        if !self.cfg.profiles_dir().exists() {
-            log::debug!("Creating directory for the synced profiles at {}", self.cfg.profiles_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.profiles_dir())?;
-        }
         if let Err(err) = self.kman.ensure_transport_state(self.get_minion_id()) {
             log::warn!("Unable to refresh local transport state from RSA identity: {err}");
         }
 
         let mut out: Vec<String> = vec![];
-        for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
-            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
+        let minion_traits = traits::get_minion_traits(Some(&self.cfg));
+        for t in minion_traits.trait_keys() {
+            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(minion_traits.get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
         let profiles = effective_profiles(&self.cfg);
@@ -805,12 +781,12 @@ impl SysMinion {
                                     "cpu": cpu_usage,
                                 });
 
-                                this.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
+                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl))).await;
                             }
 
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 log::debug!("Received discovery ping from master");
-                                this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
+                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None)).await;
                             }
 
                             Err(err) => log::warn!("Invalid ping payload `{}`: {}", p, err),
@@ -869,7 +845,7 @@ impl SysMinion {
 
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
-        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, json!(pbk_pem));
+        let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Add, json!(pbk_pem));
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
@@ -901,11 +877,7 @@ impl SysMinion {
 
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
-        let r = MinionMessage::new(
-            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
-            RequestType::Bye,
-            json!(MINION_SID.to_string()),
-        );
+        let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Bye, json!(MINION_SID.to_string()));
 
         log::info!("Goodbye to {}", self.cfg.master());
         match r.sendable() {
@@ -1076,7 +1048,7 @@ impl SysMinion {
             sr.set_state(mqr_guard.state());
             sr.set_entities(mqr_guard.entities());
             sr.set_checkbook_labels(mqr_guard.checkbook_labels());
-            sr.set_traits(traits::get_minion_traits(None));
+            sr.set_traits(traits::get_minion_traits(Some(&self.cfg)));
             sr.set_context(context::get_context(context));
 
             sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
@@ -1184,7 +1156,7 @@ impl SysMinion {
             log::debug!("Command was dropped as it was specifically addressed for another minion");
             return;
         } else if tgt.id().is_empty() {
-            let traits = traits::get_minion_traits(None);
+            let traits = traits::get_minion_traits(Some(&self.cfg));
 
             // Is matching this host?
             let mut skip = true;
@@ -1213,7 +1185,7 @@ impl SysMinion {
                     Ok(q) => {
                         match traits::to_typed_query(q) {
                             Ok(tpq) => {
-                                if !traits::matches_traits(tpq, traits::get_minion_traits(None)) {
+                                if !traits::matches_traits(tpq, traits::get_minion_traits(Some(&self.cfg))) {
                                     log::debug!("Command was dropped as it does not match the traits");
                                     return;
                                 }
@@ -1401,13 +1373,13 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
     let mut reconnect_rx = CONNECTION_TX.subscribe();
     let mut fp = fp;
     let mut ra = 0;
-    let dpq = match DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks")) {
+    let dpq = match DiskPersistentQueue::open(cfg.root_dir().join(CFG_PENDING_TASKS_ROOT)) {
         Ok(dpq) => Arc::new(dpq),
         Err(e) => {
             log::error!("Failed to open disk persistent queue: {e}");
             log::error!(
                 "Is there another minion running? If not, delete the {} directory and try again.",
-                cfg.root_dir().join("pending-tasks").to_str().unwrap_or_default().bright_yellow()
+                cfg.root_dir().join(CFG_PENDING_TASKS_ROOT).to_str().unwrap_or_default().bright_yellow()
             );
             std::process::exit(1);
         }
