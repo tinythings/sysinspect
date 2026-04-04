@@ -822,6 +822,36 @@ and contains the following directives:
         Disable this option only if you really know what you are doing. If you disable it, the minion will not check
         modules on startup, which might lead to unexpected behaviour if modules are changed or tampered with.
 
+``performance``
+###############
+
+    Type: **string**
+
+    Selects the minion runtime thread profile. This affects Tokio worker threads
+    and blocking threads used by ``sysminion``.
+
+    Available values are:
+
+    - ``embedded`` — smallest thread footprint, intended for constrained devices
+    - ``default`` — balanced settings for ordinary hosts
+    - ``server`` — larger thread pools for throughput-biased deployments
+
+    The current thread profiles are:
+
+    - ``embedded`` — register: ``1/1``, daemon: ``2/2``
+    - ``default`` — register: ``2/2``, daemon: ``4/4``
+    - ``server`` — register: ``4/4``, daemon: ``8/8``
+
+    The format above is ``worker_threads/max_blocking_threads``.
+
+    Default is ``default``.
+
+    Rule of thumb:
+
+    - Tiny/embedded targets: ``embedded``
+    - General-purpose VM/server: ``default``
+    - Busy hosts with lots of concurrent work: ``server``
+
 ``log.forward``
 ##################
 
