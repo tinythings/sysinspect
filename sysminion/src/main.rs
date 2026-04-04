@@ -44,9 +44,10 @@ static VERSION: &str = "0.4.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
 fn register_minion(cfg: MinionConfig, fp: String) -> Result<(), SysinspectError> {
+    let (worker_threads, max_blocking_threads) = cfg.performance().register_threads();
     let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .max_blocking_threads(2)
+        .worker_threads(worker_threads)
+        .max_blocking_threads(max_blocking_threads)
         .enable_all()
         .build()
         .map_err(|e| SysinspectError::DynError(Box::new(e)))?;
@@ -58,9 +59,10 @@ fn register_minion(cfg: MinionConfig, fp: String) -> Result<(), SysinspectError>
 }
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
+    let (worker_threads, max_blocking_threads) = cfg.performance().daemon_threads();
     let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .max_blocking_threads(4)
+        .worker_threads(worker_threads)
+        .max_blocking_threads(max_blocking_threads)
         .enable_all()
         .build()
         .map_err(|e| SysinspectError::DynError(Box::new(e)))?;

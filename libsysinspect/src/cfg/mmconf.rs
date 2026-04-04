@@ -333,6 +333,47 @@ impl TaskConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum MinionPerformanceProfile {
+    /// Smallest steady-state thread footprint.
+    ///
+    /// Intended for constrained or embedded devices where memory matters more
+    /// than peak throughput.
+    Embedded,
+    /// Balanced thread sizing for ordinary hosts.
+    ///
+    /// This is the default profile and keeps the current general-purpose
+    /// behaviour without being overly aggressive.
+    #[default]
+    Default,
+    /// Throughput-biased thread sizing.
+    ///
+    /// Intended for busy hosts where the minion may run many concurrent tasks
+    /// and background activities.
+    Server,
+}
+
+impl MinionPerformanceProfile {
+    /// Runtime thread counts for one-shot registration/bootstrap mode.
+    pub fn register_threads(&self) -> (usize, usize) {
+        match self {
+            Self::Embedded => (1, 1),
+            Self::Default => (2, 2),
+            Self::Server => (4, 4),
+        }
+    }
+
+    /// Runtime thread counts for the long-lived daemon mode.
+    pub fn daemon_threads(&self) -> (usize, usize) {
+        match self {
+            Self::Embedded => (2, 2),
+            Self::Default => (4, 4),
+            Self::Server => (8, 8),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MinionConfig {
     /// Root directory where minion keeps all data.
     /// Default: /etc/sysinspect — same as for master
@@ -438,6 +479,16 @@ pub struct MinionConfig {
     #[serde(rename = "pidfile")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pidfile: Option<String>,
+
+    /// Runtime-performance profile for thread sizing.
+    ///
+    /// Available values:
+    /// - `embedded`: smallest thread footprint
+    /// - `default`: balanced defaults
+    /// - `server`: throughput-biased sizing
+    #[serde(rename = "performance")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    performance: Option<MinionPerformanceProfile>,
 }
 
 impl MinionConfig {
@@ -488,6 +539,11 @@ impl MinionConfig {
         self.pidfile = Some(p.to_string());
     }
 
+    /// Set runtime-performance profile.
+    pub fn set_performance(&mut self, profile: MinionPerformanceProfile) {
+        self.performance = Some(profile);
+    }
+
     /// Set temporary directory path for modules
     pub fn set_tmp_path(&mut self, p: &str) {
         self.tmp_path = Some(p.to_string());
@@ -506,6 +562,13 @@ impl MinionConfig {
     /// Get minion root directory
     pub fn root_dir(&self) -> PathBuf {
         PathBuf::from(self.root.clone().unwrap_or(DEFAULT_SYSINSPECT_ROOT.to_string()))
+    }
+
+    /// Return the configured runtime-performance profile.
+    ///
+    /// If the config omits it, `default` is used.
+    pub fn performance(&self) -> MinionPerformanceProfile {
+        self.performance.clone().unwrap_or_default()
     }
 
     fn uses_system_layout(&self) -> bool {
