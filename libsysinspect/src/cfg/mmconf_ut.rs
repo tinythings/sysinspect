@@ -105,3 +105,26 @@ fn minion_transport_paths_are_under_managed_transport_root() {
     assert_eq!(cfg.transport_master_root(), cfg.transport_root().join(CFG_TRANSPORT_MASTER));
     assert_eq!(cfg.transport_state_file(), cfg.transport_master_root().join(CFG_TRANSPORT_STATE));
 }
+
+#[test]
+fn minion_custom_layout_paths_follow_root() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir("/srv/sysinspect");
+
+    assert_eq!(cfg.install_bin_path(), std::path::PathBuf::from("/srv/sysinspect/bin/sysminion"));
+    assert_eq!(cfg.config_path(), std::path::PathBuf::from("/srv/sysinspect/etc/sysinspect.conf"));
+    assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/srv/sysinspect/run/sysinspect.pid"));
+    assert_eq!(cfg.managed_logfile_std_path(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.standard.log"));
+    assert_eq!(cfg.managed_logfile_err_path(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.errors.log"));
+}
+
+#[test]
+fn minion_system_layout_paths_follow_system_defaults() {
+    let cfg = MinionConfig::default();
+
+    assert_eq!(cfg.install_bin_path(), std::path::PathBuf::from("/usr/bin/sysminion"));
+    assert_eq!(cfg.config_path(), std::path::PathBuf::from("/etc/sysinspect/sysinspect.conf"));
+    assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/var/run/sysinspect.pid"));
+    assert_eq!(cfg.managed_logfile_std_path(), std::path::PathBuf::from("/var/log/sysminion.standard.log"));
+    assert_eq!(cfg.managed_logfile_err_path(), std::path::PathBuf::from("/var/log/sysminion.errors.log"));
+}

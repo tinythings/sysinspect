@@ -1,8 +1,9 @@
 use crate::netadd::{
-    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, normalise_host, normalise_path, parse, parse_entry,
-    registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits,
+    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, is_waitable_console_miss, normalise_host, normalise_path, parse,
+    parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
+use libcommon::SysinspectError;
 use libmodpak::mpk::ModPakRepoIndex;
 use libsysinspect::{console::ConsoleMinionInfoRow, traits::TraitSource};
 use serde_json::json;
@@ -102,9 +103,9 @@ fn renders_planned_outcomes() {
     let args = network_args(&["sysinspect", "network", "--add", "--hn", "foo.com", "-u", "hans"]);
     let out = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap().render().unwrap();
 
-    assert!(out.contains("STATE"));
-    assert!(out.contains("planned"));
-    assert!(out.contains("validated"));
+    assert!(out.contains("OS/ARCH"));
+    assert!(!out.contains("STATE"));
+    assert!(out.contains("<probe>"));
 }
 
 #[test]
@@ -213,6 +214,22 @@ fn extracts_registration_mismatch_id() {
     let msg = "Error registering minion: Error loading protocol data: Registration key mismatch for be806ac5c8134836b316399e21a76a1f: stored old, requested new";
 
     assert_eq!(registration_mismatch_id(msg).as_deref(), Some("be806ac5c8134836b316399e21a76a1f"));
+}
+
+#[test]
+fn treats_missing_single_minion_console_result_as_waitable() {
+    let err = SysinspectError::MasterGeneralError(
+        "Unable to get minion info: Invalid query: Minion info requires one matching minion, but none were found".to_string(),
+    );
+
+    assert!(is_waitable_console_miss(&err));
+}
+
+#[test]
+fn does_not_treat_unrelated_console_errors_as_waitable() {
+    let err = SysinspectError::MasterGeneralError("Unable to get minion info: socket exploded".to_string());
+
+    assert!(!is_waitable_console_miss(&err));
 }
 
 #[test]
