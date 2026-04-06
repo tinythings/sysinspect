@@ -67,6 +67,7 @@ struct Readiness {
     online: bool,
     traits: bool,
     transport: bool,
+    startup_sync: bool,
     sensors: bool,
 }
 
@@ -120,7 +121,7 @@ impl NetworkAddWorkflow {
                     Ok(()) => rows.push(AddOutcome {
                         display_path: RemoteLayout::from_probe(&host, &info)?.root_dir.clone(),
                         platform: info.os_arch(),
-                        note: None,
+                        note: Some("online and manageable".to_string()),
                         host,
                     }),
                     Err(err) => rows.push(AddOutcome {
@@ -427,7 +428,7 @@ impl HostSetup {
     }
 
     fn wait_ready(&self, ctx: &SetupContext, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
-        let deadline = Instant::now() + Duration::from_secs(25);
+        let deadline = Instant::now() + Duration::from_secs(40);
         while Instant::now() < deadline {
             if self.readiness(ctx, ssh, elevate)?.ready() {
                 return Ok(());
@@ -447,6 +448,7 @@ impl HostSetup {
             online: self.online(ctx)?,
             traits: self.has_traits(ctx)?,
             transport: self.has_transport(ctx)?,
+            startup_sync: self.startup_sync_ready(ssh, elevate)?,
             sensors: self.sensors_ready(ssh, elevate)?,
         })
     }
@@ -497,6 +499,18 @@ impl HostSetup {
                 "state=no; for p in {}; do if [ -f \"$p\" ] && grep -Eq {} \"$p\"; then state=yes; break; fi; done; printf '%s' \"$state\"",
                 self.log_candidates_expr(),
                 shell_quote("Sending sensors sync callback for cycle|Received sensors sync response from master")
+            ))
+            .elevate(elevate),
+        )
+        .map(|rsp| rsp.stdout.trim() == "yes")
+    }
+
+    fn startup_sync_ready(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<bool, SysinspectError> {
+        ssh.exec(
+            &RemoteCommand::new(format!(
+                "state=no; for p in {}; do if [ -f \"$p\" ] && grep -Eq {} \"$p\"; then state=yes; break; fi; done; printf '%s' \"$state\"",
+                self.log_candidates_expr(),
+                shell_quote("Syncing modules from .* done|Module auto-sync .* is disabled")
             ))
             .elevate(elevate),
         )
@@ -586,12 +600,24 @@ fn call_console(
 
 impl Readiness {
     fn ready(&self) -> bool {
-        self.online && self.traits && self.transport && self.sensors
+        self.online && self.traits && self.transport && self.startup_sync && self.sensors
     }
 
     fn detail(&self) -> String {
-        format!("readiness online={}, traits={}, transport={}, sensors={}", self.online, self.traits, self.transport, self.sensors)
+        format!(
+            "{}: online={}, traits={}, transport={}, startup_sync={}, sensors={}",
+            if self.online || self.traits || self.transport { "registered but not yet ready" } else { "not yet registered" },
+            self.online,
+            self.traits,
+            self.transport,
+            self.startup_sync,
+            self.sensors
+        )
     }
+}
+
+pub(crate) fn startup_sync_ready(log: &str) -> bool {
+    (log.contains("Syncing modules from ") && log.contains(" done")) || log.contains("Module auto-sync on startup is disabled")
 }
 
 pub(crate) fn rows_have_traits(rows: &[ConsoleMinionInfoRow]) -> bool {
