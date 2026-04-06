@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{MinionRow, SysInspectModPak, mpk::ModPakMetadata};
+    use crate::{MinionRow, SysInspectModPak, compare_versions, mpk::ModPakMetadata};
     use colored::control;
     use libsysinspect::cfg::mmconf::CFG_PROFILES_ROOT;
     use libsysinspect::{cfg::mmconf::MinionConfig, traits::effective_profiles};
@@ -439,5 +439,91 @@ mod tests {
         fs::write(cfg.traits_dir().join("master.cfg"), "minion.profile:\n  - Toto\n  - Foo\n  - Toto\n").expect("master traits should be written");
         let names = effective_profiles(&cfg).into_iter().collect::<HashSet<_>>();
         assert_eq!(names, HashSet::from(["Toto".to_string(), "Foo".to_string()]));
+    }
+
+    #[test]
+    fn compare_versions_prefers_newer_core_and_stable_release() {
+        assert!(compare_versions("0.4.1", "0.4.0").is_gt());
+        assert!(compare_versions("0.4.0", "0.4.0-rc1").is_gt());
+        assert!(compare_versions("0.4.0", "0.4.0").is_eq());
+        assert!(compare_versions("0.4.0", "1.02.003").is_gt());
+        assert!(compare_versions("1.02.003", "0.4.0").is_lt());
+    }
+
+    #[test]
+    fn add_minion_build_accepts_version_banner_signature() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let path = root.path().join("sysminion");
+        fs::write(&path, b"\x7FELF junk Version: sysminion 0.4.0 junk").expect("fake elf should be written");
+
+        assert_eq!(SysInspectModPak::get_minion_version(&fs::read(path).expect("fake elf should be readable")), Some("0.4.0".to_string()));
+        drop(repo);
+    }
+
+    #[test]
+    fn add_minion_build_accepts_stripped_signature_shape() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let path = root.path().join("sysminion");
+        fs::write(&path, b"\x7FELF junk sysminion/src/main.rs\0Version:\0minion.version\0sysinspect.pid\00.4.0\0junk")
+            .expect("fake elf should be written");
+
+        assert_eq!(SysInspectModPak::get_minion_version(&fs::read(path).expect("fake elf should be readable")), Some("0.4.0".to_string()));
+        drop(repo);
+    }
+
+    #[test]
+    fn add_minion_build_accepts_stripped_signature_when_version_precedes_trait_key() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let path = root.path().join("sysminion");
+        fs::write(&path, b"\x7FELF junk sysminion/src/minion.rs\0sysinspect.pid\00.4.0\0functions\0master.cfg\0minion.version\0junk")
+            .expect("fake elf should be written");
+
+        assert_eq!(SysInspectModPak::get_minion_version(&fs::read(path).expect("fake elf should be readable")), Some("0.4.0".to_string()));
+        drop(repo);
+    }
+
+    #[test]
+    fn add_minion_build_ignores_far_unrelated_version_before_trait_key() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let path = root.path().join("sysminion");
+        fs::write(
+            &path,
+            format!("\x7FELF junk sysminion/src/minion.rs\01.02.003{}\00.4.0\0functions\0master.cfg\0minion.version\0junk", "x".repeat(6000)),
+        )
+        .expect("fake elf should be written");
+
+        assert_eq!(SysInspectModPak::get_minion_version(&fs::read(path).expect("fake elf should be readable")), Some("0.4.0".to_string()));
+        drop(repo);
+    }
+
+    #[test]
+    fn add_minion_build_handles_non_utf8_bytes_before_trait_key() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let path = root.path().join("sysminion");
+        let mut buff = b"\x7FELF junk ".to_vec();
+        buff.extend(std::iter::repeat_n(0xFF_u8, 9000));
+        buff.extend(b"0.4.0");
+        buff.extend(b"\0master.cfg\0minion.version\0junk");
+        fs::write(&path, buff).expect("fake elf should be written");
+
+        assert_eq!(SysInspectModPak::get_minion_version(&fs::read(path).expect("fake elf should be readable")), Some("0.4.0".to_string()));
+        drop(repo);
+    }
+
+    #[test]
+    fn add_minion_build_prefers_version_closest_to_trait_key() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        let path = root.path().join("sysminion");
+        fs::write(&path, b"\x7FELF junk 0.18.0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxminion.version\00.4.1\0junk")
+            .expect("fake elf should be written");
+
+        assert_eq!(SysInspectModPak::get_minion_version(&fs::read(path).expect("fake elf should be readable")), Some("0.4.1".to_string()));
+        drop(repo);
     }
 }

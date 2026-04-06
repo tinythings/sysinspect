@@ -119,6 +119,25 @@ fn parses_remove_mode() {
 }
 
 #[test]
+fn parses_force_remove_mode() {
+    let args = network_args(&["sysinspect", "network", "--remove", "--force", "--hn", "foo.com", "-u", "hans"]);
+    let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
+
+    assert!(wf.clone().plan().is_ok());
+    assert!(wf.render().unwrap().contains("Planned removal for 1 host"));
+}
+
+#[test]
+fn parses_upgrade_mode() {
+    let args = network_args(&["sysinspect", "network", "--upgrade", "--hn", "foo.com", "-u", "hans"]);
+    let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
+    let out = wf.render().unwrap();
+
+    assert_eq!(wf.plan().unwrap().items.len(), 1);
+    assert!(out.contains("Planned upgrade for 1 host"));
+}
+
+#[test]
 fn parses_comma_separated_remove_hostnames() {
     let args = network_args(&["sysinspect", "network", "--remove", "--hostnames", "foo.com,bar.com", "-u", "hans"]);
     let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
