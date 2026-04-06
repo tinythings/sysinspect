@@ -12,6 +12,8 @@ use mpk::{ModAttrs, ModPakMetadata, ModPakProfile, ModPakProfilesIndex, ModPakRe
 use once_cell::sync::Lazy;
 use prettytable::{Cell, Row, Table, format};
 use regex::Regex;
+use semver::Version;
+use std::cmp::Ordering;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::{
@@ -37,6 +39,16 @@ static REPO_MOD_INDEX: &str = "mod.index";
 static REPO_PROFILES_INDEX: &str = "profiles.index";
 static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
 static REPO_MINION_DIR: &str = "minion";
+
+/// Compare two dotted minion versions.
+pub fn compare_versions(lhs: &str, rhs: &str) -> Ordering {
+    match (Version::parse(lhs).ok(), Version::parse(rhs).ok()) {
+        (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
+        (Some(_), None) => Ordering::Greater,
+        (None, Some(_)) => Ordering::Less,
+        (None, None) => lhs.cmp(rhs),
+    }
+}
 
 struct ArtefactRow {
     kind: String,
@@ -725,12 +737,36 @@ impl SysInspectModPak {
         }
     }
 
-    /// Extract the embedded sysminion version from one binary image.
-    fn get_minion_version(buff: &[u8]) -> Option<String> {
-        Regex::new(r"minion\.version([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)")
+    /// Extract one sysminion version from text.
+    fn parse_minion_version_text(text: &str) -> Option<String> {
+        Regex::new(r"Version:\s+sysminion\s+([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)")
             .unwrap()
-            .captures(&String::from_utf8_lossy(buff))
+            .captures(text)
             .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+            .filter(|version| Version::parse(version).is_ok())
+    }
+
+    /// Extract one sysminion version from one binary image.
+    fn get_minion_version(buff: &[u8]) -> Option<String> {
+        let binary_text = String::from_utf8_lossy(buff);
+        Self::parse_minion_version_text(&binary_text).or_else(|| {
+            buff.windows("minion.version".len()).position(|window| window == b"minion.version").and_then(|offset| {
+                let start = offset.saturating_sub(256);
+                let end = buff.len().min(offset + "minion.version".len() + 256);
+                let local = String::from_utf8_lossy(&buff[start..end]);
+                let marker = offset - start;
+                Regex::new(r"([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)")
+                    .unwrap()
+                    .captures_iter(&local)
+                    .filter_map(|caps| {
+                        caps.get(1)
+                            .filter(|m| Version::parse(m.as_str()).is_ok())
+                            .map(|m| ((m.start().abs_diff(marker)).min(m.end().abs_diff(marker)), m.as_str().to_string()))
+                    })
+                    .min_by_key(|(distance, _)| *distance)
+                    .map(|(_, version)| version)
+            })
+        })
     }
 
     /// Heuristic to determine the OS label of an ELF file, since EI_OSABI is often unreliable.
@@ -796,6 +832,22 @@ impl SysInspectModPak {
         }
         let version = Self::get_minion_version(&buff)
             .ok_or_else(|| SysinspectError::MasterGeneralError("Minion build must be a sysminion executable".to_string()))?;
+        if self
+            .idx
+            .minion()
+            .get(os)
+            .and_then(|archset| archset.get(arch))
+            .is_some_and(|existing| compare_versions(existing.version(), &version).is_gt())
+        {
+            log::info!(
+                "Keeping newer indexed sysminion for {}/{} at version {}; incoming {} is older",
+                os,
+                arch,
+                self.idx.minion().get(os).and_then(|archset| archset.get(arch)).map(|existing| existing.version()).unwrap_or_default(),
+                version
+            );
+            return Ok(());
+        }
 
         let subp = PathBuf::from(REPO_MINION_DIR).join(os).join(arch).join("sysminion");
         if let Some(dir) = self.root.join(&subp).parent()

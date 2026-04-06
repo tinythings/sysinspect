@@ -10,6 +10,7 @@ use crate::sshprobe::{
 };
 use clap::ArgMatches;
 use libcommon::SysinspectError;
+use libmodpak::compare_versions;
 use libsysinspect::{
     cfg::mmconf::{CFG_MASTER_KEY_PUB, DEFAULT_MINION_LOG_ERR, DEFAULT_MINION_LOG_STD, MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload},
@@ -17,7 +18,7 @@ use libsysinspect::{
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
-    commands::{CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_TRANSPORT_STATUS},
+    commands::{CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SYNC, CLUSTER_TRANSPORT_STATUS},
 };
 use serde_json::json;
 use std::{
@@ -131,7 +132,11 @@ impl NetworkAddWorkflow {
                 Err(_) => rows.push(AddOutcome {
                     display_path: host.path.clone().unwrap_or_else(|| "-".to_string()),
                     platform: "-".to_string(),
-                    status: AddStatus::Failed,
+                    status: if self.req.op == HostOp::Remove && self.req.force {
+                        self.force_remove_host(&ctx, &host).unwrap_or(AddStatus::Failed)
+                    } else {
+                        AddStatus::Failed
+                    },
                     host,
                 }),
             }
@@ -144,6 +149,9 @@ impl NetworkAddWorkflow {
             return HostSetup { target: target.clone(), art: self.select_artifact(&ctx.repo_root, &target.info)?, minion_id: None }
                 .run(ctx)
                 .map(|_| AddStatus::Online);
+        }
+        if self.req.op == HostOp::Upgrade {
+            return self.upgrade_host(ctx, target);
         }
         self.remove_host(ctx, target)
     }
@@ -293,17 +301,7 @@ impl HostSetup {
         log::info!("Auto-add {}: register", self.target.host.host);
         this.register(ctx, &ssh, elevate)?;
         log::info!("Auto-add {}: start daemon", self.target.host.host);
-        ssh.exec(
-            &RemoteCommand::new(format!(
-                "trap '' HUP; {} -c {} --start </dev/null >>{} 2>>{} & printf '%s\\n' \"$!\" > {}",
-                shell_quote(&this.target.layout.install_bin),
-                shell_quote(&this.target.layout.config),
-                shell_quote(&this.target.layout.log_std),
-                shell_quote(&this.target.layout.log_err),
-                shell_quote(&this.target.layout.pidfile)
-            ))
-            .elevate(elevate),
-        )?;
+        this.start_runtime(&ssh, elevate)?;
         log::info!("Auto-add {}: wait for daemon pid", self.target.host.host);
         this.wait_runtime(&ssh, elevate)?;
         log::info!("Auto-add {}: wait for bootstrap log", self.target.host.host);
@@ -311,6 +309,21 @@ impl HostSetup {
         log::info!("Auto-add {}: wait for master readiness", self.target.host.host);
         this.wait_ready(ctx, &ssh, elevate)?;
         Ok(())
+    }
+
+    fn start_runtime(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
+        ssh.exec(
+            &RemoteCommand::new(format!(
+                "trap '' HUP; {} -c {} --start </dev/null >>{} 2>>{} & printf '%s\\n' \"$!\" > {}",
+                shell_quote(&self.target.layout.install_bin),
+                shell_quote(&self.target.layout.config),
+                shell_quote(&self.target.layout.log_std),
+                shell_quote(&self.target.layout.log_err),
+                shell_quote(&self.target.layout.pidfile)
+            ))
+            .elevate(elevate),
+        )
+        .map(|_| ())
     }
 
     fn register(&self, ctx: &SetupContext, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
@@ -595,6 +608,85 @@ impl HostSetup {
 }
 
 impl NetworkAddWorkflow {
+    fn upgrade_host(&self, ctx: &SetupContext, target: &ProbedHost) -> Result<AddStatus, SysinspectError> {
+        let ssh = target.ssh();
+        let elevate = target.elevation()?;
+        if ssh
+            .exec(
+                &RemoteCommand::new(format!(
+                    "state=no; for p in {} {} {}; do [ -e \"$p\" ] && state=yes && break; done; printf '%s' \"$state\"",
+                    shell_quote(&target.layout.install_bin),
+                    shell_quote(&target.layout.config),
+                    shell_quote(&target.layout.root_dir)
+                ))
+                .elevate(elevate),
+            )?
+            .stdout
+            .trim()
+            != "yes"
+        {
+            return Ok(AddStatus::Absent);
+        }
+        if managed_roots(
+            &ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.local_marker))).elevate(elevate))?.stdout,
+        )?
+        .is_empty()
+        {
+            return Ok(AddStatus::Skipped);
+        }
+        let artifact = self.select_artifact(&ctx.repo_root, &target.info)?;
+        if compare_versions(
+            ssh.exec(&RemoteCommand::new(format!("{} --version 2>/dev/null || true", shell_quote(&target.layout.install_bin))))?
+                .stdout
+                .split_whitespace()
+                .last()
+                .unwrap_or_default(),
+            &artifact.version,
+        ) != std::cmp::Ordering::Less
+        {
+            return Ok(AddStatus::Current);
+        }
+        let setup = HostSetup {
+            minion_id: ssh
+                .exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.machine_id))))?
+                .stdout
+                .trim()
+                .to_string()
+                .into(),
+            target: target.clone(),
+            art: artifact,
+        };
+        log::info!("Auto-upgrade {}: upload {}", target.host.host, setup.art.path.display());
+        ssh.upload(&UploadRequest::new(&setup.art.path, &setup.target.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))?;
+        ssh.exec(&RemoteCommand::new(format!("chmod 0755 {}", shell_quote(&setup.target.layout.stage_bin))))?;
+        setup.verify_stage_bin(&ssh)?;
+        setup.prepare_runtime(&ssh, elevate)?;
+        log::info!("Auto-upgrade {}: refresh onboarding traits {}", target.host.host, setup.target.layout.onboarding_traits);
+        setup.write_onboarding_traits(&ssh, elevate)?;
+        log::info!("Auto-upgrade {}: replace {}", target.host.host, setup.target.layout.install_bin);
+        ssh.exec(
+            &RemoteCommand::new(format!(
+                "cp {} {} && chmod 0755 {}",
+                shell_quote(&setup.target.layout.stage_bin),
+                shell_quote(&setup.target.layout.install_bin),
+                shell_quote(&setup.target.layout.install_bin)
+            ))
+            .elevate(elevate),
+        )?;
+        log::info!("Auto-upgrade {}: start daemon", target.host.host);
+        setup.start_runtime(&ssh, elevate)?;
+        log::info!("Auto-upgrade {}: wait for daemon pid", target.host.host);
+        setup.wait_runtime(&ssh, elevate)?;
+        log::info!("Auto-upgrade {}: wait for bootstrap log", target.host.host);
+        setup.wait_attempt(&ssh, elevate)?;
+        log::info!("Auto-upgrade {}: wait for master readiness", target.host.host);
+        setup.wait_ready(ctx, &ssh, elevate)?;
+        if let Some(mid) = setup.minion_id.as_deref() {
+            let _ = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", Some(mid), None);
+        }
+        Ok(AddStatus::Upgraded)
+    }
+
     fn remove_host(&self, ctx: &SetupContext, target: &ProbedHost) -> Result<AddStatus, SysinspectError> {
         let ssh = target.ssh();
         let elevate = target.elevation()?;
@@ -622,6 +714,8 @@ impl NetworkAddWorkflow {
                     minion_id, rsp.payload
                 )));
             }
+        } else if self.req.force {
+            return self.force_remove_host(ctx, &target.host);
         }
         ssh.exec(
             &RemoteCommand::new(format!(
@@ -665,6 +759,15 @@ impl NetworkAddWorkflow {
             .elevate(elevate),
         )?;
         Ok(AddStatus::Removed)
+    }
+
+    fn force_remove_host(&self, ctx: &SetupContext, host: &crate::netadd::types::AddHost) -> Result<AddStatus, SysinspectError> {
+        match call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(&host.host), None) {
+            Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => Ok(AddStatus::Removed),
+            Ok(_) => Ok(AddStatus::Failed),
+            Err(err) if err.to_string().contains("Unable to find minion") => Ok(AddStatus::Absent),
+            Err(err) => Err(err),
+        }
     }
 }
 

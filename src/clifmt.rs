@@ -242,27 +242,61 @@ fn render_online_minions(rows: &[ConsoleOnlineMinionRow]) -> String {
     let widths = (
         rows.iter().map(online_host).map(|v| v.chars().count()).max().unwrap_or(4).max("HOST".chars().count()),
         rows.iter().map(|row| if row.ip.is_empty() { "unknown".len() } else { row.ip.chars().count() }).max().unwrap_or(2).max("IP".chars().count()),
+        rows.iter()
+            .map(|row| {
+                if row.outdated && !row.version.is_empty() && !row.target_version.is_empty() {
+                    format!("{} -> {}", row.version, row.target_version).chars().count()
+                } else if row.version.is_empty() {
+                    1
+                } else {
+                    row.version.chars().count()
+                }
+            })
+            .max()
+            .unwrap_or(3)
+            .max("VERSION".chars().count()),
         rows.iter().map(|row| shorten_middle(&row.minion_id, 4).chars().count()).max().unwrap_or(2).max("ID".chars().count()),
     );
 
     let mut out = vec![
         format!(
-            "{}  {}  {}",
+            "{}  {}  {}  {}",
             pad_visible(&"HOST".bright_yellow().to_string(), widths.0),
             pad_visible(&"IP".bright_yellow().to_string(), widths.1),
-            pad_visible(&"ID".bright_yellow().to_string(), widths.2),
+            pad_visible(&"VERSION".bright_yellow().to_string(), widths.2),
+            pad_visible(&"ID".bright_yellow().to_string(), widths.3),
         ),
-        format!("{}  {}  {}", "─".repeat(widths.0), "─".repeat(widths.1), "─".repeat(widths.2)),
+        format!("{}  {}  {}  {}", "─".repeat(widths.0), "─".repeat(widths.1), "─".repeat(widths.2), "─".repeat(widths.3)),
     ];
 
     for row in rows {
         let host_plain = online_host(row);
         let ip_plain = if row.ip.is_empty() { "unknown".to_string() } else { row.ip.clone() };
+        let version_plain = if row.outdated && !row.version.is_empty() && !row.target_version.is_empty() {
+            format!("{} -> {}", row.version, row.target_version)
+        } else if row.version.is_empty() {
+            "-".to_string()
+        } else {
+            row.version.clone()
+        };
         let id_plain = shorten_middle(&row.minion_id, 4);
         let host = if row.alive { host_plain.bright_green().to_string() } else { host_plain.red().to_string() };
         let ip = if row.alive { ip_plain.bright_blue().to_string() } else { ip_plain.blue().to_string() };
+        let version = if row.outdated {
+            version_plain.bright_yellow().bold().to_string()
+        } else if row.version.is_empty() {
+            version_plain.red().to_string()
+        } else {
+            version_plain.bright_green().to_string()
+        };
         let id = if row.alive { id_plain.bright_green().to_string() } else { id_plain.green().to_string() };
-        out.push(format!("{}  {}  {}", pad_visible(&host, widths.0), pad_visible(&ip, widths.1), pad_visible(&id, widths.2)));
+        out.push(format!(
+            "{}  {}  {}  {}",
+            pad_visible(&host, widths.0),
+            pad_visible(&ip, widths.1),
+            pad_visible(&version, widths.2),
+            pad_visible(&id, widths.3)
+        ));
     }
 
     out.join("\n")

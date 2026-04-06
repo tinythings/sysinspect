@@ -40,7 +40,7 @@ use tokio::task::JoinHandle;
 use crate::minion::SysMinion;
 
 static APPNAME: &str = "sysminion";
-static VERSION: &str = "0.4.0";
+static VERSION: &str = env!("CARGO_PKG_VERSION");
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
 fn runtime(worker_threads: usize, max_blocking_threads: usize) -> Result<tokio::runtime::Runtime, SysinspectError> {

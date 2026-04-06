@@ -270,6 +270,7 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         && (sub.get_flag("help")
             || !(sub.get_flag("add")
                 || sub.get_flag("remove")
+                || sub.get_flag("upgrade")
                 || sub.get_flag("rotate")
                 || sub.get_flag("status")
                 || sub.get_flag("online")
@@ -509,7 +510,7 @@ async fn main() {
     }
 
     if let Some(network) = params.subcommand_matches("network") {
-        if network.get_flag("add") || network.get_flag("remove") {
+        if network.get_flag("add") || network.get_flag("remove") || network.get_flag("upgrade") {
             match get_cfg(&params).and_then(|cfg| netadd::NetworkAddWorkflow::from_matches(network).and_then(|wf| wf.run_render(&cfg))) {
                 Ok(output) => println!("{output}"),
                 Err(err) => log::error!("{err}"),
@@ -705,6 +706,14 @@ mod main_ut {
     fn network_remove_with_hostnames_is_not_treated_as_help() {
         let mut cli = clidef::cli("test");
         let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--remove", "--hostnames=192.168.122.105"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn network_upgrade_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--upgrade", "--hostnames=192.168.122.105"]).unwrap();
 
         assert!(!help(&mut cli, &params));
     }

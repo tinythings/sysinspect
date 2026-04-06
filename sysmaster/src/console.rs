@@ -7,6 +7,7 @@
 
 use super::*;
 
+use libmodpak::{SysInspectModPak, compare_versions};
 use libsysinspect::{
     console::{
         ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
@@ -121,24 +122,45 @@ impl SysMaster {
     /// and the current session liveness table. No presentation formatting is
     /// applied here.
     async fn online_minions_data(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<ConsoleOnlineMinionRow>, SysinspectError> {
-        let targets = self.selected_minions(query, traits, mid).await?;
-        let mut session = self.session.lock().await;
-        let mut rows = Vec::with_capacity(targets.len());
-
-        for minion in targets {
-            let minion_id = minion.id().to_string();
-            let alive = session.alive(&minion_id);
-            let (fqdn, hostname) = Self::preferred_host(&minion);
-            rows.push(ConsoleOnlineMinionRow {
-                fqdn,
-                hostname,
-                ip: minion.get_traits().get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                minion_id,
-                alive,
-            });
-        }
-
-        Ok(rows)
+        Ok({
+            let repo_versions = SysInspectModPak::new(self.cfg.get_mod_repo_root())
+                .ok()
+                .map(|repo| {
+                    repo.minion_builds().into_iter().fold(std::collections::BTreeMap::new(), |mut rows, row| {
+                        rows.insert((row.platform().to_string(), row.arch().to_string()), row.version().to_string());
+                        rows
+                    })
+                })
+                .unwrap_or_default();
+            let selected = self.selected_minions(query, traits, mid).await?;
+            let mut session = self.session.lock().await;
+            selected
+                .into_iter()
+                .map(|minion| {
+                    let (fqdn, hostname) = Self::preferred_host(&minion);
+                    let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let target_version = repo_versions
+                        .get(&(
+                            minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                            minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        ))
+                        .cloned()
+                        .unwrap_or_default();
+                    ConsoleOnlineMinionRow {
+                        fqdn,
+                        hostname,
+                        ip: minion.get_traits().get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        minion_id: minion.id().to_string(),
+                        alive: session.alive(minion.id()),
+                        outdated: !current_version.is_empty()
+                            && !target_version.is_empty()
+                            && compare_versions(&current_version, &target_version).is_lt(),
+                        version: current_version,
+                        target_version,
+                    }
+                })
+                .collect()
+        })
     }
 
     /// Build the full trait-backed info payload for exactly one selected minion.
@@ -195,18 +217,34 @@ impl SysMaster {
             return Ok((ConsoleResponse::err("Unregister requires a minion id"), vec![]));
         }
 
-        let msg = self.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", "", mid, "").await;
-
-        log::info!("Removing minion {}", mid);
-        if let Err(err) = self.mreg.lock().await.remove(mid) {
-            return Err(SysinspectError::MasterGeneralError(format!("Unable to remove minion {mid}: {err}")));
+        let targets = self.selected_minions("", "", mid).await?;
+        if targets.is_empty() {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to find minion {mid}")));
         }
-        if let Err(err) = self.mkr().remove_mn_key(mid) {
-            return Err(SysinspectError::MasterGeneralError(format!("Unable to unregister minion {mid}: {err}")));
+        if targets.len() > 1 {
+            return Err(SysinspectError::MasterGeneralError(format!(
+                "Unregister requires exactly one matching minion, but {} were selected",
+                targets.len()
+            )));
+        }
+        let target = targets.into_iter().next().expect("validated exactly one selected minion");
+        let msg = self.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", "", target.id(), "").await;
+
+        log::info!("Removing minion {}", target.id());
+        if let Err(err) = self.mreg.lock().await.remove(target.id()) {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to remove minion {}: {err}", target.id())));
+        }
+        if let Err(err) = self.mkr().remove_mn_key(target.id()) {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to unregister minion {}: {err}", target.id())));
         }
 
         Ok((
-            ConsoleResponse::ok(ConsolePayload::Ack { action: "remove_minion".to_string(), target: mid.to_string(), count: 1, items: vec![] }),
+            ConsoleResponse::ok(ConsolePayload::Ack {
+                action: "remove_minion".to_string(),
+                target: target.id().to_string(),
+                count: 1,
+                items: vec![],
+            }),
             msg.into_iter().collect(),
         ))
     }

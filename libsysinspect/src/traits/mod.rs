@@ -27,6 +27,8 @@ pub static SYS_OS_VERSION: &str = "system.os.version";
 pub static SYS_OS_NAME: &str = "system.os.name";
 /// Operating system distribution trait key.
 pub static SYS_OS_DISTRO: &str = "system.os.distribution";
+/// Build-target CPU architecture trait key.
+pub static SYS_ARCH: &str = "system.arch";
 
 /// Hostname trait key.
 pub static SYS_NET_HOSTNAME: &str = "system.hostname";

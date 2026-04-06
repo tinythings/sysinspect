@@ -156,6 +156,15 @@ pub struct ConsoleOnlineMinionRow {
     pub minion_id: String,
     /// Whether the master currently considers the minion online.
     pub alive: bool,
+    /// Current minion runtime version reported by the minion traits.
+    #[serde(default)]
+    pub version: String,
+    /// Highest matching repository version for this minion platform, if known.
+    #[serde(default)]
+    pub target_version: String,
+    /// Whether the current runtime version is older than the matching repository version.
+    #[serde(default)]
+    pub outdated: bool,
 }
 
 /// One transport-status row returned by the master.

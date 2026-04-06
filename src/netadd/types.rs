@@ -5,15 +5,24 @@ use std::path::PathBuf;
 pub(crate) enum HostOp {
     Add,
     Remove,
+    Upgrade,
 }
 
 impl HostOp {
     pub(crate) fn progress_label(self) -> &'static str {
-        if self == Self::Add { "Auto-add: onboarding" } else { "Auto-remove: handling" }
+        match self {
+            Self::Add => "Auto-add: onboarding",
+            Self::Remove => "Auto-remove: handling",
+            Self::Upgrade => "Auto-upgrade: handling",
+        }
     }
 
     pub(crate) fn summary_label(self) -> &'static str {
-        if self == Self::Add { "Planned onboarding" } else { "Planned removal" }
+        match self {
+            Self::Add => "Planned onboarding",
+            Self::Remove => "Planned removal",
+            Self::Upgrade => "Planned upgrade",
+        }
     }
 }
 
@@ -24,6 +33,9 @@ pub(crate) enum AddStatus {
     Removed,
     Failed,
     Absent,
+    Upgraded,
+    Current,
+    Skipped,
 }
 
 impl AddStatus {
@@ -34,6 +46,9 @@ impl AddStatus {
             Self::Removed => "removed",
             Self::Failed => "failed",
             Self::Absent => "absent",
+            Self::Upgraded => "upgraded",
+            Self::Current => "current",
+            Self::Skipped => "skipped",
         }
     }
 }
@@ -53,6 +68,7 @@ pub(crate) struct AddRequest {
     pub(crate) op: HostOp,
     pub(crate) hosts: Vec<HostSpec>,
     pub(crate) user: String,
+    pub(crate) force: bool,
 }
 
 /// One fully resolved onboarding target.

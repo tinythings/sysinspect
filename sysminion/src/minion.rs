@@ -83,6 +83,12 @@ use uuid::Uuid;
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
 
+fn minion_traits(cfg: &MinionConfig, q: bool) -> SystemTraits {
+    let mut traits = if q { traits::get_minion_traits_nolog(Some(cfg)) } else { traits::get_minion_traits(Some(cfg)) };
+    traits.put("minion.version".to_string(), json!(env!("CARGO_PKG_VERSION")));
+    traits
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RotationCommandPayload {
     op: String,
@@ -204,7 +210,7 @@ impl SysMinion {
         }
 
         let mut out: Vec<String> = vec![];
-        let minion_traits = traits::get_minion_traits(Some(&self.cfg));
+        let minion_traits = minion_traits(&self.cfg, false);
         for t in minion_traits.trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(minion_traits.get(&t)).unwrap_or_default()));
         }
@@ -251,9 +257,7 @@ impl SysMinion {
     /// Display minion info
     pub fn print_info(cfg: &MinionConfig) {
         let mut out: IndexMap<String, String> = IndexMap::new();
-        let mut systraits = traits::get_minion_traits_nolog(Some(cfg));
-
-        systraits.put("minion.version".to_string(), json!(env!("CARGO_PKG_VERSION")));
+        let mut systraits = minion_traits(cfg, true);
         systraits.put("uri.master".to_string(), json!(cfg.master()));
         systraits.put("uri.fileserver".to_string(), json!(cfg.fileserver()));
         systraits.put("path.models".to_string(), json!(cfg.models_dir()));
@@ -821,7 +825,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
+        let fresh_traits = minion_traits(&self.cfg, false);
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
@@ -834,7 +838,7 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
+        let fresh_traits = minion_traits(&self.cfg, false);
         let mut r = MinionMessage::new(dataconv::as_str(fresh_traits.get(traits::SYS_ID)), RequestType::Ehlo, fresh_traits.to_json_value()?);
         r.set_sid(MINION_SID.to_string());
 
@@ -1048,7 +1052,7 @@ impl SysMinion {
             sr.set_state(mqr_guard.state());
             sr.set_entities(mqr_guard.entities());
             sr.set_checkbook_labels(mqr_guard.checkbook_labels());
-            sr.set_traits(traits::get_minion_traits(Some(&self.cfg)));
+            sr.set_traits(minion_traits(&self.cfg, false));
             sr.set_context(context::get_context(context));
 
             sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
@@ -1156,7 +1160,7 @@ impl SysMinion {
             log::debug!("Command was dropped as it was specifically addressed for another minion");
             return;
         } else if tgt.id().is_empty() {
-            let traits = traits::get_minion_traits(Some(&self.cfg));
+            let traits = minion_traits(&self.cfg, false);
 
             // Is matching this host?
             let mut skip = true;
@@ -1185,7 +1189,7 @@ impl SysMinion {
                     Ok(q) => {
                         match traits::to_typed_query(q) {
                             Ok(tpq) => {
-                                if !traits::matches_traits(tpq, traits::get_minion_traits(Some(&self.cfg))) {
+                                if !traits::matches_traits(tpq, minion_traits(&self.cfg, false)) {
                                     log::debug!("Command was dropped as it does not match the traits");
                                     return;
                                 }

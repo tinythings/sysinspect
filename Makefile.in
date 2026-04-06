@@ -267,10 +267,8 @@ endef
 
 define refresh_modules_repo
 	@sysbin=target/debug/sysinspect; \
-	if [ ! -x "$$sysbin" ]; then \
-		echo "Building debug sysinspect helper"; \
-		cargo build -v -p $(call PKG_SPEC_FROM_TOML,Cargo.toml); \
-	fi; \
+	echo "Building debug sysinspect helper"; \
+	cargo build -v -p $(call PKG_SPEC_FROM_TOML,Cargo.toml); \
 	"$$sysbin" module -R -n '*'; \
 	find $(MODULES_DIST_DIR) -mindepth 2 -maxdepth 2 -type f ! -name '*.spec' | sort | while read mod; do \
 		echo "Installing $$mod"; \
@@ -309,10 +307,8 @@ endef
 
 define refresh_current_minion_repo
 	@sysbin=target/debug/sysinspect; \
-	if [ ! -x "$$sysbin" ]; then \
-		echo "Building debug sysinspect helper"; \
-		cargo build -v -p $(SYSINSPECT_SPEC); \
-	fi; \
+	echo "Building debug sysinspect helper"; \
+	cargo build -v -p $(SYSINSPECT_SPEC); \
 	if [ -z "$(CURRENT_MUSL_TARGET)" ] || [ -z "$(CURRENT_MUSL_CC)" ]; then \
 		echo "Current host $(UNAME_S)/$(UNAME_M) does not have a configured musl refresh target." >&2; \
 		exit 1; \

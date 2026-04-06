@@ -4,17 +4,17 @@ use libsysinspect::util::pad_visible;
 
 fn status_cell(status: AddStatus) -> String {
     match status {
-        AddStatus::Online | AddStatus::Removed => status.label().bright_green().bold().to_string(),
+        AddStatus::Online | AddStatus::Removed | AddStatus::Upgraded | AddStatus::Current => status.label().bright_green().bold().to_string(),
         AddStatus::Failed => status.label().bright_red().bold().to_string(),
-        AddStatus::Absent => status.label().yellow().bold().to_string(),
+        AddStatus::Absent | AddStatus::Skipped => status.label().yellow().bold().to_string(),
         AddStatus::Pending => status.label().to_string(),
     }
 }
 
 fn host_cell(host: &str, status: AddStatus) -> String {
     match status {
-        AddStatus::Online | AddStatus::Removed => host.bright_green().to_string(),
-        AddStatus::Failed | AddStatus::Absent | AddStatus::Pending => host.red().to_string(),
+        AddStatus::Online | AddStatus::Removed | AddStatus::Upgraded | AddStatus::Current => host.bright_green().to_string(),
+        AddStatus::Failed | AddStatus::Absent | AddStatus::Skipped | AddStatus::Pending => host.red().to_string(),
     }
 }
 

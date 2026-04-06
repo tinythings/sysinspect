@@ -15,10 +15,11 @@ pub(crate) fn parse(am: &ArgMatches) -> Result<AddPlan, SysinspectError> {
 }
 
 pub(crate) fn parse_request(am: &ArgMatches) -> Result<AddRequest, SysinspectError> {
-    let op = match (am.get_flag("add"), am.get_flag("remove")) {
-        (true, false) => HostOp::Add,
-        (false, true) => HostOp::Remove,
-        _ => return Err(SysinspectError::InvalidQuery("Host lifecycle changes require exactly one of --add or --remove".to_string())),
+    let op = match (am.get_flag("add"), am.get_flag("remove"), am.get_flag("upgrade")) {
+        (true, false, false) => HostOp::Add,
+        (false, true, false) => HostOp::Remove,
+        (false, false, true) => HostOp::Upgrade,
+        _ => return Err(SysinspectError::InvalidQuery("Host lifecycle changes require exactly one of --add, --remove, or --upgrade".to_string())),
     };
     if am.get_one::<String>("query-pos").is_some_and(|v| v != "*") {
         return Err(SysinspectError::InvalidQuery("Invalid input: host lifecycle changes do not accept positional selectors".to_string()));
@@ -46,6 +47,7 @@ pub(crate) fn parse_request(am: &ArgMatches) -> Result<AddRequest, SysinspectErr
             .cloned()
             .or_else(current_user)
             .ok_or_else(|| SysinspectError::ConfigError("Invalid input: no default SSH user could be resolved".to_string()))?,
+        force: am.get_flag("force"),
     })
 }
 

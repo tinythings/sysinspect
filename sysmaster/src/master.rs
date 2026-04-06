@@ -21,7 +21,6 @@ use libeventreg::{
     ipcs::DbIPCService,
     kvdb::{EventMinion, EventsRegistry},
 };
-use libmodpak::SysInspectModPak;
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     console::ensure_console_keypair,
