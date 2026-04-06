@@ -7808,6 +7808,7 @@ dependencies = [
  "libcommon",
  "libeventreg",
  "libmodpak",
+ "libsetup",
  "libsysinspect",
  "libsysproto",
  "log",

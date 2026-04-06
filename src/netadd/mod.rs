@@ -12,4 +12,6 @@ pub(crate) use artifact::{ArtifactArch, ArtifactFamily, MinionCatalogue, Platfor
 pub(crate) use parser::{normalise_host, normalise_path, parse, parse_entry, resolve_dest, resolve_remote_path};
 pub(crate) use workflow::NetworkAddWorkflow;
 #[cfg(test)]
-pub(crate) use workflow::{is_waitable_console_miss, managed_roots, registration_mismatch_id, rows_have_traits, startup_sync_ready};
+pub(crate) use workflow::{
+    actionable_add_error, is_waitable_console_miss, managed_roots, registration_mismatch_id, rows_have_traits, startup_sync_ready,
+};

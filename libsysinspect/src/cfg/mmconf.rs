@@ -642,9 +642,9 @@ impl MinionConfig {
         if self.uses_system_layout() { PathBuf::from(DEFAULT_MINION_SYSTEM_DB_DIR) } else { self.root_dir().join(DEFAULT_MINION_LOG_DIR) }
     }
 
-    /// Marker file used to declare a locally managed install near the config file.
+    /// Marker file used to declare a locally managed install in the destination root.
     pub fn local_marker_path(&self) -> PathBuf {
-        self.config_path().parent().unwrap_or(self.root_dir().as_path()).join(DEFAULT_MINION_LOCAL_MARKER)
+        self.root_dir().join(DEFAULT_MINION_LOCAL_MARKER)
     }
 
     /// Get root directory for models

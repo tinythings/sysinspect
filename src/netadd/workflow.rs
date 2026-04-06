@@ -11,6 +11,7 @@ use crate::sshprobe::{
 use clap::ArgMatches;
 use libcommon::SysinspectError;
 use libmodpak::compare_versions;
+use libsetup::local_marker::LocalMarker;
 use libsysinspect::{
     cfg::mmconf::{CFG_MASTER_KEY_PUB, DEFAULT_MINION_LOG_ERR, DEFAULT_MINION_LOG_STD, MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload},
@@ -71,6 +72,15 @@ struct Readiness {
     sensors: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddFailureStage {
+    Upload,
+    Setup,
+    Register,
+    Start,
+    Ready,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProbedHost {
     host: crate::netadd::types::AddHost,
@@ -126,19 +136,31 @@ impl NetworkAddWorkflow {
             log::info!("{} {} as {}", self.req.op.progress_label(), host.host, host.user);
             match self.probe_host(&host) {
                 Ok(info) => match ProbedHost::new(host.clone(), info) {
-                    Ok(target) => rows.push(target.outcome(self.run_host(&ctx, &target).unwrap_or(AddStatus::Failed))),
-                    Err(_) => rows.push(AddOutcome { display_path: "-".to_string(), platform: "-".to_string(), status: AddStatus::Failed, host }),
-                },
-                Err(_) => rows.push(AddOutcome {
-                    display_path: host.path.clone().unwrap_or_else(|| "-".to_string()),
-                    platform: "-".to_string(),
-                    status: if self.req.op == HostOp::Remove && self.req.force {
-                        self.force_remove_host(&ctx, &host).unwrap_or(AddStatus::Failed)
-                    } else {
-                        AddStatus::Failed
+                    Ok(target) => match self.run_host(&ctx, &target) {
+                        Ok(status) => rows.push(target.outcome(status)),
+                        Err(err) => {
+                            log::error!("{} {} failed: {}", self.req.op.progress_label(), target.host.host, err);
+                            rows.push(target.outcome(AddStatus::Failed));
+                        }
                     },
-                    host,
-                }),
+                    Err(err) => {
+                        log::error!("{} {} failed: {}", self.req.op.progress_label(), host.host, err);
+                        rows.push(AddOutcome { display_path: "-".to_string(), platform: "-".to_string(), status: AddStatus::Failed, host });
+                    }
+                },
+                Err(err) => {
+                    log::error!("{} {} failed: {}", self.req.op.progress_label(), host.host, err);
+                    rows.push(AddOutcome {
+                        display_path: host.path.clone().unwrap_or_else(|| "-".to_string()),
+                        platform: "-".to_string(),
+                        status: if self.req.op == HostOp::Remove && self.req.force {
+                            self.force_remove_host(&ctx, &host).unwrap_or(AddStatus::Failed)
+                        } else {
+                            AddStatus::Failed
+                        },
+                        host,
+                    });
+                }
             }
         }
         Ok(render_outcomes(&rows, self.req.op))
@@ -281,9 +303,11 @@ impl HostSetup {
         let ssh = self.target.ssh();
         let elevate = self.target.elevation()?;
         log::info!("Auto-add {}: upload {}", self.target.host.host, self.art.path.display());
-        ssh.upload(&UploadRequest::new(&self.art.path, &self.target.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))?;
-        ssh.exec(&RemoteCommand::new(format!("chmod 0755 {}", shell_quote(&self.target.layout.stage_bin))))?;
-        self.verify_stage_bin(&ssh)?;
+        ssh.upload(&UploadRequest::new(&self.art.path, &self.target.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))
+            .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Upload, None, err))?;
+        ssh.exec(&RemoteCommand::new(format!("chmod 0755 {}", shell_quote(&self.target.layout.stage_bin))))
+            .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Upload, None, err))?;
+        self.verify_stage_bin(&ssh).inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Upload, None, err))?;
         log::info!("Auto-add {}: setup {}", self.target.host.host, self.target.layout.config);
         ssh.exec(
             &RemoteCommand::new(format!(
@@ -293,22 +317,63 @@ impl HostSetup {
                 self.target.layout.dir.as_deref().map(|dir| format!(" --directory {}", shell_quote(dir))).unwrap_or_default()
             ))
             .elevate(elevate),
-        )?;
-        let this = Self { minion_id: self.read_minion_id(&ssh)?, ..self.clone() };
-        this.prepare_runtime(&ssh, elevate)?;
-        log::info!("Auto-add {}: write onboarding traits {}", self.target.host.host, this.target.layout.onboarding_traits);
-        this.write_onboarding_traits(&ssh, elevate)?;
+        )
+        .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, None, err))?;
+        let setup = Self {
+            minion_id: self
+                .read_minion_id(&ssh)
+                .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, None, err))?,
+            ..self.clone()
+        };
+        setup
+            .prepare_runtime(&ssh, elevate)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, setup.minion_id.as_deref(), err))?;
+        log::info!("Auto-add {}: write onboarding traits {}", self.target.host.host, setup.target.layout.onboarding_traits);
+        setup
+            .write_onboarding_traits(&ssh, elevate)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, setup.minion_id.as_deref(), err))?;
         log::info!("Auto-add {}: register", self.target.host.host);
-        this.register(ctx, &ssh, elevate)?;
+        setup
+            .register(ctx, &ssh, elevate)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Register, setup.minion_id.as_deref(), err))?;
         log::info!("Auto-add {}: start daemon", self.target.host.host);
-        this.start_runtime(&ssh, elevate)?;
+        setup
+            .start_runtime(&ssh, elevate)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Start, setup.minion_id.as_deref(), err))?;
         log::info!("Auto-add {}: wait for daemon pid", self.target.host.host);
-        this.wait_runtime(&ssh, elevate)?;
+        setup
+            .wait_runtime(&ssh, elevate)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Start, setup.minion_id.as_deref(), err))?;
         log::info!("Auto-add {}: wait for bootstrap log", self.target.host.host);
-        this.wait_attempt(&ssh, elevate)?;
+        setup
+            .wait_attempt(&ssh, elevate)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Start, setup.minion_id.as_deref(), err))?;
         log::info!("Auto-add {}: wait for master readiness", self.target.host.host);
-        this.wait_ready(ctx, &ssh, elevate)?;
+        setup
+            .wait_ready(ctx, &ssh, elevate)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Ready, setup.minion_id.as_deref(), err))?;
         Ok(())
+    }
+
+    fn recover_add_failure(
+        &self, ctx: &SetupContext, ssh: &SSHSession, elevate: ElevationMode, stage: AddFailureStage, mid: Option<&str>, err: &SysinspectError,
+    ) {
+        log::warn!("Auto-add {}: cleanup after {:?} failure", self.target.host.host, stage);
+        if matches!(stage, AddFailureStage::Register | AddFailureStage::Start | AddFailureStage::Ready)
+            && let Some(mid) = mid
+            && let Err(clean_err) = self.unregister_failed(ctx, mid)
+        {
+            log::warn!("Auto-add {}: cleanup could not unregister {}: {}", self.target.host.host, mid, clean_err);
+        }
+        if matches!(stage, AddFailureStage::Setup | AddFailureStage::Register | AddFailureStage::Start | AddFailureStage::Ready)
+            && let Err(clean_err) = self.prepare_runtime(ssh, elevate)
+        {
+            log::warn!("Auto-add {}: cleanup could not stop partial runtime: {}", self.target.host.host, clean_err);
+        }
+        if let Err(clean_err) = self.cleanup_stage_root(ssh, elevate) {
+            log::warn!("Auto-add {}: cleanup could not remove staged upload: {}", self.target.host.host, clean_err);
+        }
+        log::error!("Auto-add {}: {}", self.target.host.host, actionable_add_error(err));
     }
 
     fn start_runtime(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
@@ -605,6 +670,32 @@ impl HostSetup {
             payload => Err(SysinspectError::MasterGeneralError(format!("Unable to remove stale minion {mid} before retry: {payload:?}"))),
         }
     }
+
+    fn unregister_failed(&self, ctx: &SetupContext, mid: &str) -> Result<(), SysinspectError> {
+        match call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(mid), None) {
+            Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => Ok(()),
+            Ok(_) => Ok(()),
+            Err(err) if err.to_string().contains("Unable to find minion") => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn cleanup_stage_root(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
+        ssh.exec(
+            &RemoteCommand::new(format!(
+                "rm -rf {}",
+                shell_quote(
+                    &Path::new(&self.target.layout.stage_bin)
+                        .parent()
+                        .unwrap_or_else(|| Path::new(&self.target.layout.stage_bin))
+                        .display()
+                        .to_string()
+                )
+            ))
+            .elevate(elevate),
+        )
+        .map(|_| ())
+    }
 }
 
 impl NetworkAddWorkflow {
@@ -826,15 +917,27 @@ pub(crate) fn startup_sync_ready(log: &str) -> bool {
 }
 
 pub(crate) fn managed_roots(marker: &str) -> Result<Vec<String>, SysinspectError> {
-    let roots = marker.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).map(ToOwned::to_owned).collect::<Vec<_>>();
-    if roots.iter().any(|root| !root.starts_with('/')) {
-        return Err(SysinspectError::ConfigError("Managed install marker contains a non-absolute path".to_string()));
+    if marker.trim().is_empty() {
+        return Ok(vec![]);
     }
-    Ok(roots)
+    Ok(vec![LocalMarker::from_yaml(marker)?.root])
 }
 
 pub(crate) fn rows_have_traits(rows: &[ConsoleMinionInfoRow]) -> bool {
     rows.iter().any(|row| row.key == "minion.online" && row.value.as_bool() == Some(true))
         && rows.iter().any(|row| row.key == "system.id")
         && rows.iter().any(|row| row.key == "system.hostname")
+}
+
+pub(crate) fn actionable_add_error(err: &SysinspectError) -> String {
+    if err.to_string().contains("Another minion from this machine is already connected") {
+        return "master still sees a stale live session for this minion".to_string();
+    }
+    if err.to_string().contains("Registration key mismatch") {
+        return "registration key mismatch stayed unresolved during auto-add".to_string();
+    }
+    if err.to_string().contains("did not reach full master readiness") && err.to_string().contains("transport=false") {
+        return "minion registered traits, but secure transport never became ready".to_string();
+    }
+    err.to_string()
 }

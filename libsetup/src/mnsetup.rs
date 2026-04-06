@@ -10,6 +10,8 @@ use std::{
 };
 use uuid::Uuid;
 
+use crate::local_marker::LocalMarker;
+
 #[derive(Default)]
 pub struct MinionSetup {
     alt_dir: String,
@@ -132,7 +134,7 @@ impl MinionSetup {
         fs::write(&cfp, SysInspectConfig::default().set_minion_config(self.cfg.clone()).to_yaml())?;
         log::info!("📄  Configuration file written to {}", cfp.to_str().unwrap_or_default().bright_white().bold());
         if !self.alt_dir.is_empty() {
-            fs::write(self.cfg.local_marker_path(), format!("{}\n", self.cfg.root_dir().display()))?;
+            fs::write(self.cfg.local_marker_path(), LocalMarker::hopstart(self.cfg.root_dir().to_str().unwrap_or_default()).to_yaml()?)?;
             log::info!("📌  Local ownership marker written to {}", self.cfg.local_marker_path().display());
         }
 
