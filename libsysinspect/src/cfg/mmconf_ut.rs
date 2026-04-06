@@ -148,7 +148,7 @@ fn minion_custom_layout_marker_and_pending_tasks_follow_root() {
     let mut cfg = MinionConfig::default();
     cfg.set_root_dir("/srv/sysinspect");
 
-    assert_eq!(cfg.local_marker_path(), std::path::PathBuf::from("/srv/sysinspect/etc/.local"));
+    assert_eq!(cfg.local_marker_path(), std::path::PathBuf::from("/srv/sysinspect/.local"));
     assert_eq!(cfg.pending_tasks_dir(), std::path::PathBuf::from("/srv/sysinspect/pending-tasks"));
 }
 

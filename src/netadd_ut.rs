@@ -1,6 +1,7 @@
 use crate::netadd::{
-    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, is_waitable_console_miss, managed_roots, normalise_host,
-    normalise_path, parse, parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits, startup_sync_ready,
+    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, actionable_add_error, is_waitable_console_miss, managed_roots,
+    normalise_host, normalise_path, parse, parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits,
+    startup_sync_ready,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libcommon::SysinspectError;
@@ -314,12 +315,12 @@ fn startup_sync_rejects_unfinished_startup_log() {
 
 #[test]
 fn managed_roots_accepts_absolute_marker_entries() {
-    assert_eq!(managed_roots("/home/bo/sysinspect\n").unwrap(), vec!["/home/bo/sysinspect".to_string()]);
+    assert_eq!(managed_roots("root: /opt/sysinspect\ninit: hopstart\n").unwrap(), vec!["/opt/sysinspect".to_string()]);
 }
 
 #[test]
 fn managed_roots_rejects_relative_marker_entries() {
-    assert!(managed_roots("sysinspect\n").is_err());
+    assert!(managed_roots("root: sysinspect\ninit: hopstart\n").is_err());
 }
 
 #[test]
@@ -327,4 +328,17 @@ fn keeps_absolute_remote_path() {
     let path = resolve_remote_path(Path::new("/home/hans"), Some("/opt/booya")).unwrap();
 
     assert_eq!(path, Path::new("/opt/booya"));
+}
+
+#[test]
+fn actionable_error_maps_duplicate_live_session() {
+    assert_eq!(
+        actionable_add_error(&SysinspectError::MinionGeneralError("Another minion from this machine is already connected".to_string())),
+        "master still sees a stale live session for this minion"
+    );
+}
+
+#[test]
+fn actionable_error_keeps_generic_message() {
+    assert_eq!(actionable_add_error(&SysinspectError::MinionGeneralError("plain failure".to_string())), "Error loading minion data: plain failure");
 }
