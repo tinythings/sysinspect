@@ -1,6 +1,6 @@
 use crate::netadd::{
     ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, is_waitable_console_miss, normalise_host, normalise_path, parse,
-    parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits,
+    parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits, startup_sync_ready,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libcommon::SysinspectError;
@@ -258,6 +258,21 @@ fn readiness_traits_reject_missing_hostname() {
     ];
 
     assert!(!rows_have_traits(&rows));
+}
+
+#[test]
+fn startup_sync_accepts_completed_module_sync_log() {
+    assert!(startup_sync_ready("[04/04/2026 16:43:37] - INFO: Syncing modules from 192.168.122.1:4201 done"));
+}
+
+#[test]
+fn startup_sync_accepts_explicit_disabled_log() {
+    assert!(startup_sync_ready("[04/04/2026 16:43:37] - WARN: Module auto-sync on startup is disabled. Call cluster sync to force modules sync."));
+}
+
+#[test]
+fn startup_sync_rejects_unfinished_startup_log() {
+    assert!(!startup_sync_ready("[04/04/2026 16:43:37] - INFO: Checking module integrity"));
 }
 
 #[test]
