@@ -34,7 +34,7 @@ use libsysinspect::{
     logger,
 };
 use log::LevelFilter;
-use std::{env, fs::File, process::exit, sync::Arc, sync::OnceLock};
+use std::{collections::BTreeSet, env, fs::File, process::exit, sync::Arc, sync::OnceLock};
 use tokio::task::JoinHandle;
 
 use crate::minion::SysMinion;
@@ -43,30 +43,25 @@ static APPNAME: &str = "sysminion";
 static VERSION: &str = "0.4.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
-fn register_minion(cfg: MinionConfig, fp: String) -> Result<(), SysinspectError> {
-    let (worker_threads, max_blocking_threads) = cfg.performance().register_threads();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+fn runtime(worker_threads: usize, max_blocking_threads: usize) -> Result<tokio::runtime::Runtime, SysinspectError> {
+    tokio::runtime::Builder::new_multi_thread()
         .worker_threads(worker_threads)
         .max_blocking_threads(max_blocking_threads)
         .enable_all()
         .build()
-        .map_err(|e| SysinspectError::DynError(Box::new(e)))?;
+        .map_err(|e| SysinspectError::DynError(Box::new(e)))
+}
 
-    let dpq = Arc::new(libdpq::DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks"))?);
+fn register_minion(cfg: MinionConfig, fp: String) -> Result<(), SysinspectError> {
+    let runtime = runtime(cfg.performance().register_threads().0, cfg.performance().register_threads().1)?;
+    let dpq = Arc::new(libdpq::DiskPersistentQueue::open(cfg.pending_tasks_dir())?);
     SysInspectRunner::set_dpq(dpq.clone());
     runtime.block_on(async { minion::_minion_instance(cfg, Some(fp), dpq).await })?;
     Ok(())
 }
 
 fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
-    let (worker_threads, max_blocking_threads) = cfg.performance().daemon_threads();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(worker_threads)
-        .max_blocking_threads(max_blocking_threads)
-        .enable_all()
-        .build()
-        .map_err(|e| SysinspectError::DynError(Box::new(e)))?;
-
+    let runtime = runtime(cfg.performance().daemon_threads().0, cfg.performance().daemon_threads().1)?;
     runtime.block_on(async {
         loop {
             let c_cfg = cfg.clone();
@@ -99,6 +94,56 @@ fn get_config(params: &ArgMatches) -> MinionConfig {
             exit(1);
         }
     }
+}
+
+fn stop_targets(cfg: &MinionConfig, sniffed: &[i32], current: i32) -> Vec<i32> {
+    std::fs::read_to_string(cfg.pidfile())
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i32>().ok())
+        .into_iter()
+        .chain(sniffed.iter().copied())
+        .filter(|pid| *pid != current)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+async fn sniff_minion_pids() -> std::io::Result<Vec<i32>> {
+    use procdog::ProcBackend;
+
+    #[cfg(target_os = "linux")]
+    return Ok(procdog::backends::linuxps::LinuxPsBackend
+        .list()
+        .await?
+        .into_iter()
+        .filter_map(|(pid, name)| (name == APPNAME).then_some(pid))
+        .collect());
+
+    #[cfg(target_os = "netbsd")]
+    return Ok(procdog::backends::netbsd_sysctl::NetBsdSysctlBackend
+        .list()
+        .await?
+        .into_iter()
+        .filter_map(|(pid, name)| (name == APPNAME).then_some(pid))
+        .collect());
+
+    #[cfg(all(not(target_os = "linux"), not(target_os = "netbsd")))]
+    Ok(procdog::backends::stps::PsBackend.list().await?.into_iter().filter_map(|(pid, name)| (name == APPNAME).then_some(pid)).collect())
+}
+
+fn stop_minion(cfg: MinionConfig) -> Result<(), SysinspectError> {
+    for pid in stop_targets(
+        &cfg,
+        &tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| SysinspectError::DynError(Box::new(e)))?
+            .block_on(sniff_minion_pids())?,
+        std::process::id() as i32,
+    ) {
+        libsysinspect::util::sys::kill_pid(pid, Some(2)).map_err(SysinspectError::IoErr)?;
+    }
+    Ok(())
 }
 
 // Print help?
@@ -206,9 +251,9 @@ fn main() -> std::io::Result<()> {
             }
         }
     } else if params.get_flag("stop") {
-        log::info!("Stopping daemon");
+        log::info!("Stopping minion");
         let cfg = get_config(&params);
-        if let Err(err) = libsysinspect::util::sys::kill_process(cfg.pidfile(), Some(2)) {
+        if let Err(err) = stop_minion(cfg) {
             log::error!("Unable to stop sysminion: {err}");
         }
     } else if let Some(sub) = params.subcommand_matches("setup") {
@@ -228,4 +273,36 @@ fn main() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod stop_ut {
+    use super::stop_targets;
+    use libsysinspect::cfg::mmconf::MinionConfig;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn scratch_pidfile() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "sysminion-stop-ut-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("sysminion.pid")
+    }
+
+    #[test]
+    fn stop_targets_merge_pidfile_and_sniffed_without_self() {
+        let pidfile = scratch_pidfile();
+        fs::write(&pidfile, "42\n").unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_pid_path(pidfile.to_str().unwrap());
+
+        assert_eq!(stop_targets(&cfg, &[42, 43, 77], 77), vec![42, 43]);
+
+        let _ = fs::remove_file(pidfile);
+    }
 }

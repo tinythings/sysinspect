@@ -1,5 +1,43 @@
 use std::path::PathBuf;
 
+/// Requested host lifecycle operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostOp {
+    Add,
+    Remove,
+}
+
+impl HostOp {
+    pub(crate) fn progress_label(self) -> &'static str {
+        if self == Self::Add { "Auto-add: onboarding" } else { "Auto-remove: handling" }
+    }
+
+    pub(crate) fn summary_label(self) -> &'static str {
+        if self == Self::Add { "Planned onboarding" } else { "Planned removal" }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AddStatus {
+    Pending,
+    Online,
+    Removed,
+    Failed,
+    Absent,
+}
+
+impl AddStatus {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "-",
+            Self::Online => "online",
+            Self::Removed => "removed",
+            Self::Failed => "failed",
+            Self::Absent => "absent",
+        }
+    }
+}
+
 /// Parsed host onboarding input before defaults are applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HostSpec {
@@ -12,6 +50,7 @@ pub(crate) struct HostSpec {
 /// One validated onboarding request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AddRequest {
+    pub(crate) op: HostOp,
     pub(crate) hosts: Vec<HostSpec>,
     pub(crate) user: String,
 }
@@ -39,7 +78,7 @@ pub(crate) struct AddOutcome {
     pub(crate) host: AddHost,
     pub(crate) display_path: String,
     pub(crate) platform: String,
-    pub(crate) note: Option<String>,
+    pub(crate) status: AddStatus,
 }
 
 /// One canonical deduplication key.

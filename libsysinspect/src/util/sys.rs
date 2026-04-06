@@ -5,11 +5,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::{fs::read_to_string, path::PathBuf};
 use std::{io, ptr};
 
-/// Kills a proces from a PID file
-pub fn kill_process(pidf: PathBuf, wait: Option<u64>) -> io::Result<()> {
-    let pid_str = read_to_string(pidf)?;
-    let pid = pid_str.trim().parse::<i32>().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid PID file content: {e}")))?;
-
+/// Kills one process id with TERM and optional KILL fallback.
+pub fn kill_pid(pid: i32, wait: Option<u64>) -> io::Result<()> {
     unsafe {
         if libc::kill(pid, libc::SIGTERM) != 0 {
             return Err(io::Error::last_os_error());
@@ -20,7 +17,6 @@ pub fn kill_process(pidf: PathBuf, wait: Option<u64>) -> io::Result<()> {
         std::thread::sleep(std::time::Duration::from_secs(wait));
     }
 
-    // Again! >:-[=]
     unsafe {
         if libc::kill(pid, 0) == 0 && libc::kill(pid, libc::SIGKILL) != 0 {
             return Err(io::Error::last_os_error());
@@ -28,6 +24,13 @@ pub fn kill_process(pidf: PathBuf, wait: Option<u64>) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+/// Kills a proces from a PID file
+pub fn kill_process(pidf: PathBuf, wait: Option<u64>) -> io::Result<()> {
+    read_to_string(pidf)
+        .and_then(|pid| pid.trim().parse::<i32>().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid PID file content: {e}"))))
+        .and_then(|pid| kill_pid(pid, wait))
 }
 
 /// Resolves the given hostname to its canonical FQDN and a default outer IP address.

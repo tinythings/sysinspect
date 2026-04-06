@@ -6,7 +6,7 @@ use libsysinspect::{
     transport::{TransportStore, transport_minion_root},
 };
 use libsysproto::secure::SECURE_PROTOCOL_VERSION;
-use std::{collections::HashMap, fs, io, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 /// Registered minion base.
 /// Essentially this is just a directory,
@@ -179,8 +179,6 @@ impl MinionsKeyRegistry {
         if k_pth.exists() {
             fs::remove_file(k_pth)?;
             self.keys.remove(mid);
-        } else {
-            return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::NotFound, format!("No RSA public key found for {mid}"))));
         }
 
         // Keep registration cleanup symmetric by removing managed transport metadata too.

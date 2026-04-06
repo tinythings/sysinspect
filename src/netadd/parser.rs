@@ -1,4 +1,4 @@
-use crate::netadd::types::{AddHost, AddKey, AddPlan, AddRequest, HostSpec, ResolvedDest};
+use crate::netadd::types::{AddHost, AddKey, AddPlan, AddRequest, HostOp, HostSpec, ResolvedDest};
 use crate::netadd::workflow::NetworkAddWorkflow;
 use clap::ArgMatches;
 use colored::Colorize;
@@ -9,30 +9,35 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Parse and resolve one `network --add` request.
+/// Parse and resolve one `network --add` or `network --remove` request.
 pub(crate) fn parse(am: &ArgMatches) -> Result<AddPlan, SysinspectError> {
     NetworkAddWorkflow::from_matches(am)?.plan()
 }
 
 pub(crate) fn parse_request(am: &ArgMatches) -> Result<AddRequest, SysinspectError> {
-    if !am.get_flag("add") {
-        return Err(SysinspectError::InvalidQuery("Host onboarding requires --add".to_string()));
-    }
+    let op = match (am.get_flag("add"), am.get_flag("remove")) {
+        (true, false) => HostOp::Add,
+        (false, true) => HostOp::Remove,
+        _ => return Err(SysinspectError::InvalidQuery("Host lifecycle changes require exactly one of --add or --remove".to_string())),
+    };
     if am.get_one::<String>("query-pos").is_some_and(|v| v != "*") {
-        return Err(SysinspectError::InvalidQuery("Invalid input: host onboarding does not accept positional selectors".to_string()));
+        return Err(SysinspectError::InvalidQuery("Invalid input: host lifecycle changes do not accept positional selectors".to_string()));
     }
 
     Ok(AddRequest {
+        op,
         hosts: {
             let hosts = match (am.get_one::<String>("hostnames"), am.get_one::<String>("list")) {
                 (Some(v), None) => parse_hostnames(v)?,
                 (None, Some(p)) => parse_list(Path::new(p))?,
                 (Some(_), Some(_)) | (None, None) => {
-                    return Err(SysinspectError::InvalidQuery("Invalid input: specify either --hostnames or --list for --add".to_string()));
+                    return Err(SysinspectError::InvalidQuery(
+                        "Invalid input: specify either --hostnames or --list for host lifecycle changes".to_string(),
+                    ));
                 }
             };
             if hosts.is_empty() {
-                return Err(SysinspectError::InvalidQuery("Invalid input: no host entries were supplied for --add".to_string()));
+                return Err(SysinspectError::InvalidQuery("Invalid input: no host entries were supplied".to_string()));
             }
             hosts
         },

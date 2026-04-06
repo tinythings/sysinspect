@@ -2,7 +2,7 @@ use crate::netadd::{
     artifact::{MinionArtifact, MinionCatalogue, PlatformId},
     parser::{parse_request, resolve_plan},
     render::render_outcomes,
-    types::{AddOutcome, AddPlan, AddRequest},
+    types::{AddOutcome, AddPlan, AddRequest, AddStatus, HostOp},
 };
 use crate::sshprobe::{
     detect::{ProbeInfo, ProbePathKind, SSHPlatformDetector},
@@ -11,7 +11,7 @@ use crate::sshprobe::{
 use clap::ArgMatches;
 use libcommon::SysinspectError;
 use libsysinspect::{
-    cfg::mmconf::{CFG_MASTER_KEY_PUB, MasterConfig, MinionConfig},
+    cfg::mmconf::{CFG_MASTER_KEY_PUB, DEFAULT_MINION_LOG_ERR, DEFAULT_MINION_LOG_STD, MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload},
     rsa::keys::{from_pem, get_fingerprint},
 };
@@ -44,6 +44,7 @@ struct RemoteLayout {
     stage_bin: String,
     install_bin: String,
     config: String,
+    local_marker: String,
     dir: Option<String>,
     traits_dir: String,
     onboarding_traits: String,
@@ -55,10 +56,8 @@ struct RemoteLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct HostSetup {
-    host: crate::netadd::types::AddHost,
-    info: ProbeInfo,
+    target: ProbedHost,
     art: MinionArtifact,
-    layout: RemoteLayout,
     minion_id: Option<String>,
 }
 
@@ -69,6 +68,13 @@ struct Readiness {
     transport: bool,
     startup_sync: bool,
     sensors: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProbedHost {
+    host: crate::netadd::types::AddHost,
+    info: ProbeInfo,
+    layout: RemoteLayout,
 }
 
 /// Dedicated host-onboarding workflow entrypoint.
@@ -98,10 +104,11 @@ impl NetworkAddWorkflow {
                 .map(|host| AddOutcome {
                     display_path: host.path.clone().unwrap_or_else(|| "<probe>".to_string()),
                     platform: "-".to_string(),
-                    note: None,
+                    status: AddStatus::Pending,
                     host,
                 })
                 .collect::<Vec<_>>(),
+            self.req.op,
         ))
     }
 
@@ -110,41 +117,35 @@ impl NetworkAddWorkflow {
         MinionCatalogue::open(repo_root)?.select(&PlatformId::from_probe(info)?)
     }
 
-    /// Probe, upload, set up, register, and start every planned host.
-    pub(crate) fn setup_render(&self, cfg: &MasterConfig) -> Result<String, SysinspectError> {
+    /// Probe and apply the requested host lifecycle change to every planned host.
+    pub(crate) fn run_render(&self, cfg: &MasterConfig) -> Result<String, SysinspectError> {
         let ctx = SetupContext::from_cfg(cfg)?;
         let mut rows = Vec::new();
         for host in self.plan()?.items {
-            log::info!("Auto-add: onboarding {} as {}", host.host, host.user);
+            log::info!("{} {} as {}", self.req.op.progress_label(), host.host, host.user);
             match self.probe_host(&host) {
-                Ok(info) => match self.setup_host(&ctx, host.clone(), info.clone()) {
-                    Ok(()) => rows.push(AddOutcome {
-                        display_path: RemoteLayout::from_probe(&host, &info)?.root_dir.clone(),
-                        platform: info.os_arch(),
-                        note: Some("online and manageable".to_string()),
-                        host,
-                    }),
-                    Err(err) => rows.push(AddOutcome {
-                        display_path: RemoteLayout::from_probe(&host, &info)?.root_dir.clone(),
-                        platform: info.os_arch(),
-                        note: Some(err.to_string()),
-                        host,
-                    }),
+                Ok(info) => match ProbedHost::new(host.clone(), info) {
+                    Ok(target) => rows.push(target.outcome(self.run_host(&ctx, &target).unwrap_or(AddStatus::Failed))),
+                    Err(_) => rows.push(AddOutcome { display_path: "-".to_string(), platform: "-".to_string(), status: AddStatus::Failed, host }),
                 },
-                Err(err) => rows.push(AddOutcome {
+                Err(_) => rows.push(AddOutcome {
                     display_path: host.path.clone().unwrap_or_else(|| "-".to_string()),
                     platform: "-".to_string(),
-                    note: Some(err.to_string()),
+                    status: AddStatus::Failed,
                     host,
                 }),
             }
         }
-        Ok(render_outcomes(&rows))
+        Ok(render_outcomes(&rows, self.req.op))
     }
 
-    fn setup_host(&self, ctx: &SetupContext, host: crate::netadd::types::AddHost, info: ProbeInfo) -> Result<(), SysinspectError> {
-        HostSetup { art: self.select_artifact(&ctx.repo_root, &info)?, layout: RemoteLayout::from_probe(&host, &info)?, host, info, minion_id: None }
-            .run(ctx)
+    fn run_host(&self, ctx: &SetupContext, target: &ProbedHost) -> Result<AddStatus, SysinspectError> {
+        if self.req.op == HostOp::Add {
+            return HostSetup { target: target.clone(), art: self.select_artifact(&ctx.repo_root, &target.info)?, minion_id: None }
+                .run(ctx)
+                .map(|_| AddStatus::Online);
+        }
+        self.remove_host(ctx, target)
     }
 
     fn probe_host(&self, host: &crate::netadd::types::AddHost) -> Result<ProbeInfo, SysinspectError> {
@@ -155,6 +156,30 @@ impl NetworkAddWorkflow {
                 |path| SSHPlatformDetector::new(&host.host).set_user(&host.user).check_writable(true).set_destination(path),
             )
             .info()
+    }
+}
+
+impl ProbedHost {
+    fn new(host: crate::netadd::types::AddHost, info: ProbeInfo) -> Result<Self, SysinspectError> {
+        Ok(Self { layout: RemoteLayout::from_probe(&host, &info)?, host, info })
+    }
+
+    fn outcome(&self, status: AddStatus) -> AddOutcome {
+        AddOutcome { display_path: self.layout.root_dir.clone(), platform: self.info.os_arch(), status, host: self.host.clone() }
+    }
+
+    fn ssh(&self) -> SSHSession {
+        SSHSession::new(SSHEndpoint::new(&self.host.host, &self.host.user))
+    }
+
+    fn elevation(&self) -> Result<ElevationMode, SysinspectError> {
+        if self.info.privilege == crate::sshprobe::detect::PrivilegeMode::Root || self.info.destination.writable {
+            return Ok(ElevationMode::None);
+        }
+        if self.info.has_sudo {
+            return Ok(ElevationMode::Sudo);
+        }
+        Err(SysinspectError::MinionGeneralError(format!("Destination is not writable on {} and sudo is unavailable", self.host.host)))
     }
 }
 
@@ -224,6 +249,7 @@ impl RemoteLayout {
             ),
             install_bin: cfg.install_bin_path().display().to_string(),
             config: cfg.config_path().display().to_string(),
+            local_marker: cfg.local_marker_path().display().to_string(),
             dir: match info.destination.kind {
                 ProbePathKind::Home | ProbePathKind::Custom => {
                     Some(info.destination.resolved.clone().ok_or_else(|| {
@@ -234,7 +260,7 @@ impl RemoteLayout {
             },
             traits_dir: cfg.traits_dir().display().to_string(),
             onboarding_traits: format!("{}/autoadd.cfg", cfg.traits_dir().display()),
-            machine_id: "/etc/machine-id".to_string(),
+            machine_id: cfg.machine_id_path().display().to_string(),
             pidfile: cfg.managed_pidfile_path().display().to_string(),
             log_std: cfg.managed_logfile_std_path().display().to_string(),
             log_err: cfg.managed_logfile_err_path().display().to_string(),
@@ -244,64 +270,54 @@ impl RemoteLayout {
 
 impl HostSetup {
     fn run(&self, ctx: &SetupContext) -> Result<(), SysinspectError> {
-        let ssh = SSHSession::new(SSHEndpoint::new(&self.host.host, &self.host.user));
-        log::info!("Auto-add {}: upload {}", self.host.host, self.art.path.display());
-        ssh.upload(&UploadRequest::new(&self.art.path, &self.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))?;
-        let elevate = self.elevation()?;
-        ssh.exec(&RemoteCommand::new(format!("chmod 0755 {}", shell_quote(&self.layout.stage_bin))))?;
+        let ssh = self.target.ssh();
+        let elevate = self.target.elevation()?;
+        log::info!("Auto-add {}: upload {}", self.target.host.host, self.art.path.display());
+        ssh.upload(&UploadRequest::new(&self.art.path, &self.target.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))?;
+        ssh.exec(&RemoteCommand::new(format!("chmod 0755 {}", shell_quote(&self.target.layout.stage_bin))))?;
         self.verify_stage_bin(&ssh)?;
-        log::info!("Auto-add {}: setup {}", self.host.host, self.layout.config);
+        log::info!("Auto-add {}: setup {}", self.target.host.host, self.target.layout.config);
         ssh.exec(
             &RemoteCommand::new(format!(
                 "{} setup --with-default-config --master-addr {}{}",
-                shell_quote(&self.layout.stage_bin),
-                shell_quote(&ctx.master_addr_for(&self.host.host)?),
-                self.layout.dir.as_deref().map(|dir| format!(" --directory {}", shell_quote(dir))).unwrap_or_default()
+                shell_quote(&self.target.layout.stage_bin),
+                shell_quote(&ctx.master_addr_for(&self.target.host.host)?),
+                self.target.layout.dir.as_deref().map(|dir| format!(" --directory {}", shell_quote(dir))).unwrap_or_default()
             ))
             .elevate(elevate),
         )?;
         let this = Self { minion_id: self.read_minion_id(&ssh)?, ..self.clone() };
         this.prepare_runtime(&ssh, elevate)?;
-        log::info!("Auto-add {}: write onboarding traits {}", self.host.host, this.layout.onboarding_traits);
+        log::info!("Auto-add {}: write onboarding traits {}", self.target.host.host, this.target.layout.onboarding_traits);
         this.write_onboarding_traits(&ssh, elevate)?;
-        log::info!("Auto-add {}: register", self.host.host);
+        log::info!("Auto-add {}: register", self.target.host.host);
         this.register(ctx, &ssh, elevate)?;
-        log::info!("Auto-add {}: start daemon", self.host.host);
+        log::info!("Auto-add {}: start daemon", self.target.host.host);
         ssh.exec(
             &RemoteCommand::new(format!(
                 "trap '' HUP; {} -c {} --start </dev/null >>{} 2>>{} & printf '%s\\n' \"$!\" > {}",
-                shell_quote(&this.layout.install_bin),
-                shell_quote(&this.layout.config),
-                shell_quote(&this.layout.log_std),
-                shell_quote(&this.layout.log_err),
-                shell_quote(&this.layout.pidfile)
+                shell_quote(&this.target.layout.install_bin),
+                shell_quote(&this.target.layout.config),
+                shell_quote(&this.target.layout.log_std),
+                shell_quote(&this.target.layout.log_err),
+                shell_quote(&this.target.layout.pidfile)
             ))
             .elevate(elevate),
         )?;
-        log::info!("Auto-add {}: wait for daemon pid", self.host.host);
+        log::info!("Auto-add {}: wait for daemon pid", self.target.host.host);
         this.wait_runtime(&ssh, elevate)?;
-        log::info!("Auto-add {}: wait for bootstrap log", self.host.host);
+        log::info!("Auto-add {}: wait for bootstrap log", self.target.host.host);
         this.wait_attempt(&ssh, elevate)?;
-        log::info!("Auto-add {}: wait for master readiness", self.host.host);
+        log::info!("Auto-add {}: wait for master readiness", self.target.host.host);
         this.wait_ready(ctx, &ssh, elevate)?;
         Ok(())
-    }
-
-    fn elevation(&self) -> Result<ElevationMode, SysinspectError> {
-        if self.info.privilege == crate::sshprobe::detect::PrivilegeMode::Root || self.info.destination.writable {
-            return Ok(ElevationMode::None);
-        }
-        if self.info.has_sudo {
-            return Ok(ElevationMode::Sudo);
-        }
-        Err(SysinspectError::MinionGeneralError(format!("Destination is not writable on {} and sudo is unavailable", self.host.host)))
     }
 
     fn register(&self, ctx: &SetupContext, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
         let cmd = RemoteCommand::new(format!(
             "{} -c {} --register {}",
-            shell_quote(&self.layout.install_bin),
-            shell_quote(&self.layout.config),
+            shell_quote(&self.target.layout.install_bin),
+            shell_quote(&self.target.layout.config),
             shell_quote(&ctx.master_fp)
         ))
         .elevate(elevate);
@@ -310,7 +326,7 @@ impl HostSetup {
                 if rsp.stdout.contains("Registration key mismatch for ")
                     && let Some(mid) = registration_mismatch_id(&rsp.stdout)
                 {
-                    log::warn!("Auto-add {}: removing stale master registration for {}", self.host.host, mid);
+                    log::warn!("Auto-add {}: removing stale master registration for {}", self.target.host.host, mid);
                     self.unregister_stale(ctx, &mid)?;
                     return ssh.exec(&cmd).map(|_| ());
                 }
@@ -321,7 +337,7 @@ impl HostSetup {
                 let Some(mid) = registration_mismatch_id(&msg) else {
                     return Err(err);
                 };
-                log::warn!("Auto-add {}: removing stale master registration for {}", self.host.host, mid);
+                log::warn!("Auto-add {}: removing stale master registration for {}", self.target.host.host, mid);
                 self.unregister_stale(ctx, &mid)?;
                 ssh.exec(&cmd).map(|_| ())
             }
@@ -330,10 +346,12 @@ impl HostSetup {
 
     fn prepare_runtime(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
         let stop = format!(
-            "if [ -s {0} ]; then pid=$(cat {0} 2>/dev/null || true); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then kill \"$pid\" 2>/dev/null || true; sleep 1; fi; fi; rm -f {0} {1} {2}",
-            shell_quote(&self.layout.pidfile),
-            shell_quote(&self.layout.log_std),
-            shell_quote(&self.layout.log_err)
+            "{} -c {} --stop >/dev/null 2>&1 || true; rm -f {} {} {}",
+            shell_quote(&self.target.layout.install_bin),
+            shell_quote(&self.target.layout.config),
+            shell_quote(&self.target.layout.pidfile),
+            shell_quote(&self.target.layout.log_std),
+            shell_quote(&self.target.layout.log_err)
         );
         ssh.exec(&RemoteCommand::new(stop).elevate(elevate)).map(|_| ())
     }
@@ -343,35 +361,39 @@ impl HostSetup {
             self.onboarding_traits_map().into_iter().map(|(key, value)| format!("{key}: '{}'\n", value.replace('\'', "''"))).collect::<String>();
         let cmd = format!(
             "mkdir -p {0} && printf '%s' {1} > {2}",
-            shell_quote(&self.layout.traits_dir),
+            shell_quote(&self.target.layout.traits_dir),
             shell_quote(&yaml),
-            shell_quote(&self.layout.onboarding_traits)
+            shell_quote(&self.target.layout.onboarding_traits)
         );
         ssh.exec(&RemoteCommand::new(cmd).elevate(elevate)).map(|_| ())
     }
 
     fn onboarding_traits_map(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
-            ("minion.exec".to_string(), self.info.exec_mode.label().to_string()),
+            ("minion.exec".to_string(), self.target.info.exec_mode.label().to_string()),
             ("minion.mode".to_string(), "daemon".to_string()),
-            ("minion.sudo".to_string(), if self.info.has_sudo { "yes" } else { "no" }.to_string()),
+            ("minion.sudo".to_string(), if self.target.info.has_sudo { "yes" } else { "no" }.to_string()),
             ("minion.version".to_string(), self.art.version.clone()),
         ])
     }
 
     fn read_minion_id(&self, ssh: &SSHSession) -> Result<Option<String>, SysinspectError> {
-        let rsp = ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&self.layout.machine_id))))?;
+        let rsp = ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&self.target.layout.machine_id))))?;
         let mid = rsp.stdout.trim();
         Ok((!mid.is_empty()).then(|| mid.to_string()))
     }
 
     fn verify_stage_bin(&self, ssh: &SSHSession) -> Result<(), SysinspectError> {
-        let chk = format!("test -s {} && {} --version >/dev/null 2>&1", shell_quote(&self.layout.stage_bin), shell_quote(&self.layout.stage_bin));
+        let chk = format!(
+            "test -s {} && {} --version >/dev/null 2>&1",
+            shell_quote(&self.target.layout.stage_bin),
+            shell_quote(&self.target.layout.stage_bin)
+        );
         match ssh.exec(&RemoteCommand::new(chk)) {
             Ok(_) => Ok(()),
             Err(_) => Err(SysinspectError::MinionGeneralError(format!(
                 "Uploaded sysminion is not runnable on {}; {}",
-                self.host.host,
+                self.target.host.host,
                 self.stage_snapshot(ssh)?
             ))),
         }
@@ -379,7 +401,7 @@ impl HostSetup {
 
     fn wait_runtime(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
         let deadline = Instant::now() + Duration::from_secs(12);
-        let cmd = format!("test -s {0} && pid=$(cat {0}) && kill -0 \"$pid\"", shell_quote(&self.layout.pidfile));
+        let cmd = format!("test -s {0} && pid=$(cat {0}) && kill -0 \"$pid\"", shell_quote(&self.target.layout.pidfile));
         while Instant::now() < deadline {
             if ssh.exec(&RemoteCommand::new(cmd.clone()).elevate(elevate)).is_ok() {
                 return Ok(());
@@ -388,7 +410,7 @@ impl HostSetup {
         }
         Err(SysinspectError::MinionGeneralError(format!(
             "sysminion daemon did not stay alive on {}; {}",
-            self.host.host,
+            self.target.host.host,
             self.log_snapshot(ssh, elevate)?
         )))
     }
@@ -411,7 +433,7 @@ impl HostSetup {
                     "fail" => {
                         return Err(SysinspectError::MinionGeneralError(format!(
                             "sysminion failed during bootstrap on {}; {}",
-                            self.host.host,
+                            self.target.host.host,
                             self.log_snapshot(ssh, elevate)?
                         )));
                     }
@@ -422,7 +444,7 @@ impl HostSetup {
         }
         Err(SysinspectError::MinionGeneralError(format!(
             "sysminion did not log bootstrap progress in time on {}; {}",
-            self.host.host,
+            self.target.host.host,
             self.log_snapshot(ssh, elevate)?
         )))
     }
@@ -437,7 +459,7 @@ impl HostSetup {
         }
         Err(SysinspectError::MinionGeneralError(format!(
             "sysminion started on {} but did not reach full master readiness in time; {} ({})",
-            self.host.host,
+            self.target.host.host,
             self.readiness(ctx, ssh, elevate)?.detail(),
             self.log_snapshot(ssh, elevate)?
         )))
@@ -521,7 +543,7 @@ impl HostSetup {
         if self.minion_id.as_deref().is_some_and(|mid| row.minion_id == mid) {
             return true;
         }
-        let host = self.host.host_norm.as_str();
+        let host = self.target.host.host_norm.as_str();
         [row.fqdn.as_str(), row.hostname.as_str(), row.ip.as_str()]
             .into_iter()
             .map(normalise_remote_name)
@@ -543,7 +565,7 @@ impl HostSetup {
     fn stage_snapshot(&self, ssh: &SSHSession) -> Result<String, SysinspectError> {
         let rsp = ssh.exec(&RemoteCommand::new(format!(
             "p={0}; d=$(dirname \"$p\"); ls -ld \"$d\" \"$p\" 2>/dev/null || true",
-            shell_quote(&self.layout.stage_bin)
+            shell_quote(&self.target.layout.stage_bin)
         )))?;
         let out = rsp.stdout.trim();
         Ok(if out.is_empty() { "uploaded file not visible on remote host".to_string() } else { out.to_string() })
@@ -551,9 +573,15 @@ impl HostSetup {
 
     fn log_candidates_expr(&self) -> String {
         format!(
-            "{} {} /var/log/sysminion.standard.log /var/log/sysminion.errors.log \"$HOME/.local/state/sysminion.standard.log\" \"$HOME/.local/state/sysminion.errors.log\" /tmp/sysminion.standard.log /tmp/sysminion.errors.log",
-            shell_quote(&self.layout.log_std),
-            shell_quote(&self.layout.log_err)
+            "{} {} {}/{} {}/{} /tmp/{} /tmp/{}",
+            shell_quote(&self.target.layout.log_std),
+            shell_quote(&self.target.layout.log_err),
+            libsysinspect::cfg::mmconf::DEFAULT_MINION_SYSTEM_LOG_DIR,
+            DEFAULT_MINION_LOG_STD,
+            libsysinspect::cfg::mmconf::DEFAULT_MINION_SYSTEM_LOG_DIR,
+            DEFAULT_MINION_LOG_ERR,
+            DEFAULT_MINION_LOG_STD,
+            DEFAULT_MINION_LOG_ERR
         )
     }
 
@@ -563,6 +591,80 @@ impl HostSetup {
             ConsolePayload::Ack { .. } => Ok(()),
             payload => Err(SysinspectError::MasterGeneralError(format!("Unable to remove stale minion {mid} before retry: {payload:?}"))),
         }
+    }
+}
+
+impl NetworkAddWorkflow {
+    fn remove_host(&self, ctx: &SetupContext, target: &ProbedHost) -> Result<AddStatus, SysinspectError> {
+        let ssh = target.ssh();
+        let elevate = target.elevation()?;
+        let minion_id =
+            ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.machine_id))))?.stdout.trim().to_string();
+        let install_present = ssh
+            .exec(
+                &RemoteCommand::new(format!(
+                    "state=no; for p in {} {} {} {}; do [ -e \"$p\" ] && state=yes && break; done; printf '%s' \"$state\"",
+                    shell_quote(&target.layout.root_dir),
+                    shell_quote(&target.layout.install_bin),
+                    shell_quote(&target.layout.config),
+                    shell_quote(&target.layout.local_marker)
+                ))
+                .elevate(elevate),
+            )?
+            .stdout
+            .trim()
+            == "yes";
+        if !minion_id.is_empty() {
+            let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(&minion_id), None)?;
+            if !matches!(rsp.payload, ConsolePayload::Ack { .. }) {
+                return Err(SysinspectError::MasterGeneralError(format!(
+                    "Unable to unregister minion {} before removal: {:?}",
+                    minion_id, rsp.payload
+                )));
+            }
+        }
+        ssh.exec(
+            &RemoteCommand::new(format!(
+                "{} -c {} --stop >/dev/null 2>&1 || true",
+                shell_quote(&target.layout.install_bin),
+                shell_quote(&target.layout.config)
+            ))
+            .elevate(elevate),
+        )?;
+        let marker =
+            ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.local_marker))).elevate(elevate))?.stdout;
+        let roots = managed_roots(&marker)?;
+        if roots.is_empty() {
+            ssh.exec(
+                &RemoteCommand::new(format!(
+                    "rm -rf {}",
+                    shell_quote(
+                        &std::path::Path::new(&target.layout.stage_bin)
+                            .parent()
+                            .unwrap_or_else(|| std::path::Path::new(&target.layout.stage_bin))
+                            .display()
+                            .to_string()
+                    )
+                ))
+                .elevate(elevate),
+            )?;
+            return Ok(if install_present { AddStatus::Removed } else { AddStatus::Absent });
+        }
+        ssh.exec(
+            &RemoteCommand::new(format!(
+                "rm -rf {} {}",
+                roots.iter().map(|root| shell_quote(root)).collect::<Vec<_>>().join(" "),
+                shell_quote(
+                    &std::path::Path::new(&target.layout.stage_bin)
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new(&target.layout.stage_bin))
+                        .display()
+                        .to_string()
+                )
+            ))
+            .elevate(elevate),
+        )?;
+        Ok(AddStatus::Removed)
     }
 }
 
@@ -618,6 +720,14 @@ impl Readiness {
 
 pub(crate) fn startup_sync_ready(log: &str) -> bool {
     (log.contains("Syncing modules from ") && log.contains(" done")) || log.contains("Module auto-sync on startup is disabled")
+}
+
+pub(crate) fn managed_roots(marker: &str) -> Result<Vec<String>, SysinspectError> {
+    let roots = marker.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).map(ToOwned::to_owned).collect::<Vec<_>>();
+    if roots.iter().any(|root| !root.starts_with('/')) {
+        return Err(SysinspectError::ConfigError("Managed install marker contains a non-absolute path".to_string()));
+    }
+    Ok(roots)
 }
 
 pub(crate) fn rows_have_traits(rows: &[ConsoleMinionInfoRow]) -> bool {

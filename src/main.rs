@@ -268,7 +268,12 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
     }
     if let Some(sub) = params.subcommand_matches("network")
         && (sub.get_flag("help")
-            || !(sub.get_flag("add") || sub.get_flag("rotate") || sub.get_flag("status") || sub.get_flag("online") || sub.get_flag("info")))
+            || !(sub.get_flag("add")
+                || sub.get_flag("remove")
+                || sub.get_flag("rotate")
+                || sub.get_flag("status")
+                || sub.get_flag("online")
+                || sub.get_flag("info")))
     {
         if let Some(s_cli) = cli.find_subcommand_mut("network") {
             _ = s_cli.print_help();
@@ -504,8 +509,8 @@ async fn main() {
     }
 
     if let Some(network) = params.subcommand_matches("network") {
-        if network.get_flag("add") {
-            match get_cfg(&params).and_then(|cfg| netadd::NetworkAddWorkflow::from_matches(network).and_then(|wf| wf.setup_render(&cfg))) {
+        if network.get_flag("add") || network.get_flag("remove") {
+            match get_cfg(&params).and_then(|cfg| netadd::NetworkAddWorkflow::from_matches(network).and_then(|wf| wf.run_render(&cfg))) {
                 Ok(output) => println!("{output}"),
                 Err(err) => log::error!("{err}"),
             }
@@ -689,5 +694,18 @@ async fn main() {
         sr.set_traits(get_minion_traits(None));
 
         sr.start().await;
+    }
+}
+
+#[cfg(test)]
+mod main_ut {
+    use super::{clidef, help};
+
+    #[test]
+    fn network_remove_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--remove", "--hostnames=192.168.122.105"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
     }
 }

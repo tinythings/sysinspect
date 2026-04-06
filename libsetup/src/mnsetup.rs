@@ -1,8 +1,7 @@
 use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::{
-    CFG_AUTOSYNC_SHALLOW, CFG_PENDING_TASKS_ROOT, CFG_SENSORS_ROOT, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB,
-    DEFAULT_SYSINSPECT_ROOT, MinionConfig, SysInspectConfig,
+    CFG_AUTOSYNC_SHALLOW, CFG_SENSORS_ROOT, DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, DEFAULT_MODULES_SHARELIB, MinionConfig, SysInspectConfig,
 };
 use std::{
     fs::{self, File},
@@ -48,6 +47,10 @@ impl MinionSetup {
         format!("{}/{}", self.get_sharelib(), dir)
     }
 
+    fn writable_parent(path: &Path) -> &Path {
+        if path.exists() { path } else { path.parent().unwrap_or(path) }
+    }
+
     fn check_my_permissions() -> Result<(), SysinspectError> {
         if unsafe { libc::getuid() } != 0 {
             return Err(SysinspectError::ConfigError("SysMinion must be run as root".to_string()));
@@ -67,9 +70,16 @@ impl MinionSetup {
 
         if self.alt_dir.is_empty() {
             // This is the scenario when SysInspect is not packaged as a system package
-            for d in ["/usr/share", "/usr/bin", "/etc", "/var/run", "/var/tmp"] {
-                if !Self::is_dir_w(Path::new(d)) {
-                    return Err(SysinspectError::ConfigError(format!("Directory {d} appears to be read-only")));
+            for d in [
+                Self::writable_parent(Path::new(self.get_sharelib())),
+                Self::writable_parent(&self.cfg.install_bin_dir()),
+                Self::writable_parent(&self.cfg.config_dir()),
+                Self::writable_parent(&self.cfg.managed_pidfile_dir()),
+                Self::writable_parent(&self.cfg.managed_tmp_dir()),
+                Self::writable_parent(&self.cfg.managed_db_dir()),
+            ] {
+                if !Self::is_dir_w(d) {
+                    return Err(SysinspectError::ConfigError(format!("Directory {} appears to be read-only", d.display())));
                 }
             }
         }
@@ -77,44 +87,14 @@ impl MinionSetup {
         Ok(())
     }
 
-    /// Get `/etc/sysinspect`
-    /// This is the directory where the configuration files are stored
-    fn get_etc(&self) -> String {
-        if self.alt_dir.is_empty() { DEFAULT_SYSINSPECT_ROOT.to_string() } else { format!("{}/etc", self.alt_dir) }
-    }
-
-    /// Get /usr/bin
-    /// This is the directory where the binaries are stored
-    fn get_bin(&self) -> String {
-        if self.alt_dir.is_empty() { "/usr/bin".to_string() } else { format!("{}/bin", self.alt_dir) }
-    }
-
-    /// Get /var/run
-    /// This is the directory where the runtime files are stored
-    fn get_run(&self) -> String {
-        if self.alt_dir.is_empty() { "/var/run".to_string() } else { format!("{}/run", self.alt_dir) }
-    }
-
-    /// Get /var/tmp/sysinspect
-    /// This is the directory where the temporary files are stored
-    fn get_tmp(&self) -> String {
-        if self.alt_dir.is_empty() { "/var/tmp/sysinspect".to_string() } else { format!("{}/tmp/db", self.alt_dir) }
-    }
-
-    /// Get /tmp
-    /// This is the directory where the database files are stored
-    fn get_db(&self) -> String {
-        if self.alt_dir.is_empty() { "/tmp".to_string() } else { format!("{}/tmp", self.alt_dir) }
-    }
-
     /// Generate directory structure
     fn generate_dir_structure(&self) -> Result<(), SysinspectError> {
         let dirs = [
-            self.get_etc(),
-            self.get_bin(),
-            self.get_run(),
-            self.get_tmp(),
-            self.get_db(),
+            self.cfg.config_dir().display().to_string(),
+            self.cfg.install_bin_dir().display().to_string(),
+            self.cfg.managed_pidfile_dir().display().to_string(),
+            self.cfg.managed_tmp_dir().display().to_string(),
+            self.cfg.managed_db_dir().display().to_string(),
             self.cfg.models_dir().display().to_string(),
             self.cfg.functions_dir().display().to_string(),
             self.cfg.traits_dir().display().to_string(),
@@ -143,14 +123,18 @@ impl MinionSetup {
     fn generate_config(&mut self) -> Result<(), SysinspectError> {
         #[allow(clippy::unnecessary_to_owned)]
         self.cfg.set_sharelib_path(&self.get_sharelib().to_string());
-        self.cfg.set_pid_path(PathBuf::from(self.get_run()).join("sysinspect.pid").to_str().unwrap_or_default());
+        self.cfg.set_pid_path(self.cfg.managed_pidfile_path().to_str().unwrap_or_default());
         self.cfg.set_autosync(CFG_AUTOSYNC_SHALLOW);
         self.cfg.set_reconnect_freq(0);
         self.cfg.set_reconnect_interval("1"); // String, because it can be an expression like "1-5" (random between 1 and 5)
 
-        let cfp = PathBuf::from(self.get_etc()).join("sysinspect.conf");
+        let cfp = self.cfg.config_path();
         fs::write(&cfp, SysInspectConfig::default().set_minion_config(self.cfg.clone()).to_yaml())?;
         log::info!("📄  Configuration file written to {}", cfp.to_str().unwrap_or_default().bright_white().bold());
+        if !self.alt_dir.is_empty() {
+            fs::write(self.cfg.local_marker_path(), format!("{}\n", self.cfg.root_dir().display()))?;
+            log::info!("📌  Local ownership marker written to {}", self.cfg.local_marker_path().display());
+        }
 
         Ok(())
     }
@@ -178,7 +162,7 @@ impl MinionSetup {
     /// Copy binaries
     fn copy_binaries(&self) -> Result<(), SysinspectError> {
         let bin = std::env::current_exe()?;
-        let dst = PathBuf::from(self.get_bin()).join(bin.file_name().unwrap_or_default());
+        let dst = self.cfg.install_bin_dir().join(bin.file_name().unwrap_or_default());
         fs::copy(&bin, &dst)
             .map_err(|e| SysinspectError::ConfigError(format!("Failed to copy executable to {}: {}", dst.to_str().unwrap_or_default(), e)))?;
 
@@ -192,6 +176,7 @@ impl MinionSetup {
         }
 
         self.alt_dir = dir;
+        self.cfg.set_root_dir(&self.alt_dir);
         self.sharelib = format!("{}/share", self.alt_dir);
 
         self
@@ -240,10 +225,10 @@ impl MinionSetup {
         log::info!("📂  Directory structure set up");
 
         self.generate_config()?;
-        log::info!("📄  Configuration file generated to {}", self.get_etc().bright_white().bold());
+        log::info!("📄  Configuration file generated to {}", self.cfg.config_dir().display().to_string().bright_white().bold());
 
         self.copy_binaries()?;
-        log::info!("📦  Binaries are copied to {}", self.get_bin().bright_white().bold());
+        log::info!("📦  Binaries are copied to {}", self.cfg.install_bin_dir().display().to_string().bright_white().bold());
 
         self.cleanup()?;
         log::info!("👌  That should do.");
@@ -268,7 +253,7 @@ pub fn ensure_minion_tree(cfg: &MinionConfig) -> Result<(), SysinspectError> {
         cfg.profiles_dir(),
         cfg.transport_root(),
         cfg.transport_master_root(),
-        cfg.root_dir().join(CFG_PENDING_TASKS_ROOT),
+        cfg.pending_tasks_dir(),
     ] {
         if !dir.exists() {
             log::info!("Creating missing directory {}", dir.display());

@@ -7900,6 +7900,7 @@ dependencies = [
  "libsysproto",
  "log",
  "once_cell",
+ "procdog",
  "procfs 0.18.0",
  "rand 0.9.2",
  "regex",
