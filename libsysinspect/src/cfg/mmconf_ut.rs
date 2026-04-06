@@ -112,6 +112,12 @@ fn minion_custom_layout_paths_follow_root() {
     let mut cfg = MinionConfig::default();
     cfg.set_root_dir("/srv/sysinspect");
 
+    assert_eq!(cfg.install_bin_dir(), std::path::PathBuf::from("/srv/sysinspect/bin"));
+    assert_eq!(cfg.config_dir(), std::path::PathBuf::from("/srv/sysinspect/etc"));
+    assert_eq!(cfg.managed_pidfile_dir(), std::path::PathBuf::from("/srv/sysinspect/run"));
+    assert_eq!(cfg.managed_log_dir(), std::path::PathBuf::from("/srv/sysinspect/tmp"));
+    assert_eq!(cfg.managed_tmp_dir(), std::path::PathBuf::from("/srv/sysinspect/tmp/db"));
+    assert_eq!(cfg.managed_db_dir(), std::path::PathBuf::from("/srv/sysinspect/tmp"));
     assert_eq!(cfg.install_bin_path(), std::path::PathBuf::from("/srv/sysinspect/bin/sysminion"));
     assert_eq!(cfg.config_path(), std::path::PathBuf::from("/srv/sysinspect/etc/sysinspect.conf"));
     assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/srv/sysinspect/run/sysinspect.pid"));
@@ -123,11 +129,27 @@ fn minion_custom_layout_paths_follow_root() {
 fn minion_system_layout_paths_follow_system_defaults() {
     let cfg = MinionConfig::default();
 
+    assert_eq!(cfg.install_bin_dir(), std::path::PathBuf::from("/usr/bin"));
+    assert_eq!(cfg.config_dir(), std::path::PathBuf::from("/etc/sysinspect"));
+    assert_eq!(cfg.managed_pidfile_dir(), std::path::PathBuf::from("/var/run"));
+    assert_eq!(cfg.managed_log_dir(), std::path::PathBuf::from("/var/log"));
+    assert_eq!(cfg.managed_tmp_dir(), std::path::PathBuf::from("/var/tmp/sysinspect"));
+    assert_eq!(cfg.managed_db_dir(), std::path::PathBuf::from("/tmp"));
     assert_eq!(cfg.install_bin_path(), std::path::PathBuf::from("/usr/bin/sysminion"));
     assert_eq!(cfg.config_path(), std::path::PathBuf::from("/etc/sysinspect/sysinspect.conf"));
+    assert_eq!(cfg.local_marker_path(), std::path::PathBuf::from("/etc/sysinspect/.local"));
     assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/var/run/sysinspect.pid"));
     assert_eq!(cfg.managed_logfile_std_path(), std::path::PathBuf::from("/var/log/sysminion.standard.log"));
     assert_eq!(cfg.managed_logfile_err_path(), std::path::PathBuf::from("/var/log/sysminion.errors.log"));
+}
+
+#[test]
+fn minion_custom_layout_marker_and_pending_tasks_follow_root() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir("/srv/sysinspect");
+
+    assert_eq!(cfg.local_marker_path(), std::path::PathBuf::from("/srv/sysinspect/etc/.local"));
+    assert_eq!(cfg.pending_tasks_dir(), std::path::PathBuf::from("/srv/sysinspect/pending-tasks"));
 }
 
 #[test]

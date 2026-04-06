@@ -50,3 +50,11 @@ fn registration_rejects_key_mismatch_for_existing_minion() {
     assert_eq!(reg.add_mn_key("mid-1", "127.0.0.1:4200", &first_pem.unwrap()).unwrap(), RegistrationStatus::Added);
     assert!(matches!(reg.add_mn_key("mid-1", "127.0.0.1:4200", &second_pem.unwrap()).unwrap(), RegistrationStatus::Conflict { .. }));
 }
+
+#[test]
+fn removing_missing_minion_key_is_idempotent() {
+    let root = tempfile::tempdir().unwrap();
+    let mut reg = MinionsKeyRegistry::new(root.path().join("minion-keys")).unwrap();
+
+    assert!(reg.remove_mn_key("mid-1").is_ok());
+}

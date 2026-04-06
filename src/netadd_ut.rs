@@ -1,6 +1,6 @@
 use crate::netadd::{
-    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, is_waitable_console_miss, normalise_host, normalise_path, parse,
-    parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits, startup_sync_ready,
+    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, is_waitable_console_miss, managed_roots, normalise_host,
+    normalise_path, parse, parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits, startup_sync_ready,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libcommon::SysinspectError;
@@ -106,6 +106,24 @@ fn renders_planned_outcomes() {
     assert!(out.contains("OS/ARCH"));
     assert!(!out.contains("STATE"));
     assert!(out.contains("<probe>"));
+}
+
+#[test]
+fn parses_remove_mode() {
+    let args = network_args(&["sysinspect", "network", "--remove", "--hn", "foo.com", "-u", "hans"]);
+    let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
+    let out = wf.render().unwrap();
+
+    assert_eq!(wf.plan().unwrap().items.len(), 1);
+    assert!(out.contains("Planned removal for 1 host"));
+}
+
+#[test]
+fn parses_comma_separated_remove_hostnames() {
+    let args = network_args(&["sysinspect", "network", "--remove", "--hostnames", "foo.com,bar.com", "-u", "hans"]);
+    let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
+
+    assert_eq!(wf.plan().unwrap().items.len(), 2);
 }
 
 #[test]
@@ -273,6 +291,16 @@ fn startup_sync_accepts_explicit_disabled_log() {
 #[test]
 fn startup_sync_rejects_unfinished_startup_log() {
     assert!(!startup_sync_ready("[04/04/2026 16:43:37] - INFO: Checking module integrity"));
+}
+
+#[test]
+fn managed_roots_accepts_absolute_marker_entries() {
+    assert_eq!(managed_roots("/home/bo/sysinspect\n").unwrap(), vec!["/home/bo/sysinspect".to_string()]);
+}
+
+#[test]
+fn managed_roots_rejects_relative_marker_entries() {
+    assert!(managed_roots("sysinspect\n").is_err());
 }
 
 #[test]
