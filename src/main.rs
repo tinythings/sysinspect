@@ -273,10 +273,18 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
                 || sub.get_flag("upgrade")
                 || sub.get_flag("rotate")
                 || sub.get_flag("status")
-                || sub.get_flag("online")
                 || sub.get_flag("info")))
     {
         if let Some(s_cli) = cli.find_subcommand_mut("network") {
+            _ = s_cli.print_help();
+            return true;
+        }
+        return false;
+    }
+    if let Some(sub) = params.subcommand_matches("cluster")
+        && (sub.get_flag("help") || !(sub.get_flag("shutdown") || sub.get_flag("online")))
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("cluster") {
             _ = s_cli.print_help();
             return true;
         }
@@ -591,35 +599,6 @@ async fn main() {
             return;
         }
 
-        if network.get_flag("online") {
-            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
-            match call_master_console(
-                &cfg,
-                &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"),
-                if direct_id.is_some() {
-                    "*"
-                } else if by_query {
-                    &query
-                } else {
-                    "*"
-                },
-                network.get_one::<String>("select-traits"),
-                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
-                None,
-            )
-            .await
-            {
-                Ok(response) => {
-                    let rendered = clifmt::render_console_payload(&response.payload);
-                    if !rendered.is_empty() {
-                        println!("{}", rendered);
-                    }
-                }
-                Err(err) => log::error!("Cannot reach master: {err}"),
-            }
-            return;
-        }
-
         if network.get_flag("info") {
             if network.get_one::<String>("select-traits").is_some() {
                 log::error!(
@@ -667,15 +646,50 @@ async fn main() {
         }
     }
 
+    if let Some(cluster) = params.subcommand_matches("cluster") {
+        if cluster.get_flag("shutdown") {
+            if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, None).await {
+                log::error!("Cannot reach master: {err}");
+            }
+            return;
+        }
+        if cluster.get_flag("online") {
+            let query = cluster.get_one::<String>("query-pos").cloned().unwrap_or("*".to_string());
+            let direct_id = cluster.get_one::<String>("id").map(String::as_str);
+            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
+            match call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"),
+                if direct_id.is_some() {
+                    "*"
+                } else if by_query {
+                    &query
+                } else {
+                    "*"
+                },
+                None,
+                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
+                None,
+            )
+            .await
+            {
+                Ok(response) => {
+                    let rendered = clifmt::render_console_payload(&response.payload);
+                    if !rendered.is_empty() {
+                        println!("{}", rendered);
+                    }
+                }
+                Err(err) => log::error!("Cannot reach master: {err}"),
+            }
+            return;
+        }
+    }
+
     if let Some(model) = params.get_one::<String>("path") {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
         let context = params.get_one::<String>("context");
         if let Err(err) = call_master_console(&cfg, model, query.unwrap_or(&"".to_string()), traits, None, context).await {
-            log::error!("Cannot reach master: {err}");
-        }
-    } else if params.get_flag("shutdown") {
-        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("sync") {
@@ -714,6 +728,22 @@ mod main_ut {
     fn network_upgrade_with_hostnames_is_not_treated_as_help() {
         let mut cli = clidef::cli("test");
         let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--upgrade", "--hostnames=192.168.122.105"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_shutdown_with_mask_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--shutdown", "*"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_online_with_mask_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--online", "*"]).unwrap();
 
         assert!(!help(&mut cli, &params));
     }
