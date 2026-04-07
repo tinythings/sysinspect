@@ -44,6 +44,46 @@ struct TransportStatusConsoleRequest {
     filter: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct CmdbStartupConsoleRequest {
+    user: String,
+    host: String,
+    root: String,
+    bin: String,
+    path: String,
+    backend: String,
+}
+
+impl CmdbStartupConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Err(SysinspectError::InvalidQuery("CMDB update requires startup inventory context".to_string()));
+        }
+
+        let request = serde_json::from_str::<Self>(context)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse CMDB request context: {err}")))?;
+
+        for (name, value) in [
+            ("user", request.user.as_str()),
+            ("host", request.host.as_str()),
+            ("root", request.root.as_str()),
+            ("bin", request.bin.as_str()),
+            ("path", request.path.as_str()),
+            ("backend", request.backend.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(SysinspectError::InvalidQuery(format!("CMDB field {name} must not be empty")));
+            }
+        }
+
+        Ok(request)
+    }
+
+    fn into_startup(self) -> crate::registry::rec::MinionCmdbStartup {
+        crate::registry::rec::MinionCmdbStartup::new(self.user, self.host, self.root, self.bin, self.path, self.backend)
+    }
+}
+
 impl TransportStatusConsoleRequest {
     /// Parse the JSON request context for a transport-status console command.
     ///
@@ -249,6 +289,20 @@ impl SysMaster {
         ))
     }
 
+    async fn upsert_cmdb_console_response(&mut self, mid: &str, context: &str) -> Result<ConsoleResponse, SysinspectError> {
+        if mid.trim().is_empty() {
+            return Ok(ConsoleResponse::err("CMDB update requires a minion id"));
+        }
+        if !self.mkr().is_registered(mid) {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to find registered minion {mid} for CMDB update")));
+        }
+
+        let startup = CmdbStartupConsoleRequest::from_context(context)?.into_startup();
+        self.mreg.lock().await.upsert_cmdb_startup(mid, startup)?;
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "cmdb_upsert".to_string(), target: mid.to_string(), count: 1, items: vec![] }))
+    }
+
     /// Register the concrete minion ids targeted by one outbound console message.
     ///
     /// This keeps task tracking aligned with console-initiated broadcasts so the
@@ -334,6 +388,13 @@ impl SysMaster {
             };
             Self::broadcast_console_messages(Arc::clone(&master), bcast, cfg, msgs, false).await;
             return response;
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_CMDB_UPSERT}")) {
+            return match master.lock().await.upsert_cmdb_console_response(&query.mid, &query.context).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(format!("Unable to upsert CMDB: {err}")),
+            };
         }
 
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {

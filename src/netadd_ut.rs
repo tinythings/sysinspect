@@ -1,7 +1,8 @@
 use crate::netadd::{
-    ArtifactArch, ArtifactFamily, MinionCatalogue, NetworkAddWorkflow, PlatformId, actionable_add_error, is_waitable_console_miss, managed_roots,
-    normalise_host, normalise_path, parse, parse_entry, registration_mismatch_id, resolve_dest, resolve_remote_path, rows_have_traits,
-    startup_sync_ready,
+    AddHost, AddOutcome, AddStatus, ArtifactArch, ArtifactFamily, HostOp, MinionCatalogue, NetworkAddWorkflow, PlatformId, actionable_add_error,
+    classify_destination_state, is_missing_master_minion, is_waitable_console_miss, managed_roots, marker_matches_managed_root, normalise_host,
+    normalise_path, parse, parse_entry, registration_mismatch_id, render_outcomes, render_results, resolve_dest, resolve_remote_path,
+    rows_have_traits, startup_sync_ready,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libcommon::SysinspectError;
@@ -50,13 +51,13 @@ fn probe_linux_x86_64() -> ProbeInfo {
         os_name: "Linux".to_string(),
         release: "6.0".to_string(),
         version: "test".to_string(),
-        home: Some("/home/hans".to_string()),
+        home: Some("/opt/test-home".to_string()),
         shell: Some("/bin/sh".to_string()),
         tmp: Some("/tmp".to_string()),
         has_sudo: false,
         disk_free_bytes: Some(10),
         disk_free_path: Some("/tmp".to_string()),
-        destination: ProbePath { kind: ProbePathKind::Home, requested: None, resolved: Some("/home/hans/sysinspect".to_string()), writable: true },
+        destination: ProbePath { kind: ProbePathKind::Home, requested: None, resolved: Some("/opt/test-home/sysinspect".to_string()), writable: true },
         writable_paths: vec!["/tmp".to_string()],
     }
 }
@@ -110,6 +111,51 @@ fn renders_planned_outcomes() {
 }
 
 #[test]
+fn render_marks_duplicate_add_as_already_added() {
+    let out = render_outcomes(
+        &[AddOutcome {
+            host: AddHost {
+                raw: "foo.com".to_string(),
+                host: "foo.com".to_string(),
+                host_norm: "foo.com".to_string(),
+                user: "hans".to_string(),
+                path: None,
+                path_norm: None,
+            },
+            display_path: "/opt/test-home/sysinspect".to_string(),
+            platform: "Linux/x86_64".to_string(),
+            status: AddStatus::AlreadyAdded,
+        }],
+        HostOp::Add,
+    );
+
+    assert!(out.contains("already added"));
+}
+
+#[test]
+fn render_marks_unmanaged_install_as_not_managed() {
+    let out = render_results(
+        &[AddOutcome {
+            host: AddHost {
+                raw: "foo.com".to_string(),
+                host: "foo.com".to_string(),
+                host_norm: "foo.com".to_string(),
+                user: "hans".to_string(),
+                path: None,
+                path_norm: None,
+            },
+            display_path: "/opt/test-home/sysinspect".to_string(),
+            platform: "Linux/x86_64".to_string(),
+            status: AddStatus::NotManaged,
+        }],
+        HostOp::Add,
+    );
+
+    assert!(out.contains("remove first"));
+    assert!(out.contains("Onboarding results for 1 host"));
+}
+
+#[test]
 fn parses_remove_mode() {
     let args = network_args(&["sysinspect", "network", "--remove", "--hn", "foo.com", "-u", "hans"]);
     let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
@@ -126,6 +172,15 @@ fn parses_force_remove_mode() {
 
     assert!(wf.clone().plan().is_ok());
     assert!(wf.render().unwrap().contains("Planned removal for 1 host"));
+}
+
+#[test]
+fn parses_force_add_mode() {
+    let args = network_args(&["sysinspect", "network", "--add", "--force", "--hn", "foo.com", "-u", "hans"]);
+    let wf = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap()).unwrap();
+
+    assert!(wf.clone().plan().is_ok());
+    assert!(wf.render().unwrap().contains("Planned onboarding for 1 host"));
 }
 
 #[test]
@@ -188,10 +243,10 @@ fn normalises_host_and_path_for_keys() {
 
 #[test]
 fn resolves_destination_against_home() {
-    let dst = resolve_dest(Path::new("/home/hans"), Some("booya"));
+    let dst = resolve_dest(Path::new("/opt/test-home"), Some("booya"));
 
     assert_eq!(dst.input.as_deref(), Some("booya"));
-    assert_eq!(dst.path.unwrap(), Path::new("/home/hans/booya"));
+    assert_eq!(dst.path.unwrap(), Path::new("/opt/test-home/booya"));
 }
 
 #[test]
@@ -272,9 +327,9 @@ fn does_not_treat_unrelated_console_errors_as_waitable() {
 
 #[test]
 fn resolves_relative_remote_path() {
-    let path = resolve_remote_path(Path::new("/home/hans"), Some("booya")).unwrap();
+    let path = resolve_remote_path(Path::new("/opt/test-home"), Some("booya")).unwrap();
 
-    assert_eq!(path, Path::new("/home/hans/booya"));
+    assert_eq!(path, Path::new("/opt/test-home/booya"));
 }
 
 #[test]
@@ -324,8 +379,44 @@ fn managed_roots_rejects_relative_marker_entries() {
 }
 
 #[test]
+fn marker_matches_managed_root_accepts_exact_match() {
+    assert!(marker_matches_managed_root("/opt/sysinspect", "root: /opt/sysinspect\ninit: hopstart\n"));
+}
+
+#[test]
+fn marker_matches_managed_root_rejects_missing_invalid_or_mismatched_markers() {
+    assert!(!marker_matches_managed_root("/opt/sysinspect", ""));
+    assert!(!marker_matches_managed_root("/opt/sysinspect", "root: /srv/sysinspect\ninit: hopstart\n"));
+    assert!(!marker_matches_managed_root("/opt/sysinspect", "root: sysinspect\ninit: hopstart\n"));
+}
+
+#[test]
+fn classify_destination_state_prefers_local_marker_when_destination_exists() {
+    assert_eq!(
+        format!("{:?}", classify_destination_state("/opt/sysinspect", true, "root: /opt/sysinspect\ninit: hopstart\n", false)),
+        "Managed"
+    );
+    assert_eq!(format!("{:?}", classify_destination_state("/opt/sysinspect", true, "", false)), "NotManaged");
+}
+
+#[test]
+fn classify_destination_state_treats_missing_destination_as_broken() {
+    assert_eq!(format!("{:?}", classify_destination_state("/opt/sysinspect", false, "", true)), "Broken");
+}
+
+#[test]
+fn classify_destination_state_treats_clean_missing_destination_as_absent() {
+    assert_eq!(format!("{:?}", classify_destination_state("/opt/sysinspect", false, "", false)), "Absent");
+}
+
+#[test]
+fn classify_destination_state_does_not_treat_global_machine_id_as_managed_remnant() {
+    assert_eq!(format!("{:?}", classify_destination_state("/opt/test-home/sysinspect", false, "", false)), "Absent");
+}
+
+#[test]
 fn keeps_absolute_remote_path() {
-    let path = resolve_remote_path(Path::new("/home/hans"), Some("/opt/booya")).unwrap();
+    let path = resolve_remote_path(Path::new("/opt/test-home"), Some("/opt/booya")).unwrap();
 
     assert_eq!(path, Path::new("/opt/booya"));
 }
@@ -341,4 +432,12 @@ fn actionable_error_maps_duplicate_live_session() {
 #[test]
 fn actionable_error_keeps_generic_message() {
     assert_eq!(actionable_add_error(&SysinspectError::MinionGeneralError("plain failure".to_string())), "Error loading minion data: plain failure");
+}
+
+#[test]
+fn missing_master_minion_errors_are_treated_as_stale_cleanup_state() {
+    assert!(is_missing_master_minion(&SysinspectError::MasterGeneralError(
+        "Error loading master data: Unable to find minion 6ea18f9b09c8437db99d01fcdc0317a1".to_string()
+    )));
+    assert!(!is_missing_master_minion(&SysinspectError::MasterGeneralError("socket exploded".to_string())));
 }

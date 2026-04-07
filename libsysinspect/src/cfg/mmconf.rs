@@ -161,6 +161,9 @@ pub static CFG_OTLP_COMPRESSION: &str = "gzip"; // or "zstd"
 pub static CFG_HISTORY_LIMIT: usize = 100;
 pub static CFG_HISTORY_AGE: usize = 86400; // 1 day in seconds
 
+// CMDB refresh age
+pub static DEFAULT_CMDB_UPDATE_AGE: u64 = 7 * 24 * 60 * 60;
+
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
     let mut home = String::from("");
@@ -551,6 +554,16 @@ impl MinionConfig {
         self.pidfile = Some(p.to_string());
     }
 
+    /// Set daemon stdout log path.
+    pub fn set_logfile_std_path(&mut self, p: &str) {
+        self.log_main = Some(p.to_string());
+    }
+
+    /// Set daemon stderr log path.
+    pub fn set_logfile_err_path(&mut self, p: &str) {
+        self.log_err = Some(p.to_string());
+    }
+
     /// Set runtime-performance profile.
     pub fn set_performance(&mut self, profile: MinionPerformanceProfile) {
         self.performance = Some(profile);
@@ -736,6 +749,10 @@ impl MinionConfig {
 
     /// Return errors logfile in daemon mode
     pub fn logfile_err(&self) -> PathBuf {
+        if let Some(lfn) = &self.log_err {
+            return PathBuf::from(lfn);
+        }
+
         if let Some(lfn) = &self.log_main {
             return PathBuf::from(lfn);
         }
@@ -1034,6 +1051,10 @@ pub struct MasterConfig {
     // Configuration of history keeping in the database per each cycle call
     history: Option<HistoryConfig>,
 
+    // Max age after which master refreshes CMDB records from current traits on startup
+    #[serde(rename = "cmdb-update", default, with = "humantime_serde::option")]
+    cmdb_update: Option<Duration>,
+
     // Clustered minions configuration
     cluster: Option<Vec<ClusteredMinion>>,
 
@@ -1100,6 +1121,10 @@ impl MasterConfig {
         }
 
         HistoryConfig::default()
+    }
+
+    pub fn cmdb_update(&self) -> Duration {
+        self.cmdb_update.unwrap_or_else(|| Duration::from_secs(DEFAULT_CMDB_UPDATE_AGE))
     }
 
     /// Get OTLP configuration

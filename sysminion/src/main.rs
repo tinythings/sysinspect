@@ -24,6 +24,9 @@ mod registration_ut;
 #[cfg(test)]
 mod setup_ut;
 
+#[cfg(test)]
+mod start_ut;
+
 use clap::{ArgMatches, Command};
 use clidef::cli;
 use daemonize::Daemonize;
@@ -85,6 +88,27 @@ fn start_minion(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectE
     Ok(())
 }
 
+fn running_minion_targets(cfg: &MinionConfig, sniffed: &[i32], current: i32) -> Vec<i32> {
+    std::fs::read_to_string(cfg.pidfile())
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i32>().ok())
+        .into_iter()
+        .chain(sniffed.iter().copied())
+        .filter(|pid| *pid != current)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn sniff_minion_pids_sync() -> Result<Vec<i32>, SysinspectError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| SysinspectError::DynError(Box::new(e)))?
+        .block_on(sniff_minion_pids())
+        .map_err(SysinspectError::IoErr)
+}
+
 fn get_config(params: &ArgMatches) -> MinionConfig {
     // Config
     match get_minion_config(Some(params.get_one::<String>("config").map_or("", |v| v))) {
@@ -97,15 +121,7 @@ fn get_config(params: &ArgMatches) -> MinionConfig {
 }
 
 fn stop_targets(cfg: &MinionConfig, sniffed: &[i32], current: i32) -> Vec<i32> {
-    std::fs::read_to_string(cfg.pidfile())
-        .ok()
-        .and_then(|raw| raw.trim().parse::<i32>().ok())
-        .into_iter()
-        .chain(sniffed.iter().copied())
-        .filter(|pid| *pid != current)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+    running_minion_targets(cfg, sniffed, current)
 }
 
 async fn sniff_minion_pids() -> std::io::Result<Vec<i32>> {
@@ -132,18 +148,34 @@ async fn sniff_minion_pids() -> std::io::Result<Vec<i32>> {
 }
 
 fn stop_minion(cfg: MinionConfig) -> Result<(), SysinspectError> {
-    for pid in stop_targets(
-        &cfg,
-        &tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| SysinspectError::DynError(Box::new(e)))?
-            .block_on(sniff_minion_pids())?,
-        std::process::id() as i32,
-    ) {
+    for pid in stop_targets(&cfg, &sniff_minion_pids_sync()?, std::process::id() as i32) {
         libsysinspect::util::sys::kill_pid(pid, Some(2)).map_err(SysinspectError::IoErr)?;
     }
     Ok(())
+}
+
+fn start_minion_daemon(cfg: MinionConfig, fp: Option<String>) -> Result<(), SysinspectError> {
+    if !running_minion_targets(&cfg, &sniff_minion_pids_sync()?, std::process::id() as i32).is_empty() {
+        log::info!("Minion already running, daemon wake request is idempotent");
+        return Ok(());
+    }
+
+    let sout = File::create(cfg.logfile_std()).map_err(|err| {
+        SysinspectError::ConfigError(format!("Unable to create main log file at {}: {err}", cfg.logfile_std().to_str().unwrap_or_default()))
+    })?;
+    log::info!("Opened main log file at {}", cfg.logfile_std().to_str().unwrap_or_default());
+
+    let serr = File::create(cfg.logfile_err())
+        .map_err(|err| SysinspectError::ConfigError(format!("Unable to create file at {}: {err}", cfg.logfile_err().to_str().unwrap_or_default())))?;
+    log::info!("Opened error log file at {}", cfg.logfile_err().to_str().unwrap_or_default());
+
+    match Daemonize::new().pid_file(cfg.pidfile()).stdout(sout).stderr(serr).start() {
+        Ok(_) => {
+            log::info!("Daemon started with PID file at {}", cfg.pidfile().to_str().unwrap_or_default());
+            start_minion(cfg, fp)
+        }
+        Err(err) => Err(SysinspectError::ConfigError(format!("Error starting minion in daemon mode: {err}"))),
+    }
 }
 
 // Print help?
@@ -216,39 +248,9 @@ fn main() -> std::io::Result<()> {
     } else if params.get_flag("daemon") {
         log::info!("Starting daemon");
         let cfg = get_config(&params);
-        let sout = match File::create(cfg.logfile_std()) {
-            Ok(sout) => {
-                log::info!("Opened main log file at {}", cfg.logfile_std().to_str().unwrap_or_default());
-                sout
-            }
-            Err(err) => {
-                log::error!("Unable to create main log file at {}: {err}, terminating", cfg.logfile_std().to_str().unwrap_or_default());
-                exit(1);
-            }
-        };
-        let serr = match File::create(cfg.logfile_err()) {
-            Ok(serr) => {
-                log::info!("Opened error log file at {}", cfg.logfile_err().to_str().unwrap_or_default());
-
-                serr
-            }
-            Err(err) => {
-                log::error!("Unable to create file at {}: {err}, terminating", cfg.logfile_err().to_str().unwrap_or_default());
-                exit(1);
-            }
-        };
-
-        match Daemonize::new().pid_file(cfg.pidfile()).stdout(sout).stderr(serr).start() {
-            Ok(_) => {
-                log::info!("Daemon started with PID file at {}", cfg.pidfile().to_str().unwrap_or_default());
-                if let Err(err) = start_minion(cfg, fp) {
-                    log::error!("Error starting minion: {err}");
-                }
-            }
-            Err(err) => {
-                log::error!("Error starting minion in daemon mode: {err}");
-                exit(1)
-            }
+        if let Err(err) = start_minion_daemon(cfg, fp) {
+            log::error!("Error starting minion in daemon mode: {err}");
+            exit(1)
         }
     } else if params.get_flag("stop") {
         log::info!("Stopping minion");

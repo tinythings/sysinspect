@@ -1,6 +1,6 @@
 use super::mmconf::{
-    CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CONSOLE_PORT, MasterConfig, MinionConfig,
-    MinionPerformanceProfile,
+    CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CMDB_UPDATE_AGE, DEFAULT_CONSOLE_PORT,
+    MasterConfig, MinionConfig, MinionPerformanceProfile,
 };
 use std::{
     fs,
@@ -47,6 +47,20 @@ fn master_console_connect_addr_rewrites_wildcard_bind_to_loopback() {
 
     assert_eq!(cfg.console_listen_addr(), "0.0.0.0:5511");
     assert_eq!(cfg.console_connect_addr(), "127.0.0.1:5511");
+}
+
+#[test]
+fn master_cmdb_update_defaults_to_one_week() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
+
+    assert_eq!(cfg.cmdb_update().as_secs(), DEFAULT_CMDB_UPDATE_AGE);
+}
+
+#[test]
+fn master_cmdb_update_accepts_humantime_override() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n    cmdb-update: 36h\n")).unwrap();
+
+    assert_eq!(cfg.cmdb_update().as_secs(), 36 * 60 * 60);
 }
 
 #[test]
@@ -123,6 +137,17 @@ fn minion_custom_layout_paths_follow_root() {
     assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/srv/sysinspect/run/sysinspect.pid"));
     assert_eq!(cfg.managed_logfile_std_path(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.standard.log"));
     assert_eq!(cfg.managed_logfile_err_path(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.errors.log"));
+}
+
+#[test]
+fn minion_daemon_log_paths_can_follow_managed_layout() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir("/srv/sysinspect");
+    cfg.set_logfile_std_path(cfg.managed_logfile_std_path().to_str().unwrap());
+    cfg.set_logfile_err_path(cfg.managed_logfile_err_path().to_str().unwrap());
+
+    assert_eq!(cfg.logfile_std(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.standard.log"));
+    assert_eq!(cfg.logfile_err(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.errors.log"));
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use crate::netadd::{
     artifact::{MinionArtifact, MinionCatalogue, PlatformId},
     parser::{parse_request, resolve_plan},
-    render::render_outcomes,
+    render::{render_outcomes, render_results},
     types::{AddOutcome, AddPlan, AddRequest, AddStatus, HostOp},
 };
 use crate::sshprobe::{
@@ -19,7 +19,7 @@ use libsysinspect::{
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
-    commands::{CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SYNC, CLUSTER_TRANSPORT_STATUS},
+    commands::{CLUSTER_CMDB_UPSERT, CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_REMOVE_MINION, CLUSTER_SYNC, CLUSTER_TRANSPORT_STATUS},
 };
 use serde_json::json;
 use std::{
@@ -86,6 +86,14 @@ struct ProbedHost {
     host: crate::netadd::types::AddHost,
     info: ProbeInfo,
     layout: RemoteLayout,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ManagedInstallState {
+    Absent,
+    Managed,
+    NotManaged,
+    Broken,
 }
 
 /// Dedicated host-onboarding workflow entrypoint.
@@ -163,11 +171,48 @@ impl NetworkAddWorkflow {
                 }
             }
         }
-        Ok(render_outcomes(&rows, self.req.op))
+        Ok(render_results(&rows, self.req.op))
     }
 
     fn run_host(&self, ctx: &SetupContext, target: &ProbedHost) -> Result<AddStatus, SysinspectError> {
         if self.req.op == HostOp::Add {
+            match self.managed_add_state(target)? {
+                ManagedInstallState::Absent => {}
+                ManagedInstallState::Managed => {
+                    if !self.req.force {
+                        log::info!("Auto-add {}: already added", target.host.host);
+                        return Ok(AddStatus::AlreadyAdded);
+                    }
+
+                    log::warn!("Auto-add {}: --force requested, removing existing managed install first", target.host.host);
+                    self.remove_host(ctx, target)?;
+                }
+                ManagedInstallState::NotManaged => {
+                    log::warn!(
+                        "Auto-add {}: installation already exists at {} but ownership is not recognized by sysinspect; remove it first and retry",
+                        target.host.host,
+                        target.layout.root_dir
+                    );
+                    return Ok(AddStatus::NotManaged);
+                }
+                ManagedInstallState::Broken => {
+                    if !self.req.force {
+                        log::warn!(
+                            "Auto-add {}: destination {} is missing but managed remnants still exist; rerun with --force to repair",
+                            target.host.host,
+                            target.layout.root_dir
+                        );
+                        return Ok(AddStatus::NotManaged);
+                    }
+
+                    log::warn!(
+                        "Auto-add {}: destination {} is missing but managed remnants still exist; removing broken state first",
+                        target.host.host,
+                        target.layout.root_dir
+                    );
+                    self.remove_host(ctx, target)?;
+                }
+            }
             return HostSetup { target: target.clone(), art: self.select_artifact(&ctx.repo_root, &target.info)?, minion_id: None }
                 .run(ctx)
                 .map(|_| AddStatus::Online);
@@ -186,6 +231,42 @@ impl NetworkAddWorkflow {
                 |path| SSHPlatformDetector::new(&host.host).set_user(&host.user).check_writable(true).set_destination(path),
             )
             .info()
+    }
+
+    fn managed_add_state(&self, target: &ProbedHost) -> Result<ManagedInstallState, SysinspectError> {
+        let ssh = target.ssh();
+        let elevate = target.elevation()?;
+        let destination_exists = ssh
+            .exec(
+                &RemoteCommand::new(format!("state=no; [ -e {} ] && state=yes; printf '%s' \"$state\"", shell_quote(&target.layout.root_dir)))
+                    .elevate(elevate),
+            )?
+            .stdout
+            .trim()
+            == "yes";
+        let marker = if destination_exists {
+            ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.local_marker))).elevate(elevate))?.stdout
+        } else {
+            String::new()
+        };
+        let orphaned_traces = if destination_exists {
+            false
+        } else {
+            ssh.exec(
+                &RemoteCommand::new(format!(
+                    "state=no; for p in {} {} {}; do [ -e \"$p\" ] && state=yes && break; done; printf '%s' \"$state\"",
+                    shell_quote(&target.layout.install_bin),
+                    shell_quote(&target.layout.config),
+                    shell_quote(&target.layout.local_marker)
+                ))
+                .elevate(elevate),
+            )?
+            .stdout
+            .trim()
+                == "yes"
+        };
+
+        Ok(classify_destination_state(&target.layout.root_dir, destination_exists, &marker, orphaned_traces))
     }
 }
 
@@ -311,7 +392,8 @@ impl HostSetup {
         log::info!("Auto-add {}: setup {}", self.target.host.host, self.target.layout.config);
         ssh.exec(
             &RemoteCommand::new(format!(
-                "{} setup --with-default-config --master-addr {}{}",
+                "cd {} && {} setup --with-default-config --master-addr {}{}",
+                shell_quote(&stage_root(&self.target.layout.stage_bin)),
                 shell_quote(&self.target.layout.stage_bin),
                 shell_quote(&ctx.master_addr_for(&self.target.host.host)?),
                 self.target.layout.dir.as_deref().map(|dir| format!(" --directory {}", shell_quote(dir))).unwrap_or_default()
@@ -352,6 +434,31 @@ impl HostSetup {
         setup
             .wait_ready(ctx, &ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Ready, setup.minion_id.as_deref(), err))?;
+        log::info!("Auto-add {}: sync master CMDB", self.target.host.host);
+        setup.sync_cmdb(ctx)?;
+        Ok(())
+    }
+
+    fn sync_cmdb(&self, ctx: &SetupContext) -> Result<(), SysinspectError> {
+        let Some(minion_id) = self.minion_id.as_deref() else {
+            return Err(SysinspectError::MinionGeneralError(format!("Unable to sync CMDB for {}: minion id is missing", self.target.host.host)));
+        };
+
+        let context = json!({
+            "user": self.target.host.user,
+            "host": self.target.host.host,
+            "root": self.target.layout.root_dir,
+            "bin": self.target.layout.install_bin,
+            "path": self.target.layout.config,
+            "backend": "hopstart",
+        })
+        .to_string();
+
+        let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_CMDB_UPSERT}"), "", Some(minion_id), Some(&context))?;
+        if !matches!(rsp.payload, ConsolePayload::Ack { .. }) {
+            return Err(SysinspectError::MasterGeneralError(format!("Master did not acknowledge CMDB update for {}", minion_id)));
+        }
+
         Ok(())
     }
 
@@ -378,15 +485,8 @@ impl HostSetup {
 
     fn start_runtime(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
         ssh.exec(
-            &RemoteCommand::new(format!(
-                "trap '' HUP; {} -c {} --start </dev/null >>{} 2>>{} & printf '%s\\n' \"$!\" > {}",
-                shell_quote(&self.target.layout.install_bin),
-                shell_quote(&self.target.layout.config),
-                shell_quote(&self.target.layout.log_std),
-                shell_quote(&self.target.layout.log_err),
-                shell_quote(&self.target.layout.pidfile)
-            ))
-            .elevate(elevate),
+            &RemoteCommand::new(format!("{} -c {} --daemon", shell_quote(&self.target.layout.install_bin), shell_quote(&self.target.layout.config)))
+                .elevate(elevate),
         )
         .map(|_| ())
     }
@@ -675,26 +775,13 @@ impl HostSetup {
         match call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(mid), None) {
             Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => Ok(()),
             Ok(_) => Ok(()),
-            Err(err) if err.to_string().contains("Unable to find minion") => Ok(()),
+            Err(err) if is_missing_master_minion(&err) => Ok(()),
             Err(err) => Err(err),
         }
     }
 
     fn cleanup_stage_root(&self, ssh: &SSHSession, elevate: ElevationMode) -> Result<(), SysinspectError> {
-        ssh.exec(
-            &RemoteCommand::new(format!(
-                "rm -rf {}",
-                shell_quote(
-                    &Path::new(&self.target.layout.stage_bin)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(&self.target.layout.stage_bin))
-                        .display()
-                        .to_string()
-                )
-            ))
-            .elevate(elevate),
-        )
-        .map(|_| ())
+        ssh.exec(&RemoteCommand::new(format!("rm -rf {}", shell_quote(&stage_root(&self.target.layout.stage_bin)))).elevate(elevate)).map(|_| ())
     }
 }
 
@@ -772,6 +859,8 @@ impl NetworkAddWorkflow {
         setup.wait_attempt(&ssh, elevate)?;
         log::info!("Auto-upgrade {}: wait for master readiness", target.host.host);
         setup.wait_ready(ctx, &ssh, elevate)?;
+        log::info!("Auto-upgrade {}: sync master CMDB", target.host.host);
+        setup.sync_cmdb(ctx)?;
         if let Some(mid) = setup.minion_id.as_deref() {
             let _ = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", Some(mid), None);
         }
@@ -781,8 +870,6 @@ impl NetworkAddWorkflow {
     fn remove_host(&self, ctx: &SetupContext, target: &ProbedHost) -> Result<AddStatus, SysinspectError> {
         let ssh = target.ssh();
         let elevate = target.elevation()?;
-        let minion_id =
-            ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.machine_id))))?.stdout.trim().to_string();
         let install_present = ssh
             .exec(
                 &RemoteCommand::new(format!(
@@ -797,16 +884,26 @@ impl NetworkAddWorkflow {
             .stdout
             .trim()
             == "yes";
+        let marker =
+            ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.local_marker))).elevate(elevate))?.stdout;
+        let roots = managed_roots(&marker)?;
+        let minion_id =
+            ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.machine_id))))?.stdout.trim().to_string();
+        let forced_master_cleanup = if minion_id.is_empty() && self.req.force { Some(self.force_remove_host(ctx, &target.host)?) } else { None };
         if !minion_id.is_empty() {
-            let rsp = call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(&minion_id), None)?;
-            if !matches!(rsp.payload, ConsolePayload::Ack { .. }) {
-                return Err(SysinspectError::MasterGeneralError(format!(
-                    "Unable to unregister minion {} before removal: {:?}",
-                    minion_id, rsp.payload
-                )));
+            match call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(&minion_id), None) {
+                Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => {}
+                Ok(rsp) => {
+                    return Err(SysinspectError::MasterGeneralError(format!(
+                        "Unable to unregister minion {} before removal: {:?}",
+                        minion_id, rsp.payload
+                    )));
+                }
+                Err(err) if is_missing_master_minion(&err) => {
+                    log::warn!("Auto-remove {}: master no longer knows minion {}; continuing local cleanup", target.host.host, minion_id);
+                }
+                Err(err) => return Err(err),
             }
-        } else if self.req.force {
-            return self.force_remove_host(ctx, &target.host);
         }
         ssh.exec(
             &RemoteCommand::new(format!(
@@ -816,9 +913,6 @@ impl NetworkAddWorkflow {
             ))
             .elevate(elevate),
         )?;
-        let marker =
-            ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&target.layout.local_marker))).elevate(elevate))?.stdout;
-        let roots = managed_roots(&marker)?;
         if roots.is_empty() {
             ssh.exec(
                 &RemoteCommand::new(format!(
@@ -833,7 +927,7 @@ impl NetworkAddWorkflow {
                 ))
                 .elevate(elevate),
             )?;
-            return Ok(if install_present { AddStatus::Removed } else { AddStatus::Absent });
+            return Ok(forced_master_cleanup.unwrap_or(if install_present { AddStatus::Removed } else { AddStatus::Absent }));
         }
         ssh.exec(
             &RemoteCommand::new(format!(
@@ -849,14 +943,14 @@ impl NetworkAddWorkflow {
             ))
             .elevate(elevate),
         )?;
-        Ok(AddStatus::Removed)
+        Ok(forced_master_cleanup.unwrap_or(AddStatus::Removed))
     }
 
     fn force_remove_host(&self, ctx: &SetupContext, host: &crate::netadd::types::AddHost) -> Result<AddStatus, SysinspectError> {
         match call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", Some(&host.host), None) {
             Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => Ok(AddStatus::Removed),
             Ok(_) => Ok(AddStatus::Failed),
-            Err(err) if err.to_string().contains("Unable to find minion") => Ok(AddStatus::Absent),
+            Err(err) if is_missing_master_minion(&err) => Ok(AddStatus::Absent),
             Err(err) => Err(err),
         }
     }
@@ -878,6 +972,10 @@ pub(crate) fn registration_mismatch_id(msg: &str) -> Option<String> {
 pub(crate) fn is_waitable_console_miss(err: &SysinspectError) -> bool {
     let msg = err.to_string();
     msg.contains("requires one matching minion, but none were found") || msg.contains("requires exactly one matching minion, but 0 were selected")
+}
+
+pub(crate) fn is_missing_master_minion(err: &SysinspectError) -> bool {
+    err.to_string().contains("Unable to find minion")
 }
 
 fn call_console(
@@ -921,6 +1019,22 @@ pub(crate) fn managed_roots(marker: &str) -> Result<Vec<String>, SysinspectError
         return Ok(vec![]);
     }
     Ok(vec![LocalMarker::from_yaml(marker)?.root])
+}
+
+pub(crate) fn marker_matches_managed_root(expected_root: &str, marker: &str) -> bool {
+    matches!(managed_roots(marker), Ok(roots) if roots.len() == 1 && roots[0] == expected_root)
+}
+
+pub(crate) fn classify_destination_state(expected_root: &str, destination_exists: bool, marker: &str, orphaned_traces: bool) -> ManagedInstallState {
+    if destination_exists {
+        return if marker_matches_managed_root(expected_root, marker) { ManagedInstallState::Managed } else { ManagedInstallState::NotManaged };
+    }
+
+    if orphaned_traces { ManagedInstallState::Broken } else { ManagedInstallState::Absent }
+}
+
+fn stage_root(stage_bin: &str) -> String {
+    Path::new(stage_bin).parent().unwrap_or_else(|| Path::new(stage_bin)).display().to_string()
 }
 
 pub(crate) fn rows_have_traits(rows: &[ConsoleMinionInfoRow]) -> bool {

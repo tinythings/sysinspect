@@ -24,12 +24,22 @@ impl HostOp {
             Self::Upgrade => "Planned upgrade",
         }
     }
+
+    pub(crate) fn result_label(self) -> &'static str {
+        match self {
+            Self::Add => "Onboarding results",
+            Self::Remove => "Removal results",
+            Self::Upgrade => "Upgrade results",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AddStatus {
     Pending,
     Online,
+    AlreadyAdded,
+    NotManaged,
     Removed,
     Failed,
     Absent,
@@ -43,6 +53,8 @@ impl AddStatus {
         match self {
             Self::Pending => "-",
             Self::Online => "online",
+            Self::AlreadyAdded => "already added",
+            Self::NotManaged => "remove first",
             Self::Removed => "removed",
             Self::Failed => "failed",
             Self::Absent => "absent",

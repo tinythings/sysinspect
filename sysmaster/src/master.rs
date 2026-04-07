@@ -38,8 +38,8 @@ use libsysproto::{
     query::{
         SCHEME_COMMAND,
         commands::{
-            CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE,
-            CLUSTER_TRANSPORT_STATUS,
+            CLUSTER_CMDB_UPSERT, CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE,
+            CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
@@ -253,6 +253,7 @@ impl SysMaster {
         log::info!("Starting master at {}", self.cfg.bind_addr().bright_yellow());
         ensure_console_keypair(&self.cfg.root_dir())?;
         std::fs::create_dir_all(self.cfg.console_keys_root()).map_err(SysinspectError::IoErr)?;
+        self.backfill_cmdb().await?;
         self.vmcluster.init().await?;
         Ok(())
     }
@@ -263,6 +264,19 @@ impl SysMaster {
 
     pub fn cfg_ref(&self) -> &MasterConfig {
         &self.cfg
+    }
+
+    async fn backfill_cmdb(&mut self) -> Result<(), SysinspectError> {
+        let ids = self.mkr.registered_ids();
+        let cmdb_update = self.cfg.cmdb_update();
+        let mut mreg = self.mreg.lock().await;
+        for mid in ids {
+            mreg.ensure_cmdb_registered(&mid)?;
+            if mreg.reconcile_cmdb(&mid, cmdb_update)? {
+                log::info!("Reconciled stale CMDB record for {} from current traits", mid);
+            }
+        }
+        Ok(())
     }
 
     /// Get broadcast sender for master messages
@@ -579,22 +593,37 @@ impl SysMaster {
         self.peer_transport.allow_plaintext(minion_addr);
         let reply = match self.mkr().add_mn_key(minion_id, minion_addr, payload) {
             Ok(crate::registry::mkb::RegistrationStatus::Added) => {
-                self.to_drop.insert(minion_addr.to_owned());
-                log::info!("Registered a minion at {minion_addr} ({minion_id})");
-                RegistrationReply::accepted(
-                    "Minion registration has been accepted".to_string(),
-                    self.mkr().get_master_key_pem().clone().unwrap_or_default(),
-                    self.mkr().get_master_key_fingerprint().unwrap_or_default(),
-                )
+                let cmdb_result = { self.mreg.lock().await.ensure_cmdb_registered(minion_id) };
+                if let Err(err) = cmdb_result {
+                    let _ = self.mkr().remove_mn_key(minion_id);
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::error!("Unable to create CMDB record for {minion_id}: {err}");
+                    RegistrationReply::rejected(format!("Unable to register {minion_id}: {err}"))
+                } else {
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::info!("Registered a minion at {minion_addr} ({minion_id})");
+                    RegistrationReply::accepted(
+                        "Minion registration has been accepted".to_string(),
+                        self.mkr().get_master_key_pem().clone().unwrap_or_default(),
+                        self.mkr().get_master_key_fingerprint().unwrap_or_default(),
+                    )
+                }
             }
             Ok(crate::registry::mkb::RegistrationStatus::Exists) => {
-                self.to_drop.insert(minion_addr.to_owned());
-                log::warn!("Minion {minion_addr} ({minion_id}) is already registered");
-                RegistrationReply::accepted(
-                    "Minion already registered".to_string(),
-                    self.mkr().get_master_key_pem().clone().unwrap_or_default(),
-                    self.mkr().get_master_key_fingerprint().unwrap_or_default(),
-                )
+                let cmdb_result = { self.mreg.lock().await.ensure_cmdb_registered(minion_id) };
+                if let Err(err) = cmdb_result {
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::error!("Unable to ensure CMDB record for {minion_id}: {err}");
+                    RegistrationReply::rejected(format!("Unable to register {minion_id}: {err}"))
+                } else {
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::warn!("Minion {minion_addr} ({minion_id}) is already registered");
+                    RegistrationReply::accepted(
+                        "Minion already registered".to_string(),
+                        self.mkr().get_master_key_pem().clone().unwrap_or_default(),
+                        self.mkr().get_master_key_fingerprint().unwrap_or_default(),
+                    )
+                }
             }
             Ok(crate::registry::mkb::RegistrationStatus::Conflict { current, requested }) => {
                 self.to_drop.insert(minion_addr.to_owned());
@@ -883,15 +912,16 @@ impl SysMaster {
             }
         };
         if !traits_payload.traits.is_empty() {
+            let traits: HashMap<String, serde_json::Value> = traits_payload.traits.into_iter().collect();
             let mut mreg = self.mreg.lock().await;
-            if let Err(err) = mreg.refresh(
-                &mid,
-                traits_payload.traits.into_iter().collect(),
-                traits_payload.static_keys.into_iter().collect(),
-                traits_payload.fn_keys.into_iter().collect(),
-            ) {
+            if let Err(err) =
+                mreg.refresh(&mid, traits.clone(), traits_payload.static_keys.into_iter().collect(), traits_payload.fn_keys.into_iter().collect())
+            {
                 log::error!("Unable to sync traits: {err}");
             } else {
+                if let Err(err) = mreg.refresh_cmdb_observed(&mid, &traits) {
+                    log::error!("Unable to sync CMDB traits for {}: {err}", mid);
+                }
                 let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
                 log::info!(
                     "Traits synced for minion {} ({})",

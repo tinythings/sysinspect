@@ -2,24 +2,7 @@ use crate::netadd::types::{AddOutcome, AddStatus, HostOp};
 use colored::Colorize;
 use libsysinspect::util::pad_visible;
 
-fn status_cell(status: AddStatus) -> String {
-    match status {
-        AddStatus::Online | AddStatus::Removed | AddStatus::Upgraded | AddStatus::Current => status.label().bright_green().bold().to_string(),
-        AddStatus::Failed => status.label().bright_red().bold().to_string(),
-        AddStatus::Absent | AddStatus::Skipped => status.label().yellow().bold().to_string(),
-        AddStatus::Pending => status.label().to_string(),
-    }
-}
-
-fn host_cell(host: &str, status: AddStatus) -> String {
-    match status {
-        AddStatus::Online | AddStatus::Removed | AddStatus::Upgraded | AddStatus::Current => host.bright_green().to_string(),
-        AddStatus::Failed | AddStatus::Absent | AddStatus::Skipped | AddStatus::Pending => host.red().to_string(),
-    }
-}
-
-/// Render structured onboarding outcomes.
-pub(crate) fn render_outcomes(rows: &[AddOutcome], op: HostOp) -> String {
+fn render_table(rows: &[AddOutcome]) -> Vec<String> {
     let widths = (
         rows.iter().map(|row| row.host.host.chars().count()).max().unwrap_or(4).max("HOST".chars().count()),
         rows.iter().map(|row| row.host.user.chars().count()).max().unwrap_or(4).max("USER".chars().count()),
@@ -50,7 +33,37 @@ pub(crate) fn render_outcomes(rows: &[AddOutcome], op: HostOp) -> String {
         ));
     }
 
+    out
+}
+
+fn status_cell(status: AddStatus) -> String {
+    match status {
+        AddStatus::Online | AddStatus::Removed | AddStatus::Upgraded | AddStatus::Current => status.label().bright_green().bold().to_string(),
+        AddStatus::Failed => status.label().bright_red().bold().to_string(),
+        AddStatus::Absent | AddStatus::Skipped | AddStatus::AlreadyAdded | AddStatus::NotManaged => status.label().yellow().bold().to_string(),
+        AddStatus::Pending => status.label().to_string(),
+    }
+}
+
+fn host_cell(host: &str, status: AddStatus) -> String {
+    match status {
+        AddStatus::Online | AddStatus::Removed | AddStatus::Upgraded | AddStatus::Current => host.bright_green().to_string(),
+        AddStatus::AlreadyAdded | AddStatus::NotManaged => host.yellow().to_string(),
+        AddStatus::Failed | AddStatus::Absent | AddStatus::Skipped | AddStatus::Pending => host.red().to_string(),
+    }
+}
+
+/// Render structured onboarding outcomes.
+pub(crate) fn render_outcomes(rows: &[AddOutcome], op: HostOp) -> String {
+    let mut out = render_table(rows);
     out.push(String::new());
     out.push(format!("{} for {} host{}", op.summary_label(), rows.len(), if rows.len() == 1 { "" } else { "s" }));
+    out.join("\n")
+}
+
+pub(crate) fn render_results(rows: &[AddOutcome], op: HostOp) -> String {
+    let mut out = render_table(rows);
+    out.push(String::new());
+    out.push(format!("{} for {} host{}", op.result_label(), rows.len(), if rows.len() == 1 { "" } else { "s" }));
     out.join("\n")
 }

@@ -126,6 +126,8 @@ impl MinionSetup {
         #[allow(clippy::unnecessary_to_owned)]
         self.cfg.set_sharelib_path(&self.get_sharelib().to_string());
         self.cfg.set_pid_path(self.cfg.managed_pidfile_path().to_str().unwrap_or_default());
+        self.cfg.set_logfile_std_path(self.cfg.managed_logfile_std_path().to_str().unwrap_or_default());
+        self.cfg.set_logfile_err_path(self.cfg.managed_logfile_err_path().to_str().unwrap_or_default());
         self.cfg.set_autosync(CFG_AUTOSYNC_SHALLOW);
         self.cfg.set_reconnect_freq(0);
         self.cfg.set_reconnect_interval("1"); // String, because it can be an expression like "1-5" (random between 1 and 5)

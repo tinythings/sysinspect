@@ -99,6 +99,12 @@ impl MinionsKeyRegistry {
         self.keys.contains_key(mid)
     }
 
+    pub fn registered_ids(&self) -> Vec<String> {
+        let mut ids = self.keys.keys().cloned().collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
     /// Get a fingerprint of a master key
     pub fn get_master_key_pem(&self) -> &Option<String> {
         &self.ms_pbk_pem

@@ -37,6 +37,9 @@ pub mod commands {
 
     // Manage deployment profiles on the master
     pub const CLUSTER_PROFILE: &str = "cluster/profile";
+
+    // Upsert startup inventory / CMDB information for one registered minion
+    pub const CLUSTER_CMDB_UPSERT: &str = "cluster/cmdb/upsert";
 }
 
 ///
