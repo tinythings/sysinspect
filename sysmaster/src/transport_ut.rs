@@ -97,6 +97,7 @@ fn decode_frame_drops_invalid_secure_session_state() {
     let err = transport
         .decode_frame(
             "127.0.0.1:4200",
+            "127.0.0.1:4200",
             &frame,
             &libsysinspect::cfg::mmconf::MasterConfig::default(),
             &mut crate::registry::mkb::MinionsKeyRegistry::new(root.path().to_path_buf()).unwrap(),

@@ -174,10 +174,11 @@ impl SysMaster {
                 .unwrap_or_default();
             let selected = self.selected_minions(query, traits, mid).await?;
             let mut session = self.session.lock().await;
-            selected
-                .into_iter()
-                .map(|minion| {
-                    let (fqdn, hostname) = Self::preferred_host(&minion);
+            {
+                let mut rows = Vec::with_capacity(selected.len());
+                for minion in selected {
+                    let cmdb = self.mreg.lock().await.get_cmdb(minion.id()).unwrap_or_default();
+                    let (fqdn, hostname, ip) = Self::preferred_host(&minion, cmdb.as_ref());
                     let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let target_version = repo_versions
                         .get(&(
@@ -186,10 +187,10 @@ impl SysMaster {
                         ))
                         .cloned()
                         .unwrap_or_default();
-                    ConsoleOnlineMinionRow {
+                    rows.push(ConsoleOnlineMinionRow {
                         fqdn,
                         hostname,
-                        ip: minion.get_traits().get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        ip,
                         minion_id: minion.id().to_string(),
                         alive: session.alive(minion.id()),
                         outdated: !current_version.is_empty()
@@ -197,9 +198,10 @@ impl SysMaster {
                             && compare_versions(&current_version, &target_version).is_lt(),
                         version: current_version,
                         target_version,
-                    }
-                })
-                .collect()
+                    });
+                }
+                rows
+            }
         })
     }
 
@@ -766,7 +768,8 @@ impl SysMaster {
 
         for minion in targets {
             let minion_id = minion.id().to_string();
-            let (fqdn, hostname) = Self::preferred_host(&minion);
+            let cmdb = self.mreg.lock().await.get_cmdb(minion.id()).unwrap_or_default();
+            let (fqdn, hostname, _ip) = Self::preferred_host(&minion, cmdb.as_ref());
             let state = TransportStore::for_master_minion(&self.cfg, &minion_id)?.load()?;
             if let Some(state) = state {
                 let last_rotated_at = state.active_key_id.as_ref().and_then(|active_key| {

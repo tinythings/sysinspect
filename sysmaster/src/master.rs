@@ -312,9 +312,42 @@ impl SysMaster {
             self.drop_replaced_peer(&addr, &hello.binding.minion_id).await;
         }
         let cfg = self.cfg.clone();
+        let peer_label = if let Ok(libsysproto::secure::SecureFrame::BootstrapHello(hello)) =
+            serde_json::from_slice::<libsysproto::secure::SecureFrame>(raw)
+        {
+            self.resolved_peer_label(&hello.binding.minion_id, peer_addr).await
+        } else {
+            peer_addr.to_string()
+        };
         let peer_transport = &mut self.peer_transport;
         let mkr = &mut self.mkr;
-        peer_transport.decode_frame(peer_addr, raw, &cfg, mkr)
+        peer_transport.decode_frame(peer_addr, &peer_label, raw, &cfg, mkr)
+    }
+
+    fn peer_label(host: &str, peer_addr: &str) -> String {
+        peer_addr
+            .parse::<std::net::SocketAddr>()
+            .map(|addr| format!("{host}:{}", addr.port()))
+            .unwrap_or_else(|_| host.to_string())
+    }
+
+    async fn resolved_peer_label(&self, minion_id: &str, peer_addr: &str) -> String {
+        if let (Ok(Some(minion)), Ok(cmdb)) = {
+            let mreg = self.mreg.lock().await;
+            (mreg.get(minion_id), mreg.get_cmdb(minion_id))
+        } {
+            let (fqdn, hostname, ip) = Self::preferred_host(&minion, cmdb.as_ref());
+            if !fqdn.is_empty() {
+                return Self::peer_label(&fqdn, peer_addr);
+            }
+            if !hostname.is_empty() {
+                return Self::peer_label(&hostname, peer_addr);
+            }
+            if !ip.is_empty() {
+                return Self::peer_label(&ip, peer_addr);
+            }
+        }
+        peer_addr.to_string()
     }
 
     /// Drop replaced peer state for one reconnecting minion.
@@ -932,9 +965,20 @@ impl SysMaster {
                     log::error!("Unable to sync CMDB traits for {}: {err}", mid);
                 }
                 let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
+                let cmdb = mreg.get_cmdb(&mid).unwrap_or_default();
+                let (fqdn, hostname, ip) = Self::preferred_host(&m, cmdb.as_ref());
                 log::info!(
                     "Traits synced for minion {} ({})",
-                    m.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown").bright_green(),
+                    if !fqdn.is_empty() {
+                        fqdn
+                    } else if !hostname.is_empty() {
+                        hostname
+                    } else if !ip.is_empty() {
+                        ip
+                    } else {
+                        "unknown".to_string()
+                    }
+                    .bright_green(),
                     mid.green()
                 );
             }
@@ -943,14 +987,33 @@ impl SysMaster {
 
     /// Extract the preferred host labels for one minion record.
     ///
-    /// The returned tuple is `(fqdn, hostname)`. Either value may be an empty
+    /// The returned tuple is `(fqdn, hostname, ip)`. Either value may be an empty
     /// string if the corresponding trait is missing. Consumers decide how to
     /// fall back when rendering.
-    fn preferred_host(minion: &crate::registry::rec::MinionRecord) -> (String, String) {
+    fn preferred_host(
+        minion: &crate::registry::rec::MinionRecord, cmdb: Option<&crate::registry::rec::MinionCmdbRecord>,
+    ) -> (String, String, String) {
         let traits = minion.get_traits();
-        let fqdn = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let hostname = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        (fqdn, hostname)
+        let fqdn = traits
+            .get("system.hostname.fqdn")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.fqdn().map(ToString::to_string)))
+            .unwrap_or_default();
+        let hostname = traits
+            .get("system.hostname")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.hostname().map(ToString::to_string)))
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.host().map(ToString::to_string)))
+            .unwrap_or_default();
+        let ip = traits
+            .get("system.hostname.ip")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.ip().map(ToString::to_string)))
+            .unwrap_or_default();
+        (fqdn, hostname, ip)
     }
 
     /// Create a transport rotator bound to one minion using the currently known
@@ -1101,7 +1164,7 @@ impl SysMaster {
         master: Arc<Mutex<Self>>, mut writer: OwnedWriteHalf, peer_addr: String, mut bcast_sub: broadcast::Receiver<MasterMessage>,
         mut direct_rx: mpsc::Receiver<Vec<u8>>, cancel_writer: tokio::sync::watch::Sender<bool>,
     ) {
-        log::info!("Minion {peer_addr} connected. Ready to send messages.");
+        log::info!("Minion {} connected. Ready to send messages.", peer_addr.bright_green());
 
         loop {
             let frame = match tokio::select! {
