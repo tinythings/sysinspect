@@ -88,7 +88,8 @@ pub fn cli(version: &'static str) -> Command {
                 "Notify the running master to shut down the {}, be careful! :)",
                 "entire cluster".bright_red()
             )))
-            .arg(Arg::new("id").long("id").help("Target a specific minion by its system id").conflicts_with("query-pos"))
+            .arg(Arg::new("hostnames").short('n').long("hostnames").visible_alias("hn").alias("names").help("Comma-separated hostnames or IPs").conflicts_with("query-pos"))
+            .arg(Arg::new("id").long("id").help("Target a specific minion by its system id").conflicts_with_all(["query-pos", "hostnames"]))
             .arg(Arg::new("query-pos").help("Target minions by hostname glob or query").required(false).index(1).default_value("*"))
             .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help for this command"))
         )

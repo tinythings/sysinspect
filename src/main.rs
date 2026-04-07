@@ -121,6 +121,19 @@ fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectEr
     Err(SysinspectError::InvalidQuery("Specify one of --set, --unset, or --reset".to_string()))
 }
 
+fn cluster_selector(cluster: &ArgMatches) -> (String, Option<&str>) {
+    if let Some(mid) = cluster.get_one::<String>("id").map(String::as_str) {
+        return (String::new(), Some(mid));
+    }
+    if let Some(hosts) = cluster.get_one::<String>("hostnames") {
+        return (hosts.clone(), None);
+    }
+    match cluster.get_one::<String>("query-pos").map(String::as_str).unwrap_or("*") {
+        "*" | "" => ("*".to_string(), None),
+        query => (query.to_string(), None),
+    }
+}
+
 fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
     let invalid_name = |name: &str| {
         let name = name.trim();
@@ -648,25 +661,28 @@ async fn main() {
 
     if let Some(cluster) = params.subcommand_matches("cluster") {
         if cluster.get_flag("shutdown") {
-            if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, None).await {
+            let (query, direct_id) = cluster_selector(cluster);
+            if let Err(err) = call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"),
+                &query,
+                None,
+                direct_id,
+                None,
+            )
+            .await
+            {
                 log::error!("Cannot reach master: {err}");
             }
             return;
         }
         if cluster.get_flag("online") {
-            let query = cluster.get_one::<String>("query-pos").cloned().unwrap_or("*".to_string());
-            let direct_id = cluster.get_one::<String>("id").map(String::as_str);
+            let (query, direct_id) = cluster_selector(cluster);
             let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
             match call_master_console(
                 &cfg,
                 &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"),
-                if direct_id.is_some() {
-                    "*"
-                } else if by_query {
-                    &query
-                } else {
-                    "*"
-                },
+                if direct_id.is_none() { &query } else { "*" },
                 None,
                 direct_id.or(if by_query { None } else { Some(query.as_str()) }),
                 None,
@@ -744,6 +760,30 @@ mod main_ut {
     fn cluster_online_with_mask_is_not_treated_as_help() {
         let mut cli = clidef::cli("test");
         let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--online", "*"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_shutdown_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--shutdown", "--hostnames=foo,bar"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_shutdown_with_partial_id_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--shutdown", "123"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_online_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--online", "--hostnames=foo,bar"]).unwrap();
 
         assert!(!help(&mut cli, &params));
     }

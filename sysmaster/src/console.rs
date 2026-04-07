@@ -529,6 +529,14 @@ impl SysMaster {
             if records.is_empty() {
                 records = registry.get_by_query(mid)?;
             }
+            if records.is_empty() {
+                records = registry
+                    .get_registered_ids()?
+                    .into_iter()
+                    .filter(|id| id.starts_with(mid))
+                    .filter_map(|id| registry.get(&id).ok().flatten())
+                    .collect();
+            }
             records
         } else if !traits.trim().is_empty() {
             let traits = get_context(traits)

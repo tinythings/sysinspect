@@ -320,7 +320,42 @@ impl MinionRegistry {
         let session = Arc::clone(&SHARED_SESSION);
 
         if !target.id().is_empty() {
-            return vec![target.id().to_string()];
+            let mut ids = Vec::new();
+            let mut guard = session.lock().await;
+            ids.extend(
+                self.get(target.id())
+                    .ok()
+                    .flatten()
+                    .into_iter()
+                    .filter(|mrec| all || guard.alive(mrec.id()))
+                    .map(|mrec| mrec.id().to_string())
+                    .collect::<Vec<_>>(),
+            );
+            if ids.is_empty() {
+                ids.extend(
+                    self.get_by_hostname_or_ip(target.id())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|mrec| all || guard.alive(mrec.id()))
+                        .map(|mrec| mrec.id().to_string())
+                        .collect::<Vec<_>>(),
+                );
+            }
+            if ids.is_empty() {
+                ids.extend(
+                    self.get_registered_ids()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|mid| mid.starts_with(target.id()))
+                        .filter_map(|mid| self.get(&mid).ok().flatten())
+                        .filter(|mrec| all || guard.alive(mrec.id()))
+                        .map(|mrec| mrec.id().to_string())
+                        .collect::<Vec<_>>(),
+                );
+            }
+            ids.sort();
+            ids.dedup();
+            return ids;
         }
 
         // Hostnames are specified
@@ -352,6 +387,7 @@ mod tests {
     use super::MinionRegistry;
     use crate::registry::rec::MinionCmdbStartup;
     use chrono::Utc;
+    use libsysproto::MinionTarget;
     use serde_json::json;
     use std::collections::{BTreeSet, HashMap};
 
@@ -382,6 +418,22 @@ mod tests {
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id(), "30006546535e428aba0a0caa6712e225");
+    }
+
+    #[tokio::test]
+    async fn targeted_minions_resolve_plain_hostname_from_id_slot() {
+        let mut registry = registry_with_one_minion();
+        let ids = registry.get_targeted_minions(&MinionTarget::new("alien", ""), true).await;
+
+        assert_eq!(ids, vec!["30006546535e428aba0a0caa6712e225"]);
+    }
+
+    #[tokio::test]
+    async fn targeted_minions_resolve_partial_id_prefix_from_id_slot() {
+        let mut registry = registry_with_one_minion();
+        let ids = registry.get_targeted_minions(&MinionTarget::new("3000", ""), true).await;
+
+        assert_eq!(ids, vec!["30006546535e428aba0a0caa6712e225"]);
     }
 
     #[test]

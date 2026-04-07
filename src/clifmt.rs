@@ -256,17 +256,19 @@ fn render_online_minions(rows: &[ConsoleOnlineMinionRow]) -> String {
             .unwrap_or(3)
             .max("VERSION".chars().count()),
         rows.iter().map(|row| shorten_middle(&row.minion_id, 4).chars().count()).max().unwrap_or(2).max("ID".chars().count()),
+        rows.iter().map(|row| if row.alive { "online".len() } else { "offline".len() }).max().unwrap_or(6).max("STATUS".chars().count()),
     );
 
     let mut out = vec![
         format!(
-            "{}  {}  {}  {}",
+            "{}  {}  {}  {}  {}",
             pad_visible(&"HOST".bright_yellow().to_string(), widths.0),
             pad_visible(&"IP".bright_yellow().to_string(), widths.1),
             pad_visible(&"VERSION".bright_yellow().to_string(), widths.2),
             pad_visible(&"ID".bright_yellow().to_string(), widths.3),
+            pad_visible(&"STATUS".bright_yellow().to_string(), widths.4),
         ),
-        format!("{}  {}  {}  {}", "─".repeat(widths.0), "─".repeat(widths.1), "─".repeat(widths.2), "─".repeat(widths.3)),
+        format!("{}  {}  {}  {}  {}", "─".repeat(widths.0), "─".repeat(widths.1), "─".repeat(widths.2), "─".repeat(widths.3), "─".repeat(widths.4)),
     ];
 
     for row in rows {
@@ -290,12 +292,18 @@ fn render_online_minions(rows: &[ConsoleOnlineMinionRow]) -> String {
             version_plain.bright_green().to_string()
         };
         let id = if row.alive { id_plain.bright_green().to_string() } else { id_plain.green().to_string() };
+        let status = if row.alive {
+            "online".bright_green().bold().to_string()
+        } else {
+            "offline".red().bold().to_string()
+        };
         out.push(format!(
-            "{}  {}  {}  {}",
+            "{}  {}  {}  {}  {}",
             pad_visible(&host, widths.0),
             pad_visible(&ip, widths.1),
             pad_visible(&version, widths.2),
-            pad_visible(&id, widths.3)
+            pad_visible(&id, widths.3),
+            pad_visible(&status, widths.4)
         ));
     }
 

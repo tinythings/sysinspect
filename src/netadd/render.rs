@@ -8,7 +8,7 @@ fn render_table(rows: &[AddOutcome]) -> Vec<String> {
         rows.iter().map(|row| row.host.user.chars().count()).max().unwrap_or(4).max("USER".chars().count()),
         rows.iter().map(|row| row.display_path.chars().count()).max().unwrap_or(4).max("PATH".chars().count()),
         rows.iter().map(|row| row.platform.chars().count()).max().unwrap_or(7).max("OS/ARCH".chars().count()),
-        rows.iter().map(|row| row.status.label().chars().count()).max().unwrap_or(6).max("status".chars().count()),
+        rows.iter().map(|row| row.status.label().chars().count()).max().unwrap_or(6).max("STATUS".chars().count()),
     );
     let mut out = vec![
         format!(
@@ -17,7 +17,7 @@ fn render_table(rows: &[AddOutcome]) -> Vec<String> {
             pad_visible(&"USER".yellow().to_string(), widths.1),
             pad_visible(&"PATH".yellow().to_string(), widths.2),
             pad_visible(&"OS/ARCH".yellow().to_string(), widths.3),
-            pad_visible(&"status".yellow().to_string(), widths.4),
+            pad_visible(&"STATUS".yellow().to_string(), widths.4),
         ),
         format!("{}  {}  {}  {}  {}", "─".repeat(widths.0), "─".repeat(widths.1), "─".repeat(widths.2), "─".repeat(widths.3), "─".repeat(widths.4)),
     ];

@@ -423,7 +423,16 @@ impl SysMaster {
 
         log::debug!("Context: {context}");
 
-        let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
+        let hostnames: Vec<String> = if query.trim().is_empty() {
+            vec![]
+        } else {
+            query
+                .split(',')
+                .map(str::trim)
+                .filter(|hostname| !hostname.is_empty())
+                .map(ToString::to_string)
+                .collect()
+        };
         let mut tgt = MinionTarget::new(mid, "");
         tgt.set_scheme(querypath);
         tgt.set_context_query(context);
@@ -435,7 +444,7 @@ impl SysMaster {
             if is_virtual { "yes".bright_green() } else { "no".bright_red() }
         );
 
-        let mut targeted = false;
+        let mut targeted = !mid.trim().is_empty();
         if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
             for hostname in decided.iter() {
                 log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());

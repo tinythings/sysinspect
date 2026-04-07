@@ -89,6 +89,38 @@ fn minion_traits(cfg: &MinionConfig, q: bool) -> SystemTraits {
     traits
 }
 
+fn matches_target(cmd: &MasterMessage, minion_id: &str, traits: &SystemTraits) -> bool {
+    let tgt = cmd.target();
+    if !tgt.id().is_empty() {
+        return tgt.id().eq(minion_id);
+    }
+
+    if !tgt.hostnames().is_empty()
+        && !tgt.hostnames().into_iter().any(|pattern| {
+            glob::Pattern::new(&pattern).ok().is_some_and(|pattern| {
+                [
+                    dataconv::as_str(traits.get("system.hostname.fqdn")),
+                    dataconv::as_str(traits.get("system.hostname")),
+                    dataconv::as_str(traits.get("system.hostname.ip")),
+                ]
+                .into_iter()
+                .any(|label| !label.is_empty() && pattern.matches(&label))
+            })
+        })
+    {
+        return false;
+    }
+
+    if !tgt.traits_query().is_empty() {
+        return traits::parse_traits_query(tgt.traits_query())
+            .ok()
+            .and_then(|query| traits::to_typed_query(query).ok())
+            .is_some_and(|query| traits::matches_traits(query, traits.clone()));
+    }
+
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RotationCommandPayload {
     op: String,
@@ -688,14 +720,13 @@ impl SysMinion {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
-                                let scheme = msg.target().scheme().to_string();
-
-                                if scheme.starts_with(SCHEME_COMMAND) {
-                                    this.as_ptr().call_internal_command(&scheme, msg.target().context()).await;
-                                    continue;
-                                }
-
-                                if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+                                if msg.target().scheme().starts_with(SCHEME_COMMAND) {
+                                    if matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, false)) {
+                                        this.clone().call_internal_command(msg.target().scheme(), msg.target().context()).await;
+                                    } else {
+                                        log::debug!("Dropped internal master command for another minion");
+                                    }
+                                } else if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
                                     log::error!("Failed to enqueue master command: {err}");
                                 } else {
                                     log::info!("Scheduled master command: {}", msg.target().scheme());
@@ -1152,55 +1183,10 @@ impl SysMinion {
             log::error!("Cycle ID is empty!");
             return;
         }
-
-        let tgt = cmd.target();
-
-        // Is command minion-specific?
-        if !tgt.id().is_empty() && tgt.id().ne(&self.get_minion_id()) {
-            log::debug!("Command was dropped as it was specifically addressed for another minion");
+        if !matches_target(&cmd, self.get_minion_id(), &minion_traits(&self.cfg, false)) {
+            log::debug!("Command was dropped as it targets another minion");
             return;
-        } else if tgt.id().is_empty() {
-            let traits = minion_traits(&self.cfg, false);
-
-            // Is matching this host?
-            let mut skip = true;
-            let hostname = dataconv::as_str(traits.get("system.hostname.fqdn")); // Fully qualified domain name or short, if your network is crap
-            if !hostname.is_empty() {
-                for hq in tgt.hostnames() {
-                    if let Ok(hq) = glob::Pattern::new(&hq)
-                        && hq.matches(&hostname)
-                    {
-                        skip = false;
-                        break;
-                    }
-                }
-                if skip {
-                    log::debug!("Command was dropped as it is specifically targeting different hosts");
-                    return;
-                }
-            }
-
-            // Can match the host, but might not match by traits.
-            // For example, web* can match "webschool.com" or "webshop.com",
-            // but traits for those hosts might be different.
-            let tq = tgt.traits_query();
-            if !tq.is_empty() {
-                match traits::parse_traits_query(tq) {
-                    Ok(q) => {
-                        match traits::to_typed_query(q) {
-                            Ok(tpq) => {
-                                if !traits::matches_traits(tpq, minion_traits(&self.cfg, false)) {
-                                    log::debug!("Command was dropped as it does not match the traits");
-                                    return;
-                                }
-                            }
-                            Err(e) => log::error!("{e}"),
-                        };
-                    }
-                    Err(e) => log::error!("{e}"),
-                };
-            }
-        } // else: this minion is directly targeted by its Id.
+        }
 
         log::debug!("Through. {:?}", cmd.payload());
         self.as_ptr().pt_counter.lock().await.inc(cmd.cycle());
