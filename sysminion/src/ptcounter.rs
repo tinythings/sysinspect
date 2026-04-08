@@ -144,7 +144,7 @@ impl PTCounter {
     pub(crate) fn update_stats(&mut self) {
         // loadavg
         #[cfg(any(target_os = "linux", target_os = "android"))]
-        if let Ok(la) = procfs::LoadAverage::current() {
+        if let Ok(la) = <procfs::LoadAverage as procfs::Current>::current() {
             self.loadaverage = la.five;
         }
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
