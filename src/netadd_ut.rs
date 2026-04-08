@@ -57,7 +57,12 @@ fn probe_linux_x86_64() -> ProbeInfo {
         has_sudo: false,
         disk_free_bytes: Some(10),
         disk_free_path: Some("/tmp".to_string()),
-        destination: ProbePath { kind: ProbePathKind::Home, requested: None, resolved: Some("/opt/test-home/sysinspect".to_string()), writable: true },
+        destination: ProbePath {
+            kind: ProbePathKind::Home,
+            requested: None,
+            resolved: Some("/opt/test-home/sysinspect".to_string()),
+            writable: true,
+        },
         writable_paths: vec!["/tmp".to_string()],
     }
 }
@@ -392,10 +397,7 @@ fn marker_matches_managed_root_rejects_missing_invalid_or_mismatched_markers() {
 
 #[test]
 fn classify_destination_state_prefers_local_marker_when_destination_exists() {
-    assert_eq!(
-        format!("{:?}", classify_destination_state("/opt/sysinspect", true, "root: /opt/sysinspect\ninit: hopstart\n", false)),
-        "Managed"
-    );
+    assert_eq!(format!("{:?}", classify_destination_state("/opt/sysinspect", true, "root: /opt/sysinspect\ninit: hopstart\n", false)), "Managed");
     assert_eq!(format!("{:?}", classify_destination_state("/opt/sysinspect", true, "", false)), "NotManaged");
 }
 

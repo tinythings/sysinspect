@@ -64,6 +64,27 @@ fn master_cmdb_update_accepts_humantime_override() {
 }
 
 #[test]
+fn master_hopstart_defaults_are_used_when_not_configured() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
+
+    assert_eq!(cfg.hopstart().batch(), 10);
+    assert!(!cfg.hopstart().network_forward());
+    assert!(!cfg.hopstart().on_start());
+}
+
+#[test]
+fn master_hopstart_accepts_config_override() {
+    let cfg = MasterConfig::new(write_master_cfg(
+        "config:\n  master:\n    fileserver.models: []\n    hopstart:\n      batch: 4\n      network.forward: true\n      on-start: true\n",
+    ))
+    .unwrap();
+
+    assert_eq!(cfg.hopstart().batch(), 4);
+    assert!(cfg.hopstart().network_forward());
+    assert!(cfg.hopstart().on_start());
+}
+
+#[test]
 fn master_transport_paths_are_under_managed_transport_root() {
     let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
 
