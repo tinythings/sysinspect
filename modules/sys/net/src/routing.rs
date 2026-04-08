@@ -1,4 +1,4 @@
-use std::{error::Error, net::IpAddr, process::Command};
+use std::{error::Error, net::IpAddr};
 
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;

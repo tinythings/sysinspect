@@ -3,7 +3,7 @@ use libmodcore::{
     runtime::{self, ModRequest},
 };
 use serde_json::json;
-use std::{collections::HashMap, process::Command, vec};
+use std::{collections::HashMap, vec};
 
 #[cfg(target_os = "linux")]
 use procfs::process::{LimitValue, Process, all_processes};
