@@ -75,7 +75,7 @@ fn master_hopstart_defaults_are_used_when_not_configured() {
 #[test]
 fn master_hopstart_accepts_config_override() {
     let cfg = MasterConfig::new(write_master_cfg(
-        "config:\n  master:\n    fileserver.models: []\n    hopstart:\n      batch: 4\n      network.forward: true\n      on-start: true\n",
+        "config:\n  master:\n    fileserver.models: []\n    hopstart.batch: 4\n    hopstart.network.forward: true\n    hopstart.on-start: true\n",
     ))
     .unwrap();
 

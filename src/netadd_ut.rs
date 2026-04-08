@@ -1,13 +1,17 @@
 use crate::netadd::{
-    AddHost, AddOutcome, AddStatus, ArtifactArch, ArtifactFamily, HostOp, MinionCatalogue, NetworkAddWorkflow, PlatformId, actionable_add_error,
-    classify_destination_state, is_missing_master_minion, is_waitable_console_miss, managed_roots, marker_matches_managed_root, normalise_host,
-    normalise_path, parse, parse_entry, registration_mismatch_id, render_outcomes, render_results, resolve_dest, resolve_remote_path,
-    rows_have_traits, startup_sync_ready,
+    AddHost, AddOutcome, AddStatus, ArtifactArch, ArtifactFamily, BootstrapAttemptState, HostOp, MinionCatalogue, NetworkAddWorkflow, PlatformId,
+    actionable_add_error, bootstrap_attempt_state, classify_destination_state, is_missing_master_minion, is_waitable_console_miss, managed_roots,
+    marker_matches_managed_root, master_fingerprint_from_key_file, normalise_host, normalise_path, parse, parse_entry, registration_mismatch_id,
+    render_outcomes, render_results, resolve_dest, resolve_remote_path, rows_have_traits, startup_sync_ready,
 };
 use crate::sshprobe::detect::{CpuArch, ExecMode, PlatformFamily, PrivilegeMode, ProbeInfo, ProbePath, ProbePathKind};
 use libcommon::SysinspectError;
 use libmodpak::mpk::ModPakRepoIndex;
-use libsysinspect::{console::ConsoleMinionInfoRow, traits::TraitSource};
+use libsysinspect::{
+    console::ConsoleMinionInfoRow,
+    rsa::keys::{get_fingerprint, keygen, to_pem},
+    traits::TraitSource,
+};
 use serde_json::json;
 use std::{
     fs,
@@ -40,6 +44,17 @@ fn seed_minion_repo() -> PathBuf {
     root
 }
 
+fn seed_minion_repo_for(arch: &str, version: &str) -> PathBuf {
+    let root = scratch_dir("modrepo");
+    let mut idx = ModPakRepoIndex::new();
+    let rel = PathBuf::from(format!("minion/linux/{arch}/sysminion"));
+    idx.index_minion("linux", arch, rel.clone(), "deadbeef", version).unwrap();
+    fs::create_dir_all(root.join(format!("minion/linux/{arch}"))).unwrap();
+    fs::write(root.join(&rel), "sysminion").unwrap();
+    fs::write(root.join("mod.index"), idx.to_yaml().unwrap()).unwrap();
+    root
+}
+
 fn probe_linux_x86_64() -> ProbeInfo {
     ProbeInfo {
         host: "foo.com".to_string(),
@@ -67,6 +82,10 @@ fn probe_linux_x86_64() -> ProbeInfo {
     }
 }
 
+fn probe_linux_aarch64() -> ProbeInfo {
+    ProbeInfo { arch: CpuArch::Aarch64, host: "armbox".to_string(), ..probe_linux_x86_64() }
+}
+
 #[test]
 fn parses_inline_names_with_defaults() {
     let args = network_args(&["sysinspect", "network", "--add", "--hostnames", "foo.com,bar.com", "--user", "hans"]);
@@ -87,6 +106,16 @@ fn inline_user_overrides_default_user() {
     assert_eq!(plan.items.len(), 1);
     assert_eq!(plan.items[0].host, "foo.com");
     assert_eq!(plan.items[0].user, "root");
+}
+
+#[test]
+fn parses_names_alias_with_default_user() {
+    let args = network_args(&["sysinspect", "network", "--add", "--names", "foo.com,bar.com", "--user", "hans"]);
+    let plan = parse(args.subcommand_matches("network").unwrap()).unwrap();
+
+    assert_eq!(plan.items.len(), 2);
+    assert_eq!(plan.items[0].user, "hans");
+    assert_eq!(plan.items[1].user, "hans");
 }
 
 #[test]
@@ -308,6 +337,38 @@ fn workflow_selects_artefact_from_probe() {
 }
 
 #[test]
+fn workflow_selects_arm64_artefact_from_probe() {
+    let root = seed_minion_repo_for("arm64", "0.5.0");
+    let args = network_args(&["sysinspect", "network", "--add", "-n", "armbox", "-u", "hans"]);
+    let art = NetworkAddWorkflow::from_matches(args.subcommand_matches("network").unwrap())
+        .unwrap()
+        .select_artifact(&root, &probe_linux_aarch64())
+        .unwrap();
+
+    assert_eq!(art.version, "0.5.0");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn reads_master_fingerprint_from_public_key_file() {
+    let dir = scratch_dir("master-pub");
+    let path = dir.join("master.rsa.pub");
+    let (_, pubkey) = keygen(1024).unwrap();
+    fs::write(&path, to_pem(None, Some(&pubkey)).unwrap().1.unwrap()).unwrap();
+
+    assert_eq!(master_fingerprint_from_key_file(path).unwrap(), get_fingerprint(&pubkey).unwrap());
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn rejects_missing_master_public_key_file() {
+    let err = master_fingerprint_from_key_file(scratch_dir("missing-master-pub").join("master.rsa.pub")).unwrap_err();
+
+    assert!(err.to_string().contains("No such file") || err.to_string().contains("not found"));
+}
+
+#[test]
 fn extracts_registration_mismatch_id() {
     let msg = "Error registering minion: Error loading protocol data: Registration key mismatch for be806ac5c8134836b316399e21a76a1f: stored old, requested new";
 
@@ -374,6 +435,21 @@ fn startup_sync_rejects_unfinished_startup_log() {
 }
 
 #[test]
+fn bootstrap_attempt_detects_secure_bootstrap_failure() {
+    assert_eq!(bootstrap_attempt_state("[04/04/2026 16:43:37] - ERROR: Unable to bootstrap secure transport"), BootstrapAttemptState::Failure);
+}
+
+#[test]
+fn bootstrap_attempt_detects_success_progress() {
+    assert_eq!(bootstrap_attempt_state("[04/04/2026 16:43:37] - INFO: Secure session established with master"), BootstrapAttemptState::Progress);
+}
+
+#[test]
+fn bootstrap_attempt_stays_pending_without_signal() {
+    assert_eq!(bootstrap_attempt_state("[04/04/2026 16:43:37] - INFO: Checking module integrity"), BootstrapAttemptState::Pending);
+}
+
+#[test]
 fn managed_roots_accepts_absolute_marker_entries() {
     assert_eq!(managed_roots("root: /opt/sysinspect\ninit: hopstart\n").unwrap(), vec!["/opt/sysinspect".to_string()]);
 }
@@ -434,6 +510,17 @@ fn actionable_error_maps_duplicate_live_session() {
 #[test]
 fn actionable_error_keeps_generic_message() {
     assert_eq!(actionable_add_error(&SysinspectError::MinionGeneralError("plain failure".to_string())), "Error loading minion data: plain failure");
+}
+
+#[test]
+fn actionable_error_maps_transport_never_ready() {
+    assert_eq!(
+        actionable_add_error(&SysinspectError::MinionGeneralError(
+            "sysminion started on foo but did not reach full master readiness in time; registered but not yet ready (online=true: traits=true: transport=false)"
+                .to_string()
+        )),
+        "minion registered traits, but secure transport never became ready"
+    );
 }
 
 #[test]
