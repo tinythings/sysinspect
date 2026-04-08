@@ -1,6 +1,7 @@
 mod clidef;
 mod cluster;
 mod dataserv;
+mod hopstart;
 mod master;
 mod master_itf;
 mod registry;

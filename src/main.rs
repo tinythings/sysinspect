@@ -16,8 +16,8 @@ use libsysinspect::{
 };
 use libsysproto::query::SCHEME_COMMAND;
 use libsysproto::query::commands::{
-    CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC,
-    CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
+    CLUSTER_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN,
+    CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
 };
 use log::LevelFilter;
 use serde_json::json;
@@ -295,7 +295,7 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         return false;
     }
     if let Some(sub) = params.subcommand_matches("cluster")
-        && (sub.get_flag("help") || !(sub.get_flag("shutdown") || sub.get_flag("online")))
+        && (sub.get_flag("help") || !(sub.get_flag("shutdown") || sub.get_flag("online") || sub.get_flag("hopstart")))
     {
         if let Some(s_cli) = cli.find_subcommand_mut("cluster") {
             _ = s_cli.print_help();
@@ -662,17 +662,25 @@ async fn main() {
     if let Some(cluster) = params.subcommand_matches("cluster") {
         if cluster.get_flag("shutdown") {
             let (query, direct_id) = cluster_selector(cluster);
-            if let Err(err) = call_master_console(
+            if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), &query, None, direct_id, None).await {
+                log::error!("Cannot reach master: {err}");
+            }
+            return;
+        }
+        if cluster.get_flag("hopstart") {
+            let (query, direct_id) = cluster_selector(cluster);
+            match call_master_console(
                 &cfg,
-                &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"),
-                &query,
+                &format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}"),
+                if direct_id.is_none() { &query } else { "*" },
                 None,
-                direct_id,
+                direct_id.or(if query.contains('*') || query.contains(',') { None } else { Some(query.as_str()) }),
                 None,
             )
             .await
             {
-                log::error!("Cannot reach master: {err}");
+                Ok(_) => println!("Hopstart issued"),
+                Err(err) => log::error!("Cannot reach master: {err}"),
             }
             return;
         }
@@ -765,6 +773,14 @@ mod main_ut {
     }
 
     #[test]
+    fn cluster_hopstart_with_mask_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--hopstart", "*"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
     fn cluster_shutdown_with_hostnames_is_not_treated_as_help() {
         let mut cli = clidef::cli("test");
         let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--shutdown", "--hostnames=foo,bar"]).unwrap();
@@ -784,6 +800,14 @@ mod main_ut {
     fn cluster_online_with_hostnames_is_not_treated_as_help() {
         let mut cli = clidef::cli("test");
         let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--online", "--hostnames=foo,bar"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_hopstart_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--hopstart", "--hostnames=foo,bar"]).unwrap();
 
         assert!(!help(&mut cli, &params));
     }

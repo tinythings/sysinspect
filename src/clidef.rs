@@ -83,11 +83,12 @@ pub fn cli(version: &'static str) -> Command {
             .arg(Arg::new("help").short('h').long("help").action(ArgAction::SetTrue).help("Display help for this command"))
         )
         .subcommand(Command::new("cluster").about("Manage cluster-wide lifecycle actions").styles(styles.clone()).disable_help_flag(true)
-            .arg(Arg::new("online").short('o').long("online").action(ArgAction::SetTrue).help("Show online minions for the current selection").conflicts_with("shutdown"))
+            .arg(Arg::new("online").short('o').long("online").action(ArgAction::SetTrue).help("Show online minions for the current selection").conflicts_with_all(["shutdown", "hopstart"]))
             .arg(Arg::new("shutdown").long("shutdown").action(ArgAction::SetTrue).help(format!(
                 "Notify the running master to shut down the {}, be careful! :)",
                 "entire cluster".bright_red()
-            )))
+            )).conflicts_with("hopstart"))
+            .arg(Arg::new("hopstart").long("hopstart").action(ArgAction::SetTrue).help("Issue SSH-backed startup for selected offline hopstart minions").conflicts_with_all(["online", "shutdown"]))
             .arg(Arg::new("hostnames").short('n').long("hostnames").visible_alias("hn").alias("names").help("Comma-separated hostnames or IPs").conflicts_with("query-pos"))
             .arg(Arg::new("id").long("id").help("Target a specific minion by its system id").conflicts_with_all(["query-pos", "hostnames"]))
             .arg(Arg::new("query-pos").help("Target minions by hostname glob or query").required(false).index(1).default_value("*"))

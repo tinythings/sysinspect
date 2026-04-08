@@ -7,6 +7,9 @@ pub static SCHEME_MODEL: &str = "model://";
 pub static SCHEME_COMMAND: &str = "cmd://";
 
 pub mod commands {
+    // Start selected offline hopstart-backed minions
+    pub const CLUSTER_HOPSTART: &str = "cluster/hopstart";
+
     // Stop the entire cluster
     pub const CLUSTER_SHUTDOWN: &str = "cluster/shutdown";
 

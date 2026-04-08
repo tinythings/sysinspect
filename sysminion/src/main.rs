@@ -92,6 +92,7 @@ fn running_minion_targets(cfg: &MinionConfig, sniffed: &[i32], current: i32) -> 
     std::fs::read_to_string(cfg.pidfile())
         .ok()
         .and_then(|raw| raw.trim().parse::<i32>().ok())
+        .filter(|pid| sniffed.contains(pid))
         .into_iter()
         .chain(sniffed.iter().copied())
         .filter(|pid| *pid != current)
@@ -279,7 +280,7 @@ fn main() -> std::io::Result<()> {
 
 #[cfg(test)]
 mod stop_ut {
-    use super::stop_targets;
+    use super::{running_minion_targets, stop_targets};
     use libsysinspect::cfg::mmconf::MinionConfig;
     use std::{
         fs,
@@ -304,6 +305,18 @@ mod stop_ut {
         cfg.set_pid_path(pidfile.to_str().unwrap());
 
         assert_eq!(stop_targets(&cfg, &[42, 43, 77], 77), vec![42, 43]);
+
+        let _ = fs::remove_file(pidfile);
+    }
+
+    #[test]
+    fn stale_pidfile_does_not_fake_running_minion() {
+        let pidfile = scratch_pidfile();
+        fs::write(&pidfile, "42\n").unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_pid_path(pidfile.to_str().unwrap());
+
+        assert_eq!(running_minion_targets(&cfg, &[43, 77], 77), vec![43]);
 
         let _ = fs::remove_file(pidfile);
     }

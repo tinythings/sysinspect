@@ -292,11 +292,7 @@ fn render_online_minions(rows: &[ConsoleOnlineMinionRow]) -> String {
             version_plain.bright_green().to_string()
         };
         let id = if row.alive { id_plain.bright_green().to_string() } else { id_plain.green().to_string() };
-        let status = if row.alive {
-            "online".bright_green().bold().to_string()
-        } else {
-            "offline".red().bold().to_string()
-        };
+        let status = if row.alive { "online".bright_green().bold().to_string() } else { "offline".red().bold().to_string() };
         out.push(format!(
             "{}  {}  {}  {}  {}",
             pad_visible(&host, widths.0),

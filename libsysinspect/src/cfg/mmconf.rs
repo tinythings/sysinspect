@@ -1055,6 +1055,9 @@ pub struct MasterConfig {
     #[serde(rename = "cmdb-update", default, with = "humantime_serde::option")]
     cmdb_update: Option<Duration>,
 
+    // Hopstart backend settings
+    hopstart: Option<HopstartConfig>,
+
     // Clustered minions configuration
     cluster: Option<Vec<ClusteredMinion>>,
 
@@ -1073,6 +1076,31 @@ pub struct MasterConfig {
     // Max size of a single item in the datastore in bytes. Default: unlimited
     #[serde(rename = "datastore.item-max-size", default, deserialize_with = "libcommon::humaninput::h2bytes")]
     datastore_item_max_size: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct HopstartConfig {
+    batch: Option<usize>,
+
+    #[serde(rename = "network.forward")]
+    network_forward: Option<bool>,
+
+    #[serde(rename = "on-start")]
+    on_start: Option<bool>,
+}
+
+impl HopstartConfig {
+    pub fn batch(&self) -> usize {
+        self.batch.unwrap_or(10)
+    }
+
+    pub fn network_forward(&self) -> bool {
+        self.network_forward.unwrap_or(false)
+    }
+
+    pub fn on_start(&self) -> bool {
+        self.on_start.unwrap_or(false)
+    }
 }
 
 impl MasterConfig {
@@ -1125,6 +1153,10 @@ impl MasterConfig {
 
     pub fn cmdb_update(&self) -> Duration {
         self.cmdb_update.unwrap_or_else(|| Duration::from_secs(DEFAULT_CMDB_UPDATE_AGE))
+    }
+
+    pub fn hopstart(&self) -> HopstartConfig {
+        self.hopstart.clone().unwrap_or_default()
     }
 
     /// Get OTLP configuration

@@ -38,8 +38,8 @@ use libsysproto::{
     query::{
         SCHEME_COMMAND,
         commands::{
-            CLUSTER_CMDB_UPSERT, CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE,
-            CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
+            CLUSTER_CMDB_UPSERT, CLUSTER_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION,
+            CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
@@ -312,23 +312,19 @@ impl SysMaster {
             self.drop_replaced_peer(&addr, &hello.binding.minion_id).await;
         }
         let cfg = self.cfg.clone();
-        let peer_label = if let Ok(libsysproto::secure::SecureFrame::BootstrapHello(hello)) =
-            serde_json::from_slice::<libsysproto::secure::SecureFrame>(raw)
-        {
-            self.resolved_peer_label(&hello.binding.minion_id, peer_addr).await
-        } else {
-            peer_addr.to_string()
-        };
+        let peer_label =
+            if let Ok(libsysproto::secure::SecureFrame::BootstrapHello(hello)) = serde_json::from_slice::<libsysproto::secure::SecureFrame>(raw) {
+                self.resolved_peer_label(&hello.binding.minion_id, peer_addr).await
+            } else {
+                peer_addr.to_string()
+            };
         let peer_transport = &mut self.peer_transport;
         let mkr = &mut self.mkr;
         peer_transport.decode_frame(peer_addr, &peer_label, raw, &cfg, mkr)
     }
 
     fn peer_label(host: &str, peer_addr: &str) -> String {
-        peer_addr
-            .parse::<std::net::SocketAddr>()
-            .map(|addr| format!("{host}:{}", addr.port()))
-            .unwrap_or_else(|_| host.to_string())
+        peer_addr.parse::<std::net::SocketAddr>().map(|addr| format!("{host}:{}", addr.port())).unwrap_or_else(|_| host.to_string())
     }
 
     async fn resolved_peer_label(&self, minion_id: &str, peer_addr: &str) -> String {
@@ -459,12 +455,7 @@ impl SysMaster {
         let hostnames: Vec<String> = if query.trim().is_empty() {
             vec![]
         } else {
-            query
-                .split(',')
-                .map(str::trim)
-                .filter(|hostname| !hostname.is_empty())
-                .map(ToString::to_string)
-                .collect()
+            query.split(',').map(str::trim).filter(|hostname| !hostname.is_empty()).map(ToString::to_string).collect()
         };
         let mut tgt = MinionTarget::new(mid, "");
         tgt.set_scheme(querypath);

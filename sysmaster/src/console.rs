@@ -7,6 +7,7 @@
 
 use super::*;
 
+use crate::hopstart::{HopStartTarget, HopStarter};
 use libmodpak::{SysInspectModPak, compare_versions};
 use libsysinspect::{
     console::{
@@ -305,6 +306,39 @@ impl SysMaster {
         Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "cmdb_upsert".to_string(), target: mid.to_string(), count: 1, items: vec![] }))
     }
 
+    async fn hopstart_console_response(&mut self, query: &str, traits: &str, mid: &str) -> Result<ConsoleResponse, SysinspectError> {
+        let mut targets = Vec::new();
+        let selected = self.selected_minions(query, traits, mid).await?;
+        let mut session = self.session.lock().await;
+
+        for minion in selected {
+            if session.alive(minion.id()) {
+                continue;
+            }
+            if let Ok(Some(cmdb)) = self.mreg.lock().await.get_cmdb(minion.id()) {
+                if cmdb.backend() != Some("hopstart") {
+                    continue;
+                }
+                if let (Some(host), Some(root), Some(user), Some(bin), Some(config)) =
+                    (cmdb.host(), cmdb.root(), cmdb.user(), cmdb.bin(), cmdb.config())
+                {
+                    targets.push(HopStartTarget::new(host.to_string(), root.to_string(), user.to_string(), bin.to_string(), config.to_string()));
+                } else {
+                    log::error!("Hop-start skipped for {}: incomplete CMDB startup inventory", minion.id());
+                }
+            }
+        }
+
+        HopStarter::new(self.cfg.hopstart()).issue(targets.clone()).await;
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack {
+            action: "hopstart_issued".to_string(),
+            target: String::new(),
+            count: targets.len(),
+            items: vec![],
+        }))
+    }
+
     /// Register the concrete minion ids targeted by one outbound console message.
     ///
     /// This keeps task tracking aligned with console-initiated broadcasts so the
@@ -378,6 +412,13 @@ impl SysMaster {
             };
             Self::broadcast_console_messages(Arc::clone(&master), bcast, cfg, msgs, true).await;
             return response;
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}")) {
+            return match master.lock().await.hopstart_console_response(&query.query, "", &query.mid).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(err.to_string()),
+            };
         }
 
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}")) {
