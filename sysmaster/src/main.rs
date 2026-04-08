@@ -1,6 +1,7 @@
 mod clidef;
 mod cluster;
 mod dataserv;
+mod hopstart;
 mod master;
 mod master_itf;
 mod registry;
@@ -10,6 +11,9 @@ mod util;
 
 #[cfg(test)]
 mod master_ut;
+
+#[cfg(test)]
+mod mkb_ut;
 
 use clap::{ArgMatches, Command};
 use clidef::cli;
@@ -52,6 +56,8 @@ fn help(cli: &mut Command, params: ArgMatches) -> bool {
 }
 
 fn main() -> Result<(), SysinspectError> {
+    libwebapi::ensure_rustls_crypto_provider()?;
+
     let mut cli = cli(VERSION, APPNAME);
     let params = cli.to_owned().get_matches();
 

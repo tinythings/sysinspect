@@ -1,5 +1,6 @@
 use super::mmconf::{
-    CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CONSOLE_PORT, MasterConfig, MinionConfig,
+    CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CMDB_UPDATE_AGE, DEFAULT_CONSOLE_PORT,
+    MasterConfig, MinionConfig, MinionPerformanceProfile,
 };
 use std::{
     fs,
@@ -46,6 +47,41 @@ fn master_console_connect_addr_rewrites_wildcard_bind_to_loopback() {
 
     assert_eq!(cfg.console_listen_addr(), "0.0.0.0:5511");
     assert_eq!(cfg.console_connect_addr(), "127.0.0.1:5511");
+}
+
+#[test]
+fn master_cmdb_update_defaults_to_one_week() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
+
+    assert_eq!(cfg.cmdb_update().as_secs(), DEFAULT_CMDB_UPDATE_AGE);
+}
+
+#[test]
+fn master_cmdb_update_accepts_humantime_override() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n    cmdb-update: 36h\n")).unwrap();
+
+    assert_eq!(cfg.cmdb_update().as_secs(), 36 * 60 * 60);
+}
+
+#[test]
+fn master_hopstart_defaults_are_used_when_not_configured() {
+    let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
+
+    assert_eq!(cfg.hopstart().batch(), 10);
+    assert!(!cfg.hopstart().network_forward());
+    assert!(!cfg.hopstart().on_start());
+}
+
+#[test]
+fn master_hopstart_accepts_config_override() {
+    let cfg = MasterConfig::new(write_master_cfg(
+        "config:\n  master:\n    fileserver.models: []\n    hopstart.batch: 4\n    hopstart.network.forward: true\n    hopstart.on-start: true\n",
+    ))
+    .unwrap();
+
+    assert_eq!(cfg.hopstart().batch(), 4);
+    assert!(cfg.hopstart().network_forward());
+    assert!(cfg.hopstart().on_start());
 }
 
 #[test]
@@ -104,4 +140,84 @@ fn minion_transport_paths_are_under_managed_transport_root() {
     assert_eq!(cfg.transport_root(), cfg.root_dir().join(CFG_TRANSPORT_ROOT));
     assert_eq!(cfg.transport_master_root(), cfg.transport_root().join(CFG_TRANSPORT_MASTER));
     assert_eq!(cfg.transport_state_file(), cfg.transport_master_root().join(CFG_TRANSPORT_STATE));
+}
+
+#[test]
+fn minion_custom_layout_paths_follow_root() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir("/srv/sysinspect");
+
+    assert_eq!(cfg.install_bin_dir(), std::path::PathBuf::from("/srv/sysinspect/bin"));
+    assert_eq!(cfg.config_dir(), std::path::PathBuf::from("/srv/sysinspect/etc"));
+    assert_eq!(cfg.managed_pidfile_dir(), std::path::PathBuf::from("/srv/sysinspect/run"));
+    assert_eq!(cfg.managed_log_dir(), std::path::PathBuf::from("/srv/sysinspect/tmp"));
+    assert_eq!(cfg.managed_tmp_dir(), std::path::PathBuf::from("/srv/sysinspect/tmp/db"));
+    assert_eq!(cfg.managed_db_dir(), std::path::PathBuf::from("/srv/sysinspect/tmp"));
+    assert_eq!(cfg.install_bin_path(), std::path::PathBuf::from("/srv/sysinspect/bin/sysminion"));
+    assert_eq!(cfg.config_path(), std::path::PathBuf::from("/srv/sysinspect/etc/sysinspect.conf"));
+    assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/srv/sysinspect/run/sysinspect.pid"));
+    assert_eq!(cfg.managed_logfile_std_path(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.standard.log"));
+    assert_eq!(cfg.managed_logfile_err_path(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.errors.log"));
+}
+
+#[test]
+fn minion_daemon_log_paths_can_follow_managed_layout() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir("/srv/sysinspect");
+    cfg.set_logfile_std_path(cfg.managed_logfile_std_path().to_str().unwrap());
+    cfg.set_logfile_err_path(cfg.managed_logfile_err_path().to_str().unwrap());
+
+    assert_eq!(cfg.logfile_std(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.standard.log"));
+    assert_eq!(cfg.logfile_err(), std::path::PathBuf::from("/srv/sysinspect/tmp/sysminion.errors.log"));
+}
+
+#[test]
+fn minion_system_layout_paths_follow_system_defaults() {
+    let cfg = MinionConfig::default();
+
+    assert_eq!(cfg.install_bin_dir(), std::path::PathBuf::from("/usr/bin"));
+    assert_eq!(cfg.config_dir(), std::path::PathBuf::from("/etc/sysinspect"));
+    assert_eq!(cfg.managed_pidfile_dir(), std::path::PathBuf::from("/var/run"));
+    assert_eq!(cfg.managed_log_dir(), std::path::PathBuf::from("/var/log"));
+    assert_eq!(cfg.managed_tmp_dir(), std::path::PathBuf::from("/var/tmp/sysinspect"));
+    assert_eq!(cfg.managed_db_dir(), std::path::PathBuf::from("/tmp"));
+    assert_eq!(cfg.install_bin_path(), std::path::PathBuf::from("/usr/bin/sysminion"));
+    assert_eq!(cfg.config_path(), std::path::PathBuf::from("/etc/sysinspect/sysinspect.conf"));
+    assert_eq!(cfg.local_marker_path(), std::path::PathBuf::from("/etc/sysinspect/.local"));
+    assert_eq!(cfg.managed_pidfile_path(), std::path::PathBuf::from("/var/run/sysinspect.pid"));
+    assert_eq!(cfg.managed_logfile_std_path(), std::path::PathBuf::from("/var/log/sysminion.standard.log"));
+    assert_eq!(cfg.managed_logfile_err_path(), std::path::PathBuf::from("/var/log/sysminion.errors.log"));
+}
+
+#[test]
+fn minion_custom_layout_marker_and_pending_tasks_follow_root() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir("/srv/sysinspect");
+
+    assert_eq!(cfg.local_marker_path(), std::path::PathBuf::from("/srv/sysinspect/.local"));
+    assert_eq!(cfg.pending_tasks_dir(), std::path::PathBuf::from("/srv/sysinspect/pending-tasks"));
+}
+
+#[test]
+fn minion_performance_defaults_to_default_profile() {
+    let cfg = MinionConfig::default();
+
+    assert!(matches!(cfg.performance(), MinionPerformanceProfile::Default));
+    assert_eq!(cfg.performance().register_threads(), (2, 2));
+    assert_eq!(cfg.performance().daemon_threads(), (4, 4));
+}
+
+#[test]
+fn minion_performance_can_be_set_to_embedded_or_server() {
+    let mut embedded = MinionConfig::default();
+    embedded.set_performance(MinionPerformanceProfile::Embedded);
+    assert!(matches!(embedded.performance(), MinionPerformanceProfile::Embedded));
+    assert_eq!(embedded.performance().register_threads(), (1, 1));
+    assert_eq!(embedded.performance().daemon_threads(), (2, 2));
+
+    let mut server = MinionConfig::default();
+    server.set_performance(MinionPerformanceProfile::Server);
+    assert!(matches!(server.performance(), MinionPerformanceProfile::Server));
+    assert_eq!(server.performance().register_threads(), (4, 4));
+    assert_eq!(server.performance().daemon_threads(), (8, 8));
 }

@@ -6,7 +6,7 @@ use libsysinspect::{
     transport::{TransportStore, transport_minion_root},
 };
 use libsysproto::secure::SECURE_PROTOCOL_VERSION;
-use std::{collections::HashMap, fs, io, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 /// Registered minion base.
 /// Essentially this is just a directory,
@@ -21,6 +21,13 @@ pub struct MinionsKeyRegistry {
     ms_prk: Option<RsaPrivateKey>,
     ms_pbk: Option<RsaPublicKey>,
     ms_pbk_pem: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RegistrationStatus {
+    Added,
+    Exists,
+    Conflict { current: String, requested: String },
 }
 
 impl MinionsKeyRegistry {
@@ -92,6 +99,12 @@ impl MinionsKeyRegistry {
         self.keys.contains_key(mid)
     }
 
+    pub fn registered_ids(&self) -> Vec<String> {
+        let mut ids = self.keys.keys().cloned().collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
     /// Get a fingerprint of a master key
     pub fn get_master_key_pem(&self) -> &Option<String> {
         &self.ms_pbk_pem
@@ -109,18 +122,22 @@ impl MinionsKeyRegistry {
         .map_err(|err| SysinspectError::RSAError(err.to_string()))
     }
 
-    /// Add minion key
-    pub fn add_mn_key(&mut self, mid: &str, addr: &str, pbk_pem: &str) -> Result<(), SysinspectError> {
+    /// Add or verify one minion RSA key in the registry.
+    pub fn add_mn_key(&mut self, mid: &str, addr: &str, pbk_pem: &str) -> Result<RegistrationStatus, SysinspectError> {
+        let (_, pbk) = rsa::keys::from_pem(None, Some(pbk_pem))?;
+        let pbk = pbk.ok_or_else(|| SysinspectError::MasterGeneralError(format!("Registration key for {mid} is missing a public RSA key")))?;
+        let requested = rsa::keys::get_fingerprint(&pbk).map_err(|err| SysinspectError::RSAError(err.to_string()))?;
+        if let Some(current) = self.get_mn_key(mid) {
+            let current = rsa::keys::get_fingerprint(&current).map_err(|err| SysinspectError::RSAError(err.to_string()))?;
+            return Ok(if current == requested { RegistrationStatus::Exists } else { RegistrationStatus::Conflict { current, requested } });
+        }
+
         let k_pth = self.root.join(format!("{mid}.rsa.pub"));
         log::debug!("Adding minion key for {mid} at {addr} as {}", k_pth.as_os_str().to_str().unwrap_or_default());
         fs::write(k_pth, pbk_pem)?;
-
-        let (_, pbk) = rsa::keys::from_pem(None, Some(pbk_pem))?;
-        if let Some(pbk) = pbk {
-            self.ensure_transport_state(mid, &pbk)?;
-            self.keys.insert(mid.to_string(), Some(pbk));
-        }
-        Ok(())
+        self.ensure_transport_state(mid, &pbk)?;
+        self.keys.insert(mid.to_string(), Some(pbk));
+        Ok(RegistrationStatus::Added)
     }
 
     pub fn get_mn_key_fingerprint(&mut self, mid: &str) -> Result<String, SysinspectError> {
@@ -146,7 +163,7 @@ impl MinionsKeyRegistry {
 
         let k_pth = self.root.join(format!("{mid}.rsa.pub"));
         if !k_pth.exists() {
-            log::error!("Minion {mid} requests RSA key, but the key is not found!");
+            log::info!("Minion {mid} requested initial RSA key bootstrap; no stored key exists yet");
             return None;
         }
 
@@ -168,8 +185,6 @@ impl MinionsKeyRegistry {
         if k_pth.exists() {
             fs::remove_file(k_pth)?;
             self.keys.remove(mid);
-        } else {
-            return Err(SysinspectError::IoErr(io::Error::new(io::ErrorKind::NotFound, format!("No RSA public key found for {mid}"))));
         }
 
         // Keep registration cleanup symmetric by removing managed transport metadata too.
@@ -207,49 +222,5 @@ impl MinionsKeyRegistry {
             SECURE_PROTOCOL_VERSION,
         )?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::MinionsKeyRegistry;
-    use libsysinspect::{
-        rsa::keys::{keygen, to_pem},
-        transport::TransportStore,
-    };
-    use libsysproto::secure::SECURE_PROTOCOL_VERSION;
-
-    #[test]
-    fn registration_creates_transport_state_for_registered_minion() {
-        let root = tempfile::tempdir().unwrap();
-        let mut registry = MinionsKeyRegistry::new(root.path().join("minion-keys")).unwrap();
-        let (_, minion_pbk) = keygen(2048).unwrap();
-        let (_, minion_pem) = to_pem(None, Some(&minion_pbk)).unwrap();
-
-        registry.add_mn_key("mid-1", "127.0.0.1:4200", &minion_pem.unwrap()).unwrap();
-
-        let store = TransportStore::new(root.path().join("transport/minions/mid-1/state.json")).unwrap();
-        let state = store.load().unwrap().unwrap();
-        assert_eq!(state.minion_id, "mid-1");
-        assert_eq!(state.protocol_version, SECURE_PROTOCOL_VERSION);
-        assert_eq!(state.master_rsa_fingerprint, registry.get_master_key_fingerprint().unwrap());
-        assert_eq!(state.minion_rsa_fingerprint, registry.get_mn_key_fingerprint("mid-1").unwrap());
-    }
-
-    #[test]
-    fn startup_backfills_transport_state_for_existing_registered_minion() {
-        let root = tempfile::tempdir().unwrap();
-        let (_, minion_pbk) = keygen(2048).unwrap();
-        let (_, minion_pem) = to_pem(None, Some(&minion_pbk)).unwrap();
-        std::fs::create_dir_all(root.path().join("minion-keys")).unwrap();
-        std::fs::write(root.path().join("minion-keys/mid-1.rsa.pub"), minion_pem.unwrap()).unwrap();
-
-        let mut registry = MinionsKeyRegistry::new(root.path().join("minion-keys")).unwrap();
-
-        let store = TransportStore::new(root.path().join("transport/minions/mid-1/state.json")).unwrap();
-        let state = store.load().unwrap().unwrap();
-        assert_eq!(state.minion_id, "mid-1");
-        assert_eq!(state.master_rsa_fingerprint, registry.get_master_key_fingerprint().unwrap());
-        assert_eq!(state.minion_rsa_fingerprint, registry.get_mn_key_fingerprint("mid-1").unwrap());
     }
 }

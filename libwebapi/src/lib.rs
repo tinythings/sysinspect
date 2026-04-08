@@ -4,6 +4,7 @@ use colored::Colorize;
 use libcommon::SysinspectError;
 use libdatastore::resources::DataStorage;
 use libsysinspect::cfg::mmconf::MasterConfig;
+use once_cell::sync::OnceCell;
 use rustls::RootCertStore;
 use rustls::ServerConfig;
 use rustls::server::WebPkiClientVerifier;
@@ -14,6 +15,7 @@ use x509_parser::prelude::parse_x509_certificate;
 pub mod api;
 #[cfg(test)]
 mod lib_ut;
+#[cfg(feature = "pam")]
 pub mod pamauth;
 pub mod sessions;
 
@@ -25,6 +27,18 @@ pub trait MasterInterface: Send + Sync {
 }
 
 pub type MasterInterfaceType = Arc<Mutex<dyn MasterInterface + Send + Sync + 'static>>;
+
+static RUSTLS_PROVIDER: OnceCell<()> = OnceCell::new();
+
+pub fn ensure_rustls_crypto_provider() -> Result<(), SysinspectError> {
+    RUSTLS_PROVIDER.get_or_try_init(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .map_err(|_| SysinspectError::WebAPIError("Failed to install rustls crypto provider".to_string()))?;
+        Ok::<(), SysinspectError>(())
+    })?;
+    Ok(())
+}
 
 /// Determines the advertised API host for the Web API based on the bind address.
 fn advertised_api_host(bind_addr: &str) -> String {
@@ -95,6 +109,8 @@ fn cert_appears_self_signed(cert_der: &[u8]) -> Result<bool, SysinspectError> {
 /// the CA file for client certificate authentication.
 /// Returns a ServerConfig on success, or a SysinspectError with a user-friendly message on failure.
 fn load_tls_server_config(cfg: &MasterConfig) -> Result<ServerConfig, SysinspectError> {
+    ensure_rustls_crypto_provider()?;
+
     let cert_path = cfg
         .api_tls_cert_file()
         .ok_or_else(|| SysinspectError::ConfigError("Web API TLS is enabled, but api.tls.cert-file is not configured".to_string()))?;
@@ -178,6 +194,7 @@ pub fn start_embedded_webapi(cfg: MasterConfig, master: MasterInterfaceType) -> 
         log::info!("Embedded Web API disabled.");
         return Ok(());
     }
+    ensure_rustls_crypto_provider()?;
 
     if !cfg.api_tls_enabled() {
         log::error!(

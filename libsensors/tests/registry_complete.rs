@@ -1,5 +1,6 @@
 mod registry_complete_test {
     use libsensors::sensors;
+    use libsensors::sensors::SensorCtx;
     use libsensors::sspec::SensorSpec;
     use std::str::FromStr;
 
@@ -22,7 +23,7 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("sys.proc");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
     #[test]
@@ -30,7 +31,7 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("sys.mount");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
     #[test]
@@ -38,7 +39,7 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("net.packet");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
     #[test]
@@ -46,7 +47,7 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("net.hostname");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
     #[test]
@@ -54,7 +55,7 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("net.route");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
     #[test]
@@ -62,7 +63,7 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("net.wifi");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
     #[test]
@@ -70,7 +71,7 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("net.throughput");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
     #[test]
@@ -78,6 +79,6 @@ sensors:
         sensors::init_registry();
         let (sid, cfg) = cfg_for("net.health");
         let listener = cfg.listener().to_string();
-        assert!(sensors::init_sensor(&listener, sid, cfg).is_some());
+        assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 }

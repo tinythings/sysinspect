@@ -1,4 +1,4 @@
-use crate::{intp::functions::get_by_namespace, util};
+use crate::{cfg::APP_CONF, intp::functions::get_by_namespace, util};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use nix::libc;
@@ -67,6 +67,21 @@ pub static DEFAULT_MINION_LOG_STD: &str = "sysminion.standard.log";
 
 /// Default filename for the minion failures log
 pub static DEFAULT_MINION_LOG_ERR: &str = "sysminion.errors.log";
+pub static DEFAULT_MINION_BIN: &str = "sysminion";
+pub static DEFAULT_MINION_PID: &str = "sysinspect.pid";
+pub static DEFAULT_MINION_LOCAL_MARKER: &str = ".local";
+pub static DEFAULT_MINION_SYSTEM_BIN_DIR: &str = "/usr/bin";
+pub static DEFAULT_MINION_SYSTEM_RUN_DIR: &str = "/var/run";
+pub static DEFAULT_MINION_SYSTEM_LOG_DIR: &str = "/var/log";
+pub static DEFAULT_MINION_SYSTEM_DB_DIR: &str = "/tmp";
+pub static DEFAULT_MINION_BIN_DIR: &str = "bin";
+pub static DEFAULT_MINION_CFG_DIR: &str = "etc";
+pub static DEFAULT_MINION_RUN_DIR: &str = "run";
+pub static DEFAULT_MINION_LOG_DIR: &str = "tmp";
+pub static DEFAULT_MINION_TMP_DB_DIR: &str = "db";
+pub static DEFAULT_MINION_MACHINE_ID: &str = "/etc/machine-id";
+pub static DEFAULT_MINION_MACHINE_ID_REL: &str = "machine-id";
+pub static CFG_PENDING_TASKS_ROOT: &str = "pending-tasks";
 
 pub static DEFAULT_DATASTORE_ROOT: &str = "/var/lib/sysinspect/datastore";
 
@@ -145,6 +160,9 @@ pub static CFG_OTLP_COMPRESSION: &str = "gzip"; // or "zstd"
 // History keeping
 pub static CFG_HISTORY_LIMIT: usize = 100;
 pub static CFG_HISTORY_AGE: usize = 86400; // 1 day in seconds
+
+// CMDB refresh age
+pub static DEFAULT_CMDB_UPDATE_AGE: u64 = 7 * 24 * 60 * 60;
 
 /// Get a default location of a logfiles
 fn _logfile_path() -> PathBuf {
@@ -330,6 +348,47 @@ impl TaskConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum MinionPerformanceProfile {
+    /// Smallest steady-state thread footprint.
+    ///
+    /// Intended for constrained or embedded devices where memory matters more
+    /// than peak throughput.
+    Embedded,
+    /// Balanced thread sizing for ordinary hosts.
+    ///
+    /// This is the default profile and keeps the current general-purpose
+    /// behaviour without being overly aggressive.
+    #[default]
+    Default,
+    /// Throughput-biased thread sizing.
+    ///
+    /// Intended for busy hosts where the minion may run many concurrent tasks
+    /// and background activities.
+    Server,
+}
+
+impl MinionPerformanceProfile {
+    /// Runtime thread counts for one-shot registration/bootstrap mode.
+    pub fn register_threads(&self) -> (usize, usize) {
+        match self {
+            Self::Embedded => (1, 1),
+            Self::Default => (2, 2),
+            Self::Server => (4, 4),
+        }
+    }
+
+    /// Runtime thread counts for the long-lived daemon mode.
+    pub fn daemon_threads(&self) -> (usize, usize) {
+        match self {
+            Self::Embedded => (2, 2),
+            Self::Default => (4, 4),
+            Self::Server => (8, 8),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MinionConfig {
     /// Root directory where minion keeps all data.
     /// Default: /etc/sysinspect — same as for master
@@ -435,6 +494,16 @@ pub struct MinionConfig {
     #[serde(rename = "pidfile")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pidfile: Option<String>,
+
+    /// Runtime-performance profile for thread sizing.
+    ///
+    /// Available values:
+    /// - `embedded`: smallest thread footprint
+    /// - `default`: balanced defaults
+    /// - `server`: throughput-biased sizing
+    #[serde(rename = "performance")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    performance: Option<MinionPerformanceProfile>,
 }
 
 impl MinionConfig {
@@ -485,6 +554,21 @@ impl MinionConfig {
         self.pidfile = Some(p.to_string());
     }
 
+    /// Set daemon stdout log path.
+    pub fn set_logfile_std_path(&mut self, p: &str) {
+        self.log_main = Some(p.to_string());
+    }
+
+    /// Set daemon stderr log path.
+    pub fn set_logfile_err_path(&mut self, p: &str) {
+        self.log_err = Some(p.to_string());
+    }
+
+    /// Set runtime-performance profile.
+    pub fn set_performance(&mut self, profile: MinionPerformanceProfile) {
+        self.performance = Some(profile);
+    }
+
     /// Set temporary directory path for modules
     pub fn set_tmp_path(&mut self, p: &str) {
         self.tmp_path = Some(p.to_string());
@@ -503,6 +587,77 @@ impl MinionConfig {
     /// Get minion root directory
     pub fn root_dir(&self) -> PathBuf {
         PathBuf::from(self.root.clone().unwrap_or(DEFAULT_SYSINSPECT_ROOT.to_string()))
+    }
+
+    /// Return the configured runtime-performance profile.
+    ///
+    /// If the config omits it, `default` is used.
+    pub fn performance(&self) -> MinionPerformanceProfile {
+        self.performance.clone().unwrap_or_default()
+    }
+
+    fn uses_system_layout(&self) -> bool {
+        self.root_dir() == std::path::Path::new(DEFAULT_SYSINSPECT_ROOT)
+    }
+
+    /// Directory that holds the installed minion executable for this layout.
+    pub fn install_bin_dir(&self) -> PathBuf {
+        if self.uses_system_layout() { PathBuf::from(DEFAULT_MINION_SYSTEM_BIN_DIR) } else { self.root_dir().join(DEFAULT_MINION_BIN_DIR) }
+    }
+
+    /// Path to the installed minion executable for this layout.
+    pub fn install_bin_path(&self) -> PathBuf {
+        self.install_bin_dir().join(DEFAULT_MINION_BIN)
+    }
+
+    /// Directory that holds the minion configuration file for this layout.
+    pub fn config_dir(&self) -> PathBuf {
+        if self.uses_system_layout() { self.root_dir() } else { self.root_dir().join(DEFAULT_MINION_CFG_DIR) }
+    }
+
+    /// Path to the minion configuration file for this layout.
+    pub fn config_path(&self) -> PathBuf {
+        self.config_dir().join(APP_CONF)
+    }
+
+    /// Directory that holds the managed daemon pidfile for this layout.
+    pub fn managed_pidfile_dir(&self) -> PathBuf {
+        if self.uses_system_layout() { PathBuf::from(DEFAULT_MINION_SYSTEM_RUN_DIR) } else { self.root_dir().join(DEFAULT_MINION_RUN_DIR) }
+    }
+
+    /// Managed daemon pidfile path for this layout.
+    pub fn managed_pidfile_path(&self) -> PathBuf {
+        self.managed_pidfile_dir().join(DEFAULT_MINION_PID)
+    }
+
+    /// Directory that holds managed bootstrap and foreground logs for this layout.
+    pub fn managed_log_dir(&self) -> PathBuf {
+        if self.uses_system_layout() { PathBuf::from(DEFAULT_MINION_SYSTEM_LOG_DIR) } else { self.root_dir().join(DEFAULT_MINION_LOG_DIR) }
+    }
+
+    /// Managed foreground/bootstrapped stdout log path for this layout.
+    pub fn managed_logfile_std_path(&self) -> PathBuf {
+        self.managed_log_dir().join(DEFAULT_MINION_LOG_STD)
+    }
+
+    /// Managed foreground/bootstrapped stderr log path for this layout.
+    pub fn managed_logfile_err_path(&self) -> PathBuf {
+        self.managed_log_dir().join(DEFAULT_MINION_LOG_ERR)
+    }
+
+    /// Managed temp directory for runtime scratch data.
+    pub fn managed_tmp_dir(&self) -> PathBuf {
+        if self.uses_system_layout() { PathBuf::from(DEFAULT_TMP) } else { self.managed_log_dir().join(DEFAULT_MINION_TMP_DB_DIR) }
+    }
+
+    /// Managed database/cache directory for this layout.
+    pub fn managed_db_dir(&self) -> PathBuf {
+        if self.uses_system_layout() { PathBuf::from(DEFAULT_MINION_SYSTEM_DB_DIR) } else { self.root_dir().join(DEFAULT_MINION_LOG_DIR) }
+    }
+
+    /// Marker file used to declare a locally managed install in the destination root.
+    pub fn local_marker_path(&self) -> PathBuf {
+        self.root_dir().join(DEFAULT_MINION_LOCAL_MARKER)
     }
 
     /// Get root directory for models
@@ -529,6 +684,11 @@ impl MinionConfig {
         self.root_dir().join(CFG_PROFILES_ROOT)
     }
 
+    /// Root directory for persisted pending tasks.
+    pub fn pending_tasks_dir(&self) -> PathBuf {
+        self.root_dir().join(CFG_PENDING_TASKS_ROOT)
+    }
+
     /// Root for managed secure transport metadata on the minion.
     pub fn transport_root(&self) -> PathBuf {
         self.root_dir().join(CFG_TRANSPORT_ROOT)
@@ -548,13 +708,13 @@ impl MinionConfig {
     pub fn machine_id_path(&self) -> PathBuf {
         if let Some(mid) = self.machine_id.clone() {
             if mid.eq("relative") {
-                return self.root_dir().join("machine-id");
+                return self.root_dir().join(DEFAULT_MINION_MACHINE_ID_REL);
             } else {
                 return PathBuf::from(mid);
             }
         }
 
-        PathBuf::from("/etc/machine-id")
+        PathBuf::from(DEFAULT_MINION_MACHINE_ID)
     }
 
     /// Return sharelib path
@@ -589,6 +749,10 @@ impl MinionConfig {
 
     /// Return errors logfile in daemon mode
     pub fn logfile_err(&self) -> PathBuf {
+        if let Some(lfn) = &self.log_err {
+            return PathBuf::from(lfn);
+        }
+
         if let Some(lfn) = &self.log_main {
             return PathBuf::from(lfn);
         }
@@ -887,6 +1051,20 @@ pub struct MasterConfig {
     // Configuration of history keeping in the database per each cycle call
     history: Option<HistoryConfig>,
 
+    // Max age after which master refreshes CMDB records from current traits on startup
+    #[serde(rename = "cmdb-update", default, with = "humantime_serde::option")]
+    cmdb_update: Option<Duration>,
+
+    // Hopstart backend settings
+    #[serde(rename = "hopstart.batch")]
+    hopstart_batch: Option<usize>,
+
+    #[serde(rename = "hopstart.network.forward")]
+    hopstart_network_forward: Option<bool>,
+
+    #[serde(rename = "hopstart.on-start")]
+    hopstart_on_start: Option<bool>,
+
     // Clustered minions configuration
     cluster: Option<Vec<ClusteredMinion>>,
 
@@ -905,6 +1083,31 @@ pub struct MasterConfig {
     // Max size of a single item in the datastore in bytes. Default: unlimited
     #[serde(rename = "datastore.item-max-size", default, deserialize_with = "libcommon::humaninput::h2bytes")]
     datastore_item_max_size: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct HopstartConfig {
+    batch: Option<usize>,
+
+    #[serde(rename = "network.forward")]
+    network_forward: Option<bool>,
+
+    #[serde(rename = "on-start")]
+    on_start: Option<bool>,
+}
+
+impl HopstartConfig {
+    pub fn batch(&self) -> usize {
+        self.batch.unwrap_or(10)
+    }
+
+    pub fn network_forward(&self) -> bool {
+        self.network_forward.unwrap_or(false)
+    }
+
+    pub fn on_start(&self) -> bool {
+        self.on_start.unwrap_or(false)
+    }
 }
 
 impl MasterConfig {
@@ -953,6 +1156,14 @@ impl MasterConfig {
         }
 
         HistoryConfig::default()
+    }
+
+    pub fn cmdb_update(&self) -> Duration {
+        self.cmdb_update.unwrap_or_else(|| Duration::from_secs(DEFAULT_CMDB_UPDATE_AGE))
+    }
+
+    pub fn hopstart(&self) -> HopstartConfig {
+        HopstartConfig { batch: self.hopstart_batch, network_forward: self.hopstart_network_forward, on_start: self.hopstart_on_start }
     }
 
     /// Get OTLP configuration

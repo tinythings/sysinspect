@@ -15,13 +15,15 @@ use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
 use libmodpak::{MODPAK_SYNC_STATE, SysInspectModPakMinion};
+use libsensors::sensors::SensorCtx;
 use libsensors::sensors::menotify::MeNotifySensor;
 use libsensors::service::SensorService;
 use libsetup::get_ssh_client_ip;
+use libsetup::mnsetup::ensure_minion_tree;
 use libsysinspect::{
     cfg::{
         get_minion_config,
-        mmconf::{CFG_MASTER_KEY_PUB, DEFAULT_PORT, MinionConfig, SysInspectConfig},
+        mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, SysInspectConfig},
     },
     context,
     inspector::SysInspectRunner,
@@ -49,7 +51,7 @@ use libsysinspect::{
 use libsysproto::{
     MasterMessage, MinionMessage, ProtoConversion,
     errcodes::ProtoErrorCode,
-    payload::{ModStatePayload, PayloadType},
+    payload::{ModStatePayload, PayloadType, RegistrationReply},
     query::{
         MinionQuery, SCHEME_COMMAND,
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
@@ -81,6 +83,44 @@ use uuid::Uuid;
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
 
+fn minion_traits(cfg: &MinionConfig, q: bool) -> SystemTraits {
+    let mut traits = if q { traits::get_minion_traits_nolog(Some(cfg)) } else { traits::get_minion_traits(Some(cfg)) };
+    traits.put("minion.version".to_string(), json!(env!("CARGO_PKG_VERSION")));
+    traits
+}
+
+fn matches_target(cmd: &MasterMessage, minion_id: &str, traits: &SystemTraits) -> bool {
+    let tgt = cmd.target();
+    if !tgt.id().is_empty() {
+        return tgt.id().eq(minion_id);
+    }
+
+    if !tgt.hostnames().is_empty()
+        && !tgt.hostnames().into_iter().any(|pattern| {
+            glob::Pattern::new(&pattern).ok().is_some_and(|pattern| {
+                [
+                    dataconv::as_str(traits.get("system.hostname.fqdn")),
+                    dataconv::as_str(traits.get("system.hostname")),
+                    dataconv::as_str(traits.get("system.hostname.ip")),
+                ]
+                .into_iter()
+                .any(|label| !label.is_empty() && pattern.matches(&label))
+            })
+        })
+    {
+        return false;
+    }
+
+    if !tgt.traits_query().is_empty() {
+        return traits::parse_traits_query(tgt.traits_query())
+            .ok()
+            .and_then(|query| traits::to_typed_query(query).ok())
+            .is_some_and(|query| traits::matches_traits(query, traits.clone()));
+    }
+
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RotationCommandPayload {
     op: String,
@@ -90,6 +130,15 @@ struct RotationCommandPayload {
     reregister: bool,
     intent: SignedRotationIntent,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+enum RegistrationOutcome {
+    #[default]
+    Pending,
+    Accepted,
+    Rejected(String),
+}
+
 #[derive(Debug)]
 pub struct SysMinion {
     cfg: MinionConfig,
@@ -110,6 +159,7 @@ pub struct SysMinion {
     secure: Mutex<Option<SecureChannel>>,
 
     minion_id: String,
+    registration: Mutex<RegistrationOutcome>,
 
     pub(crate) sensors_task: Mutex<Option<JoinHandle<()>>>,
     pub(crate) sensors_pump: Mutex<Option<JoinHandle<()>>>,
@@ -142,6 +192,7 @@ impl SysMinion {
     pub async fn new(cfg: MinionConfig, fingerprint: Option<String>, dpq: Arc<DiskPersistentQueue>) -> Result<Arc<SysMinion>, SysinspectError> {
         log::debug!("Configuration: {cfg:#?}");
         log::debug!("Trying to connect at {}", cfg.master());
+        ensure_minion_tree(&cfg)?;
 
         let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
 
@@ -159,7 +210,8 @@ impl SysMinion {
             dpq,
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
-            minion_id: dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
+            minion_id: dataconv::as_str(SystemTraits::new(cfg.clone(), true).get(traits::SYS_ID)),
+            registration: Mutex::new(RegistrationOutcome::Pending),
             sensors_task: Mutex::new(None),
             sensors_pump: Mutex::new(None),
             ping_task: Mutex::new(None),
@@ -178,47 +230,21 @@ impl SysMinion {
     /// This creates all directory structures if none etc.
     fn init(&self) -> Result<(), SysinspectError> {
         log::info!("Initialising minion");
+        ensure_minion_tree(&self.cfg)?;
+
         // Machine id?
         if !self.cfg.machine_id_path().exists() {
             util::write_machine_id(Some(self.cfg.machine_id_path()))?;
         }
-
-        // Place for models
-        if !self.cfg.models_dir().exists() {
-            log::debug!("Creating directory for the models at {}", self.cfg.models_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.models_dir())?;
-        }
-
-        // Place for traits.d
-        if !self.cfg.traits_dir().exists() {
-            log::debug!("Creating directory for the drop-in traits at {}", self.cfg.traits_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.traits_dir())?;
-        }
         ensure_master_traits_file(&self.cfg)?;
-
-        // Place for trait functions
-        if !self.cfg.functions_dir().exists() {
-            log::debug!("Creating directory for the custom trait functions at {}", self.cfg.functions_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.functions_dir())?;
-        }
-
-        // Place for sensors config
-        if !self.cfg.sensors_dir().exists() {
-            log::debug!("Creating directory for the sensors config at {}", self.cfg.sensors_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.sensors_dir())?;
-        }
-
-        if !self.cfg.profiles_dir().exists() {
-            log::debug!("Creating directory for the synced profiles at {}", self.cfg.profiles_dir().as_os_str().to_str().unwrap_or_default());
-            fs::create_dir_all(self.cfg.profiles_dir())?;
-        }
         if let Err(err) = self.kman.ensure_transport_state(self.get_minion_id()) {
             log::warn!("Unable to refresh local transport state from RSA identity: {err}");
         }
 
         let mut out: Vec<String> = vec![];
-        for t in traits::get_minion_traits(Some(&self.cfg)).trait_keys() {
-            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(traits::get_minion_traits(None).get(&t)).unwrap_or_default()));
+        let minion_traits = minion_traits(&self.cfg, false);
+        for t in minion_traits.trait_keys() {
+            out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(minion_traits.get(&t)).unwrap_or_default()));
         }
         log::debug!("Minion traits:\n{}", out.join("\n"));
         let profiles = effective_profiles(&self.cfg);
@@ -263,9 +289,7 @@ impl SysMinion {
     /// Display minion info
     pub fn print_info(cfg: &MinionConfig) {
         let mut out: IndexMap<String, String> = IndexMap::new();
-        let mut systraits = traits::get_minion_traits_nolog(Some(cfg));
-
-        systraits.put("minion.version".to_string(), json!(env!("CARGO_PKG_VERSION")));
+        let mut systraits = minion_traits(cfg, true);
         systraits.put("uri.master".to_string(), json!(cfg.master()));
         systraits.put("uri.fileserver".to_string(), json!(cfg.fileserver()));
         systraits.put("path.models".to_string(), json!(cfg.models_dir()));
@@ -557,7 +581,7 @@ impl SysMinion {
 
         // Spawn service task and store it
         let sensors_task = {
-            let mut service = SensorService::new(spec);
+            let mut service = SensorService::new(spec).with_ctx(SensorCtx::default().with_sharelib_root(self.cfg.sharelib_dir()));
             service.set_event_processor(events.clone());
             service.spawn()
         };
@@ -629,7 +653,59 @@ impl SysMinion {
                     RequestType::Add => log::debug!("Master accepts registration"),
 
                     RequestType::Reconnect => {
-                        log::warn!("Master requires reconnection: {}", msg.payload());
+                        if let Some(pinned) = this.fingerprint.as_deref() {
+                            match serde_json::from_value::<RegistrationReply>(msg.payload().clone()) {
+                                Ok(reply) if !reply.accepted_flag() => {
+                                    log::error!("Registration rejected: {}", reply.message());
+                                    *this.registration.lock().await = RegistrationOutcome::Rejected(reply.message().to_string());
+                                }
+                                Ok(reply) => {
+                                    let master_pem = match reply.master_key_pem() {
+                                        Some(pem) if !pem.trim().is_empty() => pem,
+                                        _ => {
+                                            let err = "Registration reply did not include the master public key".to_string();
+                                            log::error!("{err}");
+                                            *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                            let _ = CONNECTION_TX.send(());
+                                            break;
+                                        }
+                                    };
+                                    let master_fp = match reply.master_fingerprint() {
+                                        Some(fp) if !fp.trim().is_empty() => fp,
+                                        _ => {
+                                            let err = "Registration reply did not include the master fingerprint".to_string();
+                                            log::error!("{err}");
+                                            *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                            let _ = CONNECTION_TX.send(());
+                                            break;
+                                        }
+                                    };
+                                    if master_fp.trim() != pinned.trim() {
+                                        let err = format!("Registration fingerprint mismatch: expected {}, got {}", pinned.trim(), master_fp.trim());
+                                        log::error!("{err}");
+                                        *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                    } else {
+                                        match this.kman.trust_master_identity(this.get_minion_id(), master_pem, Some(pinned)) {
+                                            Ok(fp) => {
+                                                log::info!("Trusted master fingerprint: {fp}");
+                                                *this.registration.lock().await = RegistrationOutcome::Accepted;
+                                            }
+                                            Err(err) => {
+                                                log::error!("Failed to persist trusted master identity: {err}");
+                                                *this.registration.lock().await = RegistrationOutcome::Rejected(err.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    let err = format!("Failed to decode registration reply: {err}");
+                                    log::error!("{err}");
+                                    *this.registration.lock().await = RegistrationOutcome::Rejected(err);
+                                }
+                            }
+                        } else {
+                            log::warn!("Master requires reconnection: {}", msg.payload());
+                        }
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -644,14 +720,13 @@ impl SysMinion {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
-                                let scheme = msg.target().scheme().to_string();
-
-                                if scheme.starts_with(SCHEME_COMMAND) {
-                                    this.as_ptr().call_internal_command(&scheme, msg.target().context()).await;
-                                    continue;
-                                }
-
-                                if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+                                if msg.target().scheme().starts_with(SCHEME_COMMAND) {
+                                    if matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, false)) {
+                                        this.clone().call_internal_command(msg.target().scheme(), msg.target().context()).await;
+                                    } else {
+                                        log::debug!("Dropped internal master command for another minion");
+                                    }
+                                } else if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
                                     log::error!("Failed to enqueue master command: {err}");
                                 } else {
                                     log::info!("Scheduled master command: {}", msg.target().scheme());
@@ -741,12 +816,12 @@ impl SysMinion {
                                     "cpu": cpu_usage,
                                 });
 
-                                this.request(proto::msg::get_pong(ProtoValue::PingTypeGeneral, Some(pl))).await;
+                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl))).await;
                             }
 
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 log::debug!("Received discovery ping from master");
-                                this.request(proto::msg::get_pong(ProtoValue::PingTypeDiscovery, None)).await;
+                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None)).await;
                             }
 
                             Err(err) => log::warn!("Invalid ping payload `{}`: {}", p, err),
@@ -781,7 +856,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
+        let fresh_traits = minion_traits(&self.cfg, false);
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
         self.request(r.sendable().map_err(|e| {
@@ -794,7 +869,7 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let fresh_traits = SystemTraits::new(self.cfg.clone(), false);
+        let fresh_traits = minion_traits(&self.cfg, false);
         let mut r = MinionMessage::new(dataconv::as_str(fresh_traits.get(traits::SYS_ID)), RequestType::Ehlo, fresh_traits.to_json_value()?);
         r.set_sid(MINION_SID.to_string());
 
@@ -805,7 +880,7 @@ impl SysMinion {
 
     /// Send registration request
     pub async fn send_registration(self: Arc<Self>, pbk_pem: String) -> Result<(), SysinspectError> {
-        let r = MinionMessage::new(dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)), RequestType::Add, json!(pbk_pem));
+        let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Add, json!(pbk_pem));
 
         log::info!("Registration request to {}", self.cfg.master());
         self.request(r.sendable()?).await;
@@ -837,11 +912,7 @@ impl SysMinion {
 
     /// Send bye message
     pub async fn send_bye(self: Arc<Self>) {
-        let r = MinionMessage::new(
-            dataconv::as_str(traits::get_minion_traits(None).get(traits::SYS_ID)),
-            RequestType::Bye,
-            json!(MINION_SID.to_string()),
-        );
+        let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Bye, json!(MINION_SID.to_string()));
 
         log::info!("Goodbye to {}", self.cfg.master());
         match r.sendable() {
@@ -1012,7 +1083,7 @@ impl SysMinion {
             sr.set_state(mqr_guard.state());
             sr.set_entities(mqr_guard.entities());
             sr.set_checkbook_labels(mqr_guard.checkbook_labels());
-            sr.set_traits(traits::get_minion_traits(None));
+            sr.set_traits(minion_traits(&self.cfg, false));
             sr.set_context(context::get_context(context));
 
             sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
@@ -1112,55 +1183,10 @@ impl SysMinion {
             log::error!("Cycle ID is empty!");
             return;
         }
-
-        let tgt = cmd.target();
-
-        // Is command minion-specific?
-        if !tgt.id().is_empty() && tgt.id().ne(&self.get_minion_id()) {
-            log::debug!("Command was dropped as it was specifically addressed for another minion");
+        if !matches_target(&cmd, self.get_minion_id(), &minion_traits(&self.cfg, false)) {
+            log::debug!("Command was dropped as it targets another minion");
             return;
-        } else if tgt.id().is_empty() {
-            let traits = traits::get_minion_traits(None);
-
-            // Is matching this host?
-            let mut skip = true;
-            let hostname = dataconv::as_str(traits.get("system.hostname.fqdn")); // Fully qualified domain name or short, if your network is crap
-            if !hostname.is_empty() {
-                for hq in tgt.hostnames() {
-                    if let Ok(hq) = glob::Pattern::new(&hq)
-                        && hq.matches(&hostname)
-                    {
-                        skip = false;
-                        break;
-                    }
-                }
-                if skip {
-                    log::debug!("Command was dropped as it is specifically targeting different hosts");
-                    return;
-                }
-            }
-
-            // Can match the host, but might not match by traits.
-            // For example, web* can match "webschool.com" or "webshop.com",
-            // but traits for those hosts might be different.
-            let tq = tgt.traits_query();
-            if !tq.is_empty() {
-                match traits::parse_traits_query(tq) {
-                    Ok(q) => {
-                        match traits::to_typed_query(q) {
-                            Ok(tpq) => {
-                                if !traits::matches_traits(tpq, traits::get_minion_traits(None)) {
-                                    log::debug!("Command was dropped as it does not match the traits");
-                                    return;
-                                }
-                            }
-                            Err(e) => log::error!("{e}"),
-                        };
-                    }
-                    Err(e) => log::error!("{e}"),
-                };
-            }
-        } // else: this minion is directly targeted by its Id.
+        }
 
         log::debug!("Through. {:?}", cmd.payload());
         self.as_ptr().pt_counter.lock().await.inc(cmd.cycle());
@@ -1225,13 +1251,42 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
     });
 
+    async fn stop_instance(minion: &Arc<SysMinion>, runner: tokio::task::JoinHandle<()>) -> Result<(), tokio::task::JoinError> {
+        minion.as_ptr().stop_sensors().await;
+        minion.as_ptr().stop_background().await;
+        runner.abort();
+        runner.await
+    }
+
     // Messages
     if minion.fingerprint.is_some() {
         minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_registration(minion.kman.get_pubkey_pem()).await?;
+        match reconnect_rx.recv().await {
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                runner.abort();
+                let _ = runner.await;
+                return Err(SysinspectError::ProtoError(format!("Missed {n} reconnect notification(s) while waiting for registration")));
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                runner.abort();
+                let _ = runner.await;
+                return Err(SysinspectError::ProtoError("Reconnect channel closed while waiting for registration".to_string()));
+            }
+        }
+        minion.as_ptr().stop_background().await;
+        runner.abort();
+        let _ = runner.await;
+        return match &*minion.registration.lock().await {
+            RegistrationOutcome::Accepted => Ok(()),
+            RegistrationOutcome::Rejected(err) => Err(SysinspectError::ProtoError(err.to_string())),
+            RegistrationOutcome::Pending => Err(SysinspectError::ProtoError("Registration ended without a trust decision".to_string())),
+        };
     } else {
         if let Err(err) = minion.bootstrap_secure().await {
             log::error!("Unable to bootstrap secure transport: {err}");
+            let _ = stop_instance(&minion, runner).await;
             return Err(err);
         }
         minion.as_ptr().do_proto().await?;
@@ -1239,7 +1294,10 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         if cfg.autosync_startup() {
             tokio::select! {
                 sync_res = modpak.sync() => {
-                    sync_res?;
+                    if let Err(err) = sync_res {
+                        let _ = stop_instance(&minion, runner).await;
+                        return Err(err);
+                    }
                 }
                 sig = reconnect_rx.recv() => {
                     match sig {
@@ -1303,14 +1361,15 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
 
 pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
     let mut reconnect_rx = CONNECTION_TX.subscribe();
+    let mut fp = fp;
     let mut ra = 0;
-    let dpq = match DiskPersistentQueue::open(cfg.root_dir().join("pending-tasks")) {
+    let dpq = match DiskPersistentQueue::open(cfg.root_dir().join(CFG_PENDING_TASKS_ROOT)) {
         Ok(dpq) => Arc::new(dpq),
         Err(e) => {
             log::error!("Failed to open disk persistent queue: {e}");
             log::error!(
                 "Is there another minion running? If not, delete the {} directory and try again.",
-                cfg.root_dir().join("pending-tasks").to_str().unwrap_or_default().bright_yellow()
+                cfg.root_dir().join(CFG_PENDING_TASKS_ROOT).to_str().unwrap_or_default().bright_yellow()
             );
             std::process::exit(1);
         }
@@ -1328,7 +1387,12 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             res = &mut mhdl => {
                 match res {
                     Ok(Ok(_)) => log::info!("Minion instance ended gracefully, reconnecting..."),
-                    Ok(Err(e)) => log::error!("Minion encountered an error: {e:?}"),
+                    Ok(Err(e)) => {
+                        log::error!("Minion encountered an error: {e:?}");
+                        if fp.is_some() {
+                            return;
+                        }
+                    }
                     Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
                 }
             }
@@ -1348,6 +1412,14 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
                     }
                 }
             }
+        }
+
+        if fp.is_some()
+            && cfg.root_dir().join(CFG_MASTER_KEY_PUB).exists()
+            && TransportStore::for_minion(&cfg).ok().and_then(|store| store.load().ok().flatten()).is_some()
+        {
+            log::info!("Registration trust is seeded; switching to secure startup.");
+            fp = None;
         }
 
         if !cfg.reconnect() {
@@ -1389,8 +1461,9 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
 
     if args.get_flag("with-default-config") {
         let mut cfg = MinionConfig::default();
-        cfg.set_master_ip(args.get_one::<String>("master-addr").unwrap_or(&get_ssh_client_ip().unwrap_or_default()));
-        cfg.set_master_port(DEFAULT_PORT);
+        let (ip, port) = setup_master_addr(args.get_one::<String>("master-addr").map(String::as_str), get_ssh_client_ip())?;
+        cfg.set_master_ip(&ip);
+        cfg.set_master_port(port);
 
         if !alt_dir.is_empty() {
             cfg.set_root_dir(dir.to_str().unwrap_or_default());
@@ -1406,6 +1479,31 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
     }
 
     libsetup::mnsetup::MinionSetup::new().set_config(get_minion_config(None)?).set_alt_dir(dir.to_str().unwrap_or_default().to_string()).setup()
+}
+
+pub(crate) fn setup_master_addr(addr: Option<&str>, ssh_ip: Option<String>) -> Result<(String, u32), SysinspectError> {
+    let addr = addr
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned)
+        .or(ssh_ip)
+        .ok_or_else(|| SysinspectError::ConfigError("Master address is missing".to_string()))?;
+
+    Ok(match addr.strip_prefix('[').and_then(|v| v.split_once(']')) {
+        Some((host, "")) => (host.to_string(), DEFAULT_PORT),
+        Some((host, rest)) => (
+            host.to_string(),
+            rest.strip_prefix(':')
+                .ok_or_else(|| SysinspectError::ConfigError(format!("Invalid master address: {addr}")))?
+                .parse::<u32>()
+                .map_err(|_| SysinspectError::ConfigError(format!("Invalid master address: {addr}")))?,
+        ),
+        None if addr.matches(':').count() == 1 => {
+            let (host, port) = addr.rsplit_once(':').unwrap_or_default();
+            (host.to_string(), port.parse::<u32>().map_err(|_| SysinspectError::ConfigError(format!("Invalid master address: {addr}")))?)
+        }
+        None => (addr, DEFAULT_PORT),
+    })
 }
 
 /// Launch a module

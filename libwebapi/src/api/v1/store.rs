@@ -37,11 +37,7 @@ pub struct StoreErrorResponse {
 
 fn unauthorised_store_error(err: libcommon::SysinspectError) -> actix_web::Error {
     let msg = err.to_string();
-    actix_web::error::InternalError::from_response(
-        err,
-        HttpResponse::Unauthorized().json(StoreErrorResponse { error: msg }),
-    )
-    .into()
+    actix_web::error::InternalError::from_response(err, HttpResponse::Unauthorized().json(StoreErrorResponse { error: msg })).into()
 }
 
 /// Get a list of all meta files within the datastore.

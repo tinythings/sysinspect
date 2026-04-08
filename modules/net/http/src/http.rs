@@ -210,8 +210,12 @@ impl<'a> HttpModule<'a> {
                     tls.client_key_file.as_deref().ok_or_else(|| "tls.client_key_file is required when tls.client_cert_file is set".to_string())?;
                 let cert = fs::read(cert_path).map_err(|e| format!("Unable to read client cert file '{cert_path}': {e}"))?;
                 let key = fs::read(key_path).map_err(|e| format!("Unable to read client key file '{key_path}': {e}"))?;
-                let identity =
-                    reqwest::Identity::from_pkcs8_pem(&cert, &key).map_err(|e| format!("Unable to parse client identity '{cert_path}': {e}"))?;
+                let mut pem = cert;
+                if !pem.ends_with(b"\n") {
+                    pem.push(b'\n');
+                }
+                pem.extend_from_slice(&key);
+                let identity = reqwest::Identity::from_pem(&pem).map_err(|e| format!("Unable to parse client identity '{cert_path}': {e}"))?;
                 Ok(builder.identity(identity))
             }
             None => Ok(builder),

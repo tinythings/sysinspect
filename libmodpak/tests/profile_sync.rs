@@ -185,6 +185,49 @@ async fn sync_fails_if_effective_profiles_are_missing_from_profiles_index() {
 }
 
 #[tokio::test]
+async fn sync_allows_implicit_default_when_profiles_index_is_empty() {
+    let master = tempfile::tempdir().expect("master tempdir should be created");
+    let repo = SysInspectModPak::new(master.path().join("data/repo")).expect("repo should be created");
+    add_script_module(&master.path().join("data/repo"), "alpha.demo", "# alpha");
+    set_script_modules(&master.path().join("data/repo"), &["alpha.demo"]);
+    let _ = repo;
+
+    let (port, server) = start_fileserver(master.path().join("data")).await;
+    let minion = tempfile::tempdir().expect("minion tempdir should be created");
+    let share = tempfile::tempdir().expect("share tempdir should be created");
+    let cfg = configured_minion(minion.path(), share.path(), port);
+    fs::create_dir_all(cfg.traits_dir()).expect("traits dir should be created");
+    ensure_master_traits_file(&cfg).expect("master traits file should exist");
+
+    SysInspectModPakMinion::new(cfg).sync().await.expect("sync should work without explicit profiles");
+    assert!(share.path().join("modules/alpha/demo").exists());
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn sync_allows_implicit_default_when_profiles_index_has_named_profiles() {
+    let master = tempfile::tempdir().expect("master tempdir should be created");
+    let repo = SysInspectModPak::new(master.path().join("data/repo")).expect("repo should be created");
+    add_script_module(&master.path().join("data/repo"), "alpha.demo", "# alpha");
+    set_script_modules(&master.path().join("data/repo"), &["alpha.demo"]);
+    repo.new_profile("Existing").expect("Existing should be created");
+    repo.add_profile_matches("Existing", vec!["alpha.demo".to_string()], false).expect("Existing selector should be added");
+
+    let (port, server) = start_fileserver(master.path().join("data")).await;
+    let minion = tempfile::tempdir().expect("minion tempdir should be created");
+    let share = tempfile::tempdir().expect("share tempdir should be created");
+    let cfg = configured_minion(minion.path(), share.path(), port);
+    fs::create_dir_all(cfg.traits_dir()).expect("traits dir should be created");
+    ensure_master_traits_file(&cfg).expect("master traits file should exist");
+
+    SysInspectModPakMinion::new(cfg).sync().await.expect("sync should work with implicit default");
+    assert!(share.path().join("modules/alpha/demo").exists());
+
+    server.abort();
+}
+
+#[tokio::test]
 async fn sync_rejects_profile_paths_with_traversal_components() {
     let master = tempfile::tempdir().expect("master tempdir should be created");
     fs::create_dir_all(master.path().join("data")).expect("data dir should be created");

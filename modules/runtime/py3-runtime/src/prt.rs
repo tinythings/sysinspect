@@ -2,7 +2,7 @@ use libcommon::SysinspectError;
 use libmodcore::{helpers::RuntimePackageKit, rtdocschema::validate_module_doc, rtspec::RuntimeSpec};
 use rustpython::InterpreterBuilderExt;
 use rustpython_vm::{
-    Interpreter, PyObjectRef, PyResult, Settings, VirtualMachine,
+    Interpreter, InterpreterBuilder, PyObjectRef, PyResult, VirtualMachine,
     builtins::PyStr,
     compiler::Mode::Exec,
     function::{FuncArgs, KwArgs},
@@ -229,11 +229,7 @@ impl Py3Runtime {
     pub fn new(sharelib_root: PathBuf) -> Result<Self> {
         let scripts_dir = sharelib_root.join("lib/runtime/python3");
         let lib_dir = scripts_dir.join("site-packages");
-        let mut cfg = Settings::default();
-        cfg.path_list.push(scripts_dir.to_string_lossy().to_string());
-        cfg.path_list.push(lib_dir.to_string_lossy().to_string());
-
-        let builder = rustpython::Interpreter::builder(cfg);
+        let builder = InterpreterBuilder::new();
         let rtlog_def = rtlog::module_def(&builder.ctx);
         let rtpackagekit_def = rtpackagekit::module_def(&builder.ctx);
         let itp = builder.init_stdlib().add_native_module(rtlog_def).add_native_module(rtpackagekit_def).build();

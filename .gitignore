@@ -11,6 +11,6 @@ package/
 /*/html-docs
 .gitignore
 **/build/
-TODO.txt
+TODO*txt
 DESIGN.txt
 .vscode/

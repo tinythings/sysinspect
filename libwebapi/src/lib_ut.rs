@@ -1,4 +1,7 @@
-use super::{advertised_doc_message, advertised_doc_url, devmode_doc_warning_message, load_tls_server_config, tls_context_summary, tls_paths_summary, tls_self_signed_warning_message, tls_setup_err_message};
+use super::{
+    advertised_doc_message, advertised_doc_url, devmode_doc_warning_message, load_tls_server_config, tls_context_summary, tls_paths_summary,
+    tls_self_signed_warning_message, tls_setup_err_message,
+};
 use libsysinspect::cfg::mmconf::MasterConfig;
 use std::{fs, path::Path, path::PathBuf};
 
@@ -7,13 +10,8 @@ const KEY_PEM: &str = include_str!("../tests/data/sysmaster-dev.key");
 
 fn write_cfg(root: &Path, extra: &str) -> MasterConfig {
     let cfg_path = root.join("sysinspect.conf");
-    fs::write(
-        &cfg_path,
-        format!(
-            "config:\n  master:\n    fileserver.models: []\n    api.bind.ip: 127.0.0.1\n    api.bind.port: 4202\n{extra}"
-        ),
-    )
-    .unwrap();
+    fs::write(&cfg_path, format!("config:\n  master:\n    fileserver.models: []\n    api.bind.ip: 127.0.0.1\n    api.bind.port: 4202\n{extra}"))
+        .unwrap();
     MasterConfig::new(cfg_path).unwrap()
 }
 
@@ -45,10 +43,7 @@ fn advertised_doc_message_is_present_when_docs_are_enabled() {
 
 #[test]
 fn advertised_doc_message_reports_when_docs_are_disabled() {
-    assert_eq!(
-        advertised_doc_message("127.0.0.1", 4202, true, false),
-        "Embedded Web API enabled. API documentation is not enabled.".to_string()
-    );
+    assert_eq!(advertised_doc_message("127.0.0.1", 4202, true, false), "Embedded Web API enabled. API documentation is not enabled.".to_string());
 }
 
 #[test]
@@ -126,11 +121,7 @@ fn load_tls_server_config_rejects_self_signed_certificate_without_allow_insecure
     let (cert, key) = write_tls_fixture(root.path());
     let cfg = write_cfg(
         root.path(),
-        &format!(
-            "    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n",
-            cert.display(),
-            key.display()
-        ),
+        &format!("    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n", cert.display(), key.display()),
     );
 
     let err = load_tls_server_config(&cfg).unwrap_err().to_string();
@@ -142,10 +133,7 @@ fn load_tls_server_config_rejects_self_signed_certificate_without_allow_insecure
 fn load_tls_server_config_rejects_missing_private_key() {
     let root = tempfile::tempdir().unwrap();
     let (cert, _) = write_tls_fixture(root.path());
-    let cfg = write_cfg(
-        root.path(),
-        &format!("    api.tls.enabled: true\n    api.tls.cert-file: {}\n", cert.display()),
-    );
+    let cfg = write_cfg(root.path(), &format!("    api.tls.enabled: true\n    api.tls.cert-file: {}\n", cert.display()));
 
     let err = load_tls_server_config(&cfg).unwrap_err().to_string();
     assert!(err.contains("api.tls.key-file"));
@@ -177,12 +165,7 @@ fn tls_paths_summary_reports_configured_locations() {
     let (cert, key) = write_tls_fixture(root.path());
     let cfg = write_cfg(
         root.path(),
-        &format!(
-            "    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n",
-            cert.display(),
-            key.display(),
-            cert.display()
-        ),
+        &format!("    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.ca-file: {}\n", cert.display(), key.display(), cert.display()),
     );
 
     let summary = tls_paths_summary(&cfg);

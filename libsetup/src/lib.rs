@@ -1,5 +1,9 @@
 use std::env;
 
+#[cfg(test)]
+mod local_marker_ut;
+
+pub mod local_marker;
 pub mod mnsetup;
 
 /// Get SSH user IP.

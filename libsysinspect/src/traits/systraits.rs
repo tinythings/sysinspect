@@ -1,8 +1,9 @@
 use crate::{
     cfg::mmconf::MinionConfig,
     traits::{
-        HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, MASTER_TRAITS_FILE, SYS_ID, SYS_NET_HOSTNAME,
-        SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION, TraitSource, TraitsTransportPayload,
+        HW_CPU_BRAND, HW_CPU_CORES, HW_CPU_FREQ, HW_CPU_TOTAL, HW_CPU_VENDOR, HW_MEM, HW_SWAP, MASTER_TRAITS_FILE, SYS_ARCH, SYS_ID,
+        SYS_NET_HOSTNAME, SYS_NET_HOSTNAME_FQDN, SYS_NET_HOSTNAME_IP, SYS_OS_DISTRO, SYS_OS_KERNEL, SYS_OS_NAME, SYS_OS_VERSION, TraitSource,
+        TraitsTransportPayload,
     },
     util::sys::to_fqdn_ip,
 };
@@ -163,8 +164,11 @@ impl SystemTraits {
             self.put(SYS_NET_HOSTNAME.to_string(), json!(v));
         }
 
-        if let Some((fqdn, ipaddr)) = to_fqdn_ip(&sysinfo::System::host_name().unwrap_or_default()) {
+        let host_net = to_fqdn_ip(&sysinfo::System::host_name().unwrap_or_default());
+        if let Some((fqdn, _)) = &host_net {
             self.put(SYS_NET_HOSTNAME_FQDN.to_string(), json!(fqdn));
+        }
+        if let Some(ipaddr) = host_net.map(|(_, ip)| ip).or_else(crate::util::sys::primary_ip) {
             self.put(SYS_NET_HOSTNAME_IP.to_string(), json!(ipaddr.to_string()));
         }
 
@@ -178,6 +182,15 @@ impl SystemTraits {
 
         self.put(SYS_OS_NAME.to_string(), json!(super::os_display_name(super::current_os_type())));
         self.put(SYS_OS_DISTRO.to_string(), json!(super::current_os_type()));
+        self.put(
+            SYS_ARCH.to_string(),
+            json!(match std::env::consts::ARCH {
+                "aarch64" => "arm64",
+                "arm" | "armv7" | "armv7l" => "arm",
+                "riscv64" => "riscv",
+                arch => arch,
+            }),
+        );
 
         // Machine Id (not always there)
         let mut mid = String::default();

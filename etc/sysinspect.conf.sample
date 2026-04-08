@@ -58,6 +58,10 @@ config:
       limit: 10 # Maximum number of history entries to keep in the database
       age: 30 # Units?
 
+    # Refresh stale CMDB host facts from current traits on startup.
+    # Default: 1w
+    # cmdb-update: 1w
+
     # Telemetry configuration
     telemetry:
       collector.grpc: 10.1.2.3:4317

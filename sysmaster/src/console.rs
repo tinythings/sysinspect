@@ -7,6 +7,8 @@
 
 use super::*;
 
+use crate::hopstart::{HopStartTarget, HopStarter};
+use libmodpak::{SysInspectModPak, compare_versions};
 use libsysinspect::{
     console::{
         ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
@@ -41,6 +43,46 @@ type ConsoleOutcome = (ConsoleResponse, Vec<MasterMessage>);
 #[derive(Debug, Clone, Deserialize)]
 struct TransportStatusConsoleRequest {
     filter: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CmdbStartupConsoleRequest {
+    user: String,
+    host: String,
+    root: String,
+    bin: String,
+    path: String,
+    backend: String,
+}
+
+impl CmdbStartupConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Err(SysinspectError::InvalidQuery("CMDB update requires startup inventory context".to_string()));
+        }
+
+        let request = serde_json::from_str::<Self>(context)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse CMDB request context: {err}")))?;
+
+        for (name, value) in [
+            ("user", request.user.as_str()),
+            ("host", request.host.as_str()),
+            ("root", request.root.as_str()),
+            ("bin", request.bin.as_str()),
+            ("path", request.path.as_str()),
+            ("backend", request.backend.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(SysinspectError::InvalidQuery(format!("CMDB field {name} must not be empty")));
+            }
+        }
+
+        Ok(request)
+    }
+
+    fn into_startup(self) -> crate::registry::rec::MinionCmdbStartup {
+        crate::registry::rec::MinionCmdbStartup::new(self.user, self.host, self.root, self.bin, self.path, self.backend)
+    }
 }
 
 impl TransportStatusConsoleRequest {
@@ -121,24 +163,47 @@ impl SysMaster {
     /// and the current session liveness table. No presentation formatting is
     /// applied here.
     async fn online_minions_data(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<ConsoleOnlineMinionRow>, SysinspectError> {
-        let targets = self.selected_minions(query, traits, mid).await?;
-        let mut session = self.session.lock().await;
-        let mut rows = Vec::with_capacity(targets.len());
-
-        for minion in targets {
-            let minion_id = minion.id().to_string();
-            let alive = session.alive(&minion_id);
-            let (fqdn, hostname) = Self::preferred_host(&minion);
-            rows.push(ConsoleOnlineMinionRow {
-                fqdn,
-                hostname,
-                ip: minion.get_traits().get("system.hostname.ip").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                minion_id,
-                alive,
-            });
-        }
-
-        Ok(rows)
+        Ok({
+            let repo_versions = SysInspectModPak::new(self.cfg.get_mod_repo_root())
+                .ok()
+                .map(|repo| {
+                    repo.minion_builds().into_iter().fold(std::collections::BTreeMap::new(), |mut rows, row| {
+                        rows.insert((row.platform().to_string(), row.arch().to_string()), row.version().to_string());
+                        rows
+                    })
+                })
+                .unwrap_or_default();
+            let selected = self.selected_minions(query, traits, mid).await?;
+            let mut session = self.session.lock().await;
+            {
+                let mut rows = Vec::with_capacity(selected.len());
+                for minion in selected {
+                    let cmdb = self.mreg.lock().await.get_cmdb(minion.id()).unwrap_or_default();
+                    let (fqdn, hostname, ip) = Self::preferred_host(&minion, cmdb.as_ref());
+                    let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let target_version = repo_versions
+                        .get(&(
+                            minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                            minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        ))
+                        .cloned()
+                        .unwrap_or_default();
+                    rows.push(ConsoleOnlineMinionRow {
+                        fqdn,
+                        hostname,
+                        ip,
+                        minion_id: minion.id().to_string(),
+                        alive: session.alive(minion.id()),
+                        outdated: !current_version.is_empty()
+                            && !target_version.is_empty()
+                            && compare_versions(&current_version, &target_version).is_lt(),
+                        version: current_version,
+                        target_version,
+                    });
+                }
+                rows
+            }
+        })
     }
 
     /// Build the full trait-backed info payload for exactly one selected minion.
@@ -195,20 +260,83 @@ impl SysMaster {
             return Ok((ConsoleResponse::err("Unregister requires a minion id"), vec![]));
         }
 
-        let msg = self.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", "", mid, "").await;
-
-        log::info!("Removing minion {}", mid);
-        if let Err(err) = self.mreg.lock().await.remove(mid) {
-            return Err(SysinspectError::MasterGeneralError(format!("Unable to remove minion {mid}: {err}")));
+        let targets = self.selected_minions("", "", mid).await?;
+        if targets.is_empty() {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to find minion {mid}")));
         }
-        if let Err(err) = self.mkr().remove_mn_key(mid) {
-            return Err(SysinspectError::MasterGeneralError(format!("Unable to unregister minion {mid}: {err}")));
+        if targets.len() > 1 {
+            return Err(SysinspectError::MasterGeneralError(format!(
+                "Unregister requires exactly one matching minion, but {} were selected",
+                targets.len()
+            )));
+        }
+        let target = targets.into_iter().next().expect("validated exactly one selected minion");
+        let msg = self.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "", "", target.id(), "").await;
+
+        log::info!("Removing minion {}", target.id());
+        if let Err(err) = self.mreg.lock().await.remove(target.id()) {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to remove minion {}: {err}", target.id())));
+        }
+        if let Err(err) = self.mkr().remove_mn_key(target.id()) {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to unregister minion {}: {err}", target.id())));
         }
 
         Ok((
-            ConsoleResponse::ok(ConsolePayload::Ack { action: "remove_minion".to_string(), target: mid.to_string(), count: 1, items: vec![] }),
+            ConsoleResponse::ok(ConsolePayload::Ack {
+                action: "remove_minion".to_string(),
+                target: target.id().to_string(),
+                count: 1,
+                items: vec![],
+            }),
             msg.into_iter().collect(),
         ))
+    }
+
+    async fn upsert_cmdb_console_response(&mut self, mid: &str, context: &str) -> Result<ConsoleResponse, SysinspectError> {
+        if mid.trim().is_empty() {
+            return Ok(ConsoleResponse::err("CMDB update requires a minion id"));
+        }
+        if !self.mkr().is_registered(mid) {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to find registered minion {mid} for CMDB update")));
+        }
+
+        let startup = CmdbStartupConsoleRequest::from_context(context)?.into_startup();
+        self.mreg.lock().await.upsert_cmdb_startup(mid, startup)?;
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "cmdb_upsert".to_string(), target: mid.to_string(), count: 1, items: vec![] }))
+    }
+
+    async fn hopstart_console_response(&mut self, query: &str, traits: &str, mid: &str) -> Result<ConsoleResponse, SysinspectError> {
+        let mut targets = Vec::new();
+        let selected = self.selected_minions(query, traits, mid).await?;
+        let mut session = self.session.lock().await;
+
+        for minion in selected {
+            if session.alive(minion.id()) {
+                continue;
+            }
+            if let Ok(Some(cmdb)) = self.mreg.lock().await.get_cmdb(minion.id()) {
+                if cmdb.backend() != Some("hopstart") {
+                    continue;
+                }
+                if let (Some(host), Some(root), Some(user), Some(bin), Some(config)) =
+                    (cmdb.host(), cmdb.root(), cmdb.user(), cmdb.bin(), cmdb.config())
+                {
+                    targets.push(HopStartTarget::new(host.to_string(), root.to_string(), user.to_string(), bin.to_string(), config.to_string()));
+                } else {
+                    log::error!("Hop-start skipped for {}: incomplete CMDB startup inventory", minion.id());
+                }
+            }
+        }
+
+        HopStarter::new(self.cfg.hopstart()).issue(targets.clone()).await;
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack {
+            action: "hopstart_issued".to_string(),
+            target: String::new(),
+            count: targets.len(),
+            items: vec![],
+        }))
     }
 
     /// Register the concrete minion ids targeted by one outbound console message.
@@ -286,6 +414,13 @@ impl SysMaster {
             return response;
         }
 
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}")) {
+            return match master.lock().await.hopstart_console_response(&query.query, "", &query.mid).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(err.to_string()),
+            };
+        }
+
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}")) {
             let (response, msgs) = {
                 let mut guard = master.lock().await;
@@ -296,6 +431,13 @@ impl SysMaster {
             };
             Self::broadcast_console_messages(Arc::clone(&master), bcast, cfg, msgs, false).await;
             return response;
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_CMDB_UPSERT}")) {
+            return match master.lock().await.upsert_cmdb_console_response(&query.mid, &query.context).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(format!("Unable to upsert CMDB: {err}")),
+            };
         }
 
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
@@ -429,6 +571,14 @@ impl SysMaster {
             }
             if records.is_empty() {
                 records = registry.get_by_query(mid)?;
+            }
+            if records.is_empty() {
+                records = registry
+                    .get_registered_ids()?
+                    .into_iter()
+                    .filter(|id| id.starts_with(mid))
+                    .filter_map(|id| registry.get(&id).ok().flatten())
+                    .collect();
             }
             records
         } else if !traits.trim().is_empty() {
@@ -659,7 +809,8 @@ impl SysMaster {
 
         for minion in targets {
             let minion_id = minion.id().to_string();
-            let (fqdn, hostname) = Self::preferred_host(&minion);
+            let cmdb = self.mreg.lock().await.get_cmdb(minion.id()).unwrap_or_default();
+            let (fqdn, hostname, _ip) = Self::preferred_host(&minion, cmdb.as_ref());
             let state = TransportStore::for_master_minion(&self.cfg, &minion_id)?.load()?;
             if let Some(state) = state {
                 let last_rotated_at = state.active_key_id.as_ref().and_then(|active_key| {

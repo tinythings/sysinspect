@@ -137,11 +137,7 @@ impl<T> Pipe for T {}
 impl Sensor for NetHostnameSensor {
     /// Creates a production `net.hostname` sensor instance.
     fn new(id: String, cfg: SensorConf) -> Self {
-        Self {
-            sid: id,
-            cfg: cfg.clone(),
-            mk: Arc::new(Self::make_sensor),
-        }
+        Self { sid: id, cfg: cfg.clone(), mk: Arc::new(Self::make_sensor) }
     }
 
     /// Returns the public listener id for this sensor type.
@@ -178,12 +174,7 @@ struct BridgeCb {
 impl BridgeCb {
     /// Creates a callback bridge for hostname events only.
     fn new(sid: String, lst: String, lock: bool) -> Self {
-        Self {
-            mask: NetToolsMask::HOSTNAME_CHANGED.bits(),
-            sid,
-            lst,
-            lock,
-        }
+        Self { mask: NetToolsMask::HOSTNAME_CHANGED.bits(), sid, lst, lock }
     }
 
     /// Builds a stable event id for a hostname change.

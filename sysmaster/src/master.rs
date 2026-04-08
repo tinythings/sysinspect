@@ -21,7 +21,6 @@ use libeventreg::{
     ipcs::DbIPCService,
     kvdb::{EventMinion, EventsRegistry},
 };
-use libmodpak::SysInspectModPak;
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
     console::ensure_console_keypair,
@@ -35,12 +34,12 @@ use libsysinspect::{
 use libsysproto::{
     self, MasterMessage, MinionMessage, MinionTarget,
     errcodes::ProtoErrorCode,
-    payload::{ModStatePayload, PingData},
+    payload::{ModStatePayload, PingData, RegistrationReply},
     query::{
         SCHEME_COMMAND,
         commands::{
-            CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE,
-            CLUSTER_TRANSPORT_STATUS,
+            CLUSTER_CMDB_UPSERT, CLUSTER_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION,
+            CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
     rqtypes::{ProtoKey, ProtoValue, RequestType},
@@ -240,11 +239,21 @@ impl SysMaster {
         PeerTransport::accept_bootstrap_auth_then_replay_for_test(cache, state, hello, master_prk, minion_pbk, now)
     }
 
+    #[cfg(test)]
+    pub(crate) fn should_replace_existing_session_for_test(existing_sid: Option<&str>, incoming_sid: &str) -> bool {
+        Self::should_replace_existing_session(existing_sid, incoming_sid)
+    }
+
+    fn should_replace_existing_session(existing_sid: Option<&str>, incoming_sid: &str) -> bool {
+        existing_sid.is_some_and(|sid| !sid.is_empty() && sid == incoming_sid)
+    }
+
     /// Start sysmaster
     pub async fn init(&mut self) -> Result<(), SysinspectError> {
         log::info!("Starting master at {}", self.cfg.bind_addr().bright_yellow());
         ensure_console_keypair(&self.cfg.root_dir())?;
         std::fs::create_dir_all(self.cfg.console_keys_root()).map_err(SysinspectError::IoErr)?;
+        self.backfill_cmdb().await?;
         self.vmcluster.init().await?;
         Ok(())
     }
@@ -255,6 +264,19 @@ impl SysMaster {
 
     pub fn cfg_ref(&self) -> &MasterConfig {
         &self.cfg
+    }
+
+    async fn backfill_cmdb(&mut self) -> Result<(), SysinspectError> {
+        let ids = self.mkr.registered_ids();
+        let cmdb_update = self.cfg.cmdb_update();
+        let mut mreg = self.mreg.lock().await;
+        for mid in ids {
+            mreg.ensure_cmdb_registered(&mid)?;
+            if mreg.reconcile_cmdb(&mid, cmdb_update)? {
+                log::info!("Reconciled stale CMDB record for {} from current traits", mid);
+            }
+        }
+        Ok(())
     }
 
     /// Get broadcast sender for master messages
@@ -282,11 +304,69 @@ impl SysMaster {
     }
 
     /// Decode one raw peer frame through the transport manager using the current master configuration and key registry.
-    fn decode_peer_frame(&mut self, peer_addr: &str, raw: &[u8]) -> Result<IncomingFrame, SysinspectError> {
+    async fn decode_peer_frame(&mut self, peer_addr: &str, raw: &[u8]) -> Result<IncomingFrame, SysinspectError> {
+        if let Ok(libsysproto::secure::SecureFrame::BootstrapHello(hello)) = serde_json::from_slice::<libsysproto::secure::SecureFrame>(raw)
+            && let Some(addr) = self.peer_transport.peer_addr(&hello.binding.minion_id, peer_addr)
+            && !self.conn_to_mid.contains_key(&addr)
+        {
+            self.drop_replaced_peer(&addr, &hello.binding.minion_id).await;
+        }
         let cfg = self.cfg.clone();
+        let peer_label =
+            if let Ok(libsysproto::secure::SecureFrame::BootstrapHello(hello)) = serde_json::from_slice::<libsysproto::secure::SecureFrame>(raw) {
+                self.resolved_peer_label(&hello.binding.minion_id, peer_addr).await
+            } else {
+                peer_addr.to_string()
+            };
         let peer_transport = &mut self.peer_transport;
         let mkr = &mut self.mkr;
-        peer_transport.decode_frame(peer_addr, raw, &cfg, mkr)
+        peer_transport.decode_frame(peer_addr, &peer_label, raw, &cfg, mkr)
+    }
+
+    fn peer_label(host: &str, peer_addr: &str) -> String {
+        peer_addr.parse::<std::net::SocketAddr>().map(|addr| format!("{host}:{}", addr.port())).unwrap_or_else(|_| host.to_string())
+    }
+
+    async fn resolved_peer_label(&self, minion_id: &str, peer_addr: &str) -> String {
+        if let (Ok(Some(minion)), Ok(cmdb)) = {
+            let mreg = self.mreg.lock().await;
+            (mreg.get(minion_id), mreg.get_cmdb(minion_id))
+        } {
+            let (fqdn, hostname, ip) = Self::preferred_host(&minion, cmdb.as_ref());
+            if !fqdn.is_empty() {
+                return Self::peer_label(&fqdn, peer_addr);
+            }
+            if !hostname.is_empty() {
+                return Self::peer_label(&hostname, peer_addr);
+            }
+            if !ip.is_empty() {
+                return Self::peer_label(&ip, peer_addr);
+            }
+        }
+        peer_addr.to_string()
+    }
+
+    /// Drop replaced peer state for one reconnecting minion.
+    async fn drop_replaced_peer(&mut self, peer_addr: &str, minion_id: &str) {
+        log::warn!("Replacing stale peer {} for minion {}", peer_addr, minion_id);
+        if self.conn_to_mid.get(peer_addr).is_some_and(|mid| mid == minion_id) {
+            self.conn_to_mid.remove(peer_addr);
+        }
+        self.get_session().lock().await.remove(minion_id);
+        self.peer_transport.remove_peer(peer_addr);
+    }
+
+    /// Drop one existing runtime session for a reconnecting minion when the supervisor reuses the same sid.
+    async fn drop_existing_runtime_session(&mut self, minion_addr: &str, minion_id: &str) {
+        if let Some(addr) = self.conn_to_mid.iter().find_map(|(addr, mid)| (addr != minion_addr && mid == minion_id).then_some(addr.clone())) {
+            log::warn!("Replacing stale runtime session {} for minion {}", addr, minion_id);
+            self.conn_to_mid.remove(&addr);
+            self.peer_transport.remove_peer(&addr);
+        } else if let Some(addr) = self.peer_transport.peer_addr(minion_id, minion_addr) {
+            log::warn!("Replacing stale pre-EHLO peer {} for minion {}", addr, minion_id);
+            self.peer_transport.remove_peer(&addr);
+        }
+        self.get_session().lock().await.remove(minion_id);
     }
 
     /// XXX: That needs to be out to the telemetry::otel::OtelLogger instead!
@@ -372,7 +452,11 @@ impl SysMaster {
 
         log::debug!("Context: {context}");
 
-        let hostnames: Vec<String> = query.split(',').map(|h| h.to_string()).collect();
+        let hostnames: Vec<String> = if query.trim().is_empty() {
+            vec![]
+        } else {
+            query.split(',').map(str::trim).filter(|hostname| !hostname.is_empty()).map(ToString::to_string).collect()
+        };
         let mut tgt = MinionTarget::new(mid, "");
         tgt.set_scheme(querypath);
         tgt.set_context_query(context);
@@ -384,7 +468,7 @@ impl SysMaster {
             if is_virtual { "yes".bright_green() } else { "no".bright_red() }
         );
 
-        let mut targeted = false;
+        let mut targeted = !mid.trim().is_empty();
         if is_virtual && let Some(decided) = self.vmcluster.decide(&query, traits).await {
             for hostname in decided.iter() {
                 log::debug!("Virtual minion requested. Decided to run on a physical: {}", hostname.bright_yellow());
@@ -493,11 +577,11 @@ impl SysMaster {
         m
     }
 
-    /// Accept registration
-    fn msg_registered(&self, mid: String, msg: &str) -> MasterMessage {
-        let mut m = MasterMessage::new(RequestType::Reconnect, json!(msg)); // XXX: Should it be already encrypted?
+    /// Accept or reject one registration attempt.
+    fn msg_registered(&self, mid: String, reply: RegistrationReply) -> MasterMessage {
+        let mut m = MasterMessage::new(RequestType::Reconnect, json!(reply));
         m.set_target(MinionTarget::new(&mid, ""));
-        m.set_retcode(ProtoErrorCode::Success);
+        m.set_retcode(if reply.accepted_flag() { ProtoErrorCode::Success } else { ProtoErrorCode::GeneralFailure });
 
         m
     }
@@ -540,22 +624,56 @@ impl SysMaster {
     async fn on_registration_request(&mut self, minion_addr: &str, minion_id: &str, payload: &str, bcast: &broadcast::Sender<MasterMessage>) {
         log::info!("Minion \"{minion_addr}\" requested registration");
         self.peer_transport.allow_plaintext(minion_addr);
-        let resp_msg = if !self.mkr().is_registered(minion_id) {
-            if let Err(err) = self.mkr().add_mn_key(minion_id, minion_addr, payload) {
-                log::error!("Unable to add minion RSA key: {err}");
+        let reply = match self.mkr().add_mn_key(minion_id, minion_addr, payload) {
+            Ok(crate::registry::mkb::RegistrationStatus::Added) => {
+                let cmdb_result = { self.mreg.lock().await.ensure_cmdb_registered(minion_id) };
+                if let Err(err) = cmdb_result {
+                    let _ = self.mkr().remove_mn_key(minion_id);
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::error!("Unable to create CMDB record for {minion_id}: {err}");
+                    RegistrationReply::rejected(format!("Unable to register {minion_id}: {err}"))
+                } else {
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::info!("Registered a minion at {minion_addr} ({minion_id})");
+                    RegistrationReply::accepted(
+                        "Minion registration has been accepted".to_string(),
+                        self.mkr().get_master_key_pem().clone().unwrap_or_default(),
+                        self.mkr().get_master_key_fingerprint().unwrap_or_default(),
+                    )
+                }
             }
-            self.to_drop.insert(minion_addr.to_owned());
-            log::info!("Registered a minion at {minion_addr} ({minion_id})");
-            "Minion registration has been accepted"
-        } else {
-            log::warn!("Minion {minion_addr} ({minion_id}) is already registered");
-            "Minion already registered"
+            Ok(crate::registry::mkb::RegistrationStatus::Exists) => {
+                let cmdb_result = { self.mreg.lock().await.ensure_cmdb_registered(minion_id) };
+                if let Err(err) = cmdb_result {
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::error!("Unable to ensure CMDB record for {minion_id}: {err}");
+                    RegistrationReply::rejected(format!("Unable to register {minion_id}: {err}"))
+                } else {
+                    self.to_drop.insert(minion_addr.to_owned());
+                    log::warn!("Minion {minion_addr} ({minion_id}) is already registered");
+                    RegistrationReply::accepted(
+                        "Minion already registered".to_string(),
+                        self.mkr().get_master_key_pem().clone().unwrap_or_default(),
+                        self.mkr().get_master_key_fingerprint().unwrap_or_default(),
+                    )
+                }
+            }
+            Ok(crate::registry::mkb::RegistrationStatus::Conflict { current, requested }) => {
+                self.to_drop.insert(minion_addr.to_owned());
+                log::error!("Minion {minion_addr} ({minion_id}) registration key mismatch: stored {current}, requested {requested}");
+                RegistrationReply::rejected(format!("Registration key mismatch for {minion_id}: stored {current}, requested {requested}"))
+            }
+            Err(err) => {
+                self.to_drop.insert(minion_addr.to_owned());
+                log::error!("Unable to add minion RSA key: {err}");
+                RegistrationReply::rejected(format!("Unable to register {minion_id}: {err}"))
+            }
         };
-        _ = bcast.send(self.msg_registered(minion_id.to_string(), resp_msg));
+        _ = bcast.send(self.msg_registered(minion_id.to_string(), reply));
     }
 
     /// Process an `ehlo` request and either establish the runtime session or reject the peer.
-    async fn on_ehlo_request(&mut self, minion_addr: &str, minion_id: &str, payload: &str, bcast: &broadcast::Sender<MasterMessage>) {
+    async fn on_ehlo_request(&mut self, minion_addr: &str, minion_id: &str, sid: &str, bcast: &broadcast::Sender<MasterMessage>) {
         log::info!("EHLO from {}", minion_id);
         if !self.mkr().is_registered(minion_id) {
             log::info!("Minion at {minion_addr} ({minion_id}) is not registered");
@@ -563,17 +681,24 @@ impl SysMaster {
             _ = bcast.send(self.msg_not_registered(minion_id.to_string()));
             return;
         }
-        if self.get_session().lock().await.exists(minion_id) {
+        let existing_sid = {
+            let keeper = self.get_session();
+            let mut sessions = keeper.lock().await;
+            if sessions.exists(minion_id) { sessions.get_id(minion_id) } else { None }
+        };
+        if Self::should_replace_existing_session(existing_sid.as_deref(), sid) {
+            self.drop_existing_runtime_session(minion_addr, minion_id).await;
+        } else if existing_sid.is_some() {
             log::info!("Minion at {minion_addr} ({minion_id}) is already connected");
             self.to_drop.insert(minion_addr.to_owned());
-            _ = bcast.send(self.msg_already_connected(minion_id.to_string(), payload.to_string()));
+            _ = bcast.send(self.msg_already_connected(minion_id.to_string(), sid.to_string()));
             return;
         }
 
         log::info!("{minion_id} connected successfully");
         self.conn_to_mid.insert(minion_addr.to_string(), minion_id.to_string());
-        self.get_session().lock().await.ping(minion_id, Some(payload));
-        _ = bcast.send(self.msg_request_traits(minion_id.to_string(), payload.to_string()));
+        self.get_session().lock().await.ping(minion_id, Some(sid));
+        _ = bcast.send(self.msg_request_traits(minion_id.to_string(), sid.to_string()));
         log::info!("Syncing traits with minion at {minion_id}");
 
         match self.pending_rotation_message_for(minion_id).await {
@@ -623,7 +748,7 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_bcast = bcast.clone();
                 let c_mid = req.id().to_string();
-                let c_payload = req.payload().to_string();
+                let c_payload = util::dataconv::as_str(Some(req.payload().clone()));
                 tokio::spawn(async move {
                     c_master.lock().await.on_registration_request(&minion_addr, &c_mid, &c_payload, &c_bcast).await;
                 });
@@ -635,9 +760,9 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_bcast = bcast.clone();
                 let c_id = req.id().to_string();
-                let c_payload = req.payload().to_string();
+                let c_sid = req.sid().to_string();
                 tokio::spawn(async move {
-                    c_master.lock().await.on_ehlo_request(&minion_addr, &c_id, &c_payload, &c_bcast).await;
+                    c_master.lock().await.on_ehlo_request(&minion_addr, &c_id, &c_sid, &c_bcast).await;
                 });
             }
             RequestType::Pong => {
@@ -661,7 +786,7 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_bcast = bcast.clone();
                 let c_id = req.id().to_string();
-                let c_payload = req.payload().to_string();
+                let c_payload = util::dataconv::as_str(Some(req.payload().clone()));
                 tokio::spawn(async move {
                     c_master.lock().await.on_bye_request(&minion_addr, &c_id, &c_payload, &c_bcast).await;
                 });
@@ -820,19 +945,31 @@ impl SysMaster {
             }
         };
         if !traits_payload.traits.is_empty() {
+            let traits: HashMap<String, serde_json::Value> = traits_payload.traits.into_iter().collect();
             let mut mreg = self.mreg.lock().await;
-            if let Err(err) = mreg.refresh(
-                &mid,
-                traits_payload.traits.into_iter().collect(),
-                traits_payload.static_keys.into_iter().collect(),
-                traits_payload.fn_keys.into_iter().collect(),
-            ) {
+            if let Err(err) =
+                mreg.refresh(&mid, traits.clone(), traits_payload.static_keys.into_iter().collect(), traits_payload.fn_keys.into_iter().collect())
+            {
                 log::error!("Unable to sync traits: {err}");
             } else {
+                if let Err(err) = mreg.refresh_cmdb_observed(&mid, &traits) {
+                    log::error!("Unable to sync CMDB traits for {}: {err}", mid);
+                }
                 let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
+                let cmdb = mreg.get_cmdb(&mid).unwrap_or_default();
+                let (fqdn, hostname, ip) = Self::preferred_host(&m, cmdb.as_ref());
                 log::info!(
                     "Traits synced for minion {} ({})",
-                    m.get_traits().get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or("unknown").bright_green(),
+                    if !fqdn.is_empty() {
+                        fqdn
+                    } else if !hostname.is_empty() {
+                        hostname
+                    } else if !ip.is_empty() {
+                        ip
+                    } else {
+                        "unknown".to_string()
+                    }
+                    .bright_green(),
                     mid.green()
                 );
             }
@@ -841,14 +978,33 @@ impl SysMaster {
 
     /// Extract the preferred host labels for one minion record.
     ///
-    /// The returned tuple is `(fqdn, hostname)`. Either value may be an empty
+    /// The returned tuple is `(fqdn, hostname, ip)`. Either value may be an empty
     /// string if the corresponding trait is missing. Consumers decide how to
     /// fall back when rendering.
-    fn preferred_host(minion: &crate::registry::rec::MinionRecord) -> (String, String) {
+    fn preferred_host(
+        minion: &crate::registry::rec::MinionRecord, cmdb: Option<&crate::registry::rec::MinionCmdbRecord>,
+    ) -> (String, String, String) {
         let traits = minion.get_traits();
-        let fqdn = traits.get("system.hostname.fqdn").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let hostname = traits.get("system.hostname").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        (fqdn, hostname)
+        let fqdn = traits
+            .get("system.hostname.fqdn")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.fqdn().map(ToString::to_string)))
+            .unwrap_or_default();
+        let hostname = traits
+            .get("system.hostname")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.hostname().map(ToString::to_string)))
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.host().map(ToString::to_string)))
+            .unwrap_or_default();
+        let ip = traits
+            .get("system.hostname.ip")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .or_else(|| cmdb.and_then(|cmdb| cmdb.ip().map(ToString::to_string)))
+            .unwrap_or_default();
+        (fqdn, hostname, ip)
     }
 
     /// Create a transport rotator bound to one minion using the currently known
@@ -999,7 +1155,7 @@ impl SysMaster {
         master: Arc<Mutex<Self>>, mut writer: OwnedWriteHalf, peer_addr: String, mut bcast_sub: broadcast::Receiver<MasterMessage>,
         mut direct_rx: mpsc::Receiver<Vec<u8>>, cancel_writer: tokio::sync::watch::Sender<bool>,
     ) {
-        log::info!("Minion {peer_addr} connected. Ready to send messages.");
+        log::info!("Minion {} connected. Ready to send messages.", peer_addr.bright_green());
 
         loop {
             let frame = match tokio::select! {
@@ -1078,7 +1234,7 @@ impl SysMaster {
 
             let decoded = {
                 let mut guard = master.lock().await;
-                guard.decode_peer_frame(&peer_addr, &msg)
+                guard.decode_peer_frame(&peer_addr, &msg).await
             };
             match decoded {
                 Ok(IncomingFrame::Forward(msg)) => {

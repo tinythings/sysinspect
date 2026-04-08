@@ -11,6 +11,9 @@ use libsysinspect::util::{iofs::get_file_sha256, pad_visible};
 use mpk::{ModAttrs, ModPakMetadata, ModPakProfile, ModPakProfilesIndex, ModPakRepoIndex};
 use once_cell::sync::Lazy;
 use prettytable::{Cell, Row, Table, format};
+use regex::Regex;
+use semver::Version;
+use std::cmp::Ordering;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::{
@@ -35,6 +38,17 @@ their dependencies, and their architecture.
 static REPO_MOD_INDEX: &str = "mod.index";
 static REPO_PROFILES_INDEX: &str = "profiles.index";
 static REPO_MOD_SHA256_EXT: &str = "checksum.sha256";
+static REPO_MINION_DIR: &str = "minion";
+
+/// Compare two dotted minion versions.
+pub fn compare_versions(lhs: &str, rhs: &str) -> Ordering {
+    match (Version::parse(lhs).ok(), Version::parse(rhs).ok()) {
+        (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
+        (Some(_), None) => Ordering::Greater,
+        (None, Some(_)) => Ordering::Less,
+        (None, None) => lhs.cmp(rhs),
+    }
+}
 
 struct ArtefactRow {
     kind: String,
@@ -43,6 +57,55 @@ struct ArtefactRow {
     os: String,
     arch: String,
     sha256: String,
+}
+
+pub(crate) struct MinionRow {
+    arch: String,
+    os: String,
+    version: String,
+    sha256: String,
+}
+
+/// One indexed sysminion build with its resolved repository path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MinionBuildRecord {
+    platform: String,
+    arch: String,
+    version: String,
+    checksum: String,
+    path: PathBuf,
+}
+
+impl MinionBuildRecord {
+    /// Create one indexed minion build record.
+    pub fn new(platform: String, arch: String, version: String, checksum: String, path: PathBuf) -> Self {
+        Self { platform, arch, version, checksum, path }
+    }
+
+    /// Return the indexed platform family label.
+    pub fn platform(&self) -> &str {
+        &self.platform
+    }
+
+    /// Return the indexed architecture label.
+    pub fn arch(&self) -> &str {
+        &self.arch
+    }
+
+    /// Return the indexed sysminion version.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Return the indexed artefact checksum.
+    pub fn checksum(&self) -> &str {
+        &self.checksum
+    }
+
+    /// Return the resolved repository path of the artefact.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 pub struct ModPakSyncState {
@@ -121,6 +184,10 @@ impl SysInspectModPakMinion {
             fs::create_dir_all(self.cfg.profiles_dir())?;
         }
 
+        if names == ["default"] {
+            return Ok(());
+        }
+
         for name in names {
             let profile = profiles
                 .get(name)
@@ -171,7 +238,7 @@ impl SysInspectModPakMinion {
     fn filtered_repo_index(
         &self, ridx: ModPakRepoIndex, profiles: &ModPakProfilesIndex, names: &[String],
     ) -> Result<ModPakRepoIndex, SysinspectError> {
-        if profiles.profiles().is_empty() {
+        if profiles.profiles().is_empty() || names == ["default"] {
             return Ok(ridx);
         }
 
@@ -273,7 +340,7 @@ impl SysInspectModPakMinion {
         }
 
         let mut shared = IndexMap::new();
-        for sp in [DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR].iter() {
+        for sp in [DEFAULT_MODULES_DIR, DEFAULT_MODULES_LIB_DIR, REPO_MINION_DIR].iter() {
             let root = self.cfg.sharelib_dir().join(sp);
             if !root.exists() {
                 continue;
@@ -297,6 +364,13 @@ impl SysInspectModPakMinion {
         for rfile in ridx.library().values() {
             unknown.swap_remove(rfile.file().to_str().unwrap_or_default());
             unknown.swap_remove(&rfile.file().with_extension(REPO_MOD_SHA256_EXT).to_string_lossy().to_string());
+        }
+
+        for archset in ridx.minion().values() {
+            for file in archset.values() {
+                unknown.swap_remove(file.file().to_str().unwrap_or_default());
+                unknown.swap_remove(&file.file().with_extension(REPO_MOD_SHA256_EXT).to_string_lossy().to_string());
+            }
         }
 
         if unknown.is_empty() {
@@ -446,6 +520,35 @@ pub struct SysInspectModPak {
 }
 
 impl SysInspectModPak {
+    fn render_minion_table(rows: Vec<MinionRow>) -> String {
+        let aw = rows.iter().map(|row| row.arch.chars().count()).max().unwrap_or(4).max("ARCH".chars().count());
+        let ow = rows.iter().map(|row| row.os.chars().count()).max().unwrap_or(2).max("OS".chars().count());
+        let vw = rows.iter().map(|row| row.version.chars().count()).max().unwrap_or(7).max("VERSION".chars().count());
+        let sw = rows.iter().map(|row| row.sha256.chars().count()).max().unwrap_or(6).max("SHA256".chars().count());
+        let mut out = vec![
+            format!(
+                "{}  {}  {}  {}",
+                pad_visible(&"ARCH".bright_yellow().to_string(), aw),
+                pad_visible(&"OS".bright_yellow().to_string(), ow),
+                pad_visible(&"VERSION".bright_yellow().to_string(), vw),
+                pad_visible(&"SHA256".bright_yellow().to_string(), sw),
+            ),
+            format!("{}  {}  {}  {}", "─".repeat(aw), "─".repeat(ow), "─".repeat(vw), "─".repeat(sw)),
+        ];
+
+        for row in rows {
+            out.push(format!(
+                "{}  {}  {}  {}",
+                pad_visible(&row.arch.bright_green().to_string(), aw),
+                pad_visible(&row.os.bright_green().to_string(), ow),
+                pad_visible(&row.version.bright_cyan().to_string(), vw),
+                pad_visible(&row.sha256.green().to_string(), sw),
+            ));
+        }
+
+        out.join("\n")
+    }
+
     fn render_artefact_table(rows: Vec<ArtefactRow>) -> String {
         let type_width = rows.iter().map(|row| row.kind.chars().count()).max().unwrap_or(4).max("Type".chars().count());
         let name_width = rows.iter().map(|row| row.name.chars().count()).max().unwrap_or(4).max("Name".chars().count());
@@ -609,21 +712,61 @@ impl SysInspectModPak {
         Ok(Self { root: root.clone(), idx: ModPakRepoIndex::from_yaml(&fs::read_to_string(ridx)?)? })
     }
 
-    /// Parses an object file and returns its architecture and OS ABI.
+    /// Parse one artefact and return whether it is ELF plus its architecture and OS label.
     fn parse_obj(buff: &[u8]) -> Result<(bool, &str, &str), SysinspectError> {
         match Object::parse(buff).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to parse object: {e}")))? {
             Object::Elf(elf) => {
                 let arch = match elf.header.e_machine {
                     goblin::elf::header::EM_X86_64 => "x86_64",
-                    goblin::elf::header::EM_ARM => "ARM",
-                    goblin::elf::header::EM_AARCH64 => "ARM64",
-                    goblin::elf::header::EM_RISCV => "RISC-V",
+                    goblin::elf::header::EM_ARM => "arm",
+                    goblin::elf::header::EM_AARCH64 => "arm64",
+                    goblin::elf::header::EM_RISCV => "riscv",
                     _ => return Err(SysinspectError::MasterGeneralError("Unsupported ELF arch".to_string())),
                 };
                 Ok((true, arch, Self::get_os_label(&elf)))
             }
             _ => Ok((false, "noarch", "any")),
         }
+    }
+
+    /// Return true when the ELF does not depend on external shared libraries.
+    fn is_static_elf(buff: &[u8]) -> Result<bool, SysinspectError> {
+        match Object::parse(buff).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to parse ELF: {e}")))? {
+            Object::Elf(elf) => Ok(elf.libraries.is_empty()),
+            _ => Ok(false),
+        }
+    }
+
+    /// Extract one sysminion version from text.
+    fn parse_minion_version_text(text: &str) -> Option<String> {
+        Regex::new(r"Version:\s+sysminion\s+([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)")
+            .unwrap()
+            .captures(text)
+            .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+            .filter(|version| Version::parse(version).is_ok())
+    }
+
+    /// Extract one sysminion version from one binary image.
+    fn get_minion_version(buff: &[u8]) -> Option<String> {
+        let binary_text = String::from_utf8_lossy(buff);
+        Self::parse_minion_version_text(&binary_text).or_else(|| {
+            buff.windows("minion.version".len()).position(|window| window == b"minion.version").and_then(|offset| {
+                let start = offset.saturating_sub(256);
+                let end = buff.len().min(offset + "minion.version".len() + 256);
+                let local = String::from_utf8_lossy(&buff[start..end]);
+                let marker = offset - start;
+                Regex::new(r"([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)")
+                    .unwrap()
+                    .captures_iter(&local)
+                    .filter_map(|caps| {
+                        caps.get(1)
+                            .filter(|m| Version::parse(m.as_str()).is_ok())
+                            .map(|m| ((m.start().abs_diff(marker)).min(m.end().abs_diff(marker)), m.as_str().to_string()))
+                    })
+                    .min_by_key(|(distance, _)| *distance)
+                    .map(|(_, version)| version)
+            })
+        })
     }
 
     /// Heuristic to determine the OS label of an ELF file, since EI_OSABI is often unreliable.
@@ -673,6 +816,50 @@ impl SysInspectModPak {
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
         fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
         log::info!("Library {} added to index", p.display().to_string().bright_yellow());
+        Ok(())
+    }
+
+    /// Add one statically linked sysminion build to the repository.
+    pub fn add_minion_build(&mut self, p: PathBuf) -> Result<(), SysinspectError> {
+        let path = fs::canonicalize(p)?;
+        let buff = fs::read(&path)?;
+        let (_, arch, os) = Self::parse_obj(&buff)?;
+        if !buff.starts_with(b"\x7FELF") {
+            return Err(SysinspectError::MasterGeneralError("Minion build must be an ELF executable".to_string()));
+        }
+        if !Self::is_static_elf(&buff)? {
+            return Err(SysinspectError::MasterGeneralError("Minion build must be a static ELF".to_string()));
+        }
+        let version = Self::get_minion_version(&buff)
+            .ok_or_else(|| SysinspectError::MasterGeneralError("Minion build must be a sysminion executable".to_string()))?;
+        if self
+            .idx
+            .minion()
+            .get(os)
+            .and_then(|archset| archset.get(arch))
+            .is_some_and(|existing| compare_versions(existing.version(), &version).is_gt())
+        {
+            log::info!(
+                "Keeping newer indexed sysminion for {}/{} at version {}; incoming {} is older",
+                os,
+                arch,
+                self.idx.minion().get(os).and_then(|archset| archset.get(arch)).map(|existing| existing.version()).unwrap_or_default(),
+                version
+            );
+            return Ok(());
+        }
+
+        let subp = PathBuf::from(REPO_MINION_DIR).join(os).join(arch).join("sysminion");
+        if let Some(dir) = self.root.join(&subp).parent()
+            && !dir.exists()
+        {
+            fs::create_dir_all(dir)?;
+        }
+        fs::copy(&path, self.root.join(&subp))?;
+        let checksum = get_file_sha256(self.root.join(&subp))?;
+        fs::write(self.root.join(&subp).with_extension(REPO_MOD_SHA256_EXT), &checksum)?;
+        self.idx.index_minion(os, arch, subp, &checksum, &version)?;
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
         Ok(())
     }
 
@@ -957,6 +1144,61 @@ impl SysInspectModPak {
         Ok(())
     }
 
+    /// List all indexed sysminion builds.
+    pub fn list_minion_builds(&self) -> Result<(), SysinspectError> {
+        let mut by_arch = IndexMap::<String, Vec<MinionRow>>::new();
+        for (os, archset) in self.idx.minion() {
+            for (arch, file) in archset {
+                by_arch.entry(arch.clone()).or_default().push(MinionRow {
+                    arch: arch.clone(),
+                    os: os_display_name(&os).to_string(),
+                    version: file.version().to_string(),
+                    sha256: format!("{}...{}", &file.checksum()[..4], &file.checksum()[file.checksum().len() - 4..]),
+                });
+            }
+        }
+
+        if by_arch.is_empty() {
+            log::warn!("No minion builds found");
+            return Ok(());
+        }
+
+        let mut rows = Vec::<MinionRow>::new();
+        let mut arches = by_arch.keys().cloned().collect::<Vec<_>>();
+        arches.sort();
+        for arch in arches {
+            if let Some(mut grp) = by_arch.shift_remove(&arch) {
+                grp.sort_by(|a, b| a.os.cmp(&b.os));
+                for (i, mut row) in grp.into_iter().enumerate() {
+                    if i > 0 {
+                        row.arch.clear();
+                    }
+                    rows.push(row);
+                }
+            }
+        }
+
+        println!("{}", Self::render_minion_table(rows));
+        Ok(())
+    }
+
+    /// Return all indexed sysminion builds with resolved repository paths.
+    pub fn minion_builds(&self) -> Vec<MinionBuildRecord> {
+        let mut out = Vec::new();
+        for (platform, archset) in self.idx.minion() {
+            for (arch, file) in archset {
+                out.push(MinionBuildRecord::new(
+                    platform.clone(),
+                    arch,
+                    file.version().to_string(),
+                    file.checksum().to_string(),
+                    self.root.join(file.file()),
+                ));
+            }
+        }
+        out
+    }
+
     /// Resolves library removal expressions to concrete library names.
     ///
     /// Args:
@@ -1039,6 +1281,39 @@ impl SysInspectModPak {
             log::info!("{} librar{} removed", c, if c > 1 { "ies" } else { "y" });
         } else {
             log::error!("No libraries found to remove");
+        }
+
+        Ok(())
+    }
+
+    /// Removes indexed sysminion builds from the repository and index.
+    pub fn remove_minion_build(&mut self, names: Vec<String>) -> Result<(), SysinspectError> {
+        let mut c = 0;
+        let hint = "expected --name=os/arch, for example linux/x86_64";
+        for name in names {
+            let (os, arch) = name
+                .split_once('/')
+                .filter(|(os, arch)| !os.is_empty() && !arch.is_empty() && !arch.contains('/'))
+                .ok_or_else(|| SysinspectError::MasterGeneralError(format!("Invalid minion slot {}: {}", name.bright_yellow(), hint)))?;
+            let Some(file) = self.idx.minion().get(os).and_then(|archset| archset.get(arch)).cloned() else {
+                log::error!("No minion build found: {} ({})", name.bright_yellow(), hint);
+                continue;
+            };
+            let path = self.root.join(file.file());
+            if path.exists() {
+                fs::remove_file(&path)?;
+            }
+            let sum = path.with_extension(REPO_MOD_SHA256_EXT);
+            if sum.exists() {
+                fs::remove_file(sum)?;
+            }
+            self.idx.remove_minion(os, arch)?;
+            log::info!("Minion build {} has been removed", name.bright_yellow());
+            c += 1;
+        }
+
+        if c > 0 {
+            fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
         }
 
         Ok(())

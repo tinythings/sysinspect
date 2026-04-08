@@ -1,6 +1,7 @@
 [build]
 #target = "aarch64-unknown-linux-gnu"
 #target = "x86_64-unknown-linux-gnu"
+incremental = false
 
 [target.x86_64-unknown-linux-gnu]
 linker = "x86_64-linux-gnu-gcc"
@@ -18,11 +19,18 @@ rustflags = [
 linker = "aarch64-linux-musl-gcc"
 rustflags = [
     "-C", "target-feature=+crt-static",
+    "-C", "relocation-model=static",
+    "-C", "link-arg=-static",
+    "-C", "link-arg=-no-pie",
     "-C", "link-arg=-Wl,--allow-multiple-definition",
 ]
 
 [target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
 rustflags = [
     "-C", "target-feature=+crt-static",
+    "-C", "relocation-model=static",
+    "-C", "link-arg=-static",
+    "-C", "link-arg=-no-pie",
     "-C", "link-arg=-Wl,--allow-multiple-definition",
 ]

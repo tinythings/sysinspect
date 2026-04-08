@@ -1,5 +1,6 @@
 use crate::{master::RotationCommandPayload, registry::mkb::MinionsKeyRegistry};
 use chrono::{Duration as ChronoDuration, Utc};
+use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
@@ -75,6 +76,11 @@ impl PeerTransport {
         self.plaintext_peers.remove(peer_addr);
     }
 
+    /// Return the current peer address for one minion identifier.
+    pub(crate) fn peer_addr(&self, minion_id: &str, skip: &str) -> Option<String> {
+        self.peers.iter().find(|(addr, peer)| addr.as_str() != skip && peer.minion_id == minion_id).map(|(addr, _)| addr.to_string())
+    }
+
     /// Return whether this peer may receive a broadcast frame right now.
     pub(crate) fn can_receive_broadcast(&self, peer_addr: &str) -> bool {
         Self::can_receive_broadcast_state(self.peers.contains_key(peer_addr), self.plaintext_peers.contains(peer_addr))
@@ -127,7 +133,7 @@ impl PeerTransport {
 
     /// Decode one inbound raw frame, handling bootstrap establishment and steady-state decryption.
     pub(crate) fn decode_frame(
-        &mut self, peer_addr: &str, raw: &[u8], cfg: &MasterConfig, mkr: &mut MinionsKeyRegistry,
+        &mut self, peer_addr: &str, peer_label: &str, raw: &[u8], cfg: &MasterConfig, mkr: &mut MinionsKeyRegistry,
     ) -> Result<IncomingFrame, SysinspectError> {
         if self.peers.contains_key(peer_addr) {
             let decoded = self
@@ -143,7 +149,7 @@ impl PeerTransport {
             return decoded.map(IncomingFrame::Forward);
         }
         if let Ok(SecureFrame::BootstrapHello(hello)) = serde_json::from_slice::<SecureFrame>(raw) {
-            return self.accept_bootstrap(peer_addr, &hello, cfg, mkr).map(IncomingFrame::Reply);
+            return self.accept_bootstrap(peer_addr, peer_label, &hello, cfg, mkr).map(IncomingFrame::Reply);
         }
         if let Some(diag) = self.bootstrap_diag(peer_addr, raw) {
             return Ok(IncomingFrame::Reply(diag));
@@ -165,7 +171,7 @@ impl PeerTransport {
 
     /// Accept a bootstrap hello from a registered minion and store the resulting session for that peer.
     pub(crate) fn accept_bootstrap(
-        &mut self, peer_addr: &str, hello: &SecureBootstrapHello, cfg: &MasterConfig, mkr: &mut MinionsKeyRegistry,
+        &mut self, peer_addr: &str, peer_label: &str, hello: &SecureBootstrapHello, cfg: &MasterConfig, mkr: &mut MinionsKeyRegistry,
     ) -> Result<Vec<u8>, SysinspectError> {
         let now = Instant::now();
         if hello.supported_versions.is_empty() {
@@ -209,12 +215,7 @@ impl PeerTransport {
         ) {
             Ok(result) => result,
             Err(err) => {
-                log::warn!(
-                    "Secure bootstrap authentication failed for minion {} from {}: {}",
-                    hello.binding.minion_id,
-                    peer_addr,
-                    err
-                );
+                log::warn!("Secure bootstrap authentication failed for minion {} from {}: {}", hello.binding.minion_id, peer_addr, err);
                 return Err(err);
             }
         };
@@ -225,7 +226,7 @@ impl PeerTransport {
         log::info!(
             "Session established for minion {} from {} using key {} and protocol v{} (rotation state: {:?})",
             hello.binding.minion_id,
-            peer_addr,
+            peer_label.bright_green(),
             bootstrap.key_id(),
             hello.binding.protocol_version,
             state.rotation

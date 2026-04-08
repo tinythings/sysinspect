@@ -27,6 +27,8 @@ pub static SYS_OS_VERSION: &str = "system.os.version";
 pub static SYS_OS_NAME: &str = "system.os.name";
 /// Operating system distribution trait key.
 pub static SYS_OS_DISTRO: &str = "system.os.distribution";
+/// Build-target CPU architecture trait key.
+pub static SYS_ARCH: &str = "system.arch";
 
 /// Hostname trait key.
 pub static SYS_NET_HOSTNAME: &str = "system.hostname";
@@ -244,7 +246,7 @@ pub fn effective_profiles(cfg: &MinionConfig) -> Vec<String> {
 /// Get or initialise system traits
 fn __get_minion_traits(cfg: Option<&MinionConfig>, q: bool) -> SystemTraits {
     if let Some(cfg) = cfg {
-        return _TRAITS.get_or_init(|| SystemTraits::new(cfg.clone(), q)).to_owned();
+        return SystemTraits::new(cfg.clone(), q);
     }
 
     _TRAITS.get_or_init(|| SystemTraits::new(MinionConfig::default(), q)).to_owned()

@@ -64,10 +64,7 @@ impl NetHealthSensor {
             .into_iter()
             .filter_map(|v| {
                 v.rsplit_once(':').and_then(|(h, p)| {
-                    p.parse::<u16>().ok().filter(|_| !h.trim().is_empty()).map(|p| NetHealthTarget {
-                        host: h.trim().to_string(),
-                        port: p,
-                    })
+                    p.parse::<u16>().ok().filter(|_| !h.trim().is_empty()).map(|p| NetHealthTarget { host: h.trim().to_string(), port: p })
                 })
             })
             .collect()
@@ -104,9 +101,7 @@ impl NetHealthSensor {
             .unwrap_or_default()
             .into_iter()
             .filter_map(|v| {
-                v.rsplit_once(':').and_then(|(h, p)| {
-                    p.parse::<u16>().ok().filter(|_| !h.trim().is_empty()).map(|p| (h.trim().to_string(), p))
-                })
+                v.rsplit_once(':').and_then(|(h, p)| p.parse::<u16>().ok().filter(|_| !h.trim().is_empty()).map(|p| (h.trim().to_string(), p)))
             })
             .for_each(|(h, p)| s.add_nethealth_target(h, p));
     }
@@ -146,11 +141,7 @@ impl<T> Pipe for T {}
 impl Sensor for NetHealthSensor {
     /// Creates a production `net.health` sensor instance.
     fn new(id: String, cfg: SensorConf) -> Self {
-        Self {
-            sid: id,
-            cfg: cfg.clone(),
-            mk: Arc::new(Self::make_sensor),
-        }
+        Self { sid: id, cfg: cfg.clone(), mk: Arc::new(Self::make_sensor) }
     }
 
     /// Returns the public listener id for this sensor type.
@@ -193,12 +184,7 @@ struct BridgeCb {
 impl BridgeCb {
     /// Creates a callback bridge for net-health events.
     fn new(sid: String, lst: String, lock: bool) -> Self {
-        Self {
-            mask: NetToolsMask::NETHEALTH_CHANGED.bits(),
-            sid,
-            lst,
-            lock,
-        }
+        Self { mask: NetToolsMask::NETHEALTH_CHANGED.bits(), sid, lst, lock }
     }
 
     /// Builds a stable event id for a net-health transition.

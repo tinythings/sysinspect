@@ -4,8 +4,7 @@ pub use crate::api::v1::system::health_handler;
 mod minions_ut;
 use crate::{MasterInterfaceType, api::v1::TAG_MINIONS, sessions::get_session_store};
 use actix_web::{
-    HttpRequest,
-    Result, post,
+    HttpRequest, Result, post,
     web::{Data, Json},
 };
 use libcommon::SysinspectError;

@@ -5,9 +5,13 @@ use libsysinspect::{
     transport::{
         TransportKeyExchangeModel, TransportPeerState, TransportProvisioningMode, TransportRotationStatus, secure_bootstrap::SecureBootstrapSession,
     },
+    util::dataconv,
 };
-use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding};
+use libsysproto::secure::{
+    SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding,
+};
 use rsa::RsaPublicKey;
+use serde_json::json;
 use std::{collections::HashMap, time::Instant};
 
 fn fresh_timestamp() -> i64 {
@@ -71,6 +75,23 @@ fn unsupported_peer_ignores_legacy_plaintext_messages() {
 #[test]
 fn plaintext_registration_request_remains_allowed() {
     assert!(SysMaster::plaintext_peer_diag(br#"{"id":"mid-1","r":"add","d":"pem","c":0,"sid":""}"#).is_none());
+}
+
+#[test]
+fn registration_payload_extraction_keeps_raw_pem() {
+    let pem = "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n";
+
+    assert_eq!(dataconv::as_str(Some(json!(pem))), pem);
+}
+
+#[test]
+fn traits_payload_must_stay_json_encoded() {
+    let payload = json!({"traits":{"system.hostname":"demo"},"static_keys":[],"fn_keys":[]});
+
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&payload.to_string()).unwrap(),
+        json!({"traits":{"system.hostname":"demo"},"static_keys":[],"fn_keys":[]})
+    );
 }
 
 #[test]
@@ -167,6 +188,14 @@ fn replay_cache_key_binds_minion_connection_and_nonce() {
 
     assert_eq!(key, "mid-1:conn-1:nonce-1");
     assert_eq!(SysMaster::peer_rate_limit_key_for_test("127.0.0.1:4200"), "127.0.0.1");
+}
+
+#[test]
+fn same_sid_replaces_stale_session_but_different_sid_does_not() {
+    assert!(SysMaster::should_replace_existing_session_for_test(Some("sid-1"), "sid-1"));
+    assert!(!SysMaster::should_replace_existing_session_for_test(Some("sid-1"), "sid-2"));
+    assert!(!SysMaster::should_replace_existing_session_for_test(None, "sid-1"));
+    assert!(!SysMaster::should_replace_existing_session_for_test(Some(""), "sid-1"));
 }
 
 #[test]

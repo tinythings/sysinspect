@@ -23,10 +23,8 @@ pub mod store;
 pub mod system;
 
 const API_VERSION: &str = "0.1.1";
-const API_DOC_DESCRIPTION: &str =
-    "SysInspect Web API for interacting with the master interface. Use HTTPS/TLS for all requests. Documentation is exposed only when api.doc is enabled. Authenticate with POST /api/v1/authenticate to obtain a bearer token for protected operations. If the Web API is configured with client certificates, the same TLS client-certificate requirement also applies to Swagger UI and the OpenAPI document.";
-const API_DOC_DEV_DESCRIPTION: &str =
-    "SysInspect Web API for interacting with the master interface. Development mode is enabled. Use HTTPS/TLS for all requests. Documentation is exposed only when api.doc is enabled. Authenticate with POST /api/v1/authenticate to obtain a bearer token for protected operations. In development mode the authentication endpoint may return a development token.";
+const API_DOC_DESCRIPTION: &str = "SysInspect Web API for interacting with the master interface. Use HTTPS/TLS for all requests. Documentation is exposed only when api.doc is enabled. Authenticate with POST /api/v1/authenticate to obtain a bearer token for protected operations. If the Web API is configured with client certificates, the same TLS client-certificate requirement also applies to Swagger UI and the OpenAPI document.";
+const API_DOC_DEV_DESCRIPTION: &str = "SysInspect Web API for interacting with the master interface. Development mode is enabled. Use HTTPS/TLS for all requests. Documentation is exposed only when api.doc is enabled. Authenticate with POST /api/v1/authenticate to obtain a bearer token for protected operations. In development mode the authentication endpoint may return a development token.";
 
 /// API Tags
 pub static TAG_MINIONS: &str = "Minions";

@@ -2,7 +2,7 @@
 
 include Makefile.in
 
-.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel clean check fix setup \
+.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
@@ -23,66 +23,94 @@ fix:
 
 musl-aarch64-dev:
 	$(call check_present,aarch64-linux-musl-gcc)
-	$(call prep_layout,debug,aarch64-unknown-linux-musl)
-	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
-	$(call move_bin,debug,aarch64-unknown-linux-musl)
+	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	$(call stage_profile_modules,debug,aarch64-unknown-linux-musl)
+	$(call stage_profile_minion,debug,aarch64-unknown-linux-musl)
 
 musl-aarch64:
 	$(call check_present,aarch64-linux-musl-gcc)
-	$(call prep_layout,release,aarch64-unknown-linux-musl)
-	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
-	$(call move_bin,release,aarch64-unknown-linux-musl)
+	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	$(call stage_profile_modules,release,aarch64-unknown-linux-musl)
+	$(call stage_profile_minion,release,aarch64-unknown-linux-musl)
 
 musl-x86_64-dev:
 	$(call check_present,x86_64-linux-musl-gcc)
-	$(call prep_layout,debug,x86_64-unknown-linux-musl)
-	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
-	$(call move_bin,debug,x86_64-unknown-linux-musl)
+	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	$(call stage_profile_modules,debug,x86_64-unknown-linux-musl)
+	$(call stage_profile_minion,debug,x86_64-unknown-linux-musl)
 
 musl-x86_64:
 	$(call check_present,x86_64-linux-musl-gcc)
-	$(call prep_layout,release,x86_64-unknown-linux-musl)
-	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
-	$(call move_bin,release,x86_64-unknown-linux-musl)
+	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
+	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
 all-devel:
-	$(call prep_layout,debug,)
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
-	$(call move_bin,debug,)
+	$(call stage_profile_modules,debug,)
+	$(call stage_profile_minion,debug,)
 
 all:
-	$(call prep_layout,release,)
 	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
-	$(call move_bin,release,)
+	$(call stage_profile_modules,release,)
+	$(call stage_profile_minion,release,)
 
 devel:
-	$(call prep_layout,debug,)
 	cargo build -v --workspace $(CORE_EXCLUDES)
-	$(call move_bin,debug,)
+	$(call stage_profile_modules,debug,)
+	$(call stage_profile_minion,debug,)
 
 build:
-	$(call prep_layout,release,)
 	cargo build --release --workspace $(CORE_EXCLUDES)
-	$(call move_bin,release,)
+	$(call stage_profile_modules,release,)
+	$(call stage_profile_minion,release,)
 
 modules-dev:
-	$(call prep_layout,debug,)
 	cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
-	$(call move_bin,debug,)
+	$(call stage_profile_modules,debug,)
 
 modules:
-	$(call prep_layout,release,)
 	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
-	$(call move_bin,release,)
+	$(call stage_profile_modules,release,)
 
 modules-dist-devel:
-	$(call prep_layout,release,)
 	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
 
-modules-refresh-devel: modules-dist-devel
+modules-refresh-devel:
 	$(call tgt,wasm32-wasip1)
+	@if [ -z "$(CURRENT_MUSL_TARGET)" ] || [ -z "$(CURRENT_MUSL_CC)" ]; then \
+		echo "modules-refresh-devel currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
+		exit 1; \
+	fi
+	$(call tgt,$(CURRENT_MUSL_TARGET))
+	$(call check_present,$(CURRENT_MUSL_CC))
+	cargo build -v --target $(CURRENT_MUSL_TARGET) $(foreach pkg,$(MUSL_MODULE_PACKAGE_SPECS),-p $(pkg)) -p $(SYSMINION_SPEC)
+	cargo build -v $(foreach pkg,$(NATIVE_REFRESH_PACKAGE_SPECS),-p $(pkg))
+	$(call stage_profile_modules,debug,$(CURRENT_MUSL_TARGET))
+	$(call stage_profile_minion,debug,$(CURRENT_MUSL_TARGET))
+	$(call stage_modules_dist_from,debug,$(CURRENT_MUSL_TARGET),$(MUSL_MODULE_PACKAGE_SPECS))
+	$(call stage_native_modules_dist,debug)
 	$(call refresh_modules_repo)
+	$(call refresh_current_minion_repo,debug)
+
+modules-refresh:
+	$(call tgt,wasm32-wasip1)
+	@if [ -z "$(CURRENT_MUSL_TARGET)" ] || [ -z "$(CURRENT_MUSL_CC)" ]; then \
+		echo "modules-refresh currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
+		exit 1; \
+	fi
+	$(call tgt,$(CURRENT_MUSL_TARGET))
+	$(call check_present,$(CURRENT_MUSL_CC))
+	cargo build --release --target $(CURRENT_MUSL_TARGET) $(foreach pkg,$(MUSL_MODULE_PACKAGE_SPECS),-p $(pkg)) -p $(SYSMINION_SPEC)
+	cargo build --release $(foreach pkg,$(NATIVE_REFRESH_PACKAGE_SPECS),-p $(pkg))
+	$(call stage_profile_modules,release,$(CURRENT_MUSL_TARGET))
+	$(call stage_profile_minion,release,$(CURRENT_MUSL_TARGET))
+	$(call stage_modules_dist_from,release,$(CURRENT_MUSL_TARGET),$(MUSL_MODULE_PACKAGE_SPECS))
+	$(call stage_native_modules_dist,release)
+	$(call refresh_modules_repo)
+	$(call refresh_current_minion_repo,release)
 
 stats:
 	tokei . --exclude target --exclude .git

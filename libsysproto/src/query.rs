@@ -7,6 +7,9 @@ pub static SCHEME_MODEL: &str = "model://";
 pub static SCHEME_COMMAND: &str = "cmd://";
 
 pub mod commands {
+    // Start selected offline hopstart-backed minions
+    pub const CLUSTER_HOPSTART: &str = "cluster/hopstart";
+
     // Stop the entire cluster
     pub const CLUSTER_SHUTDOWN: &str = "cluster/shutdown";
 
@@ -37,6 +40,9 @@ pub mod commands {
 
     // Manage deployment profiles on the master
     pub const CLUSTER_PROFILE: &str = "cluster/profile";
+
+    // Upsert startup inventory / CMDB information for one registered minion
+    pub const CLUSTER_CMDB_UPSERT: &str = "cluster/cmdb/upsert";
 }
 
 ///

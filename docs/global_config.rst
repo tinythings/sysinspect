@@ -207,6 +207,72 @@ and contains the following directives:
 
     Sysinspect Master port is ``4200``.
 
+``cmdb-update``
+###############
+
+    Type: **duration**
+
+    Age threshold for master-side startup inventory / CMDB reconciliation.
+
+    On master startup, Sysinspect may refresh stored observed host facts from
+    current minion traits when the CMDB record is older than this threshold.
+    This keeps hostname, FQDN, and IP facts fresh without replacing the minion
+    identity or its stored startup backend.
+
+    Default is ``1w``.
+
+``hopstart.*``
+##############
+
+    Type: **flat dotted keys**
+
+    Settings for the SSH-backed startup backend used by
+    ``sysinspect cluster --hopstart``.
+
+    Hopstart is meant for targets where you cannot or do not want to integrate
+    with the target init system. Typical cases are read-only systems,
+    appliances, embedded boxes, Android-like hosts, or deployments where only
+    one writable application tree exists.
+
+    Example:
+
+    .. code-block:: yaml
+
+        config:
+          master:
+            hopstart.batch: 10
+            hopstart.network.forward: false
+            hopstart.on-start: false
+
+``hopstart.batch``
+##################
+
+    Type: **integer**
+
+    Maximum number of concurrent hopstart SSH launch attempts.
+
+    Default is ``10``.
+
+``hopstart.network.forward``
+############################
+
+    Type: **boolean**
+
+    Reserved for future forwarding of hopstart requests through another master
+    or proxy tier.
+
+    Default is ``false``.
+
+``hopstart.on-start``
+#####################
+
+    Type: **boolean**
+
+    Reserved for future behavior where master startup can automatically issue
+    hopstart for eligible minions.
+
+    Default is ``false``.
+
 
 .. important::
 
@@ -821,6 +887,36 @@ and contains the following directives:
 
         Disable this option only if you really know what you are doing. If you disable it, the minion will not check
         modules on startup, which might lead to unexpected behaviour if modules are changed or tampered with.
+
+``performance``
+###############
+
+    Type: **string**
+
+    Selects the minion runtime thread profile. This affects Tokio worker threads
+    and blocking threads used by ``sysminion``.
+
+    Available values are:
+
+    - ``embedded`` — smallest thread footprint, intended for constrained devices
+    - ``default`` — balanced settings for ordinary hosts
+    - ``server`` — larger thread pools for throughput-biased deployments
+
+    The current thread profiles are:
+
+    - ``embedded`` — register: ``1/1``, daemon: ``2/2``
+    - ``default`` — register: ``2/2``, daemon: ``4/4``
+    - ``server`` — register: ``4/4``, daemon: ``8/8``
+
+    The format above is ``worker_threads/max_blocking_threads``.
+
+    Default is ``default``.
+
+    Rule of thumb:
+
+    - Tiny/embedded targets: ``embedded``
+    - General-purpose VM/server: ``default``
+    - Busy hosts with lots of concurrent work: ``server``
 
 ``log.forward``
 ##################

@@ -194,20 +194,16 @@ fn bootstrap_negotiates_down_to_supported_version() {
     };
     hello.binding.protocol_version = 99;
     hello.supported_versions = vec![99, SECURE_PROTOCOL_VERSION];
-    hello.binding_signature = STANDARD
-        .encode(
-            sign_data(
-                minion_prk.clone(),
-                &{
-                    let mut material = serde_json::to_vec(&hello.binding).unwrap();
-                    material.extend_from_slice(hello.client_ephemeral_pubkey.as_bytes());
-                    material.extend_from_slice(serde_json::to_string(&hello.supported_versions).unwrap().as_bytes());
-                    material.extend_from_slice(hello.key_id.as_deref().unwrap_or_default().as_bytes());
-                    material
-                },
-            )
-            .unwrap(),
-        );
+    hello.binding_signature = STANDARD.encode(
+        sign_data(minion_prk.clone(), &{
+            let mut material = serde_json::to_vec(&hello.binding).unwrap();
+            material.extend_from_slice(hello.client_ephemeral_pubkey.as_bytes());
+            material.extend_from_slice(serde_json::to_string(&hello.supported_versions).unwrap().as_bytes());
+            material.extend_from_slice(hello.key_id.as_deref().unwrap_or_default().as_bytes());
+            material
+        })
+        .unwrap(),
+    );
 
     let ack = match SecureBootstrapSession::accept(
         &state,
@@ -242,20 +238,16 @@ fn bootstrap_rejects_when_no_common_version_exists() {
     };
     hello.binding.protocol_version = 99;
     hello.supported_versions = vec![99];
-    hello.binding_signature = STANDARD
-        .encode(
-            sign_data(
-                minion_prk.clone(),
-                &{
-                    let mut material = serde_json::to_vec(&hello.binding).unwrap();
-                    material.extend_from_slice(hello.client_ephemeral_pubkey.as_bytes());
-                    material.extend_from_slice(serde_json::to_string(&hello.supported_versions).unwrap().as_bytes());
-                    material.extend_from_slice(hello.key_id.as_deref().unwrap_or_default().as_bytes());
-                    material
-                },
-            )
-            .unwrap(),
-        );
+    hello.binding_signature = STANDARD.encode(
+        sign_data(minion_prk.clone(), &{
+            let mut material = serde_json::to_vec(&hello.binding).unwrap();
+            material.extend_from_slice(hello.client_ephemeral_pubkey.as_bytes());
+            material.extend_from_slice(serde_json::to_string(&hello.supported_versions).unwrap().as_bytes());
+            material.extend_from_slice(hello.key_id.as_deref().unwrap_or_default().as_bytes());
+            material
+        })
+        .unwrap(),
+    );
 
     let err = SecureBootstrapSession::accept(&state, &hello, &master_prk, &minion_pbk, None, Some("kid-1".to_string()), None).unwrap_err();
     assert!(err.to_string().contains("No common secure transport protocol version"));

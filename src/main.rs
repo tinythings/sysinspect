@@ -16,8 +16,8 @@ use libsysinspect::{
 };
 use libsysproto::query::SCHEME_COMMAND;
 use libsysproto::query::commands::{
-    CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC,
-    CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
+    CLUSTER_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN,
+    CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
 };
 use log::LevelFilter;
 use serde_json::json;
@@ -37,7 +37,12 @@ use tokio::{
 
 mod clidef;
 mod clifmt;
+mod netadd;
+mod sshprobe;
 mod ui;
+
+#[cfg(test)]
+mod netadd_ut;
 
 static VERSION: &str = "0.4.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
@@ -114,6 +119,19 @@ fn traits_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectEr
     }
 
     Err(SysinspectError::InvalidQuery("Specify one of --set, --unset, or --reset".to_string()))
+}
+
+fn cluster_selector(cluster: &ArgMatches) -> (String, Option<&str>) {
+    if let Some(mid) = cluster.get_one::<String>("id").map(String::as_str) {
+        return (String::new(), Some(mid));
+    }
+    if let Some(hosts) = cluster.get_one::<String>("hostnames") {
+        return (hosts.clone(), None);
+    }
+    match cluster.get_one::<String>("query-pos").map(String::as_str).unwrap_or("*") {
+        "*" | "" => ("*".to_string(), None),
+        query => (query.to_string(), None),
+    }
 }
 
 fn profile_update_context(am: &ArgMatches) -> Result<Option<String>, SysinspectError> {
@@ -235,7 +253,7 @@ fn get_cfg(p: &ArgMatches) -> Result<MasterConfig, SysinspectError> {
 // Print help?
 fn help(cli: &mut Command, params: &ArgMatches) -> bool {
     if let Some(sub) = params.subcommand_matches("module")
-        && sub.get_flag("help")
+        && (sub.get_flag("help") || !(sub.get_flag("add") || sub.get_flag("remove") || sub.get_flag("list") || sub.get_flag("info")))
     {
         if let Some(s_cli) = cli.find_subcommand_mut("module") {
             _ = s_cli.print_help();
@@ -262,9 +280,24 @@ fn help(cli: &mut Command, params: &ArgMatches) -> bool {
         return false;
     }
     if let Some(sub) = params.subcommand_matches("network")
-        && (sub.get_flag("help") || !(sub.get_flag("rotate") || sub.get_flag("status") || sub.get_flag("online") || sub.get_flag("info")))
+        && (sub.get_flag("help")
+            || !(sub.get_flag("add")
+                || sub.get_flag("remove")
+                || sub.get_flag("upgrade")
+                || sub.get_flag("rotate")
+                || sub.get_flag("status")
+                || sub.get_flag("info")))
     {
         if let Some(s_cli) = cli.find_subcommand_mut("network") {
+            _ = s_cli.print_help();
+            return true;
+        }
+        return false;
+    }
+    if let Some(sub) = params.subcommand_matches("cluster")
+        && (sub.get_flag("help") || !(sub.get_flag("shutdown") || sub.get_flag("online") || sub.get_flag("hopstart")))
+    {
+        if let Some(s_cli) = cli.find_subcommand_mut("cluster") {
             _ = s_cli.print_help();
             return true;
         }
@@ -331,7 +364,19 @@ async fn main() {
         };
 
         if sub.get_flag("add") {
-            if sub.get_flag("lib") {
+            if sub.get_flag("platform") {
+                let path = match sub.get_one::<String>("path") {
+                    Some(path) => PathBuf::from(path),
+                    None => {
+                        log::error!("Specify the sysminion build path ({})", "--path".bright_yellow());
+                        exit(1);
+                    }
+                };
+                if let Err(err) = repo.add_minion_build(path) {
+                    log::error!("Failed to add minion build: {err}");
+                    exit(1);
+                }
+            } else if sub.get_flag("lib") {
                 log::info!("Processing library in {}", cfg.get_mod_repo_root().to_str().unwrap_or_default());
                 if let Err(err) = repo.add_library(PathBuf::from(sub.get_one::<String>("path").unwrap_or(&"".to_string()))) {
                     log::error!("Failed to add library: {err}");
@@ -352,7 +397,12 @@ async fn main() {
                 }
             }
         } else if sub.get_flag("list") {
-            if sub.get_flag("lib") {
+            if sub.get_flag("platform") {
+                repo.list_minion_builds().unwrap_or_else(|err| {
+                    log::error!("Failed to list minion builds: {err}");
+                    exit(1);
+                });
+            } else if sub.get_flag("lib") {
                 repo.list_libraries(sub.get_one::<String>("match").map(String::as_str)).unwrap_or_else(|err| {
                     log::error!("Failed to list libraries: {err}");
                     exit(1);
@@ -373,7 +423,23 @@ async fn main() {
                 log::error!("Specify the module or library name ({}).", "--name".bright_yellow());
                 exit(1);
             }
-            if sub.get_flag("lib") {
+            if sub.get_flag("platform") {
+                let names: Vec<String> = sub
+                    .get_one::<String>("name")
+                    .unwrap_or(&String::new())
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if names.is_empty() {
+                    log::error!("No minion build names provided for removal.");
+                    exit(1);
+                }
+                repo.remove_minion_build(names).unwrap_or_else(|err| {
+                    log::error!("Failed to remove minion builds: {err}");
+                    exit(1);
+                });
+            } else if sub.get_flag("lib") {
                 let names: Vec<String> = sub
                     .get_one::<String>("name")
                     .unwrap_or(&String::new())
@@ -465,6 +531,14 @@ async fn main() {
     }
 
     if let Some(network) = params.subcommand_matches("network") {
+        if network.get_flag("add") || network.get_flag("remove") || network.get_flag("upgrade") {
+            match get_cfg(&params).and_then(|cfg| netadd::NetworkAddWorkflow::from_matches(network).and_then(|wf| wf.run_render(&cfg))) {
+                Ok(output) => println!("{output}"),
+                Err(err) => log::error!("{err}"),
+            }
+            return;
+        }
+
         let query = network.get_one::<String>("query").or_else(|| network.get_one::<String>("query-pos")).cloned().unwrap_or("*".to_string());
         let direct_id = network.get_one::<String>("id").map(String::as_str);
 
@@ -538,35 +612,6 @@ async fn main() {
             return;
         }
 
-        if network.get_flag("online") {
-            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
-            match call_master_console(
-                &cfg,
-                &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"),
-                if direct_id.is_some() {
-                    "*"
-                } else if by_query {
-                    &query
-                } else {
-                    "*"
-                },
-                network.get_one::<String>("select-traits"),
-                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
-                None,
-            )
-            .await
-            {
-                Ok(response) => {
-                    let rendered = clifmt::render_console_payload(&response.payload);
-                    if !rendered.is_empty() {
-                        println!("{}", rendered);
-                    }
-                }
-                Err(err) => log::error!("Cannot reach master: {err}"),
-            }
-            return;
-        }
-
         if network.get_flag("info") {
             if network.get_one::<String>("select-traits").is_some() {
                 log::error!(
@@ -614,15 +659,61 @@ async fn main() {
         }
     }
 
+    if let Some(cluster) = params.subcommand_matches("cluster") {
+        if cluster.get_flag("shutdown") {
+            let (query, direct_id) = cluster_selector(cluster);
+            if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), &query, None, direct_id, None).await {
+                log::error!("Cannot reach master: {err}");
+            }
+            return;
+        }
+        if cluster.get_flag("hopstart") {
+            let (query, direct_id) = cluster_selector(cluster);
+            match call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}"),
+                if direct_id.is_none() { &query } else { "*" },
+                None,
+                direct_id.or(if query.contains('*') || query.contains(',') { None } else { Some(query.as_str()) }),
+                None,
+            )
+            .await
+            {
+                Ok(_) => println!("Hopstart issued"),
+                Err(err) => log::error!("Cannot reach master: {err}"),
+            }
+            return;
+        }
+        if cluster.get_flag("online") {
+            let (query, direct_id) = cluster_selector(cluster);
+            let by_query = direct_id.is_none() && (query.contains('*') || query.contains(','));
+            match call_master_console(
+                &cfg,
+                &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"),
+                if direct_id.is_none() { &query } else { "*" },
+                None,
+                direct_id.or(if by_query { None } else { Some(query.as_str()) }),
+                None,
+            )
+            .await
+            {
+                Ok(response) => {
+                    let rendered = clifmt::render_console_payload(&response.payload);
+                    if !rendered.is_empty() {
+                        println!("{}", rendered);
+                    }
+                }
+                Err(err) => log::error!("Cannot reach master: {err}"),
+            }
+            return;
+        }
+    }
+
     if let Some(model) = params.get_one::<String>("path") {
         let query = params.get_one::<String>("query");
         let traits = params.get_one::<String>("traits");
         let context = params.get_one::<String>("context");
         if let Err(err) = call_master_console(&cfg, model, query.unwrap_or(&"".to_string()), traits, None, context).await {
-            log::error!("Cannot reach master: {err}");
-        }
-    } else if params.get_flag("shutdown") {
-        if let Err(err) = call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, None).await {
             log::error!("Cannot reach master: {err}");
         }
     } else if params.get_flag("sync") {
@@ -642,5 +733,114 @@ async fn main() {
         sr.set_traits(get_minion_traits(None));
 
         sr.start().await;
+    }
+}
+
+#[cfg(test)]
+mod main_ut {
+    use super::{clidef, help};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn list_file() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "sysinspect-main-ut-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::write(&path, "foo.example\n").unwrap();
+        path
+    }
+
+    #[test]
+    fn network_add_with_names_alias_and_user_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--add", "--names=foo.example", "--user=hans"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn network_add_with_list_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let list = list_file();
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--add", "--list", list.to_str().unwrap()]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+        let _ = fs::remove_file(list);
+    }
+
+    #[test]
+    fn network_remove_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--remove", "--hostnames=192.168.122.105"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn network_upgrade_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--upgrade", "--hostnames=192.168.122.105"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_shutdown_with_mask_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--shutdown", "*"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_online_with_mask_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--online", "*"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_hopstart_with_mask_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--hopstart", "*"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_shutdown_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--shutdown", "--hostnames=foo,bar"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_shutdown_with_partial_id_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--shutdown", "123"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_online_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--online", "--hostnames=foo,bar"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn cluster_hopstart_with_hostnames_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "cluster", "--hopstart", "--hostnames=foo,bar"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
     }
 }
