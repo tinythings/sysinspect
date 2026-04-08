@@ -2,7 +2,7 @@
 
 include Makefile.in
 
-.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup \
+.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
@@ -18,6 +18,9 @@ check:
 
 fix:
 	cargo clippy --fix --allow-dirty --allow-staged --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
+
+smoke-test:
+	sh smoke-tests/run.sh
 
 musl-aarch64-dev:
 	$(call check_present,aarch64-linux-musl-gcc)

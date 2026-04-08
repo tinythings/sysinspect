@@ -22,7 +22,7 @@ ifeq ($(UNAME_S),NetBSD)
 MODULE_PACKAGE_SPECS := $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
 PLATFORM_WORKSPACE_EXCLUDES := --exclude $(PY3_RUNTIME_SPEC)
 else ifeq ($(UNAME_S),FreeBSD)
-MODULE_PACKAGE_SPECS := $(filter-out $(NET_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
+MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
 PLATFORM_WORKSPACE_EXCLUDES :=
 else
 MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
@@ -115,54 +115,54 @@ define install_tooling
 endef
 
 define ensure_linux_apt_build_deps
-	@for cmd in pkg-config clang protoc; do \
+	@for cmd in pkg-config clang protoc jq; do \
 		command -v $$cmd >/dev/null 2>&1 && continue; \
 		command -v apt-get >/dev/null 2>&1 || { \
-			echo "Missing required build tools (pkg-config/clang/protoc) and no apt-get is available on Linux." >&2; \
+			echo "Missing required build tools (pkg-config/clang/protoc/jq) and no apt-get is available on Linux." >&2; \
 			exit 1; \
 		}; \
 		echo "Installing Linux build packages with apt-get"; \
 		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)apt-get update; \
-		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev llvm-dev libclang-dev clang protobuf-compiler; \
+		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev llvm-dev libclang-dev clang protobuf-compiler jq; \
 		break; \
 	done
 endef
 
 define ensure_freebsd_pkg_build_deps
-	@for cmd in gmake cargo rustc pkgconf clang protoc; do \
+	@for cmd in gmake cargo rustc pkgconf clang protoc jq; do \
 		command -v $$cmd >/dev/null 2>&1 && continue; \
 		command -v pkg >/dev/null 2>&1 || { \
-			echo "Missing required build tools (gmake/cargo/rustc/pkgconf/clang/protoc) and no pkg is available on FreeBSD." >&2; \
+			echo "Missing required build tools (gmake/cargo/rustc/pkgconf/clang/protoc/jq) and no pkg is available on FreeBSD." >&2; \
 			exit 1; \
 		}; \
 		echo "Installing FreeBSD build packages with pkg"; \
-		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkg install -y gmake rust pkgconf llvm protobuf libffi libsodium openssl; \
+		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkg install -y gmake rust pkgconf llvm protobuf libffi libsodium openssl jq; \
 		break; \
 	done
 endef
 
 define ensure_netbsd_pkgin_build_deps
-	@for cmd in pkg-config clang protoc; do \
+	@for cmd in pkg-config clang protoc jq; do \
 		command -v $$cmd >/dev/null 2>&1 && continue; \
 		command -v pkgin >/dev/null 2>&1 || { \
-			echo "Missing required build tools (pkg-config/clang/protoc) and no pkgin is available on NetBSD." >&2; \
+			echo "Missing required build tools (pkg-config/clang/protoc/jq) and no pkgin is available on NetBSD." >&2; \
 			exit 1; \
 		}; \
 		echo "Installing NetBSD build packages with pkgin"; \
-		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkgin -y install pkgconf clang protobuf libffi libsodium openssl; \
+		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkgin -y install pkgconf clang protobuf libffi libsodium openssl jq; \
 		break; \
 	done
 endef
 
 define ensure_openbsd_pkg_add_build_deps
-	@for cmd in pkg-config clang protoc; do \
+	@for cmd in pkg-config clang protoc jq; do \
 		command -v $$cmd >/dev/null 2>&1 && continue; \
 		command -v pkg_add >/dev/null 2>&1 || { \
-			echo "Missing required build tools (pkg-config/clang/protoc) and no pkg_add is available on OpenBSD." >&2; \
+			echo "Missing required build tools (pkg-config/clang/protoc/jq) and no pkg_add is available on OpenBSD." >&2; \
 			exit 1; \
 		}; \
 		echo "Installing OpenBSD build packages with pkg_add"; \
-		$$(command -v doas >/dev/null 2>&1 && printf 'doas ' || command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkg_add pkgconf llvm protobuf libffi libsodium; \
+		$$(command -v doas >/dev/null 2>&1 && printf 'doas ' || command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkg_add pkgconf llvm protobuf libffi libsodium jq; \
 		break; \
 	done
 endef
