@@ -17,6 +17,7 @@ pub(crate) use types::{AddHost, AddOutcome, AddStatus, HostOp};
 pub(crate) use workflow::NetworkAddWorkflow;
 #[cfg(test)]
 pub(crate) use workflow::{
-    actionable_add_error, classify_destination_state, is_missing_master_minion, is_waitable_console_miss, managed_roots, marker_matches_managed_root,
-    registration_mismatch_id, rows_have_traits, startup_sync_ready,
+    BootstrapAttemptState, actionable_add_error, bootstrap_attempt_state, classify_destination_state, is_missing_master_minion,
+    is_waitable_console_miss, managed_roots, marker_matches_managed_root, master_fingerprint_from_key_file, registration_mismatch_id,
+    rows_have_traits, startup_sync_ready,
 };

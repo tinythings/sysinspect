@@ -26,7 +26,7 @@ use std::{
     collections::BTreeMap,
     fs,
     net::UdpSocket,
-    path::Path,
+    path::{Path, PathBuf},
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -299,12 +299,7 @@ impl SetupContext {
         Ok(Self {
             repo_root: cfg.get_mod_repo_root(),
             cfg: cfg.clone(),
-            master_fp: get_fingerprint(
-                &from_pem(None, Some(&fs::read_to_string(cfg.root_dir().join(CFG_MASTER_KEY_PUB))?))?
-                    .1
-                    .ok_or_else(|| SysinspectError::ConfigError("Master RSA public key is missing from disk".to_string()))?,
-            )
-            .map_err(|err| SysinspectError::RSAError(err.to_string()))?,
+            master_fp: master_fingerprint_from_key_file(cfg.root_dir().join(CFG_MASTER_KEY_PUB))?,
             master_port: cfg
                 .bind_addr()
                 .rsplit(':')
@@ -978,6 +973,15 @@ pub(crate) fn is_missing_master_minion(err: &SysinspectError) -> bool {
     err.to_string().contains("Unable to find minion")
 }
 
+pub(crate) fn master_fingerprint_from_key_file(path: PathBuf) -> Result<String, SysinspectError> {
+    get_fingerprint(
+        &from_pem(None, Some(&fs::read_to_string(path)?))?
+            .1
+            .ok_or_else(|| SysinspectError::ConfigError("Master RSA public key is missing from disk".to_string()))?,
+    )
+    .map_err(|err| SysinspectError::RSAError(err.to_string()))
+}
+
 fn call_console(
     cfg: &MasterConfig, model: &str, query: &str, mid: Option<&str>, context: Option<&String>,
 ) -> Result<libsysinspect::console::ConsoleResponse, SysinspectError> {
@@ -1012,6 +1016,26 @@ impl Readiness {
 
 pub(crate) fn startup_sync_ready(log: &str) -> bool {
     (log.contains("Syncing modules from ") && log.contains(" done")) || log.contains("Module auto-sync on startup is disabled")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BootstrapAttemptState {
+    Pending,
+    Progress,
+    Failure,
+}
+
+pub(crate) fn bootstrap_attempt_state(log: &str) -> BootstrapAttemptState {
+    if log.contains("Minion encountered an error:")
+        || log.contains("Unable to bootstrap secure transport")
+        || log.contains("failed to lookup address information")
+    {
+        return BootstrapAttemptState::Failure;
+    }
+    if log.contains("Registration request to") || log.contains("Ehlo on") || log.contains("Secure session established") {
+        return BootstrapAttemptState::Progress;
+    }
+    BootstrapAttemptState::Pending
 }
 
 pub(crate) fn managed_roots(marker: &str) -> Result<Vec<String>, SysinspectError> {

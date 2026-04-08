@@ -7,16 +7,19 @@ in one place.
 Registration
 ------------
 
-When a minion starts without an existing trust relationship, it reports the
-master fingerprint and waits for registration.
+The preferred operator path is ``sysinspect network --add ...``.
+
+Manual ``sysminion --register`` still exists, but it is no longer the normal
+day-to-day onboarding flow for managed hosts.
 
 Typical operator flow:
 
 1. Start ``sysmaster``.
-2. Start the minion once and note the reported master fingerprint.
-3. Verify that fingerprint out-of-band.
-4. Register the minion with ``sysminion --register <master-fingerprint>``.
-5. Start the minion normally with ``sysminion --start``.
+2. Make sure SSH access to the target host already works.
+3. Publish or refresh the desired ``sysminion`` build in the repository.
+4. Run ``sysinspect network --add ...``.
+5. Verify the host with ``sysinspect cluster --online`` or
+   ``sysinspect network --info ...``.
 
 After registration:
 
@@ -130,6 +133,24 @@ Typical recovery paths:
   ``network --status``
 - bad Web API TLS file paths: fix ``api.tls.*`` and restart ``sysmaster``
 
+Managed-host lifecycle recovery:
+
+- half-added host: rerun the same ``network --add`` if the destination is still
+  cleanly absent
+- broken managed remnants: rerun with ``network --add --force``
+- dead or unreachable host that still exists on the master:
+  ``network --remove --force``
+- trust mismatch during onboarding: remove the stale registration and let
+  ``network --add`` retry the register/bootstrap path
+
+Typical onboarding failure classes:
+
+- SSH failure
+- unsupported remote architecture / no matching minion artefact
+- registration rejection or stale key mismatch
+- secure bootstrap failure after registration
+- stale live session already seen by the master
+
 Web API TLS Setup
 -----------------
 
@@ -194,11 +215,9 @@ Use re-registration when:
 
 A clean replacement flow is:
 
-1. unregister the old minion identity from the master if needed
-2. start the replacement minion once and verify the current master fingerprint
-3. register the replacement minion
-4. start it normally
-5. confirm secure handshake and transport status
+1. unregister or ``network --remove --force`` the old identity if needed
+2. run ``network --add`` for the replacement host
+3. confirm secure handshake and transport status
 
 Related Material
 ----------------

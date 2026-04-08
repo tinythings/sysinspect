@@ -1056,7 +1056,14 @@ pub struct MasterConfig {
     cmdb_update: Option<Duration>,
 
     // Hopstart backend settings
-    hopstart: Option<HopstartConfig>,
+    #[serde(rename = "hopstart.batch")]
+    hopstart_batch: Option<usize>,
+
+    #[serde(rename = "hopstart.network.forward")]
+    hopstart_network_forward: Option<bool>,
+
+    #[serde(rename = "hopstart.on-start")]
+    hopstart_on_start: Option<bool>,
 
     // Clustered minions configuration
     cluster: Option<Vec<ClusteredMinion>>,
@@ -1156,7 +1163,7 @@ impl MasterConfig {
     }
 
     pub fn hopstart(&self) -> HopstartConfig {
-        self.hopstart.clone().unwrap_or_default()
+        HopstartConfig { batch: self.hopstart_batch, network_forward: self.hopstart_network_forward, on_start: self.hopstart_on_start }
     }
 
     /// Get OTLP configuration

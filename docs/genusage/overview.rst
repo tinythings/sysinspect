@@ -46,6 +46,7 @@ sections:
    :maxdepth: 2
 
    cli
+   hopstart
    distributed_model
    secure_transport
    transport_protocol

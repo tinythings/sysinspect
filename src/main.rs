@@ -739,6 +739,38 @@ async fn main() {
 #[cfg(test)]
 mod main_ut {
     use super::{clidef, help};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn list_file() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "sysinspect-main-ut-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::write(&path, "foo.example\n").unwrap();
+        path
+    }
+
+    #[test]
+    fn network_add_with_names_alias_and_user_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--add", "--names=foo.example", "--user=hans"]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+    }
+
+    #[test]
+    fn network_add_with_list_is_not_treated_as_help() {
+        let mut cli = clidef::cli("test");
+        let list = list_file();
+        let params = cli.to_owned().try_get_matches_from(["sysinspect", "network", "--add", "--list", list.to_str().unwrap()]).unwrap();
+
+        assert!(!help(&mut cli, &params));
+        let _ = fs::remove_file(list);
+    }
 
     #[test]
     fn network_remove_with_hostnames_is_not_treated_as_help() {

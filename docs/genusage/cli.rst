@@ -71,11 +71,41 @@ cluster:
 .. code-block:: bash
 
     sysinspect --sync
-    sysinspect --shutdown
+    sysinspect cluster --shutdown
+    sysinspect cluster --online
+    sysinspect cluster --hopstart
     sysinspect --unregister 30006546535e428aba0a0caa6712e225
 
 ``--sync`` instructs minions to refresh cluster artefacts and then report
 their current traits back to the master.
+
+The ``cluster`` subcommand owns cluster-wide lifecycle actions:
+
+.. code-block:: bash
+
+    sysinspect cluster --online
+    sysinspect cluster --online '*'
+    sysinspect cluster --online --hostnames=db01,192.168.2.50
+    sysinspect cluster --online --id 30006546535e428aba0a0caa6712e225
+
+    sysinspect cluster --shutdown
+    sysinspect cluster --shutdown 'web*'
+    sysinspect cluster --shutdown --hostnames=db01,192.168.2.50
+    sysinspect cluster --shutdown --id 30006546535e428aba0a0caa6712e225
+
+    sysinspect cluster --hopstart
+    sysinspect cluster --hopstart 'edge*'
+    sysinspect cluster --hopstart --hostnames=android01,192.168.2.99
+    sysinspect cluster --hopstart --id 30006546535e428aba0a0caa6712e225
+
+Selector rules:
+
+* ``--id`` means a real minion id
+* positional selectors and ``--hostnames`` are host-oriented selectors
+* ``--hopstart`` only issues start attempts for selected minions that are both
+  offline and stored as ``hopstart`` backend nodes in the master CMDB
+* ``--hopstart`` does not print a summary table; it only confirms that
+  hopstart was issued and the operator should watch the master log
 
 Network Operations
 ------------------
@@ -85,22 +115,85 @@ operations.
 
 .. code-block:: bash
 
+    sysinspect network --add --hostnames=db01,db02
+    sysinspect network --add --hostnames=root@db01:/opt/sysinspect
+    sysinspect network --add --list ./hosts.txt --user bo
+    sysinspect network --remove --hostnames=db01
+    sysinspect network --remove --force --hostnames=192.168.2.50
+    sysinspect network --upgrade --hostnames=edge01,edge02
     sysinspect network --status
     sysinspect network --status --pending
     sysinspect network --status --idle 'db*'
     sysinspect network --rotate 'web*'
     sysinspect network --rotate --id 30006546535e428aba0a0caa6712e225
-    sysinspect network --online
-    sysinspect network --online --traits 'system.os.name:Ubuntu'
     sysinspect network --info --id 30006546535e428aba0a0caa6712e225
     sysinspect network --info db01.example.net
 
 Supported operations:
 
+* ``--add`` onboards one or more hosts and is now the preferred way to deploy
+  a new minion
+* ``--remove`` stops, unregisters, and removes a locally managed install
+* ``--upgrade`` replaces a locally managed minion binary and restarts it
 * ``--status`` prints managed transport state for the selected minions
 * ``--rotate`` stages or dispatches transport key rotation for the selected minions
-* ``--online`` prints online-state summaries for the selected minions
 * ``--info`` prints detailed registry-backed minion information for exactly one minion
+
+Add/remove/upgrade input:
+
+* ``--hostnames`` / ``--names`` accepts comma-separated entries
+* ``--list`` reads one entry per line and ignores blanks and ``#`` comments
+* ``--user`` supplies the default SSH login user when an entry does not embed
+  its own ``user@host`` prefix
+* entry grammar is ``[user@]host[:destination]``
+* destination is optional; when omitted, the current default managed root is
+  the remote user's ``$HOME/sysinspect``
+
+Important onboarding assumptions and limits:
+
+* SSH access must already work before ``network --add`` can succeed
+* the selected remote user must be able to reach the destination root
+* if the destination is not writable directly, Sysinspect uses ``sudo`` when
+  the probe says it is available
+* the current tested minion artefact coverage is driven by the published
+  repository builds; unsupported remote OS/architecture pairs fail before
+  upload
+
+Preferred new-host workflow:
+
+1. Publish or refresh the current minion build in the repository.
+2. Run ``sysinspect network --add ...``.
+3. Wait for the host to become ``online`` in ``sysinspect cluster --online``.
+4. If needed, verify traits with ``sysinspect network --info <host-or-id>``.
+
+What ``network --add`` actually does:
+
+1. probes the remote host over SSH
+2. selects the matching published ``sysminion`` artefact by remote platform
+3. runs remote setup and writes a managed ``.local`` marker
+4. seeds registration trust by reading the master's public RSA key from disk
+   and registering against that fingerprint
+5. starts the minion in daemon mode
+6. waits for secure bootstrap progress
+7. waits for full master-side readiness: online, traits, transport, startup
+   sync, and sensors sync
+8. writes startup inventory / CMDB data on the master, including backend
+   ``hopstart``
+
+``network --remove`` behavior:
+
+* normal remove expects to understand the managed ``.local`` marker first
+* if the install is ours, it stops the minion with ``sysminion --stop``,
+  unregisters it on the master, and removes the managed root
+* ``--force`` still unregisters and forgets the minion on the master even when
+  the host is broken, absent, or unreachable
+
+``network --upgrade`` behavior:
+
+* only touches installs marked as locally managed by ``.local``
+* replaces the minion binary only
+* restarts the daemon
+* waits for secure bootstrap and normal readiness again
 
 Supported selectors:
 
@@ -116,6 +209,30 @@ Transport status filters:
 * ``--all`` shows all selected minions; this is the default
 * ``--pending`` shows only minions with a non-idle rotation state
 * ``--idle`` shows only minions with an idle rotation state
+
+Troubleshooting ``network --add``
+---------------------------------
+
+Common failure cases and what they usually mean:
+
+* SSH failure: the host was never reachable or the selected user was wrong
+* missing matching artefact: the module repository has no ``sysminion`` build
+  for the remote platform
+* registration key mismatch: the master still has stale trust for that minion
+  identity
+* stale live session: the master still thinks another copy of that minion is
+  connected
+* secure bootstrap failure: registration happened, but trusted transport did
+  not become healthy
+
+Safe rerun behavior:
+
+* rerunning the same ``network --add`` against an already managed host reports
+  ``already added``
+* rerunning against a broken managed destination requires ``--force`` so the
+  old remnants are removed first
+* rerunning after a partial failure keeps the install root, but cleans staged
+  uploads and tries to stop any partial minion runtime
 
 Traits Management
 -----------------

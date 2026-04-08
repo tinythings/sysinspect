@@ -26,6 +26,11 @@ What You Need To Know
 In normal operation, there is nothing special you need to do beyond registering
 the Minion and keeping the trust relationship intact.
 
+With the current onboarding workflow, the usual operator path is not manual
+``sysminion --register`` on the host anymore. The preferred flow is
+``sysinspect network --add ...`` on the master side, which performs the
+registration and startup sequence for you.
+
 Why This Matters
 ----------------
 
@@ -56,6 +61,7 @@ day-to-day configuration.
 In normal use, Sysinspect handles:
 
 - preparing transport state when a Minion is registered
+- persisting the master's RSA public key on the minion during onboarding
 - refreshing transport state when services start
 - tracking the information needed to re-establish trust
 
@@ -67,7 +73,7 @@ How It Works On The Master
 In simple terms, the Master side works like this:
 
 1. The Master has its own RSA identity keypair.
-2. When you register a Minion, the Master stores that Minion's public RSA key.
+2. When a Minion is registered, the Master stores that Minion's public RSA key.
 3. The Master also creates managed transport state for that Minion under
    ``transport/minions/<minion-id>/state.json``.
 4. When the Minion connects, it starts a secure bootstrap using the already
@@ -86,6 +92,7 @@ What this means for an operator:
 - registration prepares the trust relationship
 - reconnects can create a fresh secure session
 - one broken connection does not require you to rebuild keys by hand
+- ``network --add`` is expected to create this state automatically
 
 How It Works On The Minion
 --------------------------
@@ -93,7 +100,8 @@ How It Works On The Minion
 The Minion side follows the same trust relationship from the other direction:
 
 1. The Minion has its own RSA identity keypair.
-2. During registration, the Minion learns the Master's public RSA key.
+2. During registration, the Minion learns the Master's public RSA key and
+   persists it on disk.
 3. The Minion stores managed transport state under
    ``transport/master/state.json``.
 4. On normal startup, the Minion loads that managed state and starts a secure
@@ -116,6 +124,27 @@ What this means for an operator:
   not hand-edited files
 - if the Minion cannot prove trust anymore, it should fail closed rather than
   quietly continue insecurely
+
+Current operator-ready onboarding path
+--------------------------------------
+
+The preferred production workflow is:
+
+1. Ensure SSH to the target already works.
+2. Publish the desired ``sysminion`` build in the repository.
+3. Run ``sysinspect network --add ...`` from the master host.
+4. Let the master:
+
+   - choose the matching remote minion artefact
+   - run remote setup
+   - read the master's RSA public key from local disk
+   - derive the master fingerprint from that key
+   - register the remote minion against that fingerprint
+   - wait for secure bootstrap and full readiness
+
+This matters because the trust-seeding source of truth is the master's own RSA
+public key on disk, not a copied fingerprint string that the operator typed by
+hand elsewhere.
 
 What Actually Protects The Traffic
 ----------------------------------
@@ -164,6 +193,7 @@ What Operators Should Do
 For regular administration, the best approach is:
 
 - let Sysinspect manage the transport state
+- prefer ``sysinspect network --add/remove/upgrade`` for managed lifecycle work
 - use the normal registration or recovery workflow if trust breaks
 - check that the Master and Minion still recognize each other as trusted peers
 
@@ -181,6 +211,7 @@ If a Minion can no longer establish a secure connection, the usual causes are:
 - the node was reinstalled or re-registered
 - trust metadata is stale
 - the Master and Minion no longer agree on identity
+- the master's public key was not persisted correctly during onboarding
 
 In those cases, prefer the supported recovery path such as re-registration or
 re-bootstrap instead of editing transport files manually.
@@ -202,11 +233,21 @@ The quickest operator checks are:
 
 - ``sysinspect network --status`` for active key id, last handshake time, and
   rotation state
+- ``sysinspect cluster --online`` for current online/offline state
+- ``sysinspect network --info <host-or-id>`` for persisted traits and identity
 - the master error log for bootstrap rejection and TLS startup messages
 - the minion error log for bootstrap-diagnostic and ack-verification failures
 
 If a Minion reconnects but does not complete bootstrap, check the logs on both
 sides before editing any managed state.
+
+If ``network --add`` fails after registration but before readiness, Sysinspect
+now treats that as a partial onboarding failure and cleans up what it safely
+can:
+
+- staged upload directory
+- partial runtime on the target
+- partial master registration when registration had already happened
 
 Transport Rotation Workflow
 ---------------------------

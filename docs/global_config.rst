@@ -207,6 +207,72 @@ and contains the following directives:
 
     Sysinspect Master port is ``4200``.
 
+``cmdb-update``
+###############
+
+    Type: **duration**
+
+    Age threshold for master-side startup inventory / CMDB reconciliation.
+
+    On master startup, Sysinspect may refresh stored observed host facts from
+    current minion traits when the CMDB record is older than this threshold.
+    This keeps hostname, FQDN, and IP facts fresh without replacing the minion
+    identity or its stored startup backend.
+
+    Default is ``1w``.
+
+``hopstart.*``
+##############
+
+    Type: **flat dotted keys**
+
+    Settings for the SSH-backed startup backend used by
+    ``sysinspect cluster --hopstart``.
+
+    Hopstart is meant for targets where you cannot or do not want to integrate
+    with the target init system. Typical cases are read-only systems,
+    appliances, embedded boxes, Android-like hosts, or deployments where only
+    one writable application tree exists.
+
+    Example:
+
+    .. code-block:: yaml
+
+        config:
+          master:
+            hopstart.batch: 10
+            hopstart.network.forward: false
+            hopstart.on-start: false
+
+``hopstart.batch``
+##################
+
+    Type: **integer**
+
+    Maximum number of concurrent hopstart SSH launch attempts.
+
+    Default is ``10``.
+
+``hopstart.network.forward``
+############################
+
+    Type: **boolean**
+
+    Reserved for future forwarding of hopstart requests through another master
+    or proxy tier.
+
+    Default is ``false``.
+
+``hopstart.on-start``
+#####################
+
+    Type: **boolean**
+
+    Reserved for future behavior where master startup can automatically issue
+    hopstart for eligible minions.
+
+    Default is ``false``.
+
 
 .. important::
 
