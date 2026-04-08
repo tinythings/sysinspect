@@ -1,4 +1,3 @@
-use procfs::Current;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -128,6 +127,7 @@ impl PTCounter {
         if dev.starts_with("/dev/mapper/") { Self::mapper_to_dm_kname(dev) } else { Some(dev.strip_prefix("/dev/").unwrap_or(dev).to_string()) }
     }
 
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     fn diskstats_bytes() -> procfs::ProcResult<HashMap<String, (u64, u64)>> {
         let mut map = HashMap::new();
         for ds in procfs::diskstats()? {
@@ -143,8 +143,13 @@ impl PTCounter {
     /// Called periodically in the minion in a separate thread to refresh stats
     pub(crate) fn update_stats(&mut self) {
         // loadavg
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Ok(la) = procfs::LoadAverage::current() {
             self.loadaverage = la.five;
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            self.loadaverage = sysinfo::System::load_average().five as f32;
         }
 
         // cpu + processes
@@ -159,6 +164,7 @@ impl PTCounter {
         self.last_stats_ts = Some(now);
 
         // Read monotonic disk counters ONCE
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         let io = match Self::diskstats_bytes() {
             Ok(v) => v,
             Err(e) => {
@@ -166,6 +172,8 @@ impl PTCounter {
                 return;
             }
         };
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let io: HashMap<String, (u64, u64)> = HashMap::new();
 
         // Refresh disk list (for device names + mountpoints)
         self.disks.refresh(true);

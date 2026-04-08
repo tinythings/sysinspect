@@ -26,6 +26,7 @@ sensors:
         assert!(sensors::init_sensor(&listener, sid, cfg, SensorCtx::default()).is_some());
     }
 
+    #[cfg(not(target_os = "freebsd"))]
     #[test]
     fn sys_mount_is_registered() {
         sensors::init_registry();

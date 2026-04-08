@@ -333,6 +333,7 @@ impl ModCall {
                 setgid(Gid::from_raw(gid)).map_err(Self::to_io)?;
 
                 // Block priv-escalation via setuid binaries
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                     log::error!("Failed to set no new privs");
                     return Err(io::Error::last_os_error());
@@ -340,7 +341,7 @@ impl ModCall {
 
                 // Cap single file size if requested
                 if fsize_cap > 0 {
-                    let lim = libc::rlimit { rlim_cur: fsize_cap, rlim_max: fsize_cap };
+                    let lim = libc::rlimit { rlim_cur: fsize_cap as libc::rlim_t, rlim_max: fsize_cap as libc::rlim_t };
                     let rc = libc::setrlimit(libc::RLIMIT_FSIZE, &lim as *const _);
                     if rc != 0 {
                         log::error!("Failed to set file size limit");

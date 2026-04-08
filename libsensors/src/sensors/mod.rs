@@ -1,6 +1,8 @@
 pub mod fsnotify;
+#[cfg(not(target_os = "freebsd"))]
 pub mod ifacenotify;
 pub mod menotify;
+#[cfg(not(target_os = "freebsd"))]
 pub mod mountnotify;
 pub mod net_health;
 pub mod net_hostname;
@@ -10,9 +12,11 @@ pub mod net_wifi;
 pub mod netnotify;
 pub mod procnotify;
 pub mod sensor;
+#[cfg(not(target_os = "freebsd"))]
 pub mod socknotify;
 
 #[cfg(test)]
+#[cfg(not(target_os = "freebsd"))]
 mod ifacenotify_ut;
 #[cfg(test)]
 mod net_health_ut;
@@ -28,6 +32,7 @@ mod net_wifi_ut;
 #[cfg(test)]
 mod proc_ut;
 #[cfg(test)]
+#[cfg(not(target_os = "freebsd"))]
 mod socknotify_ut;
 
 use crate::{sensors::sensor::Sensor, sspec::SensorConf};
@@ -76,6 +81,7 @@ pub fn init_registry() {
         .insert(fsnotify::FsNotifySensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| Box::new(fsnotify::FsNotifySensor::new(sid, cfg)));
     REGISTRY
         .insert(procnotify::ProcessSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| Box::new(procnotify::ProcessSensor::new(sid, cfg)));
+    #[cfg(not(target_os = "freebsd"))]
     REGISTRY
         .insert(mountnotify::MountSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| Box::new(mountnotify::MountSensor::new(sid, cfg)));
     REGISTRY.insert(net_health::NetHealthSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| {
@@ -93,11 +99,13 @@ pub fn init_registry() {
     REGISTRY.insert(net_hostname::NetHostnameSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| {
         Box::new(net_hostname::NetHostnameSensor::new(sid, cfg))
     });
+    #[cfg(not(target_os = "freebsd"))]
     REGISTRY
         .insert(ifacenotify::IfaceSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| Box::new(ifacenotify::IfaceSensor::new(sid, cfg)));
     REGISTRY.insert(menotify::MeNotifySensor::id(), |sid: String, cfg: SensorConf, ctx: SensorCtx| {
         Box::new(menotify::MeNotifySensor::with_ctx(sid, cfg, ctx))
     });
+    #[cfg(not(target_os = "freebsd"))]
     REGISTRY.insert(socknotify::SockTraySensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| {
         Box::new(socknotify::SockTraySensor::new(sid, cfg))
     });

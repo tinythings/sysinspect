@@ -8,9 +8,7 @@ include Makefile.in
 
 setup:
 	$(call deps)
-	$(call tgt,wasm32-wasip1)
-	$(call tgt,aarch64-unknown-linux-musl)
-	$(call tgt,x86_64-unknown-linux-musl)
+	$(call setup_targets)
 
 clean:
 	cargo clean
