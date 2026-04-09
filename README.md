@@ -3,6 +3,9 @@
 ![insanity_workflow](https://github.com/tinythings/sysinspect/actions/workflows/insanity_check.yml/badge.svg)
 ![build_workflow](https://github.com/tinythings/sysinspect/actions/workflows/generic_workflow.yml/badge.svg)
 ![build_workflow](https://github.com/tinythings/sysinspect/actions/workflows/all_the_tests.yml/badge.svg)
+[![Docs](https://readthedocs.org/projects/sysinspect/badge/?version=latest)](https://sysinspect.readthedocs.io/en/latest/)
+[![Release](https://img.shields.io/github/v/release/tinythings/sysinspect)](https://github.com/tinythings/sysinspect/releases)
+[![Rust](https://img.shields.io/badge/Rust-1.94.1%2B-orange.svg)](https://github.com/tinythings/sysinspect/blob/master/rust-toolchain.toml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 
