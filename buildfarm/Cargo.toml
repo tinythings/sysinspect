@@ -8,3 +8,4 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.54", features = ["unstable-styles"] }
 colored = "3.0.0"
+portable-pty = "0.9.0"

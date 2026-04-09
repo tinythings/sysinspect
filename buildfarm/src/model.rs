@@ -50,6 +50,34 @@ impl BuildTarget {
     pub fn is_local(&self) -> bool {
         matches!(self.mode, TargetMode::Local)
     }
+
+    pub fn host(&self) -> &str {
+        self.destination
+            .split_once(':')
+            .map(|(host, _)| host)
+            .unwrap_or(self.destination())
+    }
+
+    pub fn remote_path(&self) -> &str {
+        self.destination
+            .split_once(':')
+            .map(|(_, path)| path)
+            .unwrap_or(self.destination())
+    }
+
+    pub fn make_cmd(&self) -> &str {
+        match self.os() {
+            "FreeBSD" => "gmake",
+            _ => "make",
+        }
+    }
+
+    pub fn log_key(&self) -> String {
+        self.destination()
+            .chars()
+            .map(|ch| if ch == '/' || ch == ':' || ch == '@' { '_' } else { ch })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
