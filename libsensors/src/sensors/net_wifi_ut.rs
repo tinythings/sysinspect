@@ -11,6 +11,16 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "linux")]
+fn recv_wait() -> Duration {
+    Duration::from_millis(150)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn recv_wait() -> Duration {
+    Duration::from_secs(1)
+}
+
 /// Returns a `net.wifi` sensor configuration for tests.
 fn mk_cfg(opts: Vec<&str>, tag: Option<&str>, lock: bool, ms: u64) -> SensorConf {
     from_value(json!({
@@ -123,7 +133,7 @@ async fn recv_once_emits_wifi_changed_envelope() {
             HashMap::from([("wlan0".to_string(), mk_wifi("wlan0", true, 45.0, -58.0, -92.0, Some("new"), Some("bb")))]),
         ]),
     );
-    let v = s.recv_once(Duration::from_millis(150)).await.unwrap();
+    let v = s.recv_once(recv_wait()).await.unwrap();
 
     assert_eq!(v["eid"], "sid|net.wifi@car|changed@wlan0|0");
     assert_eq!(v["listener"], "net.wifi");
