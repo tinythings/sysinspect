@@ -19,6 +19,7 @@ mod tests {
     use std::sync::Arc;
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
+    use tokio::sync::oneshot;
     use tokio::time::{Duration, timeout};
 
     #[cfg(target_os = "linux")]
@@ -49,6 +50,16 @@ mod tests {
     #[cfg(not(target_os = "linux"))]
     fn reconnect_accept_timeout() -> Duration {
         Duration::from_secs(30)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reconnect_exit_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_exit_timeout() -> Duration {
+        Duration::from_secs(15)
     }
 
     fn secure_state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
@@ -205,11 +216,14 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         // Fake master: accept first, drop it, then accept second.
+        let (ready_tx, ready_rx) = oneshot::channel();
         let accept2 = tokio::spawn(async move {
             // 1st connect
             let (sock1, _) = listener.accept().await.unwrap();
             tokio::time::sleep(reconnect_drop_wait()).await;
             drop(sock1); // force EOF -> reconnect
+
+            let _ = ready_tx.send(());
 
             // 2nd connect must happen
             let (_sock2, _) = listener.accept().await.unwrap();
@@ -236,6 +250,17 @@ mod tests {
         // Let the fake master accept, then drop the first connection.
         tokio::time::sleep(reconnect_boot_wait()).await;
 
+        timeout(reconnect_accept_timeout(), ready_rx)
+            .await
+            .expect("fake master never became ready for second connect")
+            .expect("fake master readiness signal dropped");
+
+        timeout(reconnect_exit_timeout(), h1)
+            .await
+            .expect("first instance never exited after reconnect")
+            .expect("first instance join failed")
+            .expect("first instance returned error");
+
         // Run second instance; must be able to connect (fake master is waiting)
         let h2 = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
 
@@ -243,8 +268,6 @@ mod tests {
         timeout(reconnect_accept_timeout(), accept2).await.expect("second connect never happened").unwrap();
 
         // cleanup
-        h1.abort();
-        let _ = h1.await;
         h2.abort();
         let _ = h2.await;
     }
