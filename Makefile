@@ -2,7 +2,7 @@
 
 include Makefile.in
 
-.PHONY: help release build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
+.PHONY: help release buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
@@ -10,18 +10,19 @@ help:
 	@printf '\n$$ make [help]\n\n'
 	@printf '\033[1;92m%s\033[0m\n' "Development"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "help" "Show this help and what each entry does."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev" "Compile core binaries in development mode with debug data."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "all-dev" "Compile core plus modules in development mode."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-dev" "Compile modules only in development mode."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-dist-dev" "Build release modules and stage distribution payloads."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "dev" "Compile core binaries in development mode with debug data."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "all-dev" "Compile core plus modules in development mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "modules-dev" "Compile modules only in development mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "modules-dist-dev" "Build release modules and stage distribution payloads."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh-dev" "Debug variant of Linux musl module refresh."
 	@printf '\n\033[1;92m%s\033[0m\n' "Release"
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "release" "Compile core binaries in release mode."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "all" "Compile core plus modules in release mode."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules" "Compile modules only in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "release" "Compile core binaries in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "all" "Compile core plus modules in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "modules" "Compile modules only in release mode."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
 	@printf '\n\033[1;92m%s\033[0m\n' "Utils"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "buildfarm-init" "Reset remote destinations from BUILDFARM_CONFIG and sync project contents."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "fix" "Run clippy --fix on the workspace."
@@ -42,9 +43,20 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
 	@printf '\n\033[1;92m%s\033[0m\n' "Documentation"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "man" "Build the sysinspect manpage from Markdown."
+	@if [ -n "$(BUILDFARM_CONFIG)" ]; then \
+		printf '\n\033[1;96m%s\033[0m\n' "Legend"; \
+		printf '    \033[1;91m*\033[0m\033[1;93m%-19s\033[0m %s\n' "entry" "Runs across the buildfarm defined by BUILDFARM_CONFIG."; \
+	else \
+		printf '\n\033[1;96m%s\033[0m\n' "Buildfarm"; \
+		printf '    %s\n' "In order to activate buildfarm mode, export the following environment:"; \
+		printf '        %s\n' "export BUILDFARM_CONFIG=<buildfarm.conf file>"; \
+	fi
 	@printf '\n'
 
 release: build
+
+buildfarm-init: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh init
 
 setup:
 	$(call deps)
@@ -86,6 +98,28 @@ musl-x86_64:
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
+ifneq ($(strip $(BUILDFARM_CONFIG)),)
+all-dev: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run all-dev
+
+all: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run all
+
+dev: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run dev
+
+build: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run release
+
+modules-dev: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run modules-dev
+
+modules: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run modules
+
+modules-dist-dev: setup
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run modules-dist-dev
+else
 all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
@@ -118,6 +152,7 @@ modules-dist-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
+endif
 
 modules-refresh-dev:
 	$(call tgt,wasm32-wasip1)
