@@ -109,7 +109,6 @@ sensors:
         assert!(s.is_some(), "net.iface must be registered");
     }
 
-    #[cfg(not(target_os = "freebsd"))]
     #[test]
     fn test_registry_has_net_socket_after_init() {
         sensors::init_registry();
