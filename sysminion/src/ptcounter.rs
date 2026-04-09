@@ -1,4 +1,3 @@
-use procfs::Current;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -128,6 +127,7 @@ impl PTCounter {
         if dev.starts_with("/dev/mapper/") { Self::mapper_to_dm_kname(dev) } else { Some(dev.strip_prefix("/dev/").unwrap_or(dev).to_string()) }
     }
 
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     fn diskstats_bytes() -> procfs::ProcResult<HashMap<String, (u64, u64)>> {
         let mut map = HashMap::new();
         for ds in procfs::diskstats()? {
@@ -139,12 +139,70 @@ impl PTCounter {
         Ok(map)
     }
 
+    #[cfg(target_os = "freebsd")]
+    fn loadavg_5m() -> Option<f32> {
+        Command::new("sysctl")
+            .args(["-n", "vm.loadavg"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .and_then(|stdout| stdout.split_whitespace().nth(1).map(|s| s.trim_matches(|c| c == '{' || c == '}').to_string()))
+            .and_then(|value| value.parse::<f32>().ok())
+    }
+
+    #[cfg(target_os = "freebsd")]
+    fn diskstats_bps() -> Option<Vec<DiskStats>> {
+        Command::new("iostat")
+            .args(["-d", "-x"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .map(|stdout| {
+                stdout
+                    .lines()
+                    .skip_while(|line| !line.trim_start().starts_with("device"))
+                    .skip(1)
+                    .filter_map(|line| {
+                        let fields = line.split_whitespace().collect::<Vec<_>>();
+                        (fields.len() >= 5).then(|| {
+                            fields[3]
+                                .parse::<f64>()
+                                .ok()
+                                .zip(fields[4].parse::<f64>().ok())
+                                .map(|(kr_s, kw_s)| {
+                                    let mut stats = DiskStats::new(
+                                        fields[0].to_string(),
+                                        if fields[0].starts_with("vt") || fields[0].starts_with("da") || fields[0].starts_with("ada") {
+                                            "/".to_string()
+                                        } else {
+                                            "".to_string()
+                                        },
+                                    );
+                                    stats.initialized = true;
+                                    stats.read_bps = kr_s * 1024.0;
+                                    stats.write_bps = kw_s * 1024.0;
+                                    stats
+                                })
+                        })?
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|stats| !stats.is_empty())
+    }
+
     /// Update system stats
     /// Called periodically in the minion in a separate thread to refresh stats
     pub(crate) fn update_stats(&mut self) {
         // loadavg
-        if let Ok(la) = procfs::LoadAverage::current() {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if let Ok(la) = <procfs::LoadAverage as procfs::Current>::current() {
             self.loadaverage = la.five;
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            self.loadaverage = Self::loadavg_5m().unwrap_or(sysinfo::System::load_average().five as f32);
         }
 
         // cpu + processes
@@ -159,6 +217,7 @@ impl PTCounter {
         self.last_stats_ts = Some(now);
 
         // Read monotonic disk counters ONCE
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         let io = match Self::diskstats_bytes() {
             Ok(v) => v,
             Err(e) => {
@@ -166,6 +225,8 @@ impl PTCounter {
                 return;
             }
         };
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let io: HashMap<String, (u64, u64)> = HashMap::new();
 
         // Refresh disk list (for device names + mountpoints)
         self.disks.refresh(true);
@@ -194,6 +255,9 @@ impl PTCounter {
                 }
             }
         }
+
+        #[cfg(target_os = "freebsd")]
+        Self::diskstats_bps().map(|stats| self.disk_stats = stats);
 
         // Top writers without cloning everything like a potato
         let mut top: Vec<&DiskStats> = self.disk_stats.iter().collect();

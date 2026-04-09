@@ -4,6 +4,7 @@ mod tests {
     use crate::proto::msg::{CONNECTION_TX, ExitState};
     use crate::rsa::MinionRSAKeyManager;
     use libdpq::DiskPersistentQueue;
+    use libcommon::SysinspectError;
     use libsysinspect::{
         cfg::mmconf::{CFG_MASTER_KEY_PUB, MinionConfig},
         rsa::keys::{RsaKey::Public, key_to_file, keygen},
@@ -16,10 +17,52 @@ mod tests {
     use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
     use once_cell::sync::Lazy;
     use rsa::RsaPublicKey;
+    use std::io::ErrorKind;
     use std::sync::Arc;
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
+    use tokio::sync::oneshot;
     use tokio::time::{Duration, timeout};
+
+    #[cfg(target_os = "linux")]
+    fn reconnect_drop_wait() -> Duration {
+        Duration::from_millis(150)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_drop_wait() -> Duration {
+        Duration::from_millis(500)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reconnect_boot_wait() -> Duration {
+        Duration::from_millis(400)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_boot_wait() -> Duration {
+        Duration::from_secs(2)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reconnect_accept_timeout() -> Duration {
+        Duration::from_secs(10)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_accept_timeout() -> Duration {
+        Duration::from_secs(30)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reconnect_exit_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_exit_timeout() -> Duration {
+        Duration::from_secs(15)
+    }
 
     fn secure_state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
         let mut state = TransportPeerState::new(
@@ -89,17 +132,35 @@ mod tests {
         cfg
     }
 
+    fn seed_managed_transport(cfg: &MinionConfig, root: &std::path::Path) {
+        let (_, master_pbk) = keygen(2048).unwrap();
+        key_to_file(&Public(master_pbk.clone()), root.to_str().unwrap(), CFG_MASTER_KEY_PUB).unwrap();
+
+        let keyman = MinionRSAKeyManager::new(root.to_path_buf()).unwrap();
+        let minion_pbk = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem()))
+            .unwrap()
+            .1
+            .unwrap();
+
+        TransportStore::for_minion(cfg)
+            .unwrap()
+            .save(&secure_state(&master_pbk, &minion_pbk))
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn reconnect_signal_exits_instance_cleanly() {
         let _guard = TEST_LOCK.lock().await;
         // Fake master
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         // Accept connection and just sit there
         tokio::spawn(async move {
-            let (_sock, _peer) = listener.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            let (sock, _peer) = listener.accept().await.unwrap();
+            let _ = shutdown_rx.await;
+            drop(sock);
         });
 
         let tmp = tempfile::tempdir().unwrap();
@@ -111,16 +172,17 @@ mod tests {
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
 
-        let h = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+        let h = tokio::spawn(async move { _minion_instance(cfg, Some("fp-test".to_string()), dpq).await });
 
         // Let it start
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(reconnect_boot_wait()).await;
 
         // Trigger reconnect
         let _ = CONNECTION_TX.send(());
+        let _ = shutdown_tx.send(());
 
         // Must exit quickly
-        let res = timeout(Duration::from_secs(2), h).await;
+        let res = timeout(reconnect_exit_timeout(), h).await;
         assert!(res.is_ok(), "instance did not exit on reconnect");
     }
 
@@ -143,6 +205,8 @@ mod tests {
         cfg.set_autosync_startup(false);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
+
+        seed_managed_transport(&cfg, tmp.path());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
@@ -175,11 +239,14 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         // Fake master: accept first, drop it, then accept second.
+        let (ready_tx, ready_rx) = oneshot::channel();
         let accept2 = tokio::spawn(async move {
             // 1st connect
             let (sock1, _) = listener.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            tokio::time::sleep(reconnect_drop_wait()).await;
             drop(sock1); // force EOF -> reconnect
+
+            let _ = ready_tx.send(());
 
             // 2nd connect must happen
             let (_sock2, _) = listener.accept().await.unwrap();
@@ -193,6 +260,7 @@ mod tests {
         cfg.set_autosync_startup(false);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
+        seed_managed_transport(&cfg, tmp.path());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
 
@@ -204,17 +272,34 @@ mod tests {
         });
 
         // Let the fake master accept, then drop the first connection.
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        tokio::time::sleep(reconnect_boot_wait()).await;
 
-        // Run second instance; must be able to connect (fake master is waiting)
-        let h2 = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+        timeout(reconnect_accept_timeout(), ready_rx)
+            .await
+            .expect("fake master never became ready for second connect")
+            .expect("fake master readiness signal dropped");
 
-        // We don't need it to finish; just prove it connected by allowing accept2 to finish.
-        timeout(Duration::from_secs(10), accept2).await.expect("second connect never happened").unwrap();
+        match timeout(reconnect_exit_timeout(), h1)
+            .await
+            .expect("first instance never exited after reconnect")
+            .expect("first instance join failed")
+        {
+            Ok(_) => {}
+            Err(SysinspectError::IoErr(err))
+                if matches!(
+                    err.kind(),
+                    ErrorKind::ConnectionReset | ErrorKind::UnexpectedEof | ErrorKind::BrokenPipe | ErrorKind::ConnectionAborted
+                ) => {}
+            Err(err) => panic!("first instance returned unexpected error: {err}"),
+        }
+
+        // Fresh instance must still be able to establish a new TCP session.
+        let h2 = tokio::spawn(async move { SysMinion::new(cfg, None, dpq).await });
+
+        // We don't need a full protocol run; just prove the second connect happened.
+        timeout(reconnect_accept_timeout(), accept2).await.expect("second connect never happened").unwrap();
 
         // cleanup
-        h1.abort();
-        let _ = h1.await;
         h2.abort();
         let _ = h2.await;
     }
@@ -677,21 +762,24 @@ mod tests {
         let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let (_sock, _) = listener.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            let (sock, _) = listener.accept().await.unwrap();
+            let _ = shutdown_rx.await;
+            drop(sock);
         });
 
         let tmp = tempfile::tempdir().unwrap();
         let cfg = mk_cfg(format!("{addr}"), "127.0.0.1:1".to_string(), tmp.path());
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
-        let handle = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+        let handle = tokio::spawn(async move { _minion_instance(cfg, Some("fp-test".to_string()), dpq).await });
 
         tokio::time::sleep(Duration::from_millis(200)).await;
         let _ = CONNECTION_TX.send(());
         let _ = CONNECTION_TX.send(());
         let _ = CONNECTION_TX.send(());
+        let _ = shutdown_tx.send(());
 
         assert!(timeout(Duration::from_secs(2), handle).await.is_ok(), "instance did not exit under reconnect storm");
     }

@@ -19,6 +19,9 @@ MUSL_UNSAFE_PACKAGE_SPECS := $(SSRUN_SPEC)
 ifeq ($(UNAME_S),NetBSD)
 MODULE_PACKAGE_SPECS := $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
 PLATFORM_WORKSPACE_EXCLUDES := --exclude $(PY3_RUNTIME_SPEC)
+else ifeq ($(UNAME_S),FreeBSD)
+MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
+PLATFORM_WORKSPACE_EXCLUDES :=
 else
 MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
 PLATFORM_WORKSPACE_EXCLUDES :=
@@ -60,6 +63,21 @@ INTEGRATION_TEST_TARGETS += -p $(call PKG_SPEC_FROM_TOML,libmenotify/Cargo.toml)
 CORE_EXCLUDES := $(foreach pkg,$(ALL_MODULE_PACKAGE_SPECS),--exclude $(pkg))
 TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
 TEST_RUN_THREADS ?= 3
+MODULE_BUILD_JOBS ?= $(shell sh -c '\
+	mem=$$( \
+		awk "/MemTotal:/ { print \$$2 * 1024; exit }" /proc/meminfo 2>/dev/null || \
+		sysctl -n hw.physmem 2>/dev/null || \
+		sysctl -n hw.realmem 2>/dev/null || \
+		echo 0 \
+	); \
+	cpu=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); \
+	if [ "$$mem" -lt 4294967296 ]; then \
+		echo 1; \
+	elif [ "$$mem" -lt 8589934592 ]; then \
+		if [ "$$cpu" -gt 2 ]; then echo 2; else echo 1; fi; \
+	else \
+		if [ "$$cpu" -gt 3 ]; then echo 3; else echo "$$cpu"; fi; \
+	fi')
 ifeq ($(UNAME_S),Linux)
 CURRENT_PLATFORM := linux
 ifeq ($(UNAME_M),x86_64)
@@ -104,22 +122,73 @@ CURRENT_MINION_SLOT := $(CURRENT_PLATFORM)/$(CURRENT_ARCH)
 SYSINSPECT_SPEC := $(call PKG_SPEC_FROM_TOML,Cargo.toml)
 SYSMINION_SPEC := $(call PKG_SPEC_FROM_TOML,sysminion/Cargo.toml)
 
-define deps
-	@need_apt=0; \
-	for cmd in pkg-config clang protoc; do \
-		command -v $$cmd >/dev/null 2>&1 || need_apt=1; \
-	done; \
-	if [ "$$need_apt" -eq 1 ]; then \
-		if ! command -v apt-get >/dev/null 2>&1; then \
-			echo "Missing required build tools (pkg-config/clang/protoc) and no apt-get is available to install them." >&2; \
-			exit 1; \
-		fi; \
-		SUDO=$$(command -v sudo >/dev/null 2>&1 && echo sudo || true); \
-		echo "Installing required packages: pkg-config, libssl-dev, libffi-dev, libsodium-dev, libpam0g-dev, llvm-dev, libclang-dev, clang, protobuf-compiler"; \
-		$$SUDO apt-get update && $$SUDO apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev llvm-dev libclang-dev clang protobuf-compiler; \
-	fi; \
-	cargo nextest --version >/dev/null 2>&1 || cargo install cargo-nextest --locked; \
+define install_tooling
+	@cargo nextest --version >/dev/null 2>&1 || cargo install cargo-nextest --locked; \
 	command -v tokei >/dev/null 2>&1 || cargo install tokei --locked
+endef
+
+define ensure_linux_apt_build_deps
+	@for cmd in pkg-config clang protoc jq; do \
+		command -v $$cmd >/dev/null 2>&1 && continue; \
+		command -v apt-get >/dev/null 2>&1 || { \
+			echo "Missing required build tools (pkg-config/clang/protoc/jq) and no apt-get is available on Linux." >&2; \
+			exit 1; \
+		}; \
+		echo "Installing Linux build packages with apt-get"; \
+		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)apt-get update; \
+		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)apt-get install -y pkg-config libssl-dev libffi-dev libsodium-dev libpam0g-dev llvm-dev libclang-dev clang protobuf-compiler jq; \
+		break; \
+	done
+endef
+
+define ensure_freebsd_pkg_build_deps
+	@for cmd in gmake cargo rustc pkgconf clang protoc jq; do \
+		command -v $$cmd >/dev/null 2>&1 && continue; \
+		command -v pkg >/dev/null 2>&1 || { \
+			echo "Missing required build tools (gmake/cargo/rustc/pkgconf/clang/protoc/jq) and no pkg is available on FreeBSD." >&2; \
+			exit 1; \
+		}; \
+		echo "Installing FreeBSD build packages with pkg"; \
+		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkg install -y gmake rust pkgconf llvm protobuf libffi libsodium openssl jq; \
+		break; \
+	done
+endef
+
+define ensure_netbsd_pkgin_build_deps
+	@for cmd in pkg-config clang protoc jq; do \
+		command -v $$cmd >/dev/null 2>&1 && continue; \
+		command -v pkgin >/dev/null 2>&1 || { \
+			echo "Missing required build tools (pkg-config/clang/protoc/jq) and no pkgin is available on NetBSD." >&2; \
+			exit 1; \
+		}; \
+		echo "Installing NetBSD build packages with pkgin"; \
+		$$(command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkgin -y install pkgconf clang protobuf libffi libsodium openssl jq; \
+		break; \
+	done
+endef
+
+define ensure_openbsd_pkg_add_build_deps
+	@for cmd in pkg-config clang protoc jq; do \
+		command -v $$cmd >/dev/null 2>&1 && continue; \
+		command -v pkg_add >/dev/null 2>&1 || { \
+			echo "Missing required build tools (pkg-config/clang/protoc/jq) and no pkg_add is available on OpenBSD." >&2; \
+			exit 1; \
+		}; \
+		echo "Installing OpenBSD build packages with pkg_add"; \
+		$$(command -v doas >/dev/null 2>&1 && printf 'doas ' || command -v sudo >/dev/null 2>&1 && printf 'sudo ' || true)pkg_add pkgconf llvm protobuf libffi libsodium jq; \
+		break; \
+	done
+endef
+
+define deps
+	$(if $(filter Linux,$(UNAME_S)),$(call ensure_linux_apt_build_deps),$(if $(filter FreeBSD,$(UNAME_S)),$(call ensure_freebsd_pkg_build_deps),$(if $(filter NetBSD,$(UNAME_S)),$(call ensure_netbsd_pkgin_build_deps),$(if $(filter OpenBSD,$(UNAME_S)),$(call ensure_openbsd_pkg_add_build_deps),@echo "Unsupported setup host: $(UNAME_S)" >&2; exit 1))))
+	$(call install_tooling)
+endef
+
+define setup_targets
+	$(call tgt,wasm32-wasip1)
+	$(if $(filter Linux,$(UNAME_S)),$(call tgt,aarch64-unknown-linux-musl))
+	$(if $(filter Linux,$(UNAME_S)),$(call tgt,x86_64-unknown-linux-musl))
 endef
 
 define tgt

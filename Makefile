@@ -2,15 +2,13 @@
 
 include Makefile.in
 
-.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup \
+.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
 setup:
 	$(call deps)
-	$(call tgt,wasm32-wasip1)
-	$(call tgt,aarch64-unknown-linux-musl)
-	$(call tgt,x86_64-unknown-linux-musl)
+	$(call setup_targets)
 
 clean:
 	cargo clean
@@ -20,6 +18,9 @@ check:
 
 fix:
 	cargo clippy --fix --allow-dirty --allow-staged --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
+
+smoke-test:
+	sh smoke-tests/run.sh
 
 musl-aarch64-dev:
 	$(call check_present,aarch64-linux-musl-gcc)
@@ -66,15 +67,15 @@ build:
 	$(call stage_profile_minion,release,)
 
 modules-dev:
-	cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,debug,)
 
 modules:
-	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 
 modules-dist-devel:
-	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
 
@@ -122,18 +123,18 @@ dev-tls:
 	./scripts/dev-tls.sh
 
 test: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
 test-core: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-modules: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
 
 test-sensors: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-integration: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
 
 tar:
 	# Cleanup

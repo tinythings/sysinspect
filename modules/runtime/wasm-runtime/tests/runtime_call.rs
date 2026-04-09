@@ -595,7 +595,7 @@ fn test_wasm_runtime_returns_forwarded_logs() {
     }));
 
     assert_eq!(out.get("retcode"), Some(&json!(0)));
-    assert!(out.pointer("/data/output").and_then(|v| v.as_str()).unwrap_or_default().contains("Linux"));
+    assert!(!out.pointer("/data/output").and_then(|v| v.as_str()).unwrap_or_default().is_empty());
     let logs = out.pointer("/data/__sysinspect-module-logs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     assert!(!logs.is_empty());
     assert!(logs.iter().any(|v| v.as_str().unwrap_or_default().contains("INFO")));

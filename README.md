@@ -31,33 +31,85 @@ Complete documentation can be found here:
 
 ## Building & Requirements
 
-SysInspect is currently built on Ubuntu 22.04 or 24.04.
+SysInspect is built with GNU Make.
 
-### Dependencies
+Do not build this project by calling `cargo` directly at the workspace root.
 
-Your system should have the following packages (Ubuntu/Debian):
+### Linux
 
-- pkg-config
-- libssl-dev
-- libffi-dev
+On modern Linux distributions, including current Ubuntu and Debian releases, bootstrap the toolchain and build dependencies with:
 
-Or equivalent names in your Linux distribution.
+```bash
+make setup
+```
 
-### Building
+Then build:
 
-To build Sysinspect, **do not** use `cargo` directly, but use GNU
-Make. First, you need to setup your environment:
+```bash
+make
+```
 
-    make setup <ENTER>
+For a development build:
 
-Once this is done, you can make a release build:
+```bash
+make devel
+```
 
-    make <ENTER>
+For modules only:
 
-Binary will be found in `/target/release` and modules in
-`/target/release/sys` (currently only `sys.` namespace implemented).
+```bash
+make modules
+make modules-dev
+```
 
-For static compilation you can use `musl-x86_64-dev` or `musl-x86_64`
-targets. For cross-compilation on ARM you can use `musl-aarch64-dev`
-or `musl-aarch64`, but the cross compiler for linking
-(`aarch64-linux-gnu-gcc`) must be installed separately.
+### FreeBSD
+
+On FreeBSD, plain `make` is BSD make, while this project uses GNU make syntax.
+
+Use this flow:
+
+```bash
+make setup
+```
+
+That bootstrap step uses [`BSDmakefile`](BSDmakefile) to install `gmake` and the required Rust/build packages, then hands off to `gmake setup`.
+
+After that, use `gmake` for all real builds:
+
+```bash
+gmake
+gmake devel
+gmake modules
+gmake modules-dev
+gmake test
+gmake smoke-test
+```
+
+### Build Output
+
+Binaries are produced by Cargo under `target/...`.
+
+Packaged/staged artifacts are copied into:
+
+```text
+build/stage/
+```
+
+Module distribution payloads are staged into:
+
+```text
+build/modules-dist/
+```
+
+### Static Linux Builds
+
+For static Linux builds, use:
+
+```bash
+make musl-x86_64
+make musl-x86_64-dev
+make musl-aarch64
+make musl-aarch64-dev
+```
+
+Cross-compiling for AArch64 Linux still requires the matching cross linker to be installed on the host.
