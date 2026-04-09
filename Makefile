@@ -1,10 +1,50 @@
-.DEFAULT_GOAL := build
+.DEFAULT_GOAL := help
 
 include Makefile.in
 
-.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup smoke-test \
+.PHONY: help release build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
+
+help:
+	@printf '\n$$ make [help]\n\n'
+	@printf '\033[1;92m%s\033[0m\n' "Development"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "help" "Show this help and what each entry does."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev" "Compile core binaries in development mode with debug data."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "all-dev" "Compile core plus modules in development mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-dev" "Compile modules only in development mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-dist-dev" "Build release modules and stage distribution payloads."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh-dev" "Debug variant of Linux musl module refresh."
+	@printf '\n\033[1;92m%s\033[0m\n' "Release"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "release" "Compile core binaries in release mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "all" "Compile core plus modules in release mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules" "Compile modules only in release mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
+	@printf '\n\033[1;92m%s\033[0m\n' "Utils"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "fix" "Run clippy --fix on the workspace."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "clean" "Remove Cargo build output."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "stats" "Show code statistics via tokei."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev-tls" "Generate local development TLS material."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "tar" "Create a vendored source tarball."
+	@printf '\n\033[1;92m%s\033[0m\n' "Testing"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test" "Run the full nextest suite for this platform."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-core" "Run core crate unit/bin tests only."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-modules" "Run module tests only."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-sensors" "Run sensor crate tests only."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-integration" "Run integration tests only."
+	@printf '\n\033[1;92m%s\033[0m\n' "Cross Builds"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
+	@printf '\n\033[1;92m%s\033[0m\n' "Documentation"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "man" "Build the sysinspect manpage from Markdown."
+	@printf '\n'
+
+release: build
 
 setup:
 	$(call deps)
@@ -46,7 +86,7 @@ musl-x86_64:
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
-all-devel:
+all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
@@ -56,7 +96,7 @@ all:
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
 
-devel:
+dev:
 	cargo build -v --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
@@ -74,15 +114,15 @@ modules:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 
-modules-dist-devel:
+modules-dist-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
 
-modules-refresh-devel:
+modules-refresh-dev:
 	$(call tgt,wasm32-wasip1)
 	@if [ -z "$(CURRENT_MUSL_TARGET)" ] || [ -z "$(CURRENT_MUSL_CC)" ]; then \
-		echo "modules-refresh-devel currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
+		echo "modules-refresh-dev currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
 		exit 1; \
 	fi
 	$(call tgt,$(CURRENT_MUSL_TARGET))

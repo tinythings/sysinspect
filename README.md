@@ -55,7 +55,7 @@ make
 For a development build:
 
 ```bash
-make devel
+make dev
 ```
 
 For modules only:
@@ -81,7 +81,7 @@ After that, use `gmake` for all real builds:
 
 ```bash
 gmake
-gmake devel
+gmake dev
 gmake modules
 gmake modules-dev
 gmake test
