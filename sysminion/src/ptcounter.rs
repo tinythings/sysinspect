@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
+    process::Command,
     time::Instant,
 };
 use sysinfo::{DiskKind, Disks, System};
@@ -147,8 +148,13 @@ impl PTCounter {
             .ok()
             .filter(|output| output.status.success())
             .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
-            .and_then(|stdout| stdout.split_whitespace().nth(1).map(|s| s.trim_matches(|c| c == '{' || c == '}').to_string()))
-            .and_then(|value| value.parse::<f32>().ok())
+            .and_then(|stdout: String| {
+                stdout
+                    .split_whitespace()
+                    .nth(1)
+                    .map(|field: &str| field.trim_matches(|ch| ch == '{' || ch == '}').to_string())
+            })
+            .and_then(|value: String| value.parse::<f32>().ok())
     }
 
     #[cfg(target_os = "freebsd")]
@@ -159,12 +165,12 @@ impl PTCounter {
             .ok()
             .filter(|output| output.status.success())
             .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
-            .map(|stdout| {
+            .map(|stdout: String| {
                 stdout
                     .lines()
-                    .skip_while(|line| !line.trim_start().starts_with("device"))
+                    .skip_while(|line: &&str| !line.trim_start().starts_with("device"))
                     .skip(1)
-                    .filter_map(|line| {
+                    .filter_map(|line: &str| {
                         let fields = line.split_whitespace().collect::<Vec<_>>();
                         (fields.len() >= 5).then(|| {
                             fields[3]
