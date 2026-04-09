@@ -332,14 +332,17 @@ impl ModCall {
                 // Set primary GID first
                 setgid(Gid::from_raw(gid)).map_err(Self::to_io)?;
 
-                // Block priv-escalation via setuid binaries
+                // Linux/Android can hard-disable future privilege escalation.
+                // BSD does not expose PR_SET_NO_NEW_PRIVS, so the FreeBSD path
+                // relies on the uid/gid drop plus RLIMIT_FSIZE below.
                 #[cfg(any(target_os = "linux", target_os = "android"))]
                 if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                     log::error!("Failed to set no new privs");
                     return Err(io::Error::last_os_error());
                 }
 
-                // Cap single file size if requested
+                // RLIMIT_FSIZE is available on Linux and BSD, but the field
+                // type is platform-specific, so cast through libc::rlim_t.
                 if fsize_cap > 0 {
                     let lim = libc::rlimit { rlim_cur: fsize_cap as libc::rlim_t, rlim_max: fsize_cap as libc::rlim_t };
                     let rc = libc::setrlimit(libc::RLIMIT_FSIZE, &lim as *const _);
