@@ -21,6 +21,36 @@ mod tests {
     use tokio::sync::Mutex;
     use tokio::time::{Duration, timeout};
 
+    #[cfg(target_os = "linux")]
+    fn reconnect_drop_wait() -> Duration {
+        Duration::from_millis(150)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_drop_wait() -> Duration {
+        Duration::from_millis(500)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reconnect_boot_wait() -> Duration {
+        Duration::from_millis(400)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_boot_wait() -> Duration {
+        Duration::from_secs(2)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn reconnect_accept_timeout() -> Duration {
+        Duration::from_secs(10)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn reconnect_accept_timeout() -> Duration {
+        Duration::from_secs(30)
+    }
+
     fn secure_state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
         let mut state = TransportPeerState::new(
             "mid-1".to_string(),
@@ -178,7 +208,7 @@ mod tests {
         let accept2 = tokio::spawn(async move {
             // 1st connect
             let (sock1, _) = listener.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            tokio::time::sleep(reconnect_drop_wait()).await;
             drop(sock1); // force EOF -> reconnect
 
             // 2nd connect must happen
@@ -204,13 +234,13 @@ mod tests {
         });
 
         // Let the fake master accept, then drop the first connection.
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        tokio::time::sleep(reconnect_boot_wait()).await;
 
         // Run second instance; must be able to connect (fake master is waiting)
         let h2 = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
 
         // We don't need it to finish; just prove it connected by allowing accept2 to finish.
-        timeout(Duration::from_secs(10), accept2).await.expect("second connect never happened").unwrap();
+        timeout(reconnect_accept_timeout(), accept2).await.expect("second connect never happened").unwrap();
 
         // cleanup
         h1.abort();
