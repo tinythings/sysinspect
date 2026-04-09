@@ -63,11 +63,21 @@ INTEGRATION_TEST_TARGETS += -p $(call PKG_SPEC_FROM_TOML,libmenotify/Cargo.toml)
 CORE_EXCLUDES := $(foreach pkg,$(ALL_MODULE_PACKAGE_SPECS),--exclude $(pkg))
 TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
 TEST_RUN_THREADS ?= 3
-ifeq ($(UNAME_S),FreeBSD)
-MODULE_BUILD_JOBS ?= 1
-else
-MODULE_BUILD_JOBS ?= $(TEST_BUILD_JOBS)
-endif
+MODULE_BUILD_JOBS ?= $(shell sh -c '\
+	mem=$$( \
+		awk "/MemTotal:/ { print \$$2 * 1024; exit }" /proc/meminfo 2>/dev/null || \
+		sysctl -n hw.physmem 2>/dev/null || \
+		sysctl -n hw.realmem 2>/dev/null || \
+		echo 0 \
+	); \
+	cpu=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); \
+	if [ "$$mem" -lt 4294967296 ]; then \
+		echo 1; \
+	elif [ "$$mem" -lt 8589934592 ]; then \
+		if [ "$$cpu" -gt 2 ]; then echo 2; else echo 1; fi; \
+	else \
+		if [ "$$cpu" -gt 3 ]; then echo 3; else echo "$$cpu"; fi; \
+	fi')
 ifeq ($(UNAME_S),Linux)
 CURRENT_PLATFORM := linux
 ifeq ($(UNAME_M),x86_64)
