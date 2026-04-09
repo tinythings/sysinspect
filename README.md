@@ -88,6 +88,46 @@ gmake test
 gmake smoke-test
 ```
 
+### Buildfarm
+
+If `BUILDFARM_CONFIG` is exported, buildfarm-aware entries use the standalone `buildfarm` TUI.
+
+Bootstrap once:
+
+```bash
+make setup
+```
+
+That prepares the normal toolchain and prebuilds:
+
+```text
+target/buildfarm/buildfarm
+```
+
+Manual rebuild of the controller:
+
+```bash
+make buildfarm
+```
+
+Prepare remote destinations:
+
+```bash
+export BUILDFARM_CONFIG=buildfarm.conf
+make buildfarm-init
+```
+
+Then run any buildfarm-aware entry. Each run still delta-rsyncs local changes to remotes before building:
+
+```bash
+make dev
+make all-dev
+make modules-dev
+make release
+make all
+make modules
+```
+
 ### Build Output
 
 Binaries are produced by Cargo under `target/...`.

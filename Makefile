@@ -61,25 +61,33 @@ release: build
 buildfarm-init: setup
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh init
 
-buildfarm: setup
+define buildfarm_compile
 	@rm -rf target/buildfarm buildfarm/target
 	@mkdir -p target/buildfarm
 	@cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target
 	@cp -f buildfarm/target/debug/buildfarm $(BUILDFARM_BIN)
 	@chmod +x $(BUILDFARM_BIN)
 	@rm -rf buildfarm/target
+endef
+
+buildfarm: setup
+	$(buildfarm_compile)
 
 $(BUILDFARM_BIN):
-	@rm -rf target/buildfarm buildfarm/target
-	@mkdir -p target/buildfarm
-	@cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target
-	@cp -f buildfarm/target/debug/buildfarm $(BUILDFARM_BIN)
-	@chmod +x $(BUILDFARM_BIN)
-	@rm -rf buildfarm/target
+	$(buildfarm_compile)
 
 setup:
 	$(call deps)
 	$(call setup_targets)
+	@if [ ! -x "$(BUILDFARM_BIN)" ]; then \
+		echo "Prebuilding standalone buildfarm controller"; \
+		rm -rf target/buildfarm buildfarm/target; \
+		mkdir -p target/buildfarm; \
+		cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target; \
+		cp -f buildfarm/target/debug/buildfarm $(BUILDFARM_BIN); \
+		chmod +x $(BUILDFARM_BIN); \
+		rm -rf buildfarm/target; \
+	fi
 
 clean:
 	cargo clean
@@ -118,25 +126,32 @@ musl-x86_64:
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
 ifneq ($(strip $(BUILDFARM_CONFIG)),)
-all-dev: $(BUILDFARM_BIN)
+all-dev:
+	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all-dev
 
-all: $(BUILDFARM_BIN)
+all:
+	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all
 
-dev: $(BUILDFARM_BIN)
+dev:
+	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run dev
 
-build: $(BUILDFARM_BIN)
+build:
+	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run release
 
-modules-dev: $(BUILDFARM_BIN)
+modules-dev:
+	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dev
 
-modules: $(BUILDFARM_BIN)
+modules:
+	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules
 
-modules-dist-dev: $(BUILDFARM_BIN)
+modules-dist-dev:
+	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dist-dev
 else
 all-dev:
