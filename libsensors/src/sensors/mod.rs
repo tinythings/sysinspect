@@ -1,7 +1,6 @@
 pub mod fsnotify;
 pub mod ifacenotify;
 pub mod menotify;
-#[cfg(not(target_os = "freebsd"))]
 pub mod mountnotify;
 pub mod net_health;
 pub mod net_hostname;
@@ -77,7 +76,6 @@ pub fn init_registry() {
         .insert(fsnotify::FsNotifySensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| Box::new(fsnotify::FsNotifySensor::new(sid, cfg)));
     REGISTRY
         .insert(procnotify::ProcessSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| Box::new(procnotify::ProcessSensor::new(sid, cfg)));
-    #[cfg(not(target_os = "freebsd"))]
     REGISTRY
         .insert(mountnotify::MountSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| Box::new(mountnotify::MountSensor::new(sid, cfg)));
     REGISTRY.insert(net_health::NetHealthSensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| {

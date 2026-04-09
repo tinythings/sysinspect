@@ -1,6 +1,5 @@
 mod sensor_run_early_returns_test {
     use libsensors::sensors::fsnotify::FsNotifySensor;
-    #[cfg(not(target_os = "freebsd"))]
     use libsensors::sensors::mountnotify::MountSensor;
     use libsensors::sensors::sensor::Sensor;
     use libsensors::sspec::SensorConf;
@@ -19,7 +18,6 @@ mod sensor_run_early_returns_test {
         .unwrap()
     }
 
-    #[cfg(not(target_os = "freebsd"))]
     fn mount_cfg_missing_mountpoints() -> SensorConf {
         from_value(json!({
             "listener": "sys.mount",
@@ -46,7 +44,6 @@ mod sensor_run_early_returns_test {
         assert_eq!(hits.load(Ordering::SeqCst), 0);
     }
 
-    #[cfg(not(target_os = "freebsd"))]
     #[tokio::test]
     async fn mountnotify_run_returns_early_when_mountpoints_missing() {
         let s = MountSensor::new("SID".into(), mount_cfg_missing_mountpoints());
