@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
-    process::Command,
     time::Instant,
 };
 use sysinfo::{DiskKind, Disks, System};
