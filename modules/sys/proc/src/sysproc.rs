@@ -4,6 +4,8 @@ use libmodcore::{
 };
 use serde_json::json;
 use std::{collections::HashMap, vec};
+#[cfg(target_os = "freebsd")]
+use std::process::Command;
 
 #[cfg(target_os = "linux")]
 use procfs::process::{LimitValue, Process, all_processes};

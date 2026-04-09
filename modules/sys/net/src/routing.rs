@@ -2,6 +2,8 @@ use std::{error::Error, net::IpAddr};
 
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "freebsd")]
+use std::process::Command;
 
 #[derive(Debug)]
 pub struct RtRec {
