@@ -92,8 +92,12 @@ fn tile_status_colors_match_stage() {
         Some(Color::Green)
     );
     assert_eq!(
+        TileStatus::from_fixture("finished", JobStage::Success).style().fg,
+        Some(Color::White)
+    );
+    assert_eq!(
         TileStatus::from_fixture("failed", JobStage::Failed).style().fg,
-        Some(Color::Black)
+        Some(Color::White)
     );
 }
 

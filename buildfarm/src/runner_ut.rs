@@ -22,6 +22,7 @@ fn local_job_writes_full_log_file_from_pty() {
             None,
         ),
         log_path.clone(),
+        None,
     );
     let result = job.run().expect("local PTY job should run");
 
@@ -34,21 +35,18 @@ fn local_job_writes_full_log_file_from_pty() {
 
 #[test]
 fn remote_job_uses_ssh_tty_and_remote_make_command() {
-    let command = BuildJob::build(
+    let job = BuildJob::build(
         &BuildTarget::remote("FreeBSD", "amd64", "192.168.122.122:work/sysinspect-buildfarm"),
         "dev",
         Path::new("/tmp/sysinspect"),
         Path::new("/tmp/logs"),
         "make",
-    )
-    .command()
-    .args()
-    .to_vec();
+    );
+    let command = job.command().args();
 
-    assert_eq!(command[0], "-lc");
-    assert!(command[1].contains("rsync -az"));
-    assert!(command[1].contains("ssh -tt '192.168.122.122'"));
-    assert!(command[1].contains("cd 'work/sysinspect-buildfarm' && gmake dev"));
+    assert_eq!(command[0], "-tt");
+    assert_eq!(command[1], "192.168.122.122");
+    assert_eq!(command[2], "cd 'work/sysinspect-buildfarm' && gmake dev");
 }
 
 #[test]
