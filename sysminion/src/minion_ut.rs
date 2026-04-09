@@ -154,11 +154,13 @@ mod tests {
         // Fake master
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         // Accept connection and just sit there
         tokio::spawn(async move {
-            let (_sock, _peer) = listener.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            let (sock, _peer) = listener.accept().await.unwrap();
+            let _ = shutdown_rx.await;
+            drop(sock);
         });
 
         let tmp = tempfile::tempdir().unwrap();
@@ -167,20 +169,20 @@ mod tests {
             "127.0.0.1:1".to_string(), // not used in this test
             tmp.path(),
         );
-        seed_managed_transport(&cfg, tmp.path());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
 
-        let h = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+        let h = tokio::spawn(async move { _minion_instance(cfg, Some("fp-test".to_string()), dpq).await });
 
         // Let it start
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(reconnect_boot_wait()).await;
 
         // Trigger reconnect
         let _ = CONNECTION_TX.send(());
+        let _ = shutdown_tx.send(());
 
         // Must exit quickly
-        let res = timeout(Duration::from_secs(2), h).await;
+        let res = timeout(reconnect_exit_timeout(), h).await;
         assert!(res.is_ok(), "instance did not exit on reconnect");
     }
 
@@ -760,21 +762,24 @@ mod tests {
         let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let (_sock, _) = listener.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            let (sock, _) = listener.accept().await.unwrap();
+            let _ = shutdown_rx.await;
+            drop(sock);
         });
 
         let tmp = tempfile::tempdir().unwrap();
         let cfg = mk_cfg(format!("{addr}"), "127.0.0.1:1".to_string(), tmp.path());
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
-        let handle = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+        let handle = tokio::spawn(async move { _minion_instance(cfg, Some("fp-test".to_string()), dpq).await });
 
         tokio::time::sleep(Duration::from_millis(200)).await;
         let _ = CONNECTION_TX.send(());
         let _ = CONNECTION_TX.send(());
         let _ = CONNECTION_TX.send(());
+        let _ = shutdown_tx.send(());
 
         assert!(timeout(Duration::from_secs(2), handle).await.is_ok(), "instance did not exit under reconnect storm");
     }
