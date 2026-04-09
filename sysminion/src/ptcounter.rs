@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
+    process::Command,
     time::Instant,
 };
 use sysinfo::{DiskKind, Disks, System};
@@ -139,6 +140,59 @@ impl PTCounter {
         Ok(map)
     }
 
+    #[cfg(target_os = "freebsd")]
+    fn loadavg_5m() -> Option<f32> {
+        Command::new("sysctl")
+            .args(["-n", "vm.loadavg"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .and_then(|stdout| stdout.split_whitespace().nth(1).map(|s| s.trim_matches(|c| c == '{' || c == '}').to_string()))
+            .and_then(|value| value.parse::<f32>().ok())
+    }
+
+    #[cfg(target_os = "freebsd")]
+    fn diskstats_bps() -> Option<Vec<DiskStats>> {
+        Command::new("iostat")
+            .args(["-d", "-x"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .map(|stdout| {
+                stdout
+                    .lines()
+                    .skip_while(|line| !line.trim_start().starts_with("device"))
+                    .skip(1)
+                    .filter_map(|line| {
+                        let fields = line.split_whitespace().collect::<Vec<_>>();
+                        (fields.len() >= 5).then(|| {
+                            fields[3]
+                                .parse::<f64>()
+                                .ok()
+                                .zip(fields[4].parse::<f64>().ok())
+                                .map(|(kr_s, kw_s)| {
+                                    let mut stats = DiskStats::new(
+                                        fields[0].to_string(),
+                                        if fields[0].starts_with("vt") || fields[0].starts_with("da") || fields[0].starts_with("ada") {
+                                            "/".to_string()
+                                        } else {
+                                            "".to_string()
+                                        },
+                                    );
+                                    stats.initialized = true;
+                                    stats.read_bps = kr_s * 1024.0;
+                                    stats.write_bps = kw_s * 1024.0;
+                                    stats
+                                })
+                        })?
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|stats| !stats.is_empty())
+    }
+
     /// Update system stats
     /// Called periodically in the minion in a separate thread to refresh stats
     pub(crate) fn update_stats(&mut self) {
@@ -149,7 +203,7 @@ impl PTCounter {
         }
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
         {
-            self.loadaverage = sysinfo::System::load_average().five as f32;
+            self.loadaverage = Self::loadavg_5m().unwrap_or(sysinfo::System::load_average().five as f32);
         }
 
         // cpu + processes
@@ -202,6 +256,9 @@ impl PTCounter {
                 }
             }
         }
+
+        #[cfg(target_os = "freebsd")]
+        Self::diskstats_bps().map(|stats| self.disk_stats = stats);
 
         // Top writers without cloning everything like a potato
         let mut top: Vec<&DiskStats> = self.disk_stats.iter().collect();
