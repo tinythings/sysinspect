@@ -123,18 +123,18 @@ dev-tls:
 	./scripts/dev-tls.sh
 
 test: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
 test-core: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-modules: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
 
 test-sensors: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-integration: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
 
 tar:
 	# Cleanup
