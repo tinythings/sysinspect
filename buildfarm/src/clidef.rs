@@ -1,4 +1,4 @@
-use clap::{Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, ColorChoice, Command};
 use clap::builder::styling;
 use clap::ArgMatches;
 use colored::Colorize;
@@ -18,33 +18,17 @@ pub fn cli() -> Command {
         .subcommand(
             Command::new("init")
                 .about("Validate and initialise buildfarm targets from BUILDFARM_CONFIG")
-                .styles(styles())
-                .disable_help_flag(true)
-                .arg(
-                    Arg::new("help")
-                        .short('h')
-                        .long("help")
-                        .action(ArgAction::SetTrue)
-                        .help("Display help for this command"),
-                ),
+                .styles(styles()),
         )
         .subcommand(
             Command::new("run")
                 .about("Run one buildfarm-aware make entry across configured targets")
                 .styles(styles())
-                .disable_help_flag(true)
                 .arg(
                     Arg::new("entry")
                         .help("Build entry to run, such as dev, release, modules, or test")
                         .required(true)
                         .index(1),
-                )
-                .arg(
-                    Arg::new("help")
-                        .short('h')
-                        .long("help")
-                        .action(ArgAction::SetTrue)
-                        .help("Display help for this command"),
                 ),
         )
         .next_help_heading("Other")
@@ -61,23 +45,7 @@ pub fn cli() -> Command {
                 .action(ArgAction::Count)
                 .help("Enable debug mode for more verbose output. Increase this flag for greater verbosity."),
         )
-        .arg(
-            Arg::new("help")
-                .short('h')
-                .long("help")
-                .action(ArgAction::SetTrue)
-                .help("Display help"),
-        )
-        .arg(
-            Arg::new("version")
-                .short('v')
-                .long("version")
-                .action(ArgAction::SetTrue)
-                .help("Get the current version."),
-        )
-        .disable_help_flag(true)
-        .disable_version_flag(true)
-        .disable_colored_help(false)
+        .color(ColorChoice::Always)
         .styles(styles())
 }
 

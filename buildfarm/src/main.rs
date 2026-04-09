@@ -1,10 +1,16 @@
+mod ansi;
 mod clidef;
 mod model;
 mod runner;
+mod ui;
+#[cfg(test)]
+mod ansi_ut;
 #[cfg(test)]
 mod model_ut;
 #[cfg(test)]
 mod runner_ut;
+#[cfg(test)]
+mod ui_ut;
 
 use std::{env, fs, process};
 
