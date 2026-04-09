@@ -2,9 +2,10 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
-    process::Command,
     time::Instant,
 };
+#[cfg(target_os = "freebsd")]
+use std::process::Command;
 use sysinfo::{DiskKind, Disks, System};
 
 #[derive(Debug, Clone)]
