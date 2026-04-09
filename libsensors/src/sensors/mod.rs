@@ -12,7 +12,6 @@ pub mod net_wifi;
 pub mod netnotify;
 pub mod procnotify;
 pub mod sensor;
-#[cfg(not(target_os = "freebsd"))]
 pub mod socknotify;
 
 #[cfg(test)]
@@ -32,7 +31,6 @@ mod net_wifi_ut;
 #[cfg(test)]
 mod proc_ut;
 #[cfg(test)]
-#[cfg(not(target_os = "freebsd"))]
 mod socknotify_ut;
 
 use crate::{sensors::sensor::Sensor, sspec::SensorConf};
@@ -105,7 +103,6 @@ pub fn init_registry() {
     REGISTRY.insert(menotify::MeNotifySensor::id(), |sid: String, cfg: SensorConf, ctx: SensorCtx| {
         Box::new(menotify::MeNotifySensor::with_ctx(sid, cfg, ctx))
     });
-    #[cfg(not(target_os = "freebsd"))]
     REGISTRY.insert(socknotify::SockTraySensor::id(), |sid: String, cfg: SensorConf, _ctx: SensorCtx| {
         Box::new(socknotify::SockTraySensor::new(sid, cfg))
     });
