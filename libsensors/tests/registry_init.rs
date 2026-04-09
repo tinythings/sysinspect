@@ -90,7 +90,6 @@ sensors:
         assert!(n1 >= 1);
     }
 
-    #[cfg(not(target_os = "freebsd"))]
     #[test]
     fn test_registry_has_net_iface_after_init() {
         sensors::init_registry();

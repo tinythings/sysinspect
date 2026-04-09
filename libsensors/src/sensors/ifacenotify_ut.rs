@@ -1,4 +1,4 @@
-use crate::sensors::{ifacenotify::IfaceSensor, sensor::Sensor};
+use crate::sensors::{ifacenotify::{IfaceMask, IfaceSensor}, sensor::Sensor};
 use crate::sspec::SensorConf;
 
 fn mk_cfg(opts: Vec<&str>) -> SensorConf {
@@ -16,20 +16,20 @@ opts: [{}]
 fn defaults_to_all_events() {
     let s = IfaceSensor::new("SID".into(), mk_cfg(vec![]));
     let m = s.build_mask();
-    assert!(m.contains(iface::events::IfaceMask::IFACE_ADDED));
-    assert!(m.contains(iface::events::IfaceMask::IFACE_REMOVED));
-    assert!(m.contains(iface::events::IfaceMask::LINK_UP));
-    assert!(m.contains(iface::events::IfaceMask::LINK_DOWN));
-    assert!(m.contains(iface::events::IfaceMask::ADDR_ADDED));
-    assert!(m.contains(iface::events::IfaceMask::ADDR_REMOVED));
+    assert!(m.contains(IfaceMask::IFACE_ADDED));
+    assert!(m.contains(IfaceMask::IFACE_REMOVED));
+    assert!(m.contains(IfaceMask::LINK_UP));
+    assert!(m.contains(IfaceMask::LINK_DOWN));
+    assert!(m.contains(IfaceMask::ADDR_ADDED));
+    assert!(m.contains(IfaceMask::ADDR_REMOVED));
 }
 
 #[test]
 fn parses_specific_opts() {
     let s = IfaceSensor::new("SID".into(), mk_cfg(vec!["link-up", "addr-removed"]));
     let m = s.build_mask();
-    assert!(m.contains(iface::events::IfaceMask::LINK_UP));
-    assert!(m.contains(iface::events::IfaceMask::ADDR_REMOVED));
-    assert!(!m.contains(iface::events::IfaceMask::IFACE_ADDED));
-    assert!(!m.contains(iface::events::IfaceMask::LINK_DOWN));
+    assert!(m.contains(IfaceMask::LINK_UP));
+    assert!(m.contains(IfaceMask::ADDR_REMOVED));
+    assert!(!m.contains(IfaceMask::IFACE_ADDED));
+    assert!(!m.contains(IfaceMask::LINK_DOWN));
 }
