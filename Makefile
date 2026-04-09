@@ -2,6 +2,8 @@
 
 include Makefile.in
 
+BUILDFARM_BIN := target/buildfarm/buildfarm
+
 .PHONY: help release buildfarm buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
@@ -63,8 +65,16 @@ buildfarm: setup
 	@rm -rf target/buildfarm buildfarm/target
 	@mkdir -p target/buildfarm
 	@cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target
-	@cp -f buildfarm/target/debug/buildfarm target/buildfarm/buildfarm
-	@chmod +x target/buildfarm/buildfarm
+	@cp -f buildfarm/target/debug/buildfarm $(BUILDFARM_BIN)
+	@chmod +x $(BUILDFARM_BIN)
+	@rm -rf buildfarm/target
+
+$(BUILDFARM_BIN):
+	@rm -rf target/buildfarm buildfarm/target
+	@mkdir -p target/buildfarm
+	@cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target
+	@cp -f buildfarm/target/debug/buildfarm $(BUILDFARM_BIN)
+	@chmod +x $(BUILDFARM_BIN)
 	@rm -rf buildfarm/target
 
 setup:
@@ -108,26 +118,26 @@ musl-x86_64:
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
 ifneq ($(strip $(BUILDFARM_CONFIG)),)
-all-dev: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run all-dev
+all-dev: $(BUILDFARM_BIN)
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all-dev
 
-all: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run all
+all: $(BUILDFARM_BIN)
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all
 
-dev: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run dev
+dev: $(BUILDFARM_BIN)
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run dev
 
-build: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run release
+build: $(BUILDFARM_BIN)
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run release
 
-modules-dev: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run modules-dev
+modules-dev: $(BUILDFARM_BIN)
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dev
 
-modules: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run modules
+modules: $(BUILDFARM_BIN)
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules
 
-modules-dist-dev: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh run modules-dist-dev
+modules-dist-dev: $(BUILDFARM_BIN)
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dist-dev
 else
 all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)

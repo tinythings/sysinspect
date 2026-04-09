@@ -1,22 +1,49 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Flex, Layout, Rect},
     style::{Color, Style},
-    text::Line,
-    widgets::{Block, Borders, Paragraph, Wrap},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 use crate::ansi::AnsiDocument;
-use crate::runner::BuildPlan;
+use crate::{
+    app::{JobStage, JobState},
+    runner::BuildPlan,
+};
 
 pub struct BuildScreen<'a> {
     tiles: Vec<BuildTile<'a>>,
+    popup: Option<FinishPopup<'a>>,
 }
 
 impl<'a> BuildScreen<'a> {
     pub fn from_plan(plan: &'a BuildPlan) -> Self {
         Self {
             tiles: plan.jobs().iter().map(BuildTile::from_job).collect(),
+            popup: None,
+        }
+    }
+
+    pub fn from_states(
+        states: &'a [JobState],
+        active_pane: usize,
+        scrollbacks: &'a [usize],
+        popup_open: bool,
+    ) -> Self {
+        Self {
+            tiles: states
+                .iter()
+                .enumerate()
+                .map(|(index, state)| {
+                    BuildTile::from_state(
+                        state,
+                        index == active_pane,
+                        *scrollbacks.get(index).unwrap_or(&0),
+                    )
+                })
+                .collect(),
+            popup: popup_open.then_some(FinishPopup::done()),
         }
     }
 
@@ -26,6 +53,16 @@ impl<'a> BuildScreen<'a> {
             .iter()
             .zip(self.tiles.iter())
             .for_each(|(area, tile)| tile.render(frame, *area));
+        self.popup.iter().for_each(|popup| popup.render(frame));
+    }
+
+    pub fn viewport_height(count: usize, active_pane: usize, area: Rect) -> usize {
+        TileGrid::new(count)
+            .split(area)
+            .get(active_pane)
+            .map(|tile_area| TileLayout::new(*tile_area).split().viewport())
+            .map(|viewport| viewport.height as usize)
+            .unwrap_or(1)
     }
 
     pub fn tiles(&self) -> &[BuildTile<'a>] {
@@ -34,92 +71,157 @@ impl<'a> BuildScreen<'a> {
 }
 
 pub struct BuildTile<'a> {
-    status: TileStatus<'a>,
+    active: bool,
+    status: TileStatus,
     viewport: TileViewport<'a>,
 }
 
 impl<'a> BuildTile<'a> {
-    pub fn from_job(job: &'a crate::runner::BuildJob) -> Self {
+    pub fn from_job(job: &crate::runner::BuildJob) -> Self {
         Self {
+            active: false,
             status: TileStatus::from_job(job),
             viewport: TileViewport::empty(),
         }
     }
 
-    pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        let layout = TileLayout::new(area).split();
-        self.viewport.render(frame, layout.viewport());
-        self.status.render(frame, layout.status());
-    }
-
-    pub fn status(&self) -> &TileStatus<'a> {
-        &self.status
-    }
-}
-
-pub struct TileStatus<'a> {
-    os: &'a str,
-    arch: &'a str,
-    destination: &'a str,
-    summary: &'a str,
-}
-
-impl<'a> TileStatus<'a> {
-    pub fn from_job(job: &'a crate::runner::BuildJob) -> Self {
+    pub fn from_state(state: &'a JobState, active: bool, scrollback: usize) -> Self {
         Self {
-            os: job.target().os(),
-            arch: job.target().arch(),
-            destination: job.target().destination(),
-            summary: "pending",
+            active,
+            status: TileStatus::from_state(state),
+            viewport: TileViewport::from_ansi(state.log_text(), scrollback),
         }
     }
 
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
+        let layout = TileLayout::new(area).split();
+
+        frame.render_widget(Clear, area);
+        self.viewport.render(frame, layout.viewport(), self.active);
+        self.status.render(frame, layout.status());
+    }
+
+    pub fn status(&self) -> &TileStatus {
+        &self.status
+    }
+}
+
+pub struct TileStatus {
+    title: String,
+    summary: String,
+    stage: JobStage,
+}
+
+impl TileStatus {
+    pub fn from_job(job: &crate::runner::BuildJob) -> Self {
+        Self {
+            title: job.target().title(),
+            summary: "pending".to_string(),
+            stage: JobStage::Pending,
+        }
+    }
+
+    pub fn from_state(state: &JobState) -> Self {
+        Self {
+            title: state.title().to_string(),
+            summary: state.summary().to_string(),
+            stage: state.stage(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn from_fixture(title: &str, stage: JobStage) -> Self {
+        Self {
+            title: title.to_string(),
+            summary: stage.label().to_string(),
+            stage,
+        }
+    }
+
+    pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
+        frame.render_widget(Clear, area);
         frame.render_widget(
-            Paragraph::new(vec![
-                Line::styled(
-                    format!("{} {} {}", self.os, self.arch, self.destination),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Line::styled(self.summary, Style::default().fg(Color::Yellow)),
-            ])
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("status")
-                        .border_style(Style::default().fg(Color::Cyan))
-                        .title_style(Style::default().fg(Color::Cyan)),
-                )
-                .wrap(Wrap { trim: false }),
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!(" {} ", self.title), self.style()),
+                Span::styled(format!(" {} ", self.summary), self.style()),
+            ]))
+            .style(self.style())
+            .wrap(Wrap { trim: false }),
             area,
         );
     }
 
     pub fn title(&self) -> &str {
-        self.destination
+        &self.title
+    }
+
+    pub fn style(&self) -> Style {
+        match self.stage {
+            JobStage::Pending | JobStage::Running => Style::default().bg(Color::Black).fg(Color::Yellow),
+            JobStage::Success => Style::default()
+                .bg(Color::Green)
+                .fg(Color::White)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+            JobStage::Failed => Style::default()
+                .bg(Color::Red)
+                .fg(Color::White)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        }
     }
 }
 
 pub struct TileViewport<'a> {
     source: &'a str,
+    scrollback: usize,
 }
 
 impl<'a> TileViewport<'a> {
     pub fn empty() -> Self {
-        Self { source: "" }
+        Self {
+            source: "",
+            scrollback: 0,
+        }
     }
 
-    pub fn from_ansi(source: &'a str) -> Self {
-        Self { source }
+    pub fn from_ansi(source: &'a str, scrollback: usize) -> Self {
+        Self { source, scrollback }
     }
 
-    pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
+    pub fn render(&self, frame: &mut Frame<'_>, area: Rect, active: bool) {
+        let block = Block::default()
+            .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+            .border_style(self.border_style(active));
+        let inner = block.inner(area);
+        let lines = AnsiDocument::parse(self.source).lines();
+
+        frame.render_widget(block, area);
         frame.render_widget(
-            Paragraph::new(AnsiDocument::parse(self.source).lines())
-                .block(Block::default().borders(Borders::ALL).title("viewport"))
+            Paragraph::new(lines.clone())
+                .scroll((self.scroll_y(lines.len(), inner), 0))
                 .wrap(Wrap { trim: false }),
-            area,
+            inner,
         );
+    }
+
+    pub fn scroll_y(&self, line_count: usize, area: Rect) -> u16 {
+        line_count
+            .saturating_sub(self.visible_tail_start(area))
+            .try_into()
+            .unwrap_or(u16::MAX)
+    }
+
+    fn visible_tail_start(&self, area: Rect) -> usize {
+        self.inner_height(area).saturating_add(self.scrollback)
+    }
+
+    fn inner_height(&self, area: Rect) -> usize {
+        area.height as usize
+    }
+
+    fn border_style(&self, active: bool) -> Style {
+        active
+            .then_some(Style::default().fg(Color::LightGreen))
+            .unwrap_or_default()
     }
 }
 
@@ -133,7 +235,7 @@ impl TileLayout {
     }
 
     pub fn split(&self) -> SplitTileLayout {
-        Layout::vertical([Constraint::Min(1), Constraint::Length(4)])
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)])
             .split(self.area)
             .to_vec()
             .pipe_ref(|chunks| SplitTileLayout::new(chunks[0], chunks[1]))
@@ -192,11 +294,79 @@ impl GridShape {
     }
 
     pub fn rows(&self, area: Rect) -> Vec<Rect> {
-        Layout::vertical((0..self.rows).map(|_| Constraint::Ratio(1, self.rows as u32)).collect::<Vec<_>>()).split(area).to_vec()
+        Layout::vertical((0..self.rows).map(|_| Constraint::Ratio(1, self.rows as u32)).collect::<Vec<_>>())
+            .split(area)
+            .to_vec()
     }
 
     pub fn cols(&self, area: Rect) -> Vec<Rect> {
-        Layout::horizontal((0..self.cols).map(|_| Constraint::Ratio(1, self.cols as u32)).collect::<Vec<_>>()).split(area).to_vec()
+        Layout::horizontal((0..self.cols).map(|_| Constraint::Ratio(1, self.cols as u32)).collect::<Vec<_>>())
+            .split(area)
+            .to_vec()
+    }
+}
+
+pub struct FinishPopup<'a> {
+    text: &'a str,
+}
+
+impl<'a> FinishPopup<'a> {
+    pub fn done() -> Self {
+        Self {
+            text: "Complilation finished. \"Q\"/ENTER to quit, any key to continue",
+        }
+    }
+
+    pub fn render(&self, frame: &mut Frame<'_>) {
+        let area = PopupLayout::new(frame.area(), self.width()).area();
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::White))
+            .style(Style::default().bg(Color::Cyan));
+        let inner = block.inner(area);
+
+        frame.render_widget(Clear, area);
+        frame.render_widget(block, area);
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                self.text,
+                Style::default().bg(Color::Cyan).fg(Color::White),
+            ))
+            .wrap(Wrap { trim: false }),
+            inner,
+        );
+    }
+
+    fn width(&self) -> u16 {
+        self.text.chars().count().saturating_add(4).try_into().unwrap_or(u16::MAX)
+    }
+}
+
+struct PopupLayout {
+    area: Rect,
+    width: u16,
+}
+
+impl PopupLayout {
+    fn new(area: Rect, width: u16) -> Self {
+        Self { area, width }
+    }
+
+    fn area(&self) -> Rect {
+        Layout::vertical([Constraint::Length(3)])
+            .flex(Flex::Center)
+            .split(self.area)
+            .to_vec()
+            .pipe_ref(|rows| {
+                Layout::horizontal([Constraint::Length(self.width(rows[0]))])
+                    .flex(Flex::Center)
+                    .split(rows[0])
+                    .to_vec()[0]
+            })
+    }
+
+    fn width(&self, row: Rect) -> u16 {
+        row.width.min(self.width)
     }
 }
 

@@ -2,6 +2,7 @@ use std::{
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     thread,
 };
 
@@ -33,11 +34,33 @@ pub struct BuildJob {
     target: BuildTarget,
     command: BuildCommand,
     log_path: PathBuf,
+    sync_source: Option<PathBuf>,
+}
+
+impl Clone for BuildJob {
+    fn clone(&self) -> Self {
+        Self {
+            target: self.target.clone(),
+            command: self.command.clone(),
+            log_path: self.log_path.clone(),
+            sync_source: self.sync_source.clone(),
+        }
+    }
 }
 
 impl BuildJob {
-    pub fn new(target: BuildTarget, command: BuildCommand, log_path: PathBuf) -> Self {
-        Self { target, command, log_path }
+    pub fn new(
+        target: BuildTarget,
+        command: BuildCommand,
+        log_path: PathBuf,
+        sync_source: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            target,
+            command,
+            log_path,
+            sync_source,
+        }
     }
 
     pub fn build(target: &BuildTarget, entry: &str, root_dir: &Path, log_root: &Path, local_make: &str) -> Self {
@@ -45,6 +68,7 @@ impl BuildJob {
             target.clone(),
             BuildCommand::for_target(target, entry, root_dir, local_make),
             log_root.join(format!("{}.log", target.log_key())),
+            (!target.is_local()).then_some(root_dir.to_path_buf()),
         )
     }
 
@@ -63,6 +87,10 @@ impl BuildJob {
     pub fn run(&self) -> Result<JobResult, String> {
         fs::create_dir_all(self.log_path.parent().unwrap_or_else(|| Path::new(".")))
             .map_err(|err| format!("buildfarm: failed to create log directory: {err}"))?;
+        self.sync_source
+            .as_ref()
+            .into_iter()
+            .try_for_each(|root_dir| RemoteSync::new(root_dir, &self.target).run(&self.log_path))?;
         self.command.run(&self.log_path).map(|status| JobResult::new(self.log_path.clone(), status))
     }
 }
@@ -71,6 +99,16 @@ pub struct BuildCommand {
     program: String,
     args: Vec<String>,
     cwd: Option<PathBuf>,
+}
+
+impl Clone for BuildCommand {
+    fn clone(&self) -> Self {
+        Self {
+            program: self.program.clone(),
+            args: self.args.clone(),
+            cwd: self.cwd.clone(),
+        }
+    }
 }
 
 impl BuildCommand {
@@ -86,7 +124,7 @@ impl BuildCommand {
         target
             .is_local()
             .then_some(Self::local(entry, root_dir, local_make))
-            .unwrap_or_else(|| Self::remote(target, entry))
+            .unwrap_or_else(|| Self::remote(target, entry, root_dir))
     }
 
     pub fn program(&self) -> &str {
@@ -106,19 +144,161 @@ impl BuildCommand {
     }
 
     fn local(entry: &str, root_dir: &Path, local_make: &str) -> Self {
-        Self::new(local_make, vec![entry.to_string()], Some(root_dir.to_path_buf()))
+        Self::new(
+            "sh",
+            vec![
+                "-lc".to_string(),
+                format!("BUILDFARM_CONFIG= BUILDFARM_LOCAL_MAKE= {} {}", local_make, entry),
+            ],
+            Some(root_dir.to_path_buf()),
+        )
     }
 
-    fn remote(target: &BuildTarget, entry: &str) -> Self {
+    fn remote(target: &BuildTarget, entry: &str, root_dir: &Path) -> Self {
+        let _ = root_dir;
         Self::new(
             "ssh",
             vec![
                 "-tt".to_string(),
                 target.host().to_string(),
-                format!("cd '{}' && {} {}", target.remote_path(), target.make_cmd(), entry),
+                format!(
+                    "cd '{}' && {} {}",
+                    target.remote_path(),
+                    target.make_cmd(),
+                    entry
+                ),
             ],
             None,
         )
+    }
+}
+
+struct RemoteSync<'a> {
+    root_dir: &'a Path,
+    target: &'a BuildTarget,
+}
+
+impl<'a> RemoteSync<'a> {
+    fn new(root_dir: &'a Path, target: &'a BuildTarget) -> Self {
+        Self { root_dir, target }
+    }
+
+    fn run(&self, log_path: &Path) -> Result<(), String> {
+        self.ensure_remote_dir(log_path)?;
+        self.rsync_tree(log_path)
+    }
+
+    fn ensure_remote_dir(&self, log_path: &Path) -> Result<(), String> {
+        self.command("ssh", self.ensure_remote_dir_args())
+            .status(log_path)
+            .and_then(Self::ensure_success)
+    }
+
+    fn rsync_tree(&self, log_path: &Path) -> Result<(), String> {
+        self.command("rsync", self.rsync_args())
+            .status(log_path)
+            .and_then(Self::ensure_success)
+    }
+
+    fn ensure_remote_dir_args(&self) -> Vec<String> {
+        vec![
+            self.target.host().to_string(),
+            format!("mkdir -p '{}'", self.target.remote_path()),
+        ]
+    }
+
+    fn rsync_args(&self) -> Vec<String> {
+        vec![
+            "-az".to_string(),
+            "--exclude".to_string(),
+            ".git".to_string(),
+            "--exclude".to_string(),
+            ".github".to_string(),
+            "--exclude".to_string(),
+            ".vscode".to_string(),
+            "--exclude".to_string(),
+            ".idea".to_string(),
+            "--exclude".to_string(),
+            ".buildfarm".to_string(),
+            "--exclude".to_string(),
+            "target".to_string(),
+            "--exclude".to_string(),
+            "build/stage".to_string(),
+            "--exclude".to_string(),
+            "build/modules-dist".to_string(),
+            format!("{}/", self.root_dir.display()),
+            format!("{}:{}/", self.target.host(), self.target.remote_path()),
+        ]
+    }
+
+    fn command(&self, program: &str, args: Vec<String>) -> LoggedCommand {
+        LoggedCommand::new(program, args)
+    }
+
+    fn ensure_success(status: i32) -> Result<(), String> {
+        (status == 0)
+            .then_some(())
+            .ok_or_else(|| "buildfarm: remote sync failed".to_string())
+    }
+}
+
+struct LoggedCommand {
+    program: String,
+    args: Vec<String>,
+}
+
+impl LoggedCommand {
+    fn new(program: &str, args: Vec<String>) -> Self {
+        Self {
+            program: program.to_string(),
+            args,
+        }
+    }
+
+    fn status(&self, log_path: &Path) -> Result<i32, String> {
+        LogAppendFile::open(log_path).and_then(|log_file| {
+            log_file
+                .spawn(&self.program, &self.args)
+                .and_then(|mut child| {
+                    child
+                        .wait()
+                        .map_err(|err| format!("buildfarm: failed to wait for command: {err}"))
+                })
+                .map(|status| status.code().unwrap_or(1))
+        })
+    }
+}
+
+struct LogAppendFile {
+    file: File,
+}
+
+impl LogAppendFile {
+    fn open(log_path: &Path) -> Result<Self, String> {
+        File::options()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .map_err(|err| format!("buildfarm: failed to open log file for append: {err}"))
+            .map(|file| Self { file })
+    }
+
+    fn spawn(&self, program: &str, args: &[String]) -> Result<std::process::Child, String> {
+        let stdout = self
+            .file
+            .try_clone()
+            .map_err(|err| format!("buildfarm: failed to clone log file handle: {err}"))?;
+        let stderr = self
+            .file
+            .try_clone()
+            .map_err(|err| format!("buildfarm: failed to clone log file handle: {err}"))?;
+
+        Command::new(program)
+            .args(args)
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .map_err(|err| format!("buildfarm: failed to spawn command '{program}': {err}"))
     }
 }
 
@@ -235,6 +415,8 @@ impl LogCapture {
                         read_len => {
                             file.write_all(&buffer[..read_len])
                                 .map_err(|err| format!("buildfarm: failed to write log file: {err}"))?;
+                            file.flush()
+                                .map_err(|err| format!("buildfarm: failed to flush log file: {err}"))?;
                         }
                     }
                 }

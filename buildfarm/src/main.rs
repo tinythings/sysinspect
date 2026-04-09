@@ -1,4 +1,5 @@
 mod ansi;
+mod app;
 mod clidef;
 mod model;
 mod runner;
@@ -16,7 +17,9 @@ use std::{env, fs, process};
 
 use clap::ArgMatches;
 
+use app::BuildfarmApp;
 use model::BuildfarmConfig;
+use runner::BuildPlan;
 
 struct App;
 
@@ -60,11 +63,15 @@ impl Command {
     }
 
     fn run_entry(&self, entry: &str) -> i32 {
-        eprintln!(
-            "buildfarm: loaded {} target(s) for run `{entry}`; TUI runner is not implemented yet",
-            ConfigFile::load().targets().len()
-        );
-        2
+        BuildfarmApp::new(BuildPlan::new(
+            &ConfigFile::load(),
+            entry,
+            &RepoRoot::path(),
+            &LogRoot::path(entry),
+            &LocalMake::name(),
+        ))
+        .run()
+        .unwrap_or_else(|err| Fatal::raise(&err))
     }
 
     fn usage() -> ! {
@@ -92,6 +99,30 @@ impl ConfigFile {
 
     fn load() -> BuildfarmConfig {
         BuildfarmConfig::parse(&Self::read()).unwrap_or_else(|err| Fatal::raise(&format!("buildfarm: {err}")))
+    }
+}
+
+struct RepoRoot;
+
+impl RepoRoot {
+    fn path() -> std::path::PathBuf {
+        std::env::current_dir().unwrap_or_else(|err| Fatal::raise(&format!("buildfarm: failed to detect current directory: {err}")))
+    }
+}
+
+struct LogRoot;
+
+impl LogRoot {
+    fn path(entry: &str) -> std::path::PathBuf {
+        RepoRoot::path().join(".buildfarm").join("logs").join(entry)
+    }
+}
+
+struct LocalMake;
+
+impl LocalMake {
+    fn name() -> String {
+        env::var("BUILDFARM_LOCAL_MAKE").unwrap_or_else(|_| "make".to_string())
     }
 }
 

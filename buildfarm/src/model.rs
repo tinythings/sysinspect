@@ -78,6 +78,10 @@ impl BuildTarget {
             .map(|ch| if ch == '/' || ch == ':' || ch == '@' { '_' } else { ch })
             .collect()
     }
+
+    pub fn title(&self) -> String {
+        format!("{} {} {}", self.os(), self.arch(), self.destination())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

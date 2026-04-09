@@ -3,120 +3,163 @@ use ratatui::{
     text::{Line, Span},
 };
 
-pub struct AnsiDocument<'a> {
-    lines: Vec<AnsiLine<'a>>,
+pub struct AnsiDocument {
+    lines: Vec<AnsiLine>,
 }
 
-impl<'a> AnsiDocument<'a> {
-    pub fn parse(text: &'a str) -> Self {
-        Self {
-            lines: text.split('\n').map(AnsiLine::parse).collect(),
-        }
+impl AnsiDocument {
+    pub fn parse(text: &str) -> Self {
+        AnsiNormalizer::new(text).normalize().pipe_ref(|normalized| Self {
+            lines: normalized
+                .split('\n')
+                .map(AnsiLine::parse)
+                .collect(),
+        })
     }
 
-    pub fn lines(&self) -> Vec<Line<'a>> {
+    pub fn lines(&self) -> Vec<Line<'static>> {
         self.lines.iter().map(AnsiLine::line).collect()
     }
 }
 
-struct AnsiLine<'a> {
-    spans: Vec<AnsiSpan<'a>>,
+struct AnsiLine {
+    spans: Vec<AnsiSpan>,
 }
 
-impl<'a> AnsiLine<'a> {
-    fn parse(text: &'a str) -> Self {
+impl AnsiLine {
+    fn parse(text: &str) -> Self {
         Self {
             spans: AnsiParser::new(text).parse(),
         }
     }
 
-    fn line(&self) -> Line<'a> {
+    fn line(&self) -> Line<'static> {
         Line::from(self.spans.iter().map(AnsiSpan::span).collect::<Vec<_>>())
     }
 }
 
-struct AnsiSpan<'a> {
-    text: &'a str,
+struct AnsiSpan {
+    text: String,
     style: Style,
 }
 
-impl<'a> AnsiSpan<'a> {
-    fn new(text: &'a str, style: Style) -> Self {
+impl AnsiSpan {
+    fn new(text: String, style: Style) -> Self {
         Self { text, style }
     }
 
-    fn span(&self) -> Span<'a> {
-        Span::styled(self.text, self.style)
+    fn span(&self) -> Span<'static> {
+        Span::styled(self.text.clone(), self.style)
     }
 }
 
 struct AnsiParser<'a> {
-    text: &'a str,
-    cursor: usize,
-    start: usize,
+    chars: std::str::Chars<'a>,
     state: AnsiState,
-    spans: Vec<AnsiSpan<'a>>,
+    spans: Vec<AnsiSpan>,
+    current: String,
 }
 
 impl<'a> AnsiParser<'a> {
     fn new(text: &'a str) -> Self {
         Self {
-            text,
-            cursor: 0,
-            start: 0,
+            chars: text.chars(),
             state: AnsiState::default(),
             spans: Vec::new(),
+            current: String::new(),
         }
     }
 
-    fn parse(mut self) -> Vec<AnsiSpan<'a>> {
-        while self.cursor < self.text.len() {
-            if self.at_escape() {
-                self.consume_escape();
-            } else {
-                self.advance();
-            }
+    fn parse(mut self) -> Vec<AnsiSpan> {
+        while let Some(ch) = self.chars.next() {
+            self.consume_char(ch);
         }
 
-        self.push_text(self.text.len());
+        self.flush_current();
         self.spans
     }
 
-    fn at_escape(&self) -> bool {
-        self.text[self.cursor..].starts_with("\u{1b}[")
+    fn consume_char(&mut self, ch: char) {
+        if ch == '\u{1b}' {
+            self.consume_escape();
+            return;
+        }
+        if !ch.is_control() {
+            self.current.push(ch);
+        }
     }
 
     fn consume_escape(&mut self) {
-        self.push_text(self.cursor);
-        self.cursor += 2;
-        self.cursor
-            .pipe_ref(|cursor| self.text[*cursor..].find('m').map(|offset| self.cursor + offset))
-            .and_then(|end| {
-                self.state = self.text[self.cursor..end]
+        self.flush_current();
+        self.chars
+            .next()
+            .filter(|marker| *marker == '[')
+            .into_iter()
+            .for_each(|_| self.consume_csi());
+    }
+
+    fn consume_csi(&mut self) {
+        let mut payload = String::new();
+
+        while let Some(ch) = self.chars.next() {
+            if Self::is_csi_final(ch) {
+                self.apply_csi(&payload, ch);
+                return;
+            }
+            payload.push(ch);
+        }
+    }
+
+    fn apply_csi(&mut self, payload: &str, final_char: char) {
+        if final_char == 'm' {
+            self.state = self.state.apply(
+                &payload
                     .split(';')
                     .filter(|code| !code.is_empty())
                     .map(|code| code.parse::<u16>().unwrap_or(0))
-                    .collect::<Vec<_>>()
-                    .pipe_ref(|codes| self.state.apply(codes));
-                Some(end + 1)
-            })
-            .unwrap_or_else(|| self.text.len())
-            .pipe_ref(|cursor| {
-                self.cursor = *cursor;
-                self.start = *cursor;
-            });
+                    .collect::<Vec<_>>(),
+            );
+        }
     }
 
-    fn advance(&mut self) {
-        self.cursor += 1;
+    fn is_csi_final(ch: char) -> bool {
+        ('@'..='~').contains(&ch)
     }
 
-    fn push_text(&mut self, end: usize) {
-        (self.start < end)
-            .then_some(AnsiSpan::new(&self.text[self.start..end], self.state.style()))
+    fn flush_current(&mut self) {
+        (!self.current.is_empty())
+            .then_some(AnsiSpan::new(
+                std::mem::take(&mut self.current),
+                self.state.style(),
+            ))
             .into_iter()
             .for_each(|span| self.spans.push(span));
-        self.start = end;
+    }
+}
+
+struct AnsiNormalizer<'a> {
+    text: &'a str,
+}
+
+impl<'a> AnsiNormalizer<'a> {
+    fn new(text: &'a str) -> Self {
+        Self { text }
+    }
+
+    fn normalize(&self) -> String {
+        self.text
+            .chars()
+            .filter_map(Self::normalize_char)
+            .collect()
+    }
+
+    fn normalize_char(ch: char) -> Option<char> {
+        match ch {
+            '\r' => None,
+            '\n' | '\u{1b}' => Some(ch),
+            _ if ch.is_control() => None,
+            _ => Some(ch),
+        }
     }
 }
 
@@ -128,7 +171,10 @@ struct AnsiState {
 
 impl Default for AnsiState {
     fn default() -> Self {
-        Self { fg: None, bold: false }
+        Self {
+            fg: None,
+            bold: false,
+        }
     }
 }
 
@@ -141,31 +187,85 @@ impl AnsiState {
         match code {
             0 => Self::default(),
             1 => Self { bold: true, ..*self },
-            22 => Self { bold: false, ..*self },
-            30 => Self { fg: Some(Color::Black), ..*self },
-            31 => Self { fg: Some(Color::Red), ..*self },
-            32 => Self { fg: Some(Color::Green), ..*self },
-            33 => Self { fg: Some(Color::Yellow), ..*self },
-            34 => Self { fg: Some(Color::Blue), ..*self },
-            35 => Self { fg: Some(Color::Magenta), ..*self },
-            36 => Self { fg: Some(Color::Cyan), ..*self },
-            37 => Self { fg: Some(Color::Gray), ..*self },
+            22 => Self {
+                bold: false,
+                ..*self
+            },
+            30 => Self {
+                fg: Some(Color::Black),
+                ..*self
+            },
+            31 => Self {
+                fg: Some(Color::Red),
+                ..*self
+            },
+            32 => Self {
+                fg: Some(Color::Green),
+                ..*self
+            },
+            33 => Self {
+                fg: Some(Color::Yellow),
+                ..*self
+            },
+            34 => Self {
+                fg: Some(Color::Blue),
+                ..*self
+            },
+            35 => Self {
+                fg: Some(Color::Magenta),
+                ..*self
+            },
+            36 => Self {
+                fg: Some(Color::Cyan),
+                ..*self
+            },
+            37 => Self {
+                fg: Some(Color::Gray),
+                ..*self
+            },
             39 => Self { fg: None, ..*self },
-            90 => Self { fg: Some(Color::DarkGray), ..*self },
-            91 => Self { fg: Some(Color::LightRed), ..*self },
-            92 => Self { fg: Some(Color::LightGreen), ..*self },
-            93 => Self { fg: Some(Color::LightYellow), ..*self },
-            94 => Self { fg: Some(Color::LightBlue), ..*self },
-            95 => Self { fg: Some(Color::LightMagenta), ..*self },
-            96 => Self { fg: Some(Color::LightCyan), ..*self },
-            97 => Self { fg: Some(Color::White), ..*self },
+            90 => Self {
+                fg: Some(Color::DarkGray),
+                ..*self
+            },
+            91 => Self {
+                fg: Some(Color::LightRed),
+                ..*self
+            },
+            92 => Self {
+                fg: Some(Color::LightGreen),
+                ..*self
+            },
+            93 => Self {
+                fg: Some(Color::LightYellow),
+                ..*self
+            },
+            94 => Self {
+                fg: Some(Color::LightBlue),
+                ..*self
+            },
+            95 => Self {
+                fg: Some(Color::LightMagenta),
+                ..*self
+            },
+            96 => Self {
+                fg: Some(Color::LightCyan),
+                ..*self
+            },
+            97 => Self {
+                fg: Some(Color::White),
+                ..*self
+            },
             _ => *self,
         }
     }
 
     fn style(&self) -> Style {
         self.fg
-            .pipe_ref(|fg| fg.map(|color| Style::default().fg(color)).unwrap_or_else(Style::default))
+            .pipe_ref(|fg| {
+                fg.map(|color| Style::default().fg(color))
+                    .unwrap_or_else(Style::default)
+            })
             .pipe_ref(|style| {
                 self.bold
                     .then_some(style.add_modifier(Modifier::BOLD))

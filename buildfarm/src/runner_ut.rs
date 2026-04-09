@@ -45,9 +45,10 @@ fn remote_job_uses_ssh_tty_and_remote_make_command() {
     .args()
     .to_vec();
 
-    assert_eq!(command[0], "-tt");
-    assert_eq!(command[1], "192.168.122.122");
-    assert!(command[2].contains("cd 'work/sysinspect-buildfarm' && gmake dev"));
+    assert_eq!(command[0], "-lc");
+    assert!(command[1].contains("rsync -az"));
+    assert!(command[1].contains("ssh -tt '192.168.122.122'"));
+    assert!(command[1].contains("cd 'work/sysinspect-buildfarm' && gmake dev"));
 }
 
 #[test]
