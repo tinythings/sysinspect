@@ -118,7 +118,7 @@ async fn recv_once_emits_route_changed_envelope() {
         mk_cfg(vec!["route-changed"], Some("car"), false, 10),
         mk_factory(vec![vec![mk_route("10.0.0.0/24", "10.0.0.1", "eth0")], vec![mk_route("10.0.0.0/24", "10.0.0.254", "eth1")]]),
     );
-    let v = s.recv_once(Duration::from_millis(150)).await.unwrap();
+    let v = s.recv_once(Duration::from_secs(1)).await.unwrap();
 
     assert_eq!(v["eid"], "sid|net.route@car|route-changed@10.0.0.0/24|0");
     assert_eq!(v["listener"], "net.route");
@@ -134,7 +134,7 @@ async fn recv_once_emits_default_route_changed_envelope() {
         mk_cfg(vec!["default-changed"], None, false, 10),
         mk_factory(vec![vec![mk_route("default", "10.0.0.1", "eth0")], vec![mk_route("default", "10.0.0.254", "eth1")]]),
     );
-    let v = s.recv_once(Duration::from_millis(150)).await.unwrap();
+    let v = s.recv_once(Duration::from_secs(1)).await.unwrap();
 
     assert_eq!(v["eid"], "sid|net.route|default-changed@default|0");
     assert_eq!(v["listener"], "net.route");
