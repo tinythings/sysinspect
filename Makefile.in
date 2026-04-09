@@ -63,6 +63,11 @@ INTEGRATION_TEST_TARGETS += -p $(call PKG_SPEC_FROM_TOML,libmenotify/Cargo.toml)
 CORE_EXCLUDES := $(foreach pkg,$(ALL_MODULE_PACKAGE_SPECS),--exclude $(pkg))
 TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
 TEST_RUN_THREADS ?= 3
+ifeq ($(UNAME_S),FreeBSD)
+MODULE_BUILD_JOBS ?= 1
+else
+MODULE_BUILD_JOBS ?= $(TEST_BUILD_JOBS)
+endif
 ifeq ($(UNAME_S),Linux)
 CURRENT_PLATFORM := linux
 ifeq ($(UNAME_M),x86_64)

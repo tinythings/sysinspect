@@ -67,15 +67,15 @@ build:
 	$(call stage_profile_minion,release,)
 
 modules-dev:
-	cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,debug,)
 
 modules:
-	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 
 modules-dist-devel:
-	cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
+	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
 
