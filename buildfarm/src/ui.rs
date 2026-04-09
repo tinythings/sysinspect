@@ -313,7 +313,7 @@ pub struct FinishPopup<'a> {
 impl<'a> FinishPopup<'a> {
     pub fn done() -> Self {
         Self {
-            text: "Complilation finished. \"Q\"/ENTER to quit, any key to continue",
+            text: "\"q\" to quit, \"Q\" to quit and preserve logs, any key to continue",
         }
     }
 

@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, Sender},
     thread,
     time::Duration,
@@ -151,18 +151,35 @@ impl<'a> AppLoop<'a> {
             return self.handle_live_key(key);
         }
         if self.popup_open {
-            if key.should_close_finished() {
+            if key.should_quit_finished() {
+                self.cleanup_logs_for(key);
                 return true;
             }
             self.popup_open = false;
             self.popup_dismissed = true;
             return false;
         }
-        self.handle_live_key(key)
+        self.handle_finished_key(key)
     }
 
     fn handle_live_key(&mut self, key: KeyPress) -> bool {
         if key.should_quit() {
+            return true;
+        }
+        key
+            .navigation()
+            .into_iter()
+            .for_each(|direction| self.move_active_pane(direction));
+        key
+            .scroll()
+            .into_iter()
+            .for_each(|scroll| self.scroll_active_pane(scroll));
+        false
+    }
+
+    fn handle_finished_key(&mut self, key: KeyPress) -> bool {
+        if key.should_quit_finished() {
+            self.cleanup_logs_for(key);
             return true;
         }
         key
@@ -205,6 +222,20 @@ impl<'a> AppLoop<'a> {
             })
             .unwrap_or(10)
     }
+
+    fn cleanup_logs_for(&self, key: KeyPress) {
+        key
+            .should_cleanup_logs()
+            .then_some(())
+            .into_iter()
+            .for_each(|_| self.remove_buildfarm_root());
+    }
+
+    fn remove_buildfarm_root(&self) {
+        BuildfarmRoot::path()
+            .into_iter()
+            .for_each(|path| std::fs::remove_dir_all(path).ok().into_iter().for_each(drop));
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -230,12 +261,19 @@ impl KeyPress {
 
     fn should_quit(&self) -> bool {
         self.is_escape()
-            || self.is_quit_char()
+            || self.is_any_quit_char()
             || self.is_ctrl_c()
     }
 
-    fn should_close_finished(&self) -> bool {
-        self.should_quit() || self.is_enter()
+    fn should_quit_finished(&self) -> bool {
+        self.is_cleanup_quit()
+            || self.is_preserve_quit()
+            || self.is_escape()
+            || self.is_ctrl_c()
+    }
+
+    fn should_cleanup_logs(&self) -> bool {
+        self.is_cleanup_quit()
     }
 
     fn navigation(&self) -> Option<PaneDirection> {
@@ -275,11 +313,19 @@ impl KeyPress {
         self.code == KeyCode::Esc
     }
 
-    fn is_quit_char(&self) -> bool {
+    fn is_any_quit_char(&self) -> bool {
         match self.code {
             KeyCode::Char(ch) => ch.eq_ignore_ascii_case(&'q'),
             _ => false,
         }
+    }
+
+    fn is_cleanup_quit(&self) -> bool {
+        self.code == KeyCode::Char('q')
+    }
+
+    fn is_preserve_quit(&self) -> bool {
+        self.code == KeyCode::Char('Q')
     }
 }
 
@@ -487,6 +533,15 @@ impl JobState {
 
     pub fn status_code(&self) -> i32 {
         self.status_code
+    }
+
+}
+
+struct BuildfarmRoot;
+
+impl BuildfarmRoot {
+    fn path() -> Option<&'static Path> {
+        Some(Path::new(".buildfarm"))
     }
 }
 
