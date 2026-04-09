@@ -15,8 +15,6 @@ ALL_MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -p
 done)
 PY3_RUNTIME_SPEC := $(call PKG_SPEC_FROM_TOML,modules/runtime/py3-runtime/Cargo.toml)
 SSRUN_SPEC := $(call PKG_SPEC_FROM_TOML,modules/sys/ssrun/Cargo.toml)
-PROC_SPEC := $(call PKG_SPEC_FROM_TOML,modules/sys/proc/Cargo.toml)
-NET_SPEC := $(call PKG_SPEC_FROM_TOML,modules/sys/net/Cargo.toml)
 MUSL_UNSAFE_PACKAGE_SPECS := $(SSRUN_SPEC)
 ifeq ($(UNAME_S),NetBSD)
 MODULE_PACKAGE_SPECS := $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))

@@ -3,7 +3,7 @@
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64
 
 GNU_MAKE?=	gmake
-FREEBSD_SETUP_PACKAGES=	gmake rust pkgconf llvm protobuf libffi libsodium openssl
+FREEBSD_SETUP_PACKAGES=	gmake rust pkgconf llvm protobuf libffi libsodium openssl jq
 
 setup:
 	@command -v ${GNU_MAKE} >/dev/null 2>&1 || { \

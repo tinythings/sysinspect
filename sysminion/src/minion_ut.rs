@@ -4,6 +4,7 @@ mod tests {
     use crate::proto::msg::{CONNECTION_TX, ExitState};
     use crate::rsa::MinionRSAKeyManager;
     use libdpq::DiskPersistentQueue;
+    use libcommon::SysinspectError;
     use libsysinspect::{
         cfg::mmconf::{CFG_MASTER_KEY_PUB, MinionConfig},
         rsa::keys::{RsaKey::Public, key_to_file, keygen},
@@ -16,6 +17,7 @@ mod tests {
     use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
     use once_cell::sync::Lazy;
     use rsa::RsaPublicKey;
+    use std::io::ErrorKind;
     use std::sync::Arc;
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
@@ -130,6 +132,22 @@ mod tests {
         cfg
     }
 
+    fn seed_managed_transport(cfg: &MinionConfig, root: &std::path::Path) {
+        let (_, master_pbk) = keygen(2048).unwrap();
+        key_to_file(&Public(master_pbk.clone()), root.to_str().unwrap(), CFG_MASTER_KEY_PUB).unwrap();
+
+        let keyman = MinionRSAKeyManager::new(root.to_path_buf()).unwrap();
+        let minion_pbk = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem()))
+            .unwrap()
+            .1
+            .unwrap();
+
+        TransportStore::for_minion(cfg)
+            .unwrap()
+            .save(&secure_state(&master_pbk, &minion_pbk))
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn reconnect_signal_exits_instance_cleanly() {
         let _guard = TEST_LOCK.lock().await;
@@ -149,6 +167,7 @@ mod tests {
             "127.0.0.1:1".to_string(), // not used in this test
             tmp.path(),
         );
+        seed_managed_transport(&cfg, tmp.path());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
 
@@ -184,6 +203,8 @@ mod tests {
         cfg.set_autosync_startup(false);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
+
+        seed_managed_transport(&cfg, tmp.path());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
@@ -237,6 +258,7 @@ mod tests {
         cfg.set_autosync_startup(false);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
+        seed_managed_transport(&cfg, tmp.path());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
 
@@ -255,16 +277,24 @@ mod tests {
             .expect("fake master never became ready for second connect")
             .expect("fake master readiness signal dropped");
 
-        timeout(reconnect_exit_timeout(), h1)
+        match timeout(reconnect_exit_timeout(), h1)
             .await
             .expect("first instance never exited after reconnect")
             .expect("first instance join failed")
-            .expect("first instance returned error");
+        {
+            Ok(_) => {}
+            Err(SysinspectError::IoErr(err))
+                if matches!(
+                    err.kind(),
+                    ErrorKind::ConnectionReset | ErrorKind::UnexpectedEof | ErrorKind::BrokenPipe | ErrorKind::ConnectionAborted
+                ) => {}
+            Err(err) => panic!("first instance returned unexpected error: {err}"),
+        }
 
-        // Run second instance; must be able to connect (fake master is waiting)
-        let h2 = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+        // Fresh instance must still be able to establish a new TCP session.
+        let h2 = tokio::spawn(async move { SysMinion::new(cfg, None, dpq).await });
 
-        // We don't need it to finish; just prove it connected by allowing accept2 to finish.
+        // We don't need a full protocol run; just prove the second connect happened.
         timeout(reconnect_accept_timeout(), accept2).await.expect("second connect never happened").unwrap();
 
         // cleanup

@@ -81,6 +81,8 @@ gmake
 gmake devel
 gmake modules
 gmake modules-dev
+gmake test
+gmake smoke-test
 ```
 
 ### Build Output
