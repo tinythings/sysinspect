@@ -2,7 +2,7 @@
 
 include Makefile.in
 
-.PHONY: help release buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
+.PHONY: help release buildfarm buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
@@ -22,6 +22,7 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
 	@printf '\n\033[1;92m%s\033[0m\n' "Utils"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "buildfarm" "Compile the standalone buildfarm controller into target/buildfarm/."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "buildfarm-init" "Reset remote destinations from BUILDFARM_CONFIG and sync project contents."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
@@ -57,6 +58,14 @@ release: build
 
 buildfarm-init: setup
 	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh init
+
+buildfarm: setup
+	@rm -rf target/buildfarm buildfarm/target
+	@mkdir -p target/buildfarm
+	@cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target
+	@cp -f buildfarm/target/debug/buildfarm target/buildfarm/buildfarm
+	@chmod +x target/buildfarm/buildfarm
+	@rm -rf buildfarm/target
 
 setup:
 	$(call deps)
