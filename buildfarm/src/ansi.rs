@@ -100,6 +100,8 @@ impl TerminalBuffer {
         match final_char {
             'A' => self.move_up(Self::count(payload)),
             'B' => self.move_down(Self::count(payload)),
+            'E' => self.next_line(Self::count(payload)),
+            'F' => self.previous_line(Self::count(payload)),
             'G' => self.move_column(Self::count(payload)),
             'K' => self.clear_line_from_cursor(),
             'm' => self.write_sgr(payload),
@@ -132,6 +134,18 @@ impl TerminalBuffer {
 
     fn move_column(&mut self, column: usize) {
         self.col = column.saturating_sub(1);
+    }
+
+    fn next_line(&mut self, count: usize) {
+        self.row = self.row.saturating_add(count);
+        self.col = 0;
+        self.ensure_row();
+    }
+
+    fn previous_line(&mut self, count: usize) {
+        self.row = self.row.saturating_sub(count);
+        self.col = 0;
+        self.ensure_row();
     }
 
     fn clear_line_from_cursor(&mut self) {

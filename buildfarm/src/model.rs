@@ -87,53 +87,18 @@ impl BuildTarget {
             .unwrap_or_else(|| format!("{} {} {}", self.os(), self.arch(), self.destination()))
     }
 
-    pub fn artifact_identity(&self) -> ArtifactIdentity {
-        ArtifactIdentity::new(
-            self.artifact_family(),
-            self.artifact_compatibility_key(),
-            self.artifact_arch(),
-        )
+    pub fn os_label(&self) -> String {
+        self.is_linux_family()
+            .then_some(self.linux_os_label())
+            .unwrap_or_else(|| self.bsdish_os_label())
     }
 
     pub fn mirror_directory(&self, mirror_root: &Path) -> PathBuf {
-        self.artifact_identity().rooted_at(mirror_root)
+        mirror_root.join(self.os_label_dir())
     }
 
-    fn artifact_family(&self) -> String {
-        match self.os() {
-            "GNU/Linux" | "Linux" => "linux".to_string(),
-            "FreeBSD" => "freebsd".to_string(),
-            "NetBSD" => "netbsd".to_string(),
-            "OpenBSD" => "openbsd".to_string(),
-            "local" => "local".to_string(),
-            other => Self::sanitize(other),
-        }
-    }
-
-    fn artifact_compatibility_key(&self) -> Option<String> {
-        self.compatibility_suffix()
-    }
-
-    fn artifact_arch(&self) -> String {
-        match (self.artifact_family().as_str(), self.arch()) {
-            ("linux", "amd64") => "x86_64".to_string(),
-            ("freebsd", "x86_64") | ("netbsd", "x86_64") | ("openbsd", "x86_64") => "amd64".to_string(),
-            ("linux", "arm64") => "aarch64".to_string(),
-            ("freebsd", "aarch64") | ("netbsd", "aarch64") | ("openbsd", "aarch64") => "arm64".to_string(),
-            (_, other) => Self::sanitize(other),
-        }
-    }
-
-    fn compatibility_suffix(&self) -> Option<String> {
-        self.os()
-            .split_once(['_', '-'])
-            .map(|(_, suffix)| suffix)
-            .filter(|suffix| !suffix.is_empty())
-            .map(Self::sanitize)
-    }
-
-    fn sanitize(value: &str) -> String {
-        value
+    fn os_label_dir(&self) -> String {
+        self.os_label()
             .chars()
             .map(|ch| {
                 if ch.is_ascii_alphanumeric() || ch == '.' {
@@ -145,6 +110,37 @@ impl BuildTarget {
             .collect::<String>()
             .trim_matches('_')
             .to_string()
+    }
+
+    fn is_linux_family(&self) -> bool {
+        matches!(self.os(), "GNU/Linux" | "Linux")
+            || self.os().starts_with("GNU/Linux_")
+            || self.os().starts_with("Linux_")
+            || self.os().starts_with("GNU/Linux-")
+            || self.os().starts_with("Linux-")
+    }
+
+    fn linux_os_label(&self) -> String {
+        self.os()
+            .split_once(['_', '-'])
+            .map(|(_, suffix)| suffix)
+            .and_then(Self::linux_label_from_suffix)
+            .unwrap_or_else(|| "Linux".to_string())
+    }
+
+    fn linux_label_from_suffix(suffix: &str) -> Option<String> {
+        let mut parts = suffix.split('-');
+        let kernel = parts.next().filter(|part| !part.is_empty())?;
+        let libc = parts.next().filter(|part| !part.is_empty())?;
+
+        Some(format!("Linux {} {}", kernel, libc.replace('_', " ")))
+    }
+
+    fn bsdish_os_label(&self) -> String {
+        self.os()
+            .split_once(['_', '-'])
+            .map(|(family, suffix)| format!("{family} {suffix}"))
+            .unwrap_or_else(|| self.os().to_string())
     }
 
     fn local_os() -> String {
@@ -163,34 +159,6 @@ impl BuildTarget {
             "aarch64" => "aarch64".to_string(),
             other => other.to_string(),
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArtifactIdentity {
-    family: String,
-    compatibility: Option<String>,
-    arch: String,
-}
-
-impl ArtifactIdentity {
-    pub fn new(family: String, compatibility: Option<String>, arch: String) -> Self {
-        Self {
-            family,
-            compatibility,
-            arch,
-        }
-    }
-
-    pub fn dir_name(&self) -> String {
-        self.compatibility
-            .as_ref()
-            .map(|compatibility| format!("{}_{compatibility}-{}", self.family, self.arch))
-            .unwrap_or_else(|| format!("{}-{}", self.family, self.arch))
-    }
-
-    pub fn rooted_at(&self, root: &Path) -> PathBuf {
-        root.join(self.dir_name())
     }
 }
 
