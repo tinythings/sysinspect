@@ -8,19 +8,26 @@ use std::{
 
 use portable_pty::{CommandBuilder, PtySize, PtySystem, native_pty_system};
 
-use crate::model::{BuildTarget, BuildfarmConfig};
+use crate::model::{BuildTarget, BuildfarmConfig, ResultMirrorPlan};
 
 pub struct BuildPlan {
     jobs: Vec<BuildJob>,
 }
 
 impl BuildPlan {
-    pub fn new(config: &BuildfarmConfig, entry: &str, root_dir: &Path, log_root: &Path, local_make: &str) -> Self {
+    pub fn new(
+        config: &BuildfarmConfig,
+        entry: &str,
+        root_dir: &Path,
+        log_root: &Path,
+        local_make: &str,
+        mirror_plan: ResultMirrorPlan,
+    ) -> Self {
         Self {
             jobs: config
                 .targets()
                 .iter()
-                .map(|target| BuildJob::build(target, entry, root_dir, log_root, local_make))
+                .map(|target| BuildJob::build(target, entry, root_dir, log_root, local_make, &mirror_plan))
                 .collect(),
         }
     }
@@ -34,7 +41,8 @@ pub struct BuildJob {
     target: BuildTarget,
     command: BuildCommand,
     log_path: PathBuf,
-    sync_source: Option<PathBuf>,
+    root_dir: PathBuf,
+    mirror_plan: ResultMirrorPlan,
 }
 
 impl Clone for BuildJob {
@@ -43,7 +51,8 @@ impl Clone for BuildJob {
             target: self.target.clone(),
             command: self.command.clone(),
             log_path: self.log_path.clone(),
-            sync_source: self.sync_source.clone(),
+            root_dir: self.root_dir.clone(),
+            mirror_plan: self.mirror_plan.clone(),
         }
     }
 }
@@ -53,22 +62,32 @@ impl BuildJob {
         target: BuildTarget,
         command: BuildCommand,
         log_path: PathBuf,
-        sync_source: Option<PathBuf>,
+        root_dir: PathBuf,
+        mirror_plan: ResultMirrorPlan,
     ) -> Self {
         Self {
             target,
             command,
             log_path,
-            sync_source,
+            root_dir,
+            mirror_plan,
         }
     }
 
-    pub fn build(target: &BuildTarget, entry: &str, root_dir: &Path, log_root: &Path, local_make: &str) -> Self {
+    pub fn build(
+        target: &BuildTarget,
+        entry: &str,
+        root_dir: &Path,
+        log_root: &Path,
+        local_make: &str,
+        mirror_plan: &ResultMirrorPlan,
+    ) -> Self {
         Self::new(
             target.clone(),
             BuildCommand::for_target(target, entry, root_dir, local_make),
             log_root.join(format!("{}.log", target.log_key())),
-            (!target.is_local()).then_some(root_dir.to_path_buf()),
+            root_dir.to_path_buf(),
+            mirror_plan.clone(),
         )
     }
 
@@ -87,11 +106,37 @@ impl BuildJob {
     pub fn run(&self) -> Result<JobResult, String> {
         fs::create_dir_all(self.log_path.parent().unwrap_or_else(|| Path::new(".")))
             .map_err(|err| format!("buildfarm: failed to create log directory: {err}"))?;
-        self.sync_source
-            .as_ref()
-            .into_iter()
-            .try_for_each(|root_dir| RemoteSync::new(root_dir, &self.target).run(&self.log_path))?;
-        self.command.run(&self.log_path).map(|status| JobResult::new(self.log_path.clone(), status))
+        self.prepare().and_then(|_| {
+            self.run_build().and_then(|status| {
+                (status == 0)
+                    .then_some(self.run_mirror().map(|_| JobResult::new(self.log_path.clone(), status)))
+                    .unwrap_or_else(|| Ok(JobResult::new(self.log_path.clone(), status)))
+            })
+        })
+    }
+
+    pub(crate) fn prepare(&self) -> Result<(), String> {
+        fs::create_dir_all(self.log_path.parent().unwrap_or_else(|| Path::new(".")))
+            .map_err(|err| format!("buildfarm: failed to create log directory: {err}"))?;
+        self.target
+            .is_local()
+            .then_some(Ok(()))
+            .unwrap_or_else(|| RemoteSync::new(&self.root_dir, &self.target).run(&self.log_path))
+    }
+
+    pub(crate) fn run_build(&self) -> Result<i32, String> {
+        self.command.run(&self.log_path)
+    }
+
+    pub(crate) fn run_mirror(&self) -> Result<(), String> {
+        self.mirror_plan
+            .is_enabled()
+            .then_some(ResultMirror::new(&self.root_dir, &self.target, &self.mirror_plan).run(&self.log_path))
+            .unwrap_or_else(|| Ok(()))
+    }
+
+    pub(crate) fn should_mirror_results(&self) -> bool {
+        self.mirror_plan.is_enabled()
     }
 }
 
@@ -242,6 +287,117 @@ impl<'a> RemoteSync<'a> {
     }
 }
 
+struct ResultMirror<'a> {
+    root_dir: &'a Path,
+    target: &'a BuildTarget,
+    mirror_plan: &'a ResultMirrorPlan,
+}
+
+impl<'a> ResultMirror<'a> {
+    fn new(root_dir: &'a Path, target: &'a BuildTarget, mirror_plan: &'a ResultMirrorPlan) -> Self {
+        Self {
+            root_dir,
+            target,
+            mirror_plan,
+        }
+    }
+
+    fn run(&self, log_path: &Path) -> Result<(), String> {
+        self.layout_roots()
+            .iter()
+            .try_for_each(|root| {
+                self.ensure_target_subdir(root)
+                    .and_then(|_| self.log_mirror_root(root, log_path))
+                    .and_then(|_| self.mirror_root(root, log_path))
+            })
+    }
+
+    fn ensure_target_subdir(&self, root: &Path) -> Result<(), String> {
+        fs::create_dir_all(self.target_root().join(root))
+            .map_err(|err| format!("buildfarm: failed to create mirror directory: {err}"))
+    }
+
+    fn mirror_root(&self, root: &Path, log_path: &Path) -> Result<(), String> {
+        self.target
+            .is_local()
+            .then_some(self.mirror_local_root(root, log_path))
+            .unwrap_or_else(|| self.mirror_remote_root(root, log_path))
+    }
+
+    fn mirror_local_root(&self, root: &Path, log_path: &Path) -> Result<(), String> {
+        self.command("rsync", self.local_rsync_args(root))
+            .status(log_path)
+            .and_then(Self::ensure_success)
+    }
+
+    fn mirror_remote_root(&self, root: &Path, log_path: &Path) -> Result<(), String> {
+        self.command("rsync", self.remote_rsync_args(root))
+            .status(log_path)
+            .and_then(Self::ensure_success)
+    }
+
+    fn log_mirror_root(&self, root: &Path, log_path: &Path) -> Result<(), String> {
+        LogAppendFile::open(log_path).and_then(|mut log_file| {
+            log_file.write_line(&format!(
+                "[mirror] {} -> {}",
+                self.source_label(root),
+                self.target_root().join(root).display()
+            ))
+        })
+    }
+
+    fn local_rsync_args(&self, root: &Path) -> Vec<String> {
+        vec![
+            "-az".to_string(),
+            "--delete".to_string(),
+            format!("{}/", self.source_root(root).display()),
+            format!("{}/", self.target_root().join(root).display()),
+        ]
+    }
+
+    fn remote_rsync_args(&self, root: &Path) -> Vec<String> {
+        vec![
+            "-az".to_string(),
+            "--delete".to_string(),
+            format!("{}:{}/", self.target.host(), self.remote_source_root(root)),
+            format!("{}/", self.target_root().join(root).display()),
+        ]
+    }
+
+    fn source_root(&self, root: &Path) -> PathBuf {
+        self.root_dir.join(root)
+    }
+
+    fn remote_source_root(&self, root: &Path) -> String {
+        format!("{}/{}", self.target.remote_path(), root.display())
+    }
+
+    fn target_root(&self) -> PathBuf {
+        self.mirror_plan.target_root(self.target)
+    }
+
+    fn source_label(&self, root: &Path) -> String {
+        self.target
+            .is_local()
+            .then_some(self.source_root(root).display().to_string())
+            .unwrap_or_else(|| format!("{}:{}", self.target.host(), self.remote_source_root(root)))
+    }
+
+    fn layout_roots(&self) -> &[PathBuf] {
+        self.mirror_plan.layout().roots()
+    }
+
+    fn command(&self, program: &str, args: Vec<String>) -> LoggedCommand {
+        LoggedCommand::new(program, args)
+    }
+
+    fn ensure_success(status: i32) -> Result<(), String> {
+        (status == 0)
+            .then_some(())
+            .ok_or_else(|| "buildfarm: result mirroring failed".to_string())
+    }
+}
+
 struct LoggedCommand {
     program: String,
     args: Vec<String>,
@@ -299,6 +455,17 @@ impl LogAppendFile {
             .stderr(Stdio::from(stderr))
             .spawn()
             .map_err(|err| format!("buildfarm: failed to spawn command '{program}': {err}"))
+    }
+
+    fn write_line(&mut self, line: &str) -> Result<(), String> {
+        self.file
+            .write_all(format!("{line}\n").as_bytes())
+            .map_err(|err| format!("buildfarm: failed to append log file: {err}"))
+            .and_then(|_| {
+                self.file
+                    .flush()
+                    .map_err(|err| format!("buildfarm: failed to flush log file: {err}"))
+            })
     }
 }
 

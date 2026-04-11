@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    model::{BuildTarget, BuildfarmConfig},
+    model::{BuildTarget, BuildfarmConfig, ResultMirrorPlan},
     runner::{BuildCommand, BuildJob, BuildPlan},
 };
 
@@ -22,7 +22,8 @@ fn local_job_writes_full_log_file_from_pty() {
             None,
         ),
         log_path.clone(),
-        None,
+        PathBuf::from("/tmp/sysinspect"),
+        ResultMirrorPlan::disabled(PathBuf::from("/tmp/buildfarm"), "dev"),
     );
     let result = job.run().expect("local PTY job should run");
 
@@ -41,6 +42,7 @@ fn remote_job_uses_ssh_tty_and_remote_make_command() {
         Path::new("/tmp/sysinspect"),
         Path::new("/tmp/logs"),
         "make",
+        &ResultMirrorPlan::disabled(PathBuf::from("/tmp/buildfarm"), "dev"),
     );
     let command = job.command().args();
 
@@ -59,6 +61,7 @@ fn build_plan_creates_one_job_per_target_with_stable_log_paths() {
         Path::new("/tmp/sysinspect"),
         temp.path(),
         "make",
+        ResultMirrorPlan::disabled(PathBuf::from("/tmp/buildfarm"), "modules-dev"),
     );
 
     assert_eq!(plan.jobs().len(), 2);

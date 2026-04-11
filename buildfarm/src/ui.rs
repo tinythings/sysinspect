@@ -157,7 +157,7 @@ impl TileStatus {
 
     pub fn style(&self) -> Style {
         match self.stage {
-            JobStage::Pending | JobStage::Running => Style::default().bg(Color::Black).fg(Color::Yellow),
+            JobStage::Pending | JobStage::Building | JobStage::Mirroring => Style::default().bg(Color::Black).fg(Color::Yellow),
             JobStage::Success => Style::default()
                 .bg(Color::Green)
                 .fg(Color::White)

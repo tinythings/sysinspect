@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TargetMode {
     Local,
@@ -81,6 +83,162 @@ impl BuildTarget {
 
     pub fn title(&self) -> String {
         format!("{} {} {}", self.os(), self.arch(), self.destination())
+    }
+
+    pub fn artifact_identity(&self) -> ArtifactIdentity {
+        ArtifactIdentity::new(
+            self.artifact_family(),
+            self.artifact_compatibility_key(),
+            self.artifact_arch(),
+        )
+    }
+
+    pub fn mirror_directory(&self, mirror_root: &Path) -> PathBuf {
+        self.artifact_identity().rooted_at(mirror_root)
+    }
+
+    fn artifact_family(&self) -> String {
+        match self.os() {
+            "GNU/Linux" | "Linux" => "linux".to_string(),
+            "FreeBSD" => "freebsd".to_string(),
+            "NetBSD" => "netbsd".to_string(),
+            "OpenBSD" => "openbsd".to_string(),
+            "local" => "local".to_string(),
+            other => Self::sanitize(other),
+        }
+    }
+
+    fn artifact_compatibility_key(&self) -> Option<String> {
+        self.compatibility_suffix()
+    }
+
+    fn artifact_arch(&self) -> String {
+        match (self.artifact_family().as_str(), self.arch()) {
+            ("linux", "amd64") => "x86_64".to_string(),
+            ("freebsd", "x86_64") | ("netbsd", "x86_64") | ("openbsd", "x86_64") => "amd64".to_string(),
+            ("linux", "arm64") => "aarch64".to_string(),
+            ("freebsd", "aarch64") | ("netbsd", "aarch64") | ("openbsd", "aarch64") => "arm64".to_string(),
+            (_, other) => Self::sanitize(other),
+        }
+    }
+
+    fn compatibility_suffix(&self) -> Option<String> {
+        self.os()
+            .split_once(['_', '-'])
+            .map(|(_, suffix)| suffix)
+            .filter(|suffix| !suffix.is_empty())
+            .map(Self::sanitize)
+    }
+
+    fn sanitize(value: &str) -> String {
+        value
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '.' {
+                    ch.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+            .trim_matches('_')
+            .to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactIdentity {
+    family: String,
+    compatibility: Option<String>,
+    arch: String,
+}
+
+impl ArtifactIdentity {
+    pub fn new(family: String, compatibility: Option<String>, arch: String) -> Self {
+        Self {
+            family,
+            compatibility,
+            arch,
+        }
+    }
+
+    pub fn dir_name(&self) -> String {
+        self.compatibility
+            .as_ref()
+            .map(|compatibility| format!("{}_{compatibility}-{}", self.family, self.arch))
+            .unwrap_or_else(|| format!("{}-{}", self.family, self.arch))
+    }
+
+    pub fn rooted_at(&self, root: &Path) -> PathBuf {
+        root.join(self.dir_name())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MirroredResultLayout {
+    entry: String,
+    roots: Vec<PathBuf>,
+}
+
+impl MirroredResultLayout {
+    pub fn for_entry(entry: &str) -> Self {
+        Self {
+            entry: entry.to_string(),
+            roots: Self::known_roots(entry),
+        }
+    }
+
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+
+    pub fn roots(&self) -> &[PathBuf] {
+        &self.roots
+    }
+
+    fn known_roots(entry: &str) -> Vec<PathBuf> {
+        match entry {
+            "dev" | "all-dev" | "release" | "all" | "modules-dev" | "modules" => vec![PathBuf::from("build/stage")],
+            "modules-dist-dev" => vec![PathBuf::from("build/stage"), PathBuf::from("build/modules-dist")],
+            _ => Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResultMirrorPlan {
+    enabled: bool,
+    root: PathBuf,
+    layout: MirroredResultLayout,
+}
+
+impl ResultMirrorPlan {
+    pub fn new(enabled: bool, root: PathBuf, entry: &str) -> Self {
+        Self {
+            enabled,
+            root,
+            layout: MirroredResultLayout::for_entry(entry),
+        }
+    }
+
+    pub fn disabled(root: PathBuf, entry: &str) -> Self {
+        Self::new(false, root, entry)
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn layout(&self) -> &MirroredResultLayout {
+        &self.layout
+    }
+
+    pub fn target_root(&self, target: &BuildTarget) -> PathBuf {
+        target.mirror_directory(self.root())
     }
 }
 

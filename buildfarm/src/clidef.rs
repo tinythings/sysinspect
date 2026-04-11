@@ -2,6 +2,7 @@ use clap::{Arg, ArgAction, ColorChoice, Command};
 use clap::builder::styling;
 use clap::ArgMatches;
 use colored::Colorize;
+use std::path::PathBuf;
 
 pub static APPNAME: &str = "buildfarm";
 pub static VERSION: &str = "0.1.0";
@@ -29,6 +30,18 @@ pub fn cli() -> Command {
                         .help("Build entry to run, such as dev, release, modules, or test")
                         .required(true)
                         .index(1),
+                )
+                .arg(
+                    Arg::new("mirror-results")
+                        .long("mirror-results")
+                        .action(ArgAction::SetTrue)
+                        .help("After successful build, mirror known result roots back to the local buildfarm directory"),
+                )
+                .arg(
+                    Arg::new("mirror-root")
+                        .long("mirror-root")
+                        .value_name("DIR")
+                        .help("Override the local root directory used for mirrored results; default is ./target/buildfarm"),
                 ),
         )
         .next_help_heading("Other")
@@ -54,6 +67,19 @@ pub fn entry(am: &ArgMatches) -> String {
         .and_then(|sub| sub.get_one::<String>("entry"))
         .cloned()
         .unwrap_or_default()
+}
+
+pub fn mirror_results(am: &ArgMatches) -> bool {
+    am.subcommand_matches("run")
+        .and_then(|sub| sub.get_one::<bool>("mirror-results"))
+        .copied()
+        .unwrap_or(false)
+}
+
+pub fn mirror_root(am: &ArgMatches) -> Option<PathBuf> {
+    am.subcommand_matches("run")
+        .and_then(|sub| sub.get_one::<String>("mirror-root"))
+        .map(PathBuf::from)
 }
 
 fn styles() -> styling::Styles {

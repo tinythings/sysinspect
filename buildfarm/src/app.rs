@@ -435,11 +435,22 @@ impl JobWorker {
 
     fn spawn(self) {
         thread::spawn(move || {
-            let _ = self.tx.send(JobEvent::started(self.index));
+            let _ = self.tx.send(JobEvent::building(self.index));
             let _ = self.tx.send(
                 self.job
-                    .run()
-                    .map(|result| JobEvent::finished(self.index, result.status()))
+                    .prepare()
+                    .and_then(|_| self.job.run_build())
+                    .and_then(|status| {
+                        (status == 0 && self.job.should_mirror_results())
+                            .then_some(self.tx.send(JobEvent::mirroring(self.index)).map_err(|err| err.to_string()).map(|_| status))
+                            .unwrap_or_else(|| Ok(status))
+                    })
+                    .and_then(|status| {
+                        (status == 0)
+                            .then_some(self.job.run_mirror().map(|_| status))
+                            .unwrap_or_else(|| Ok(status))
+                    })
+                    .map(|status| JobEvent::finished(self.index, status))
                     .unwrap_or_else(|err| JobEvent::failed(self.index, err)),
             );
         });
@@ -548,7 +559,8 @@ impl BuildfarmRoot {
 #[derive(Clone, Copy)]
 pub enum JobStage {
     Pending,
-    Running,
+    Building,
+    Mirroring,
     Success,
     Failed,
 }
@@ -557,7 +569,8 @@ impl JobStage {
     pub(crate) fn label(&self) -> &str {
         match self {
             Self::Pending => "pending",
-            Self::Running => "running",
+            Self::Building => "building",
+            Self::Mirroring => "mirroring",
             Self::Success => "finished",
             Self::Failed => "failed",
         }
@@ -580,10 +593,19 @@ struct JobEvent {
 }
 
 impl JobEvent {
-    fn started(index: usize) -> Self {
+    fn building(index: usize) -> Self {
         Self {
             index,
-            stage: JobStage::Running,
+            stage: JobStage::Building,
+            status_code: 0,
+            error: None,
+        }
+    }
+
+    fn mirroring(index: usize) -> Self {
+        Self {
+            index,
+            stage: JobStage::Mirroring,
             status_code: 0,
             error: None,
         }

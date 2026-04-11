@@ -14,11 +14,12 @@ mod runner_ut;
 mod ui_ut;
 
 use std::{env, fs, process};
+use std::path::PathBuf;
 
 use clap::ArgMatches;
 
 use app::BuildfarmApp;
-use model::BuildfarmConfig;
+use model::{BuildfarmConfig, ResultMirrorPlan};
 use runner::BuildPlan;
 
 struct App;
@@ -35,14 +36,20 @@ impl App {
 
 enum Command {
     Init,
-    Run(String),
+    Run(RunOptions),
+}
+
+struct RunOptions {
+    entry: String,
+    mirror_results: bool,
+    mirror_root: PathBuf,
 }
 
 impl Command {
     fn from_matches(am: ArgMatches) -> Self {
         match am.subcommand_name() {
             Some("init") => Self::Init,
-            Some("run") => Self::Run(clidef::entry(&am)),
+            Some("run") => Self::Run(RunOptions::from_matches(&am)),
             _ => Self::usage(),
         }
     }
@@ -50,7 +57,7 @@ impl Command {
     fn run(&self) -> i32 {
         match self {
             Self::Init => self.init(),
-            Self::Run(entry) => self.run_entry(entry),
+            Self::Run(options) => self.run_entry(options),
         }
     }
 
@@ -62,13 +69,15 @@ impl Command {
         2
     }
 
-    fn run_entry(&self, entry: &str) -> i32 {
+    fn run_entry(&self, options: &RunOptions) -> i32 {
+        options.announce_mirroring_contract();
         BuildfarmApp::new(BuildPlan::new(
             &ConfigFile::load(),
-            entry,
+            options.entry(),
             &RepoRoot::path(),
-            &LogRoot::path(entry),
+            &LogRoot::path(options.entry()),
             &LocalMake::name(),
+            options.mirror_plan(),
         ))
         .run()
         .unwrap_or_else(|err| Fatal::raise(&err))
@@ -76,6 +85,54 @@ impl Command {
 
     fn usage() -> ! {
         Fatal::raise("Usage: buildfarm init | run <entry>")
+    }
+}
+
+impl RunOptions {
+    fn from_matches(am: &ArgMatches) -> Self {
+        let mirror_results = clidef::mirror_results(am);
+        let mirror_root = clidef::mirror_root(am);
+        if mirror_root.is_some() && !mirror_results {
+            Fatal::raise("buildfarm: --mirror-root requires --mirror-results");
+        }
+        Self {
+            entry: clidef::entry(am),
+            mirror_results,
+            mirror_root: mirror_root.unwrap_or_else(Self::default_mirror_root),
+        }
+    }
+
+    fn default_mirror_root() -> PathBuf {
+        RepoRoot::path().join("target").join("buildfarm")
+    }
+
+    fn entry(&self) -> &str {
+        &self.entry
+    }
+
+    fn mirror_results(&self) -> bool {
+        self.mirror_results
+    }
+
+    fn mirror_root(&self) -> &PathBuf {
+        &self.mirror_root
+    }
+
+    fn announce_mirroring_contract(&self) {
+        if self.mirror_results() {
+            eprintln!(
+                "buildfarm: result mirroring requested; local mirror root is {}",
+                self.mirror_root().display()
+            );
+        }
+    }
+
+    fn mirror_plan(&self) -> ResultMirrorPlan {
+        ResultMirrorPlan::new(
+            self.mirror_results(),
+            self.mirror_root().clone(),
+            self.entry(),
+        )
     }
 }
 

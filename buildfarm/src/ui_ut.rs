@@ -7,7 +7,7 @@ use ratatui::{
 
 use crate::{
     app::JobStage,
-    model::BuildfarmConfig,
+    model::{BuildfarmConfig, ResultMirrorPlan},
     runner::BuildPlan,
     ui::{BuildScreen, GridShape, TileLayout, TileStatus, TileViewport},
 };
@@ -63,7 +63,7 @@ fn build_screen_renders_tiled_terminal_viewports() {
 }
 
 #[test]
-fn tile_status_renders_black_bar_with_yellow_text_when_running() {
+fn tile_status_renders_black_bar_with_yellow_text_when_building() {
     let backend = TestBackend::new(80, 3);
     let mut terminal = Terminal::new(backend).expect("test terminal should be created");
 
@@ -84,7 +84,7 @@ fn tile_status_colors_match_stage() {
         Some(Color::Black)
     );
     assert_eq!(
-        TileStatus::from_fixture("running", JobStage::Running).style().fg,
+        TileStatus::from_fixture("building", JobStage::Building).style().fg,
         Some(Color::Yellow)
     );
     assert_eq!(
@@ -146,7 +146,7 @@ fn build_screen_renders_finish_popup_when_requested() {
         .buffer()
         .content()
         .iter()
-        .any(|cell| cell.symbol() == "C" && cell.bg == Color::Cyan && cell.fg == Color::White));
+        .any(|cell| cell.symbol() == "q" && cell.bg == Color::Cyan && cell.fg == Color::White));
 }
 
 #[test]
@@ -197,6 +197,7 @@ impl Fixture {
             std::path::Path::new("/tmp/sysinspect"),
             std::path::Path::new("/tmp/logs"),
             "make",
+            ResultMirrorPlan::disabled(std::path::PathBuf::from("/tmp/buildfarm"), "dev"),
         )
     }
 }

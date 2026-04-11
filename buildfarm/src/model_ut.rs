@@ -1,4 +1,6 @@
-use crate::model::{BuildfarmConfig, TargetMode};
+use std::path::Path;
+
+use crate::model::{BuildfarmConfig, MirroredResultLayout, ResultMirrorPlan, TargetMode};
 
 #[test]
 fn parse_accepts_local_pseudo_host() {
@@ -52,4 +54,35 @@ fn parse_rejects_empty_config() {
     let err = BuildfarmConfig::parse("\n# comment\n\n").expect_err("empty config must fail");
 
     assert_eq!(err, "buildfarm config has no targets");
+}
+
+#[test]
+fn target_mirror_directory_is_deterministic() {
+    let cfg = BuildfarmConfig::parse("FreeBSD amd64 192.168.122.122:work/sysinspect-buildfarm\n")
+        .expect("remote target should parse");
+
+    assert_eq!(
+        cfg.targets()[0].mirror_directory(Path::new("/tmp/buildfarm")),
+        Path::new("/tmp/buildfarm/freebsd-amd64")
+    );
+}
+
+#[test]
+fn mirrored_result_layout_uses_known_stage_roots() {
+    assert_eq!(
+        MirroredResultLayout::for_entry("modules-dist-dev").roots(),
+        &[
+            std::path::PathBuf::from("build/stage"),
+            std::path::PathBuf::from("build/modules-dist"),
+        ]
+    );
+}
+
+#[test]
+fn result_mirror_plan_places_target_under_mirror_root() {
+    let cfg = BuildfarmConfig::parse("local\n").expect("local target should parse");
+    let plan = ResultMirrorPlan::new(true, "/tmp/buildfarm".into(), "dev");
+
+    assert_eq!(plan.target_root(&cfg.targets()[0]), Path::new("/tmp/buildfarm/local-local"));
+    assert!(plan.is_enabled());
 }
