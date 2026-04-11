@@ -55,7 +55,7 @@ make
 For a development build:
 
 ```bash
-make devel
+make dev
 ```
 
 For modules only:
@@ -81,11 +81,65 @@ After that, use `gmake` for all real builds:
 
 ```bash
 gmake
-gmake devel
+gmake dev
 gmake modules
 gmake modules-dev
 gmake test
 gmake smoke-test
+```
+
+### Buildfarm
+
+If `BUILDFARM_CONFIG` is exported, buildfarm-aware entries use the standalone `buildfarm` TUI.
+
+Bootstrap once:
+
+```bash
+make setup
+```
+
+That prepares the normal toolchain and prebuilds:
+
+```text
+target/buildfarm/buildfarm
+```
+
+Manual rebuild of the controller:
+
+```bash
+make buildfarm
+```
+
+Prepare remote destinations:
+
+```bash
+export BUILDFARM_CONFIG=buildfarm.conf
+make buildfarm-init
+```
+
+Then run any buildfarm-aware entry. Each run still delta-rsyncs local changes to remotes before building:
+
+```bash
+make dev
+make all-dev
+make modules-dev
+make release
+make all
+make modules
+```
+
+Result mirroring is off by default.
+
+To mirror staged results back from all targets into `target/buildfarm/...`, use:
+
+```bash
+make modules-dist-dev BUILDFARM_ARGS="--mirror-results"
+```
+
+To override the local mirror root:
+
+```bash
+make modules-dist-dev BUILDFARM_ARGS="--mirror-results --mirror-root /tmp/buildfarm-out"
 ```
 
 ### Build Output
