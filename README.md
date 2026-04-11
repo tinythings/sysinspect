@@ -128,6 +128,20 @@ make all
 make modules
 ```
 
+Result mirroring is off by default.
+
+To mirror staged results back from all targets into `target/buildfarm/...`, use:
+
+```bash
+BUILDFARM_MIRROR_RESULTS=1 make modules-dist-dev
+```
+
+To override the local mirror root:
+
+```bash
+BUILDFARM_MIRROR_RESULTS=1 BUILDFARM_MIRROR_ROOT=/tmp/buildfarm-out make modules-dist-dev
+```
+
 ### Build Output
 
 Binaries are produced by Cargo under `target/...`.

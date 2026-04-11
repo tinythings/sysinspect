@@ -3,6 +3,7 @@
 include Makefile.in
 
 BUILDFARM_BIN := target/buildfarm/buildfarm
+BUILDFARM_RUN_FLAGS := $(if $(strip $(or $(BUILDFARM_MIRROR_RESULTS),$(BUILDFARM_MIRROR_ROOT))),--mirror-results,) $(if $(strip $(BUILDFARM_MIRROR_ROOT)),--mirror-root "$(BUILDFARM_MIRROR_ROOT)",)
 
 .PHONY: help release buildfarm buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
@@ -33,6 +34,8 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "stats" "Show code statistics via tokei."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev-tls" "Generate local development TLS material."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "tar" "Create a vendored source tarball."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "BUILDFARM_MIRROR_RESULTS=1" "Mirror staged build results back into target/buildfarm/ during buildfarm runs."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "BUILDFARM_MIRROR_ROOT=DIR" "Override the local root used for mirrored buildfarm results."
 	@printf '\n\033[1;92m%s\033[0m\n' "Testing"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "test" "Run the full nextest suite for this platform."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-core" "Run core crate unit/bin tests only."
@@ -128,31 +131,31 @@ musl-x86_64:
 ifneq ($(strip $(BUILDFARM_CONFIG)),)
 all-dev:
 	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all-dev
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all-dev $(BUILDFARM_RUN_FLAGS)
 
 all:
 	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all $(BUILDFARM_RUN_FLAGS)
 
 dev:
 	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run dev
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run dev $(BUILDFARM_RUN_FLAGS)
 
 build:
 	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run release
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run release $(BUILDFARM_RUN_FLAGS)
 
 modules-dev:
 	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dev
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dev $(BUILDFARM_RUN_FLAGS)
 
 modules:
 	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules $(BUILDFARM_RUN_FLAGS)
 
 modules-dist-dev:
 	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dist-dev
+	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dist-dev $(BUILDFARM_RUN_FLAGS)
 else
 all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
