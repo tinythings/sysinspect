@@ -9,16 +9,226 @@ pub struct AnsiDocument {
 
 impl AnsiDocument {
     pub fn parse(text: &str) -> Self {
-        AnsiNormalizer::new(text).normalize().pipe_ref(|normalized| Self {
-            lines: normalized
-                .split('\n')
-                .map(AnsiLine::parse)
+        Self::from_buffer(TerminalBuffer::from_text(text))
+    }
+
+    pub fn from_buffer(buffer: TerminalBuffer) -> Self {
+        Self {
+            lines: buffer
+                .text_lines()
+                .iter()
+                .map(|line| AnsiLine::parse(line.as_str()))
                 .collect(),
-        })
+        }
     }
 
     pub fn lines(&self) -> Vec<Line<'static>> {
         self.lines.iter().map(AnsiLine::line).collect()
+    }
+}
+
+#[derive(Clone)]
+pub struct TerminalBuffer {
+    lines: Vec<String>,
+    row: usize,
+    col: usize,
+}
+
+impl TerminalBuffer {
+    pub fn new() -> Self {
+        Self {
+            lines: vec![String::new()],
+            row: 0,
+            col: 0,
+        }
+    }
+
+    pub fn from_text(text: &str) -> Self {
+        let mut buffer = Self::new();
+        buffer.push_text(text);
+        buffer
+    }
+
+    pub fn push_text(&mut self, text: &str) {
+        let mut chars = text.chars();
+
+        while let Some(ch) = chars.next() {
+            self.consume_char(ch, &mut chars);
+        }
+    }
+
+    pub fn lines(&self) -> Vec<Line<'static>> {
+        self.text_lines()
+            .iter()
+            .map(|line| AnsiLine::parse(line.as_str()).line())
+            .collect()
+    }
+
+    fn text_lines(&self) -> Vec<String> {
+        self.lines.clone()
+    }
+
+    fn consume_char(&mut self, ch: char, chars: &mut std::str::Chars<'_>) {
+        match ch {
+            '\r' => self.col = 0,
+            '\n' => self.line_feed(),
+            '\u{1b}' => self.consume_escape(chars),
+            _ if ch.is_control() => {}
+            _ => self.write_char(ch),
+        }
+    }
+
+    fn consume_escape(&mut self, chars: &mut std::str::Chars<'_>) {
+        if chars.next() == Some('[') {
+            self.consume_csi(chars);
+        }
+    }
+
+    fn consume_csi(&mut self, chars: &mut std::str::Chars<'_>) {
+        let mut payload = String::new();
+
+        while let Some(ch) = chars.next() {
+            if Self::is_csi_final(ch) {
+                self.apply_csi(&payload, ch);
+                return;
+            }
+            payload.push(ch);
+        }
+    }
+
+    fn apply_csi(&mut self, payload: &str, final_char: char) {
+        match final_char {
+            'A' => self.move_up(Self::count(payload)),
+            'B' => self.move_down(Self::count(payload)),
+            'G' => self.move_column(Self::count(payload)),
+            'K' => self.clear_line_from_cursor(),
+            'm' => self.write_sgr(payload),
+            _ => {}
+        }
+    }
+
+    fn is_csi_final(ch: char) -> bool {
+        ('@'..='~').contains(&ch)
+    }
+
+    fn count(payload: &str) -> usize {
+        payload
+            .split(';')
+            .next()
+            .filter(|part| !part.is_empty())
+            .and_then(|part| part.parse::<usize>().ok())
+            .unwrap_or(1)
+    }
+
+    fn move_up(&mut self, count: usize) {
+        self.row = self.row.saturating_sub(count);
+        self.ensure_row();
+    }
+
+    fn move_down(&mut self, count: usize) {
+        self.row = self.row.saturating_add(count);
+        self.ensure_row();
+    }
+
+    fn move_column(&mut self, column: usize) {
+        self.col = column.saturating_sub(1);
+    }
+
+    fn clear_line_from_cursor(&mut self) {
+        self.ensure_row();
+        if self.col == 0 {
+            self.lines[self.row].clear();
+            return;
+        }
+        self.visible_byte_index(self.row, self.col)
+            .into_iter()
+            .for_each(|index| self.lines[self.row].truncate(index));
+    }
+
+    fn write_sgr(&mut self, payload: &str) {
+        self.ensure_row();
+        self.lines[self.row].push('\u{1b}');
+        self.lines[self.row].push('[');
+        self.lines[self.row].push_str(payload);
+        self.lines[self.row].push('m');
+    }
+
+    fn write_char(&mut self, ch: char) {
+        self.ensure_row();
+        self.ensure_col();
+        self.replace_visible_char(self.row, self.col, ch);
+        self.col += 1;
+    }
+
+    fn ensure_row(&mut self) {
+        while self.lines.len() <= self.row {
+            self.lines.push(String::new());
+        }
+    }
+
+    fn ensure_col(&mut self) {
+        while self.visible_len(self.row) <= self.col {
+            self.lines[self.row].push(' ');
+        }
+    }
+
+    fn line_feed(&mut self) {
+        self.row += 1;
+        self.col = 0;
+        self.ensure_row();
+    }
+
+    fn visible_len(&self, row: usize) -> usize {
+        self.visible_ranges(row).len()
+    }
+
+    fn visible_byte_index(&self, row: usize, col: usize) -> Option<usize> {
+        self.visible_ranges(row)
+            .get(col)
+            .map(|(start, _)| *start)
+            .or_else(|| (col == self.visible_len(row)).then_some(self.lines[row].len()))
+    }
+
+    fn replace_visible_char(&mut self, row: usize, col: usize, ch: char) {
+        self.visible_ranges(row)
+            .get(col)
+            .cloned()
+            .into_iter()
+            .for_each(|(start, end)| self.lines[row].replace_range(start..end, &ch.to_string()));
+    }
+
+    fn visible_ranges(&self, row: usize) -> Vec<(usize, usize)> {
+        let line = &self.lines[row];
+        let mut ranges = Vec::new();
+        let mut chars = line.char_indices().peekable();
+
+        while let Some((start, ch)) = chars.next() {
+            if ch == '\u{1b}' {
+                self.skip_csi(&mut chars);
+                continue;
+            }
+
+            let end = chars.peek().map(|(index, _)| *index).unwrap_or(line.len());
+            ranges.push((start, end));
+        }
+
+        ranges
+    }
+
+    fn skip_csi(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    ) {
+        while let Some((_, marker)) = chars.next() {
+            if marker == '[' {
+                break;
+            }
+        }
+        while let Some((_, marker)) = chars.next() {
+            if Self::is_csi_final(marker) {
+                break;
+            }
+        }
     }
 }
 
@@ -74,7 +284,6 @@ impl<'a> AnsiParser<'a> {
         while let Some(ch) = self.chars.next() {
             self.consume_char(ch);
         }
-
         self.flush_current();
         self.spans
     }
@@ -102,7 +311,7 @@ impl<'a> AnsiParser<'a> {
         let mut payload = String::new();
 
         while let Some(ch) = self.chars.next() {
-            if Self::is_csi_final(ch) {
+            if TerminalBuffer::is_csi_final(ch) {
                 self.apply_csi(&payload, ch);
                 return;
             }
@@ -122,10 +331,6 @@ impl<'a> AnsiParser<'a> {
         }
     }
 
-    fn is_csi_final(ch: char) -> bool {
-        ('@'..='~').contains(&ch)
-    }
-
     fn flush_current(&mut self) {
         (!self.current.is_empty())
             .then_some(AnsiSpan::new(
@@ -134,32 +339,6 @@ impl<'a> AnsiParser<'a> {
             ))
             .into_iter()
             .for_each(|span| self.spans.push(span));
-    }
-}
-
-struct AnsiNormalizer<'a> {
-    text: &'a str,
-}
-
-impl<'a> AnsiNormalizer<'a> {
-    fn new(text: &'a str) -> Self {
-        Self { text }
-    }
-
-    fn normalize(&self) -> String {
-        self.text
-            .chars()
-            .filter_map(Self::normalize_char)
-            .collect()
-    }
-
-    fn normalize_char(ch: char) -> Option<char> {
-        match ch {
-            '\r' => None,
-            '\n' | '\u{1b}' => Some(ch),
-            _ if ch.is_control() => None,
-            _ => Some(ch),
-        }
     }
 }
 
@@ -262,22 +441,12 @@ impl AnsiState {
 
     fn style(&self) -> Style {
         self.fg
-            .pipe_ref(|fg| {
-                fg.map(|color| Style::default().fg(color))
-                    .unwrap_or_else(Style::default)
-            })
-            .pipe_ref(|style| {
+            .map(|fg| Style::default().fg(fg))
+            .unwrap_or_default()
+            .add_modifier(
                 self.bold
-                    .then_some(style.add_modifier(Modifier::BOLD))
-                    .unwrap_or(*style)
-            })
+                    .then_some(Modifier::BOLD)
+                    .unwrap_or(Modifier::empty()),
+            )
     }
 }
-
-trait PipeRef: Sized {
-    fn pipe_ref<T>(self, f: impl FnOnce(&Self) -> T) -> T {
-        f(&self)
-    }
-}
-
-impl<T> PipeRef for T {}

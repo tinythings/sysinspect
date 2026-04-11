@@ -17,8 +17,8 @@ pub struct BuildTarget {
 impl BuildTarget {
     pub fn local() -> Self {
         Self {
-            os: "local".to_string(),
-            arch: "local".to_string(),
+            os: Self::local_os(),
+            arch: Self::local_arch(),
             destination: "local".to_string(),
             mode: TargetMode::Local,
         }
@@ -82,7 +82,9 @@ impl BuildTarget {
     }
 
     pub fn title(&self) -> String {
-        format!("{} {} {}", self.os(), self.arch(), self.destination())
+        self.is_local()
+            .then_some(format!("{} {} localhost", self.os(), self.arch()))
+            .unwrap_or_else(|| format!("{} {} {}", self.os(), self.arch(), self.destination()))
     }
 
     pub fn artifact_identity(&self) -> ArtifactIdentity {
@@ -143,6 +145,24 @@ impl BuildTarget {
             .collect::<String>()
             .trim_matches('_')
             .to_string()
+    }
+
+    fn local_os() -> String {
+        match std::env::consts::OS {
+            "linux" => "GNU/Linux".to_string(),
+            "freebsd" => "FreeBSD".to_string(),
+            "netbsd" => "NetBSD".to_string(),
+            "openbsd" => "OpenBSD".to_string(),
+            other => other.to_string(),
+        }
+    }
+
+    fn local_arch() -> String {
+        match std::env::consts::ARCH {
+            "x86_64" => "x86_64".to_string(),
+            "aarch64" => "aarch64".to_string(),
+            other => other.to_string(),
+        }
     }
 }
 

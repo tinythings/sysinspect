@@ -6,19 +6,18 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-use crate::ansi::AnsiDocument;
 use crate::{
     app::{JobStage, JobState},
     runner::BuildPlan,
 };
 
-pub struct BuildScreen<'a> {
-    tiles: Vec<BuildTile<'a>>,
-    popup: Option<FinishPopup<'a>>,
+pub struct BuildScreen {
+    tiles: Vec<BuildTile>,
+    popup: Option<FinishPopup>,
 }
 
-impl<'a> BuildScreen<'a> {
-    pub fn from_plan(plan: &'a BuildPlan) -> Self {
+impl BuildScreen {
+    pub fn from_plan(plan: &BuildPlan) -> Self {
         Self {
             tiles: plan.jobs().iter().map(BuildTile::from_job).collect(),
             popup: None,
@@ -26,9 +25,9 @@ impl<'a> BuildScreen<'a> {
     }
 
     pub fn from_states(
-        states: &'a [JobState],
+        states: &[JobState],
         active_pane: usize,
-        scrollbacks: &'a [usize],
+        scrollbacks: &[usize],
         popup_open: bool,
     ) -> Self {
         Self {
@@ -65,18 +64,18 @@ impl<'a> BuildScreen<'a> {
             .unwrap_or(1)
     }
 
-    pub fn tiles(&self) -> &[BuildTile<'a>] {
+    pub fn tiles(&self) -> &[BuildTile] {
         &self.tiles
     }
 }
 
-pub struct BuildTile<'a> {
+pub struct BuildTile {
     active: bool,
     status: TileStatus,
-    viewport: TileViewport<'a>,
+    viewport: TileViewport,
 }
 
-impl<'a> BuildTile<'a> {
+impl BuildTile {
     pub fn from_job(job: &crate::runner::BuildJob) -> Self {
         Self {
             active: false,
@@ -85,11 +84,11 @@ impl<'a> BuildTile<'a> {
         }
     }
 
-    pub fn from_state(state: &'a JobState, active: bool, scrollback: usize) -> Self {
+    pub fn from_state(state: &JobState, active: bool, scrollback: usize) -> Self {
         Self {
             active,
             status: TileStatus::from_state(state),
-            viewport: TileViewport::from_ansi(state.log_text(), scrollback),
+            viewport: TileViewport::from_lines(state.log_lines(), scrollback),
         }
     }
 
@@ -170,21 +169,25 @@ impl TileStatus {
     }
 }
 
-pub struct TileViewport<'a> {
-    source: &'a str,
+pub struct TileViewport {
+    lines: Vec<Line<'static>>,
     scrollback: usize,
 }
 
-impl<'a> TileViewport<'a> {
+impl TileViewport {
     pub fn empty() -> Self {
         Self {
-            source: "",
+            lines: Vec::new(),
             scrollback: 0,
         }
     }
 
-    pub fn from_ansi(source: &'a str, scrollback: usize) -> Self {
-        Self { source, scrollback }
+    pub fn from_ansi(source: &str, scrollback: usize) -> Self {
+        Self::from_lines(crate::ansi::AnsiDocument::parse(source).lines(), scrollback)
+    }
+
+    pub fn from_lines(lines: Vec<Line<'static>>, scrollback: usize) -> Self {
+        Self { lines, scrollback }
     }
 
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, active: bool) {
@@ -192,12 +195,11 @@ impl<'a> TileViewport<'a> {
             .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
             .border_style(self.border_style(active));
         let inner = block.inner(area);
-        let lines = AnsiDocument::parse(self.source).lines();
 
         frame.render_widget(block, area);
         frame.render_widget(
-            Paragraph::new(lines.clone())
-                .scroll((self.scroll_y(lines.len(), inner), 0))
+            Paragraph::new(self.lines.clone())
+                .scroll((self.scroll_y(self.lines.len(), inner), 0))
                 .wrap(Wrap { trim: false }),
             inner,
         );
@@ -306,11 +308,11 @@ impl GridShape {
     }
 }
 
-pub struct FinishPopup<'a> {
-    text: &'a str,
+pub struct FinishPopup {
+    text: &'static str,
 }
 
-impl<'a> FinishPopup<'a> {
+impl FinishPopup {
     pub fn done() -> Self {
         Self {
             text: "\"q\" to quit, \"Q\" to quit and preserve logs, any key to continue",

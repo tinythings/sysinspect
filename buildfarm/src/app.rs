@@ -17,6 +17,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 
 use crate::{
+    ansi::TerminalBuffer,
     runner::{BuildJob, BuildPlan},
     ui::BuildScreen,
 };
@@ -461,7 +462,7 @@ impl JobWorker {
 pub struct JobState {
     title: String,
     log_path: PathBuf,
-    log_text: String,
+    log_buffer: TerminalBuffer,
     log_offset: u64,
     stage: JobStage,
     status_code: i32,
@@ -470,14 +471,9 @@ pub struct JobState {
 impl JobState {
     pub(crate) fn from_job(job: &BuildJob) -> Self {
         Self {
-            title: format!(
-                "{} {} {}",
-                job.target().os(),
-                job.target().arch(),
-                job.target().destination()
-            ),
+            title: job.target().title(),
             log_path: job.log_path().to_path_buf(),
-            log_text: String::new(),
+            log_buffer: TerminalBuffer::new(),
             log_offset: 0,
             stage: JobStage::Pending,
             status_code: 0,
@@ -488,7 +484,7 @@ impl JobState {
         self.stage = event.stage;
         self.status_code = event.status_code;
         if let Some(message) = event.error {
-            self.log_text.push_str(&format!("\n{message}\n"));
+            self.log_buffer.push_text(&format!("\n{message}\n"));
         }
     }
 
@@ -499,7 +495,7 @@ impl JobState {
             .flatten()
             .filter(|bytes| !bytes.is_empty())
             .into_iter()
-            .for_each(|bytes| self.log_text.push_str(&String::from_utf8_lossy(&bytes)));
+            .for_each(|bytes| self.log_buffer.push_text(String::from_utf8_lossy(&bytes).as_ref()));
     }
 
     fn read_new_log_bytes(&mut self) -> Result<Vec<u8>, String> {
@@ -522,8 +518,8 @@ impl JobState {
         &self.title
     }
 
-    pub fn log_text(&self) -> &str {
-        &self.log_text
+    pub fn log_lines(&self) -> Vec<ratatui::text::Line<'static>> {
+        self.log_buffer.lines()
     }
 
     pub fn summary(&self) -> &str {
