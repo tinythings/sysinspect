@@ -2,10 +2,10 @@
 
 include Makefile.in
 
-BUILDFARM_BIN := target/buildfarm/buildfarm
-BUILDFARM_ARGS ?=
+XRUN_BIN := xrun
+XRUN_ARGS ?=
 
-.PHONY: help release buildfarm buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
+.PHONY: help release xrun xrun-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
 
@@ -13,20 +13,20 @@ help:
 	@printf '\n$$ make [help]\n\n'
 	@printf '\033[1;92m%s\033[0m\n' "Development"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "help" "Show this help and what each entry does."
-	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "dev" "Compile core binaries in development mode with debug data."
-	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "all-dev" "Compile core plus modules in development mode."
-	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "modules-dev" "Compile modules only in development mode."
-	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "modules-dist-dev" "Build release modules and stage distribution payloads."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "dev" "Compile core binaries in development mode with debug data."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "all-dev" "Compile core plus modules in development mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "modules-dev" "Compile modules only in development mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "modules-dist-dev" "Build release modules and stage distribution payloads."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh-dev" "Debug variant of Linux musl module refresh."
 	@printf '\n\033[1;92m%s\033[0m\n' "Release"
-	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "release" "Compile core binaries in release mode."
-	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "all" "Compile core plus modules in release mode."
-	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(BUILDFARM_CONFIG)),\033[1;91m*\033[0m,)' "modules" "Compile modules only in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "release" "Compile core binaries in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "all" "Compile core plus modules in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "modules" "Compile modules only in release mode."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
 	@printf '\n\033[1;92m%s\033[0m\n' "Utils"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "buildfarm" "Compile the standalone buildfarm controller into target/buildfarm/."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "buildfarm-init" "Reset remote destinations from BUILDFARM_CONFIG and sync project contents."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "xrun" "Check that the standalone xrun controller is available."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "xrun-init" "Validate and initialise xrun targets from XRUN_CONFIG."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "fix" "Run clippy --fix on the workspace."
@@ -34,7 +34,7 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "stats" "Show code statistics via tokei."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev-tls" "Generate local development TLS material."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "tar" "Create a vendored source tarball."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' 'BUILDFARM_ARGS="..."' "Pass extra CLI flags to buildfarm, e.g. --mirror-results or --mirror-root /tmp/out."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' 'XRUN_ARGS="..."' "Pass extra CLI flags to xrun, e.g. --mirror-results or --mirror-root /tmp/out."
 	@printf '\n\033[1;92m%s\033[0m\n' "Testing"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "test" "Run the full nextest suite for this platform."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-core" "Run core crate unit/bin tests only."
@@ -48,47 +48,30 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
 	@printf '\n\033[1;92m%s\033[0m\n' "Documentation"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "man" "Build the sysinspect manpage from Markdown."
-	@if [ -n "$(BUILDFARM_CONFIG)" ]; then \
+	@if [ -n "$(XRUN_CONFIG)" ]; then \
 		printf '\n\033[1;96m%s\033[0m\n' "Legend"; \
-		printf '    \033[1;91m*\033[0m\033[1;93m%-19s\033[0m %s\n' "entry" "Runs across the buildfarm defined by BUILDFARM_CONFIG."; \
+		printf '    \033[1;91m*\033[0m\033[1;93m%-19s\033[0m %s\n' "entry" "Runs across the xrun target matrix defined by XRUN_CONFIG."; \
 	else \
-		printf '\n\033[1;96m%s\033[0m\n' "Buildfarm"; \
-		printf '    %s\n' "In order to activate buildfarm mode, export the following environment:"; \
-		printf '        %s\n' "export BUILDFARM_CONFIG=<buildfarm.conf file>"; \
+		printf '\n\033[1;96m%s\033[0m\n' "xrun"; \
+		printf '    %s\n' "In order to activate xrun mode, export the following environment:"; \
+		printf '        %s\n' "export XRUN_CONFIG=<xrun.conf file>"; \
 	fi
 	@printf '\n'
 
 release: build
 
-buildfarm-init: setup
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' sh scripts/buildfarm.sh init
+xrun-init: setup
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) init
 
-define buildfarm_compile
-	@rm -rf target/buildfarm buildfarm/target
-	@mkdir -p target/buildfarm
-	@cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target
-	@cp -f buildfarm/target/debug/buildfarm $(BUILDFARM_BIN)
-	@chmod +x $(BUILDFARM_BIN)
-	@rm -rf buildfarm/target
-endef
-
-buildfarm: setup
-	$(buildfarm_compile)
-
-$(BUILDFARM_BIN):
-	$(buildfarm_compile)
+xrun: setup
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
 
 setup:
 	$(call deps)
 	$(call setup_targets)
-	@if [ ! -x "$(BUILDFARM_BIN)" ]; then \
-		echo "Prebuilding standalone buildfarm controller"; \
-		rm -rf target/buildfarm buildfarm/target; \
-		mkdir -p target/buildfarm; \
-		cargo build --manifest-path buildfarm/Cargo.toml --target-dir buildfarm/target; \
-		cp -f buildfarm/target/debug/buildfarm $(BUILDFARM_BIN); \
-		chmod +x $(BUILDFARM_BIN); \
-		rm -rf buildfarm/target; \
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { \
+		echo "Missing $(XRUN_BIN). Install it first." >&2; \
+		exit 1; \
 	fi
 
 clean:
@@ -127,74 +110,74 @@ musl-x86_64:
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
-ifneq ($(strip $(BUILDFARM_CONFIG)),)
+ifneq ($(strip $(XRUN_CONFIG)),)
 all-dev:
-	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all-dev $(BUILDFARM_ARGS)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run all-dev $(XRUN_ARGS)
 
 all:
-	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run all $(BUILDFARM_ARGS)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run all $(XRUN_ARGS)
 
 dev:
-	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run dev $(BUILDFARM_ARGS)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run dev $(XRUN_ARGS)
 
 build:
-	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run release $(BUILDFARM_ARGS)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run release $(XRUN_ARGS)
 
 modules-dev:
-	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dev $(BUILDFARM_ARGS)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run modules-dev $(XRUN_ARGS)
 
 modules:
-	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules $(BUILDFARM_ARGS)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run modules $(XRUN_ARGS)
 
 modules-dist-dev:
-	@[ -x "$(BUILDFARM_BIN)" ] || { echo "Missing $(BUILDFARM_BIN). Run 'make setup' or 'make buildfarm' first." >&2; exit 1; }
-	@BUILDFARM_CONFIG='$(BUILDFARM_CONFIG)' BUILDFARM_LOCAL_MAKE='$(MAKE)' $(BUILDFARM_BIN) run modules-dist-dev $(BUILDFARM_ARGS)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run modules-dist-dev $(XRUN_ARGS)
 else
 all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
-	$(call write_buildfarm_manifest,all-dev,)
+	$(call write_xrun_manifest,all-dev,)
 
 all:
 	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
-	$(call write_buildfarm_manifest,all,)
+	$(call write_xrun_manifest,all,)
 
 dev:
 	cargo build -v --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
-	$(call write_buildfarm_manifest,dev,)
+	$(call write_xrun_manifest,dev,)
 
 build:
 	cargo build --release --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
-	$(call write_buildfarm_manifest,release,)
+	$(call write_xrun_manifest,release,)
 
 modules-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,debug,)
-	$(call write_buildfarm_manifest,modules-dev,)
+	$(call write_xrun_manifest,modules-dev,)
 
 modules:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
-	$(call write_buildfarm_manifest,modules,)
+	$(call write_xrun_manifest,modules,)
 
 modules-dist-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
-	$(call write_buildfarm_manifest,modules-dist-dev,with-dist)
+	$(call write_xrun_manifest,modules-dist-dev,with-dist)
 endif
 
 modules-refresh-dev:

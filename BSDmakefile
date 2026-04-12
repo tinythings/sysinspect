@@ -1,6 +1,6 @@
 .MAIN: help
 
-.PHONY: setup help release buildfarm buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev \
+.PHONY: setup help release xrun xrun-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev \
 	modules-refresh clean check fix stats man test test-core test-modules test-sensors test-integration tar dev-tls \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64
 
@@ -18,7 +18,7 @@ setup:
 	}; \
 	cd ${.CURDIR} && exec ${GNU_MAKE} setup
 
-help release buildfarm buildfarm-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix stats man test test-core test-modules test-sensors test-integration tar dev-tls musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64:
+help release xrun xrun-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix stats man test test-core test-modules test-sensors test-integration tar dev-tls musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64:
 	@command -v ${GNU_MAKE} >/dev/null 2>&1 || { \
 		echo "Use 'make setup' first. FreeBSD needs ${GNU_MAKE} for this project."; \
 		exit 1; \
