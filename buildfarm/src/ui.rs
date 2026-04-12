@@ -315,7 +315,7 @@ pub struct FinishPopup {
 impl FinishPopup {
     pub fn done() -> Self {
         Self {
-            text: "\"q\" to quit, \"Q\" to quit and preserve logs, any key to continue",
+            text: "Press ^C to quit, \"p\" to quit and preserve logs, any key to continue",
         }
     }
 

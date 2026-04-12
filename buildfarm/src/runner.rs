@@ -243,19 +243,80 @@ impl<'a> ResultMirror<'a> {
 
     fn run(&self, log_path: &Path) -> Result<(), String> {
         let mirror_target = self.resolve_target()?;
+        let manifest_entries = self.manifest_entries()?;
 
-        self.layout_roots()
+        manifest_entries
             .is_empty()
             .then_some(Ok(()))
             .unwrap_or_else(|| {
                 self.log_mirror_header(&mirror_target, log_path).and_then(|_| {
-                    self.layout_roots().iter().enumerate().try_for_each(|(index, root)| {
-                        self.ensure_target_subdir(&mirror_target, root)
-                            .and_then(|_| self.log_mirror_root(&mirror_target, index + 1, root, log_path))
-                            .and_then(|_| self.mirror_root(&mirror_target, root, log_path))
+                    manifest_entries.iter().enumerate().try_for_each(|(index, path)| {
+                        self.ensure_target_subdir(&mirror_target, path)
+                            .and_then(|_| self.log_mirror_root(&mirror_target, index + 1, path, log_path))
+                            .and_then(|_| self.mirror_path(&mirror_target, path, log_path))
                     })
                 })
             })
+    }
+
+    fn manifest_entries(&self) -> Result<Vec<PathBuf>, String> {
+        self.target
+            .is_local()
+            .then_some(self.local_manifest_entries())
+            .unwrap_or_else(|| self.remote_manifest_entries())
+    }
+
+    fn local_manifest_entries(&self) -> Result<Vec<PathBuf>, String> {
+        fs::read_to_string(self.local_manifest_path())
+            .map_err(|err| format!("buildfarm: failed to read mirror manifest: {err}"))
+            .map(|text| Self::parse_manifest_entries(&text))
+    }
+
+    fn remote_manifest_entries(&self) -> Result<Vec<PathBuf>, String> {
+        let temp_manifest = self
+            .root_dir
+            .join(".buildfarm")
+            .join("manifest-cache")
+            .join(format!("{}.paths", self.target.log_key()));
+
+        temp_manifest
+            .parent()
+            .map(Path::to_path_buf)
+            .into_iter()
+            .try_for_each(|dir| {
+                fs::create_dir_all(dir)
+                    .map_err(|err| format!("buildfarm: failed to create manifest cache directory: {err}"))
+            })
+            .and_then(|_| {
+                LoggedCommand::new(
+                    "rsync",
+                    vec![
+                        "-az".to_string(),
+                        format!("{}:{}", self.target.host(), self.remote_manifest_path()),
+                        temp_manifest.display().to_string(),
+                    ],
+                )
+                .status(&self.root_dir.join(".buildfarm").join("manifest-fetch.log"))
+                .and_then(|status| {
+                    (status == 0)
+                        .then_some(())
+                        .ok_or_else(|| "buildfarm: failed to fetch remote mirror manifest".to_string())
+                })
+            })
+            .and_then(|_| {
+                fs::read_to_string(&temp_manifest)
+                    .map_err(|err| format!("buildfarm: failed to read fetched remote mirror manifest: {err}"))
+            })
+            .map(|text| Self::parse_manifest_entries(&text))
+    }
+
+    fn parse_manifest_entries(text: &str) -> Vec<PathBuf> {
+        text.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .filter(|line| !line.starts_with('#'))
+            .map(PathBuf::from)
+            .collect()
     }
 
     fn resolve_target(&self) -> Result<MirrorTarget, String> {
@@ -390,67 +451,77 @@ impl<'a> ResultMirror<'a> {
         })
     }
 
-    fn ensure_target_subdir(&self, mirror_target: &MirrorTarget, root: &Path) -> Result<(), String> {
-        fs::create_dir_all(mirror_target.root().join(root)).map_err(|err| format!("buildfarm: failed to create mirror directory: {err}"))
+    fn ensure_target_subdir(&self, mirror_target: &MirrorTarget, path: &Path) -> Result<(), String> {
+        fs::create_dir_all(
+            mirror_target
+                .root()
+                .join(path)
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| mirror_target.root().to_path_buf()),
+        )
+        .map_err(|err| format!("buildfarm: failed to create mirror directory: {err}"))
     }
 
-    fn mirror_root(&self, mirror_target: &MirrorTarget, root: &Path, log_path: &Path) -> Result<(), String> {
-        self.target.is_local().then_some(self.mirror_local_root(mirror_target, root, log_path)).unwrap_or_else(|| self.mirror_remote_root(mirror_target, root, log_path))
+    fn mirror_path(&self, mirror_target: &MirrorTarget, path: &Path, log_path: &Path) -> Result<(), String> {
+        self.target.is_local().then_some(self.mirror_local_path(mirror_target, path, log_path)).unwrap_or_else(|| self.mirror_remote_path(mirror_target, path, log_path))
     }
 
-    fn mirror_local_root(&self, mirror_target: &MirrorTarget, root: &Path, log_path: &Path) -> Result<(), String> {
-        self.command("rsync", self.local_rsync_args(mirror_target, root)).status(log_path).and_then(Self::ensure_success)
+    fn mirror_local_path(&self, mirror_target: &MirrorTarget, path: &Path, log_path: &Path) -> Result<(), String> {
+        self.command("rsync", self.local_rsync_args(mirror_target, path)).status(log_path).and_then(Self::ensure_success)
     }
 
-    fn mirror_remote_root(&self, mirror_target: &MirrorTarget, root: &Path, log_path: &Path) -> Result<(), String> {
-        self.command("rsync", self.remote_rsync_args(mirror_target, root)).status(log_path).and_then(Self::ensure_success)
+    fn mirror_remote_path(&self, mirror_target: &MirrorTarget, path: &Path, log_path: &Path) -> Result<(), String> {
+        self.command("rsync", self.remote_rsync_args(mirror_target, path)).status(log_path).and_then(Self::ensure_success)
     }
 
-    fn log_mirror_root(&self, mirror_target: &MirrorTarget, index: usize, root: &Path, log_path: &Path) -> Result<(), String> {
+    fn log_mirror_root(&self, mirror_target: &MirrorTarget, index: usize, path: &Path, log_path: &Path) -> Result<(), String> {
         LogAppendFile::open(log_path).and_then(|mut log_file| {
             log_file.write_text(&format!(
                 "    {index}. src: {}\n         dst: {}\n\n",
-                Self::green(&self.source_label(root)),
-                Self::green(&mirror_target.root().join(root).display().to_string())
+                Self::green(&self.source_label(path)),
+                Self::green(&mirror_target.root().join(path).display().to_string())
             ))
         })
     }
 
-    fn local_rsync_args(&self, mirror_target: &MirrorTarget, root: &Path) -> Vec<String> {
+    fn local_rsync_args(&self, mirror_target: &MirrorTarget, path: &Path) -> Vec<String> {
         vec![
             "-az".to_string(),
-            "--delete".to_string(),
-            format!("{}/", self.source_root(root).display()),
-            format!("{}/", mirror_target.root().join(root).display()),
+            self.source_path(path).display().to_string(),
+            mirror_target.root().join(path).display().to_string(),
         ]
     }
 
-    fn remote_rsync_args(&self, mirror_target: &MirrorTarget, root: &Path) -> Vec<String> {
+    fn remote_rsync_args(&self, mirror_target: &MirrorTarget, path: &Path) -> Vec<String> {
         vec![
             "-az".to_string(),
-            "--delete".to_string(),
-            format!("{}:{}/", self.target.host(), self.remote_source_root(root)),
-            format!("{}/", mirror_target.root().join(root).display()),
+            format!("{}:{}", self.target.host(), self.remote_source_path(path)),
+            mirror_target.root().join(path).display().to_string(),
         ]
     }
 
-    fn source_root(&self, root: &Path) -> PathBuf {
-        self.root_dir.join(root)
+    fn source_path(&self, path: &Path) -> PathBuf {
+        self.root_dir.join(path)
     }
 
-    fn remote_source_root(&self, root: &Path) -> String {
-        format!("{}/{}", self.target.remote_path(), root.display())
+    fn remote_source_path(&self, path: &Path) -> String {
+        format!("{}/{}", self.target.remote_path(), path.display())
     }
 
-    fn source_label(&self, root: &Path) -> String {
+    fn source_label(&self, path: &Path) -> String {
         self.target
             .is_local()
-            .then_some(self.source_root(root).display().to_string())
-            .unwrap_or_else(|| format!("{}:{}", self.target.host(), self.remote_source_root(root)))
+            .then_some(self.source_path(path).display().to_string())
+            .unwrap_or_else(|| format!("{}:{}", self.target.host(), self.remote_source_path(path)))
     }
 
-    fn layout_roots(&self) -> &[PathBuf] {
-        self.mirror_plan.layout().roots()
+    fn local_manifest_path(&self) -> PathBuf {
+        self.root_dir.join(self.mirror_plan.manifest())
+    }
+
+    fn remote_manifest_path(&self) -> String {
+        format!("{}/{}", self.target.remote_path(), self.mirror_plan.manifest().display())
     }
 
     fn blue_bold(text: &str) -> String {

@@ -160,34 +160,41 @@ all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
+	$(call write_buildfarm_manifest,all-dev,)
 
 all:
 	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
+	$(call write_buildfarm_manifest,all,)
 
 dev:
 	cargo build -v --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
+	$(call write_buildfarm_manifest,dev,)
 
 build:
 	cargo build --release --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
+	$(call write_buildfarm_manifest,release,)
 
 modules-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,debug,)
+	$(call write_buildfarm_manifest,modules-dev,)
 
 modules:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
+	$(call write_buildfarm_manifest,modules,)
 
 modules-dist-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
+	$(call write_buildfarm_manifest,modules-dist-dev,with-dist)
 endif
 
 modules-refresh-dev:

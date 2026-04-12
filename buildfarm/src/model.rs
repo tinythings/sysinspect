@@ -87,62 +87,6 @@ impl BuildTarget {
             .unwrap_or_else(|| format!("{} {} {}", self.os(), self.arch(), self.destination()))
     }
 
-    pub fn os_label(&self) -> String {
-        self.is_linux_family()
-            .then_some(self.linux_os_label())
-            .unwrap_or_else(|| self.bsdish_os_label())
-    }
-
-    pub fn mirror_directory(&self, mirror_root: &Path) -> PathBuf {
-        mirror_root.join(self.os_label_dir())
-    }
-
-    fn os_label_dir(&self) -> String {
-        self.os_label()
-            .chars()
-            .map(|ch| {
-                if ch.is_ascii_alphanumeric() || ch == '.' {
-                    ch.to_ascii_lowercase()
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
-            .trim_matches('_')
-            .to_string()
-    }
-
-    fn is_linux_family(&self) -> bool {
-        matches!(self.os(), "GNU/Linux" | "Linux")
-            || self.os().starts_with("GNU/Linux_")
-            || self.os().starts_with("Linux_")
-            || self.os().starts_with("GNU/Linux-")
-            || self.os().starts_with("Linux-")
-    }
-
-    fn linux_os_label(&self) -> String {
-        self.os()
-            .split_once(['_', '-'])
-            .map(|(_, suffix)| suffix)
-            .and_then(Self::linux_label_from_suffix)
-            .unwrap_or_else(|| "Linux".to_string())
-    }
-
-    fn linux_label_from_suffix(suffix: &str) -> Option<String> {
-        let mut parts = suffix.split('-');
-        let kernel = parts.next().filter(|part| !part.is_empty())?;
-        let libc = parts.next().filter(|part| !part.is_empty())?;
-
-        Some(format!("Linux {} {}", kernel, libc.replace('_', " ")))
-    }
-
-    fn bsdish_os_label(&self) -> String {
-        self.os()
-            .split_once(['_', '-'])
-            .map(|(family, suffix)| format!("{family} {suffix}"))
-            .unwrap_or_else(|| self.os().to_string())
-    }
-
     fn local_os() -> String {
         match std::env::consts::OS {
             "linux" => "GNU/Linux".to_string(),
@@ -163,41 +107,10 @@ impl BuildTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MirroredResultLayout {
-    entry: String,
-    roots: Vec<PathBuf>,
-}
-
-impl MirroredResultLayout {
-    pub fn for_entry(entry: &str) -> Self {
-        Self {
-            entry: entry.to_string(),
-            roots: Self::known_roots(entry),
-        }
-    }
-
-    pub fn entry(&self) -> &str {
-        &self.entry
-    }
-
-    pub fn roots(&self) -> &[PathBuf] {
-        &self.roots
-    }
-
-    fn known_roots(entry: &str) -> Vec<PathBuf> {
-        match entry {
-            "dev" | "all-dev" | "release" | "all" | "modules-dev" | "modules" => vec![PathBuf::from("build/stage")],
-            "modules-dist-dev" => vec![PathBuf::from("build/stage"), PathBuf::from("build/modules-dist")],
-            _ => Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultMirrorPlan {
     enabled: bool,
     root: PathBuf,
-    layout: MirroredResultLayout,
+    manifest: PathBuf,
 }
 
 impl ResultMirrorPlan {
@@ -205,7 +118,7 @@ impl ResultMirrorPlan {
         Self {
             enabled,
             root,
-            layout: MirroredResultLayout::for_entry(entry),
+            manifest: Self::manifest_for_entry(entry),
         }
     }
 
@@ -221,12 +134,14 @@ impl ResultMirrorPlan {
         &self.root
     }
 
-    pub fn layout(&self) -> &MirroredResultLayout {
-        &self.layout
+    pub fn manifest(&self) -> &Path {
+        &self.manifest
     }
 
-    pub fn target_root(&self, target: &BuildTarget) -> PathBuf {
-        target.mirror_directory(self.root())
+    fn manifest_for_entry(entry: &str) -> PathBuf {
+        PathBuf::from("build")
+            .join(".buildfarm")
+            .join(format!("{entry}.paths"))
     }
 }
 

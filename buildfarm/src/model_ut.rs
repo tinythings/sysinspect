@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::model::{BuildfarmConfig, MirroredResultLayout, ResultMirrorPlan, TargetMode};
+use crate::model::{BuildfarmConfig, ResultMirrorPlan, TargetMode};
 
 #[test]
 fn parse_accepts_local_pseudo_host() {
@@ -9,8 +9,8 @@ fn parse_accepts_local_pseudo_host() {
     assert_eq!(cfg.targets().len(), 1);
     assert!(cfg.targets()[0].is_local());
     assert_eq!(cfg.targets()[0].mode(), &TargetMode::Local);
-    assert_eq!(cfg.targets()[0].os(), "local");
-    assert_eq!(cfg.targets()[0].arch(), "local");
+    assert!(!cfg.targets()[0].os().is_empty());
+    assert!(!cfg.targets()[0].arch().is_empty());
     assert_eq!(cfg.targets()[0].destination(), "local");
 }
 
@@ -57,32 +57,13 @@ fn parse_rejects_empty_config() {
 }
 
 #[test]
-fn target_mirror_directory_is_deterministic() {
-    let cfg = BuildfarmConfig::parse("FreeBSD amd64 192.168.122.122:work/sysinspect-buildfarm\n")
-        .expect("remote target should parse");
-
-    assert_eq!(
-        cfg.targets()[0].mirror_directory(Path::new("/tmp/buildfarm")),
-        Path::new("/tmp/buildfarm/freebsd-amd64")
-    );
-}
-
-#[test]
-fn mirrored_result_layout_uses_known_stage_roots() {
-    assert_eq!(
-        MirroredResultLayout::for_entry("modules-dist-dev").roots(),
-        &[
-            std::path::PathBuf::from("build/stage"),
-            std::path::PathBuf::from("build/modules-dist"),
-        ]
-    );
-}
-
-#[test]
-fn result_mirror_plan_places_target_under_mirror_root() {
-    let cfg = BuildfarmConfig::parse("local\n").expect("local target should parse");
+fn result_mirror_plan_uses_standard_manifest_path() {
     let plan = ResultMirrorPlan::new(true, "/tmp/buildfarm".into(), "dev");
 
-    assert_eq!(plan.target_root(&cfg.targets()[0]), Path::new("/tmp/buildfarm/local-local"));
     assert!(plan.is_enabled());
+    assert_eq!(
+        plan.manifest(),
+        Path::new("build/.buildfarm/dev.paths")
+    );
+    assert_eq!(plan.root(), Path::new("/tmp/buildfarm"));
 }

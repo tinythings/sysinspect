@@ -267,14 +267,11 @@ impl KeyPress {
     }
 
     fn should_quit_finished(&self) -> bool {
-        self.is_cleanup_quit()
-            || self.is_preserve_quit()
-            || self.is_escape()
-            || self.is_ctrl_c()
+        self.is_preserve_quit() || self.is_ctrl_c()
     }
 
     fn should_cleanup_logs(&self) -> bool {
-        self.is_cleanup_quit()
+        self.is_ctrl_c()
     }
 
     fn navigation(&self) -> Option<PaneDirection> {
@@ -322,11 +319,11 @@ impl KeyPress {
     }
 
     fn is_cleanup_quit(&self) -> bool {
-        self.code == KeyCode::Char('q')
+        false
     }
 
     fn is_preserve_quit(&self) -> bool {
-        self.code == KeyCode::Char('Q')
+        self.code == KeyCode::Char('p')
     }
 }
 
