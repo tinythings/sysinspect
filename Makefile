@@ -1,14 +1,78 @@
-.DEFAULT_GOAL := build
+.DEFAULT_GOAL := help
 
 include Makefile.in
 
-.PHONY: build devel all all-devel modules modules-dev modules-dist-devel modules-refresh-devel modules-refresh clean check fix setup smoke-test \
+XRUN_BIN := xrun
+XRUN_ARGS ?=
+
+.PHONY: help release xrun xrun-init build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls
+
+help:
+	@printf '\n$$ make [help]\n\n'
+	@printf '\033[1;92m%s\033[0m\n' "Development"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "help" "Show this help and what each entry does."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "dev" "Compile core binaries in development mode with debug data."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "all-dev" "Compile core plus modules in development mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "modules-dev" "Compile modules only in development mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "modules-dist-dev" "Build release modules and stage distribution payloads."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh-dev" "Debug variant of Linux musl module refresh."
+	@printf '\n\033[1;92m%s\033[0m\n' "Release"
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "release" "Compile core binaries in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "all" "Compile core plus modules in release mode."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "modules" "Compile modules only in release mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
+	@printf '\n\033[1;92m%s\033[0m\n' "Utils"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "xrun" "Check that the standalone xrun controller is available."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "xrun-init" "Validate and initialise xrun targets from XRUN_CONFIG."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "fix" "Run clippy --fix on the workspace."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "clean" "Remove Cargo build output."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "stats" "Show code statistics via tokei."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev-tls" "Generate local development TLS material."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "tar" "Create a vendored source tarball."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' 'XRUN_ARGS="..."' "Pass extra CLI flags to xrun, e.g. --mirror-results or --mirror-root /tmp/out."
+	@printf '\n\033[1;92m%s\033[0m\n' "Testing"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test" "Run the full nextest suite for this platform."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-core" "Run core crate unit/bin tests only."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-modules" "Run module tests only."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-sensors" "Run sensor crate tests only."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-integration" "Run integration tests only."
+	@printf '\n\033[1;92m%s\033[0m\n' "Cross Builds"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
+	@printf '\n\033[1;92m%s\033[0m\n' "Documentation"
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "man" "Build the sysinspect manpage from Markdown."
+	@if [ -n "$(XRUN_CONFIG)" ]; then \
+		printf '\n\033[1;96m%s\033[0m\n' "Legend"; \
+		printf '    \033[1;91m*\033[0m\033[1;93m%-19s\033[0m %s\n' "entry" "Runs across the xrun target matrix defined by XRUN_CONFIG."; \
+	else \
+		printf '\n\033[1;96m%s\033[0m\n' "xrun"; \
+		printf '    %s\n' "In order to activate xrun mode, export the following environment:"; \
+		printf '        %s\n' "export XRUN_CONFIG=<xrun.conf file>"; \
+	fi
+	@printf '\n'
+
+release: build
+
+xrun-init: setup
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) init
+
+xrun: setup
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
 
 setup:
 	$(call deps)
 	$(call setup_targets)
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { \
+		echo "Missing $(XRUN_BIN). Install it first." >&2; \
+		exit 1; \
+	fi
 
 clean:
 	cargo clean
@@ -46,43 +110,80 @@ musl-x86_64:
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
-all-devel:
+ifneq ($(strip $(XRUN_CONFIG)),)
+all-dev:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run all-dev $(XRUN_ARGS)
+
+all:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run all $(XRUN_ARGS)
+
+dev:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run dev $(XRUN_ARGS)
+
+build:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run release $(XRUN_ARGS)
+
+modules-dev:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run modules-dev $(XRUN_ARGS)
+
+modules:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run modules $(XRUN_ARGS)
+
+modules-dist-dev:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run modules-dist-dev $(XRUN_ARGS)
+else
+all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
+	$(call write_xrun_manifest,all-dev,)
 
 all:
 	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
+	$(call write_xrun_manifest,all,)
 
-devel:
+dev:
 	cargo build -v --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
+	$(call write_xrun_manifest,dev,)
 
 build:
 	cargo build --release --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
+	$(call write_xrun_manifest,release,)
 
 modules-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,debug,)
+	$(call write_xrun_manifest,modules-dev,)
 
 modules:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
+	$(call write_xrun_manifest,modules,)
 
-modules-dist-devel:
+modules-dist-dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
+	$(call write_xrun_manifest,modules-dist-dev,with-dist)
+endif
 
-modules-refresh-devel:
+modules-refresh-dev:
 	$(call tgt,wasm32-wasip1)
 	@if [ -z "$(CURRENT_MUSL_TARGET)" ] || [ -z "$(CURRENT_MUSL_CC)" ]; then \
-		echo "modules-refresh-devel currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
+		echo "modules-refresh-dev currently supports only configured Linux musl hosts; current host is $(UNAME_S)/$(UNAME_M)." >&2; \
 		exit 1; \
 	fi
 	$(call tgt,$(CURRENT_MUSL_TARGET))

@@ -2,6 +2,7 @@ ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//
 ARC_NAME := sysinspect-${ARC_VERSION}
 STAGE_ROOT := build/stage
 MODULES_DIST_DIR := build/modules-dist
+XRUN_MANIFEST_DIR := build/.xrun
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 WASM_DEMO_COMPILER ?= $(shell if command -v go >/dev/null 2>&1; then printf go; elif command -v tinygo >/dev/null 2>&1; then printf tinygo; fi)
@@ -229,6 +230,14 @@ define stage_profile_minion
 	stage_dir=$$(if [ -n "$(2)" ]; then echo $(STAGE_ROOT)/$(2)/$(1); else echo $(STAGE_ROOT)/native/$(1); fi); \
 	mkdir -p "$$stage_dir/minion"; \
 	if [ -f "$$build_dir/sysminion" ]; then cp -f "$$build_dir/sysminion" "$$stage_dir/minion/sysminion" && chmod +x "$$stage_dir/minion/sysminion"; fi
+endef
+
+define write_xrun_manifest
+	@mkdir -p "$(XRUN_MANIFEST_DIR)"; \
+	manifest="$(XRUN_MANIFEST_DIR)/$(1).paths"; \
+	: > "$$manifest"; \
+	if [ -d "$(STAGE_ROOT)" ]; then find "$(STAGE_ROOT)" -type f | sort >> "$$manifest"; fi; \
+	if [ "$(2)" = "with-dist" ] && [ -d "$(MODULES_DIST_DIR)" ]; then find "$(MODULES_DIST_DIR)" -type f | sort >> "$$manifest"; fi
 endef
 
 define stage_modules_dist
