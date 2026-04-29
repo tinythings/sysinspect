@@ -36,11 +36,11 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "tar" "Create a vendored source tarball."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' 'XRUN_ARGS="..."' "Pass extra CLI flags to xrun, e.g. --mirror-results or --mirror-root /tmp/out."
 	@printf '\n\033[1;92m%s\033[0m\n' "Testing"
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "test" "Run the full nextest suite for this platform."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-core" "Run core crate unit/bin tests only."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-modules" "Run module tests only."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-sensors" "Run sensor crate tests only."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "test-integration" "Run integration tests only."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "test" "Run the full nextest suite for this platform."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "test-core" "Run core crate unit/bin tests only."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "test-modules" "Run module tests only."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "test-sensors" "Run sensor crate tests only."
+	@printf '    %b\033[1;93m%-19s\033[0m %s\n' '$(if $(strip $(XRUN_CONFIG)),\033[1;91m*\033[0m,)' "test-integration" "Run integration tests only."
 	@printf '\n\033[1;92m%s\033[0m\n' "Cross Builds"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
@@ -69,10 +69,6 @@ xrun: setup
 setup:
 	$(call deps)
 	$(call setup_targets)
-	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { \
-		echo "Missing $(XRUN_BIN). Install it first." >&2; \
-		exit 1; \
-	fi
 
 clean:
 	cargo clean
@@ -138,6 +134,26 @@ modules:
 modules-dist-dev:
 	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
 	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run modules-dist-dev $(XRUN_ARGS)
+
+test:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run test $(XRUN_ARGS)
+
+test-core:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run test-core $(XRUN_ARGS)
+
+test-modules:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run test-modules $(XRUN_ARGS)
+
+test-sensors:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run test-sensors $(XRUN_ARGS)
+
+test-integration:
+	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
+	@XRUN_CONFIG='$(XRUN_CONFIG)' XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) run test-integration $(XRUN_ARGS)
 else
 all-dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
@@ -178,6 +194,21 @@ modules-dist-dev:
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
 	$(call write_xrun_manifest,modules-dist-dev,with-dist)
+
+test: setup
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
+
+test-core: setup
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+
+test-modules: setup
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
+
+test-sensors: setup
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
+
+test-integration: setup
+	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
 endif
 
 modules-refresh-dev:
@@ -222,20 +253,6 @@ man:
 
 dev-tls:
 	./scripts/dev-tls.sh
-
-test: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
-test-core: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
-
-test-modules: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
-
-test-sensors: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
-
-test-integration: setup
-	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
 
 tar:
 	# Cleanup
