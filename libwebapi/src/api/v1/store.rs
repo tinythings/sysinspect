@@ -384,7 +384,7 @@ pub async fn store_list_handler(req: HttpRequest, master: web::Data<MasterInterf
         }
 
         // newest first
-        out.sort_by(|a, b| b.created_unix.cmp(&a.created_unix));
+        out.sort_by_key(|b| std::cmp::Reverse(b.created_unix));
         if out.len() > limit {
             out.truncate(limit);
         }

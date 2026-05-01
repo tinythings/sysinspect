@@ -568,14 +568,10 @@ host = _SysinspectHost()
     /// * `JsonValue` - Normalised documentation object
     fn normalise_module_doc(mut doc: JsonValue) -> JsonValue {
         let key = RuntimeSpec::DocumentationFunction.to_string();
-        loop {
-            let Some(obj) = doc.as_object() else {
-                break;
-            };
-            let Some(inner) = obj.get(&key) else {
-                break;
-            };
-            if obj.len() == 1 {
+        while let Some(obj) = doc.as_object() {
+            if let Some(inner) = obj.get(&key)
+                && obj.len() == 1
+            {
                 doc = inner.clone();
                 continue;
             }
