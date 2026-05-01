@@ -8,30 +8,30 @@ UNAME_M := $(shell uname -m)
 WASM_DEMO_COMPILER ?= $(shell if command -v go >/dev/null 2>&1; then printf go; elif command -v tinygo >/dev/null 2>&1; then printf tinygo; fi)
 STATIC_LIBRARY_PAYLOAD_PATHS := modules/runtime/lua-runtime/examples/lib modules/runtime/py3-runtime/examples/lib
 PKG_SPEC_FROM_TOML = $(shell awk 'BEGIN{name=""; version=""} /^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } /^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } END { if (name != "" && version != "") printf "%s@%s", name, version }' $(1))
-ALL_MODULE_PACKAGE_SPECS := $(shell find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
+ALL_MODULE_PACKAGE_SPECS = $(shell find modules -maxdepth 3 -name Cargo.toml -print | sort | while read f; do \
 	awk 'BEGIN{name=""; version=""} \
 		/^name = / && name == "" { gsub(/"/, "", $$3); name = $$3 } \
 		/^version = / && version == "" { gsub(/"/, "", $$3); version = $$3 } \
 		END { if (name != "" && version != "") printf "%s@%s ", name, version }' "$$f"; \
 done)
-PY3_RUNTIME_SPEC := $(call PKG_SPEC_FROM_TOML,modules/runtime/py3-runtime/Cargo.toml)
-SSRUN_SPEC := $(call PKG_SPEC_FROM_TOML,modules/sys/ssrun/Cargo.toml)
-MUSL_UNSAFE_PACKAGE_SPECS := $(SSRUN_SPEC)
+PY3_RUNTIME_SPEC = $(call PKG_SPEC_FROM_TOML,modules/runtime/py3-runtime/Cargo.toml)
+SSRUN_SPEC = $(call PKG_SPEC_FROM_TOML,modules/sys/ssrun/Cargo.toml)
+MUSL_UNSAFE_PACKAGE_SPECS = $(SSRUN_SPEC)
 ifeq ($(UNAME_S),NetBSD)
-MODULE_PACKAGE_SPECS := $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
-PLATFORM_WORKSPACE_EXCLUDES := --exclude $(PY3_RUNTIME_SPEC)
+MODULE_PACKAGE_SPECS = $(filter-out $(PY3_RUNTIME_SPEC),$(ALL_MODULE_PACKAGE_SPECS))
+PLATFORM_WORKSPACE_EXCLUDES = --exclude $(PY3_RUNTIME_SPEC)
 else ifeq ($(UNAME_S),FreeBSD)
-MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
-PLATFORM_WORKSPACE_EXCLUDES :=
+MODULE_PACKAGE_SPECS = $(ALL_MODULE_PACKAGE_SPECS)
+PLATFORM_WORKSPACE_EXCLUDES =
 else
-MODULE_PACKAGE_SPECS := $(ALL_MODULE_PACKAGE_SPECS)
-PLATFORM_WORKSPACE_EXCLUDES :=
+MODULE_PACKAGE_SPECS = $(ALL_MODULE_PACKAGE_SPECS)
+PLATFORM_WORKSPACE_EXCLUDES =
 endif
-MUSL_MODULE_PACKAGE_SPECS := $(filter-out $(MUSL_UNSAFE_PACKAGE_SPECS),$(MODULE_PACKAGE_SPECS))
-NATIVE_REFRESH_PACKAGE_SPECS := $(filter $(MUSL_UNSAFE_PACKAGE_SPECS),$(MODULE_PACKAGE_SPECS))
-MUSL_WORKSPACE_EXCLUDES := $(PLATFORM_WORKSPACE_EXCLUDES) $(foreach pkg,$(MUSL_UNSAFE_PACKAGE_SPECS),--exclude $(pkg))
-SENSOR_PACKAGE_SPECS := $(foreach f,libsensors/Cargo.toml libmenotify/Cargo.toml,$(call PKG_SPEC_FROM_TOML,$(f)))
-CORE_PACKAGE_SPECS := $(strip \
+MUSL_MODULE_PACKAGE_SPECS = $(filter-out $(MUSL_UNSAFE_PACKAGE_SPECS),$(MODULE_PACKAGE_SPECS))
+NATIVE_REFRESH_PACKAGE_SPECS = $(filter $(MUSL_UNSAFE_PACKAGE_SPECS),$(MODULE_PACKAGE_SPECS))
+MUSL_WORKSPACE_EXCLUDES = $(PLATFORM_WORKSPACE_EXCLUDES) $(foreach pkg,$(MUSL_UNSAFE_PACKAGE_SPECS),--exclude $(pkg))
+SENSOR_PACKAGE_SPECS = $(foreach f,libsensors/Cargo.toml libmenotify/Cargo.toml,$(call PKG_SPEC_FROM_TOML,$(f)))
+CORE_PACKAGE_SPECS = $(strip \
 	$(call PKG_SPEC_FROM_TOML,Cargo.toml) \
 	$(call PKG_SPEC_FROM_TOML,libsysinspect/Cargo.toml) \
 	$(call PKG_SPEC_FROM_TOML,libeventreg/Cargo.toml) \
@@ -48,7 +48,7 @@ CORE_PACKAGE_SPECS := $(strip \
 	$(call PKG_SPEC_FROM_TOML,libsysproto/Cargo.toml) \
 	$(call PKG_SPEC_FROM_TOML,libcommon/Cargo.toml) \
 	$(call PKG_SPEC_FROM_TOML,libdatastore/Cargo.toml))
-INTEGRATION_TEST_TARGETS := $(shell find . -path '*/tests/*.rs' | sort | while read f; do \
+INTEGRATION_TEST_TARGETS = $(shell find . \( -path './.git' -o -path './build' -o -path './target' -o -path './vendor' \) -prune -o -path '*/tests/*.rs' -print | sort | while read f; do \
 	dir=$$(dirname "$$f"); \
 	base=$$(basename "$$f" .rs); \
 	crate_dir=$$(dirname "$$dir"); \
@@ -61,7 +61,7 @@ INTEGRATION_TEST_TARGETS := $(shell find . -path '*/tests/*.rs' | sort | while r
 	fi; \
 done)
 INTEGRATION_TEST_TARGETS += -p $(call PKG_SPEC_FROM_TOML,libmenotify/Cargo.toml) --test githubissues_demo_it
-CORE_EXCLUDES := $(foreach pkg,$(ALL_MODULE_PACKAGE_SPECS),--exclude $(pkg))
+CORE_EXCLUDES = $(foreach pkg,$(ALL_MODULE_PACKAGE_SPECS),--exclude $(pkg))
 TEST_BUILD_JOBS ?= $(shell sh -c 'n=$$(command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 2); if [ "$$n" -gt 2 ]; then echo $$((($$n + 1) / 2)); else echo 1; fi')
 TEST_RUN_THREADS ?= 3
 MODULE_BUILD_JOBS ?= $(shell sh -c '\
