@@ -3,6 +3,68 @@ mod tests {
     use crate::syspkg;
     use libmodcore::runtime;
 
+    fn make_request(options: &[&str]) -> libmodcore::runtime::ModRequest {
+        serde_json::from_value(serde_json::json!({
+            "options": options,
+            "arguments": {}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn get_operation_check() {
+        let rt = make_request(&["check"]);
+        let mut resp = runtime::new_call_response();
+        assert_eq!(syspkg::get_operation(&rt, &mut resp), "check");
+    }
+
+    #[test]
+    fn get_operation_install() {
+        let rt = make_request(&["install"]);
+        let mut resp = runtime::new_call_response();
+        assert_eq!(syspkg::get_operation(&rt, &mut resp), "install");
+    }
+
+    #[test]
+    fn get_operation_remove() {
+        let rt = make_request(&["remove"]);
+        let mut resp = runtime::new_call_response();
+        assert_eq!(syspkg::get_operation(&rt, &mut resp), "remove");
+    }
+
+    #[test]
+    fn get_operation_update() {
+        let rt = make_request(&["update"]);
+        let mut resp = runtime::new_call_response();
+        assert_eq!(syspkg::get_operation(&rt, &mut resp), "update");
+    }
+
+    #[test]
+    fn get_operation_upgrade() {
+        let rt = make_request(&["upgrade"]);
+        let mut resp = runtime::new_call_response();
+        assert_eq!(syspkg::get_operation(&rt, &mut resp), "upgrade");
+    }
+
+    #[test]
+    fn get_operation_search() {
+        let rt = make_request(&["search"]);
+        let mut resp = runtime::new_call_response();
+        assert_eq!(syspkg::get_operation(&rt, &mut resp), "search");
+    }
+
+    #[test]
+    fn get_operation_none_is_error() {
+        let rt = make_request(&[]);
+        let mut resp = runtime::new_call_response();
+        assert_eq!(syspkg::get_operation(&rt, &mut resp), "");
+        assert_eq!(serde_json::to_value(&resp).unwrap()["retcode"], 1);
+    }
+
+    // ---------------------------------------------------------------
+    // OS-specific command generation tests
+    // ---------------------------------------------------------------
+
     #[cfg(target_os = "freebsd")]
     mod freebsd {
         use crate::syspkg::get_pkg_command;
@@ -135,56 +197,5 @@ mod tests {
                 assert_eq!(args, vec!["install", "nginx"]);
             }
         }
-    }
-
-    fn make_request(options: &[&str]) -> libmodcore::runtime::ModRequest {
-        serde_json::from_value(serde_json::json!({
-            "options": options,
-            "arguments": {}
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn get_operation_install() {
-        let rt = make_request(&["install"]);
-        let mut resp = runtime::new_call_response();
-        assert_eq!(syspkg::get_operation(&rt, &mut resp), "install");
-    }
-
-    #[test]
-    fn get_operation_remove() {
-        let rt = make_request(&["remove"]);
-        let mut resp = runtime::new_call_response();
-        assert_eq!(syspkg::get_operation(&rt, &mut resp), "remove");
-    }
-
-    #[test]
-    fn get_operation_update() {
-        let rt = make_request(&["update"]);
-        let mut resp = runtime::new_call_response();
-        assert_eq!(syspkg::get_operation(&rt, &mut resp), "update");
-    }
-
-    #[test]
-    fn get_operation_upgrade() {
-        let rt = make_request(&["upgrade"]);
-        let mut resp = runtime::new_call_response();
-        assert_eq!(syspkg::get_operation(&rt, &mut resp), "upgrade");
-    }
-
-    #[test]
-    fn get_operation_search() {
-        let rt = make_request(&["search"]);
-        let mut resp = runtime::new_call_response();
-        assert_eq!(syspkg::get_operation(&rt, &mut resp), "search");
-    }
-
-    #[test]
-    fn get_operation_none_is_error() {
-        let rt = make_request(&[]);
-        let mut resp = runtime::new_call_response();
-        assert_eq!(syspkg::get_operation(&rt, &mut resp), "");
-        assert_eq!(serde_json::to_value(&resp).unwrap()["retcode"], 1);
     }
 }

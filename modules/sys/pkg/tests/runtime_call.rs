@@ -10,8 +10,8 @@ fn bin_path() -> PathBuf {
         return PathBuf::from(p);
     }
     let mut p = std::env::current_exe().expect("cannot locate test executable");
-    p.pop(); // deps/
-    p.pop(); // debug/ or release/
+    p.pop();
+    p.pop();
     p.push("pkg");
     assert!(p.exists(), "pkg binary not found at {}", p.display());
     p
@@ -38,13 +38,14 @@ fn run_module(payload: &Value) -> Value {
     serde_json::from_slice(&out.stdout).expect("failed to parse pkg JSON output")
 }
 
+// -------- dry-run mutations --------
+
 #[test]
 fn dry_run_install_shows_command() {
     let out = run_module(&json!({
         "options": ["install", "dry-run"],
         "arguments": { "name": "testpkg" }
     }));
-
     assert_eq!(out["retcode"], 0);
     let msg = out["message"].as_str().unwrap();
     assert!(msg.starts_with("[dry-run] "));
@@ -57,11 +58,9 @@ fn dry_run_search_shows_command() {
         "options": ["search", "dry-run"],
         "arguments": { "name": "nginx" }
     }));
-
     assert_eq!(out["retcode"], 0);
-    let msg = out["message"].as_str().unwrap();
-    assert!(msg.starts_with("[dry-run] "));
-    assert!(msg.contains("nginx"));
+    assert!(out["message"].as_str().unwrap().starts_with("[dry-run] "));
+    assert!(out["message"].as_str().unwrap().contains("nginx"));
 }
 
 #[test]
@@ -70,7 +69,6 @@ fn dry_run_update_shows_command() {
         "options": ["update", "dry-run"],
         "arguments": {}
     }));
-
     assert_eq!(out["retcode"], 0);
     assert!(out["message"].as_str().unwrap().starts_with("[dry-run] "));
 }
@@ -81,10 +79,21 @@ fn dry_run_upgrade_shows_command() {
         "options": ["upgrade", "dry-run"],
         "arguments": {}
     }));
-
     assert_eq!(out["retcode"], 0);
     assert!(out["message"].as_str().unwrap().starts_with("[dry-run] "));
 }
+
+#[test]
+fn dry_run_check_shows_command() {
+    let out = run_module(&json!({
+        "options": ["check", "dry-run"],
+        "arguments": { "name": "bash" }
+    }));
+    assert_eq!(out["retcode"], 0);
+    assert!(out["message"].as_str().unwrap().starts_with("[dry-run] "));
+}
+
+// -------- validation --------
 
 #[test]
 fn no_operation_returns_error() {
@@ -92,18 +101,40 @@ fn no_operation_returns_error() {
         "options": [],
         "arguments": {}
     }));
-
     assert_eq!(out["retcode"], 1);
     assert!(out["message"].as_str().unwrap().contains("No operation specified"));
 }
 
 #[test]
-fn remove_requires_name() {
+fn check_without_name_returns_error() {
     let out = run_module(&json!({
-        "options": ["remove", "dry-run"],
-        "arguments": { "name": "testpkg" }
+        "options": ["check"],
+        "arguments": {}
     }));
+    assert_eq!(out["retcode"], 1);
+    assert!(out["message"].as_str().unwrap().contains("requires a package"));
+}
 
+// -------- smart inspect-then-act (dry-run skips inspection) --------
+
+#[test]
+fn install_with_dry_run_skips_inspection() {
+    let out = run_module(&json!({
+        "options": ["install", "dry-run"],
+        "arguments": { "name": "nonexistent_pkg_xyz" }
+    }));
     assert_eq!(out["retcode"], 0);
-    assert!(out["message"].as_str().unwrap().contains("testpkg"));
+    assert!(out["message"].as_str().unwrap().contains("[dry-run]"));
+}
+
+#[test]
+fn check_returns_structured_data_for_real_package() {
+    let out = run_module(&json!({
+        "options": ["check"],
+        "arguments": { "name": "bash" }
+    }));
+    assert_eq!(out["retcode"], 0);
+    let data = &out["data"];
+    assert_eq!(data["name"], "bash");
+    assert!(data["installed"].as_bool().is_some());
 }
