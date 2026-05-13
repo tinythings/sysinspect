@@ -65,33 +65,30 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     if !force && !name.is_empty() {
         let state = check_package(&name);
         match op.as_str() {
-            "install"
-                if state.installed => {
-                    response.set_retcode(0);
-                    response.set_message(&format!("Package '{}' is already installed", name));
-                    if let Err(e) = response.set_data(state.to_data(&name)) {
-                        response.add_warning(&format!("{e}"));
-                    }
-                    return response;
+            "install" if state.installed => {
+                response.set_retcode(0);
+                response.set_message(&format!("Package '{}' is already installed", name));
+                if let Err(e) = response.set_data(state.to_data(&name)) {
+                    response.add_warning(&format!("{e}"));
                 }
-            "remove"
-                if !state.installed => {
-                    response.set_retcode(0);
-                    response.set_message(&format!("Package '{}' is not installed", name));
-                    if let Err(e) = response.set_data(state.to_data(&name)) {
-                        response.add_warning(&format!("{e}"));
-                    }
-                    return response;
+                return response;
+            }
+            "remove" if !state.installed => {
+                response.set_retcode(0);
+                response.set_message(&format!("Package '{}' is not installed", name));
+                if let Err(e) = response.set_data(state.to_data(&name)) {
+                    response.add_warning(&format!("{e}"));
                 }
-            "upgrade"
-                if !state.upgradable => {
-                    response.set_retcode(0);
-                    response.set_message(&format!("Package '{}' is already up to date", name));
-                    if let Err(e) = response.set_data(state.to_data(&name)) {
-                        response.add_warning(&format!("{e}"));
-                    }
-                    return response;
+                return response;
+            }
+            "upgrade" if !state.upgradable => {
+                response.set_retcode(0);
+                response.set_message(&format!("Package '{}' is already up to date", name));
+                if let Err(e) = response.set_data(state.to_data(&name)) {
+                    response.add_warning(&format!("{e}"));
                 }
+                return response;
+            }
             _ => {}
         }
     }
@@ -183,11 +180,7 @@ fn run_check(name: &str, dry_run: bool, response: &mut ModResponse) -> ModRespon
                 state.available_version.as_deref().unwrap_or("?")
             ));
         } else {
-            response.set_message(&format!(
-                "Package '{}' is installed (v{}) — up to date",
-                name,
-                state.installed_version.as_deref().unwrap_or("?")
-            ));
+            response.set_message(&format!("Package '{}' is installed (v{}) — up to date", name, state.installed_version.as_deref().unwrap_or("?")));
         }
     } else {
         response.set_message(&format!("Package '{}' is not installed", name));
@@ -252,11 +245,7 @@ pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<Strin
 
 #[cfg(target_os = "netbsd")]
 pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
-    let has_pkgin = Command::new("pkgin")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let has_pkgin = Command::new("pkgin").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
 
     if has_pkgin {
         match op {
@@ -281,11 +270,7 @@ pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<Strin
 
 #[cfg(target_os = "macos")]
 pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
-    let has_brew = Command::new("brew")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let has_brew = Command::new("brew").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
 
     if has_brew {
         match op {
@@ -305,20 +290,13 @@ pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<Strin
 pub(crate) fn detect_linux_pkg_manager() -> Option<&'static str> {
     let candidates: &[&str] = &["apt-get", "dnf", "yum", "zypper", "pacman", "apk"];
 
-    candidates.iter().find_map(|bin| {
-        Command::new(bin)
-            .arg("--version")
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|_| *bin)
-    })
+    candidates.iter().find_map(|bin| Command::new(bin).arg("--version").output().ok().filter(|o| o.status.success()).map(|_| *bin))
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
-    let bin = detect_linux_pkg_manager()
-        .ok_or_else(|| "No supported package manager found (tried: apt-get, dnf, yum, zypper, pacman, apk)".to_string())?;
+    let bin =
+        detect_linux_pkg_manager().ok_or_else(|| "No supported package manager found (tried: apt-get, dnf, yum, zypper, pacman, apk)".to_string())?;
 
     let args = match (bin, op) {
         ("apt-get", "install") => vec!["install".to_string(), "-y".to_string(), name.to_string()],
@@ -357,13 +335,7 @@ pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<Strin
     Ok((bin.to_string(), args))
 }
 
-#[cfg(not(any(
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "linux",
-    target_os = "macos"
-)))]
+#[cfg(not(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "linux", target_os = "macos")))]
 pub(crate) fn get_pkg_command(_op: &str, _name: &str) -> Result<(String, Vec<String>), String> {
     Err("Unsupported operating system".to_string())
 }
@@ -425,11 +397,7 @@ fn check_package(name: &str) -> PkgState {
 #[cfg(target_os = "freebsd")]
 fn list_upgradable() -> Vec<String> {
     if let Ok((0, stdout, _)) = exec("pkg", &["version", "-vL="]) {
-        stdout
-            .lines()
-            .filter(|l| l.contains('<'))
-            .filter_map(|l| l.split_whitespace().next().map(|s| s.to_string()))
-            .collect()
+        stdout.lines().filter(|l| l.contains('<')).filter_map(|l| l.split_whitespace().next().map(|s| s.to_string())).collect()
     } else {
         Vec::new()
     }
@@ -520,11 +488,7 @@ fn list_upgradable() -> Vec<String> {
 #[cfg(target_os = "netbsd")]
 fn get_check_command(name: &str) -> Result<(String, Vec<String>), String> {
     let has_pkgin = Command::new("pkgin").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
-    if has_pkgin {
-        Ok(("pkgin".to_string(), vec!["list".to_string()]))
-    } else {
-        Ok(("pkg_info".to_string(), vec![name.to_string()]))
-    }
+    if has_pkgin { Ok(("pkgin".to_string(), vec!["list".to_string()])) } else { Ok(("pkg_info".to_string(), vec![name.to_string()])) }
 }
 
 // ---------- macOS ----------
@@ -546,9 +510,11 @@ fn check_package(name: &str) -> PkgState {
             for entry in &parsed {
                 if entry.get("name").and_then(|n| n.as_str()) == Some(name) {
                     state.upgradable = true;
-                    if let Some(v) = entry.get("installed_versions").and_then(|v| v.as_str()).or_else(|| {
-                        entry.get("installed_versions").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str())
-                    }) {
+                    if let Some(v) = entry
+                        .get("installed_versions")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| entry.get("installed_versions").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()))
+                    {
                         state.installed_version = Some(v.to_string());
                     }
                     break;
@@ -607,10 +573,11 @@ fn check_apt(name: &str) -> PkgState {
     let mut state = PkgState::default();
     // dpkg -s: check installed + version
     if let Ok((0, stdout, _)) = exec("dpkg-query", &["-W", "-f=${Version}", name])
-        && !stdout.trim().is_empty() {
-            state.installed = true;
-            state.installed_version = Some(stdout.trim().to_string());
-        }
+        && !stdout.trim().is_empty()
+    {
+        state.installed = true;
+        state.installed_version = Some(stdout.trim().to_string());
+    }
     // apt-cache policy: get candidate version
     if let Ok((0, stdout, _)) = exec("apt-cache", &["policy", name]) {
         for line in stdout.lines() {
@@ -623,21 +590,17 @@ fn check_apt(name: &str) -> PkgState {
     // Upgradable?
     if state.installed
         && let Some(ref inst) = state.installed_version
-            && let Some(ref cand) = state.available_version
-        {
-            state.upgradable = inst != cand;
-        }
+        && let Some(ref cand) = state.available_version
+    {
+        state.upgradable = inst != cand;
+    }
     state
 }
 
 #[cfg(target_os = "linux")]
 fn upgradable_apt() -> Vec<String> {
     if let Ok((0, stdout, _)) = exec("apt-get", &["-s", "upgrade"]) {
-        stdout
-            .lines()
-            .filter(|l| l.starts_with("Inst "))
-            .filter_map(|l| l.split_whitespace().nth(1).map(|s| s.to_string()))
-            .collect()
+        stdout.lines().filter(|l| l.starts_with("Inst ")).filter_map(|l| l.split_whitespace().nth(1).map(|s| s.to_string())).collect()
     } else {
         Vec::new()
     }
@@ -654,12 +617,13 @@ fn check_dnf(name: &str) -> PkgState {
         }
     }
     if state.installed
-        && let Ok((0, stdout, _)) = exec("dnf", &["check-update", name]) {
-            // non-zero exit if updates exist, stdout has package info
-            if !stdout.trim().is_empty() && !stdout.contains("Last metadata") {
-                state.upgradable = true;
-            }
+        && let Ok((0, stdout, _)) = exec("dnf", &["check-update", name])
+    {
+        // non-zero exit if updates exist, stdout has package info
+        if !stdout.trim().is_empty() && !stdout.contains("Last metadata") {
+            state.upgradable = true;
         }
+    }
     state
 }
 
@@ -685,15 +649,17 @@ fn check_zypper(name: &str) -> PkgState {
                 state.installed = true;
             }
             if let Some(v) = line.strip_prefix("Version        : ")
-                && state.installed {
-                    state.installed_version = Some(v.trim().to_string());
-                }
+                && state.installed
+            {
+                state.installed_version = Some(v.trim().to_string());
+            }
         }
     }
     if state.installed
-        && let Ok((_, stdout, _)) = exec("zypper", &["list-updates", "-t", "package"]) {
-            state.upgradable = stdout.lines().any(|l| l.contains(name));
-        }
+        && let Ok((_, stdout, _)) = exec("zypper", &["list-updates", "-t", "package"])
+    {
+        state.upgradable = stdout.lines().any(|l| l.contains(name));
+    }
     state
 }
 
@@ -740,10 +706,7 @@ fn check_pacman(name: &str) -> PkgState {
 #[cfg(target_os = "linux")]
 fn upgradable_pacman() -> Vec<String> {
     if let Ok((0, stdout, _)) = exec("pacman", &["-Qu"]) {
-        stdout
-            .lines()
-            .filter_map(|l| l.split_whitespace().next().map(|s| s.to_string()))
-            .collect()
+        stdout.lines().filter_map(|l| l.split_whitespace().next().map(|s| s.to_string())).collect()
     } else {
         Vec::new()
     }
@@ -764,12 +727,13 @@ fn check_apk(name: &str) -> PkgState {
         }
     }
     if state.installed
-        && let Ok((_, stdout, _)) = exec("apk", &["list", "-u"]) {
-            state.upgradable = stdout.lines().any(|l| {
-                let pkg = l.split_whitespace().next().unwrap_or("");
-                pkg == name || pkg.starts_with(&format!("{}-", name))
-            });
-        }
+        && let Ok((_, stdout, _)) = exec("apk", &["list", "-u"])
+    {
+        state.upgradable = stdout.lines().any(|l| {
+            let pkg = l.split_whitespace().next().unwrap_or("");
+            pkg == name || pkg.starts_with(&format!("{}-", name))
+        });
+    }
     state
 }
 
@@ -799,35 +763,17 @@ fn get_check_command(name: &str) -> Result<(String, Vec<String>), String> {
 // Unsupported OS fallback (check / upgradable)
 // ===================================================================
 
-#[cfg(not(any(
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "linux",
-    target_os = "macos"
-)))]
+#[cfg(not(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "linux", target_os = "macos")))]
 fn check_package(_name: &str) -> PkgState {
     PkgState::default()
 }
 
-#[cfg(not(any(
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "linux",
-    target_os = "macos"
-)))]
+#[cfg(not(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "linux", target_os = "macos")))]
 fn list_upgradable() -> Vec<String> {
     Vec::new()
 }
 
-#[cfg(not(any(
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "linux",
-    target_os = "macos"
-)))]
+#[cfg(not(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "linux", target_os = "macos")))]
 fn get_check_command(_name: &str) -> Result<(String, Vec<String>), String> {
     Err("Unsupported operating system".to_string())
 }
@@ -837,10 +783,7 @@ fn get_check_command(_name: &str) -> Result<(String, Vec<String>), String> {
 // ===================================================================
 
 fn exec(cmd: &str, args: &[&str]) -> Result<(i32, String, String), String> {
-    let output = Command::new(cmd)
-        .args(args)
-        .output()
-        .map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
+    let output = Command::new(cmd).args(args).output().map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();

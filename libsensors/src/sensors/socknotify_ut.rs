@@ -1,5 +1,5 @@
-use crate::sensors::{sensor::Sensor, socknotify::SockTraySensor};
 use crate::sensors::socknotify::SockTrayMask;
+use crate::sensors::{sensor::Sensor, socknotify::SockTraySensor};
 use crate::sspec::SensorConf;
 
 fn mk_cfg(opts: Vec<&str>) -> SensorConf {

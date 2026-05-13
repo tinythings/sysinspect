@@ -30,7 +30,11 @@ use neli::{
     types::RtBuffer,
 };
 #[cfg(target_os = "linux")]
-use std::{convert::TryFrom, io::Read, net::{Ipv4Addr, Ipv6Addr}};
+use std::{
+    convert::TryFrom,
+    io::Read,
+    net::{Ipv4Addr, Ipv6Addr},
+};
 
 #[cfg(target_os = "linux")]
 fn to_addr(buff: &[u8]) -> Option<IpAddr> {
@@ -165,14 +169,13 @@ pub fn ip_route() -> Result<Vec<RtRec>, Box<dyn Error>> {
         }),
     ))?;
 
-    Ok(
-        conn.iter(false)
-            .flatten()
-            .filter(|route| matches!(route.nl_type, NlTypeWrapper::Rtm(_)))
-            .filter_map(|route| to_record(&ifaces, route).transpose())
-            .flatten()
-            .collect(),
-    )
+    Ok(conn
+        .iter(false)
+        .flatten()
+        .filter(|route| matches!(route.nl_type, NlTypeWrapper::Rtm(_)))
+        .filter_map(|route| to_record(&ifaces, route).transpose())
+        .flatten()
+        .collect())
 }
 
 #[cfg(target_os = "freebsd")]
@@ -193,12 +196,7 @@ fn parse_prefix(dst: &str) -> (Option<IpAddr>, u8) {
                 )
             })
         },
-        |(addr, mask)| {
-            addr.parse::<IpAddr>()
-                .ok()
-                .zip(mask.parse::<u8>().ok())
-                .map_or((None, 0), |(parsed, prefix)| (Some(parsed), prefix))
-        },
+        |(addr, mask)| addr.parse::<IpAddr>().ok().zip(mask.parse::<u8>().ok()).map_or((None, 0), |(parsed, prefix)| (Some(parsed), prefix)),
     )
 }
 

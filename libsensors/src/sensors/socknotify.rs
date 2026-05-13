@@ -200,12 +200,7 @@ impl Sensor for SockTraySensor {
             let (tx, mut rx) = mpsc::channel::<serde_json::Value>(0xfff);
             let mut hub = omnitrace_core::callbacks::CallbackHub::<SockTrayEvent>::new();
             hub.set_result_channel(tx);
-            hub.add(BridgeCb {
-                mask: mask.bits(),
-                sid: self.sid.clone(),
-                lstid: self.listener_id_with_tag(),
-                locked,
-            });
+            hub.add(BridgeCb { mask: mask.bits(), sid: self.sid.clone(), lstid: self.listener_id_with_tag(), locked });
             let (ctx, _handle) = omnitrace_core::sensor::SensorCtx::new(std::sync::Arc::new(hub));
             tokio::spawn(sensor.run(ctx));
 

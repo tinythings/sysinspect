@@ -46,12 +46,7 @@ impl NetInfo {
     fn new() -> Result<Self, SysinspectError> {
         getifaddrs().map_or_else(
             |_| Err(SysinspectError::ModuleError("Unable to retrieve interfaces data".to_string())),
-            |interfaces| {
-                Ok(Self {
-                    ifaces: interfaces.collect(),
-                    if_filter: Vec::default(),
-                })
-            },
+            |interfaces| Ok(Self { ifaces: interfaces.collect(), if_filter: Vec::default() }),
         )
     }
 
@@ -126,42 +121,33 @@ impl NetInfo {
                         continue;
                     }
 
-                    current
-                        .as_ref()
-                        .filter(|name| up && self.itf_accepted(name))
-                        .map(|name| {
-                            let mut item: HashMap<String, serde_json::Value> = HashMap::default();
-                            let trimmed = line.trim();
-                            if trimmed.starts_with("ether ") {
-                                item.insert(
-                                    "mac".to_string(),
-                                    json!(trimmed.trim_start_matches("ether ").trim().to_ascii_uppercase()),
-                                );
-                            } else if trimmed.starts_with("inet6 ") {
-                                let fields = trimmed.split_whitespace().collect::<Vec<_>>();
-                                fields.get(1).map(|ip| item.insert("IPv6".to_string(), json!(*ip)));
-                                fields
-                                    .iter()
-                                    .position(|field| *field == "scopeid")
-                                    .and_then(|idx| fields.get(idx + 1))
-                                    .map(|scope| item.insert("scope".to_string(), json!(*scope)));
-                                item.insert("port".to_string(), json!(0));
-                            } else if trimmed.starts_with("inet ") {
-                                trimmed
-                                    .split_whitespace()
-                                    .nth(1)
-                                    .map(|ip| item.insert("IPv4".to_string(), json!(ip)));
-                                item.insert("port".to_string(), json!(0));
-                            }
+                    current.as_ref().filter(|name| up && self.itf_accepted(name)).map(|name| {
+                        let mut item: HashMap<String, serde_json::Value> = HashMap::default();
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("ether ") {
+                            item.insert("mac".to_string(), json!(trimmed.trim_start_matches("ether ").trim().to_ascii_uppercase()));
+                        } else if trimmed.starts_with("inet6 ") {
+                            let fields = trimmed.split_whitespace().collect::<Vec<_>>();
+                            fields.get(1).map(|ip| item.insert("IPv6".to_string(), json!(*ip)));
+                            fields
+                                .iter()
+                                .position(|field| *field == "scopeid")
+                                .and_then(|idx| fields.get(idx + 1))
+                                .map(|scope| item.insert("scope".to_string(), json!(*scope)));
+                            item.insert("port".to_string(), json!(0));
+                        } else if trimmed.starts_with("inet ") {
+                            trimmed.split_whitespace().nth(1).map(|ip| item.insert("IPv4".to_string(), json!(ip)));
+                            item.insert("port".to_string(), json!(0));
+                        }
 
-                            (!item.is_empty()).then(|| {
-                                if let Entry::Vacant(entry) = out.entry(name.to_string()) {
-                                    entry.insert(vec![item]);
-                                } else if let Some(items) = out.get_mut(name) {
-                                    items.push(item);
-                                }
-                            });
+                        (!item.is_empty()).then(|| {
+                            if let Entry::Vacant(entry) = out.entry(name.to_string()) {
+                                entry.insert(vec![item]);
+                            } else if let Some(items) = out.get_mut(name) {
+                                items.push(item);
+                            }
                         });
+                    });
                 }
 
                 out
@@ -173,23 +159,12 @@ impl NetInfo {
 fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> Result<HashMap<String, serde_json::Value>, SysinspectError> {
     let mut data: HashMap<String, serde_json::Value> = HashMap::default();
 
-    netinfo.set_if_filter(
-        runtime::get_arg(rt, "if-list")
-            .split(',')
-            .map(|part| part.trim().to_string())
-            .filter(|part| !part.is_empty())
-            .collect(),
-    );
+    netinfo.set_if_filter(runtime::get_arg(rt, "if-list").split(',').map(|part| part.trim().to_string()).filter(|part| !part.is_empty()).collect());
 
     if runtime::get_opt(rt, "if-up") {
         let interfaces = netinfo.interfaces();
         let interface_ids = interfaces.keys().cloned().collect::<Vec<_>>();
-        let missing = netinfo
-            .get_if_filter()
-            .iter()
-            .filter(|name| !interface_ids.contains(*name))
-            .cloned()
-            .collect::<Vec<_>>();
+        let missing = netinfo.get_if_filter().iter().filter(|name| !interface_ids.contains(*name)).cloned().collect::<Vec<_>>();
 
         if !missing.is_empty() {
             return Err(SysinspectError::ModuleError(format!("missing network interfaces: {}", missing.join(", "))));

@@ -150,6 +150,9 @@ mod system_ut {
     #[cfg(not(feature = "pam"))]
     #[tokio::test]
     async fn pam_auth_reports_unavailable_when_feature_is_disabled() {
-        assert_eq!(AuthRequest::pam_auth("user".to_string(), "pass".to_string()).await, Err("PAM authentication is not available in this build".to_string()));
+        assert_eq!(
+            AuthRequest::pam_auth("user".to_string(), "pass".to_string()).await,
+            Err("PAM authentication is not available in this build".to_string())
+        );
     }
 }
