@@ -7,7 +7,7 @@ XRUN_ARGS ?=
 
 .PHONY: help release xrun xrun-init xrun-status set-local-builds set-remote-builds build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
-	stats man test test-core test-modules test-sensors test-integration tar dev-tls \
+	stats man test test-core test-modules test-sensors test-integration tar dev-tls advisory \
 	_dev _all_dev _all _build _modules_dev _modules _modules_dist_dev _test _test_core _test_modules _test_sensors _test_integration
 
 help:
@@ -34,6 +34,7 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "fix" "Run clippy --fix on the workspace."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "advisory" "Audit dependencies for known vulnerabilities."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "clean" "Remove Cargo build output."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "stats" "Show code statistics via tokei."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev-tls" "Generate local development TLS material."
@@ -91,6 +92,10 @@ check:
 
 fix:
 	cargo clippy --fix --allow-dirty --allow-staged --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
+
+advisory:
+	@cargo audit --version >/dev/null 2>&1 || { echo "Installing cargo-audit..."; cargo install cargo-audit --locked; }
+	@scripts/audit-table.sh
 
 smoke-test:
 	sh smoke-tests/run.sh

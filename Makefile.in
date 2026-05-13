@@ -217,7 +217,8 @@ define stage_profile_modules
 	if [ -f "$$build_dir/net" ]; then cp -f "$$build_dir/net" "$$stage_dir/sys/net" && chmod +x "$$stage_dir/sys/net"; fi; \
 	if [ -f "$$build_dir/run" ]; then cp -f "$$build_dir/run" "$$stage_dir/sys/run" && chmod +x "$$stage_dir/sys/run"; fi; \
 	if [ -f "$$build_dir/ssrun" ]; then cp -f "$$build_dir/ssrun" "$$stage_dir/sys/ssrun" && chmod +x "$$stage_dir/sys/ssrun"; fi; \
-	if [ -f "$$build_dir/http" ]; then cp -f "$$build_dir/http" "$$stage_dir/net/http" && chmod +x "$$stage_dir/net/http"; fi; \
+		if [ -f "$build_dir/http-mod" ]; then cp -f "$build_dir/http-mod" "$stage_dir/net/http" && chmod +x "$stage_dir/net/http"; fi; \
+
 	if [ -f "$$build_dir/file" ]; then cp -f "$$build_dir/file" "$$stage_dir/fs/file" && chmod +x "$$stage_dir/fs/file"; fi; \
 	if [ -f "$$build_dir/lua-runtime" ]; then cp -f "$$build_dir/lua-runtime" "$$stage_dir/runtime/lua-runtime" && chmod +x "$$stage_dir/runtime/lua-runtime"; fi; \
 	if [ -f "$$build_dir/py3-runtime" ]; then cp -f "$$build_dir/py3-runtime" "$$stage_dir/runtime/py3-runtime" && chmod +x "$$stage_dir/runtime/py3-runtime"; fi; \
@@ -252,7 +253,7 @@ define stage_modules_dist
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
-			http) rel=net/http ;; \
+			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
 			py3-runtime) rel=runtime/py3-runtime ;; \
@@ -288,7 +289,7 @@ define stage_modules_dist_from
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
-			http) rel=net/http ;; \
+			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
 			py3-runtime) rel=runtime/py3-runtime ;; \
@@ -323,7 +324,7 @@ define stage_native_modules_dist
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
-			http) rel=net/http ;; \
+			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
 			py3-runtime) rel=runtime/py3-runtime ;; \
