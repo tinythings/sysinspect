@@ -1,6 +1,7 @@
 use libmodcore::{init_mod_doc, modinit::ModInterface, runtime};
 use syspkg::run;
 mod syspkg;
+mod syspkg_ut;
 
 fn main() {
     let mod_doc = init_mod_doc!(ModInterface);

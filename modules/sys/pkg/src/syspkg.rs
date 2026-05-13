@@ -7,33 +7,38 @@ use std::process::Command;
 pub fn run(rt: &ModRequest) -> ModResponse {
     let mut response = runtime::new_call_response();
     let name = runtime::get_arg(rt, "name");
+    let dry_run = runtime::get_opt(rt, "dry-run");
 
-    let op = if runtime::get_opt(rt, "install") {
-        "install"
-    } else if runtime::get_opt(rt, "remove") {
-        "remove"
-    } else if runtime::get_opt(rt, "update") {
-        "update"
-    } else if runtime::get_opt(rt, "upgrade") {
-        "upgrade"
-    } else if runtime::get_opt(rt, "search") {
-        "search"
-    } else {
-        response.set_retcode(1);
-        response.set_message("No operation specified. Use one of: --install, --remove, --update, --upgrade, --search");
+    let op = get_operation(rt, &mut response);
+    if op.is_empty() {
         return response;
-    };
+    }
 
-    let result = run_pkg_cmd(op, &name);
-    match result {
-        Ok((code, stdout, stderr)) => {
-            response.set_retcode(code);
-            if code == 0 {
-                response.set_message(&format!("Package operation '{op}' completed"));
-            } else {
-                response.set_message(&format!("Package operation '{op}' failed: {stderr}"));
+    match get_pkg_command(&op, &name) {
+        Ok((cmd, args)) => {
+            if dry_run {
+                response.set_retcode(0);
+                response.set_message(&format!("[dry-run] {} {}", cmd, args.join(" ")));
+                return response;
             }
-            response.add_warning(&stdout);
+
+            match exec(&cmd, &args.iter().map(|s| s.as_str()).collect::<Vec<_>>()) {
+                Ok((code, stdout, stderr)) => {
+                    response.set_retcode(code);
+                    if code == 0 {
+                        response.set_message(&format!("Package operation '{}' completed", op));
+                    } else {
+                        response.set_message(&format!("Package operation '{}' failed: {}", op, stderr.trim()));
+                    }
+                    if !stdout.is_empty() {
+                        response.add_warning(&stdout.trim());
+                    }
+                }
+                Err(err) => {
+                    response.set_retcode(1);
+                    response.set_message(&err);
+                }
+            }
         }
         Err(err) => {
             response.set_retcode(1);
@@ -44,34 +49,51 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     response
 }
 
+pub(crate) fn get_operation(rt: &ModRequest, response: &mut ModResponse) -> String {
+    if runtime::get_opt(rt, "install") {
+        "install".to_string()
+    } else if runtime::get_opt(rt, "remove") {
+        "remove".to_string()
+    } else if runtime::get_opt(rt, "update") {
+        "update".to_string()
+    } else if runtime::get_opt(rt, "upgrade") {
+        "upgrade".to_string()
+    } else if runtime::get_opt(rt, "search") {
+        "search".to_string()
+    } else {
+        response.set_retcode(1);
+        response.set_message("No operation specified. Use one of: --install, --remove, --update, --upgrade, --search");
+        String::new()
+    }
+}
+
 #[cfg(target_os = "freebsd")]
-fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
-    let (cmd, args) = match op {
-        "install" => ("pkg", vec!["install", "-y", name]),
-        "remove" => ("pkg", vec!["delete", "-y", name]),
-        "update" => ("pkg", vec!["update"]),
-        "upgrade" => ("pkg", vec!["upgrade", "-y"]),
-        "search" => ("pkg", vec!["search", name]),
+pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
+    let args = match op {
+        "install" => vec!["install".to_string(), "-y".to_string(), name.to_string()],
+        "remove" => vec!["delete".to_string(), "-y".to_string(), name.to_string()],
+        "update" => vec!["update".to_string()],
+        "upgrade" => vec!["upgrade".to_string(), "-y".to_string()],
+        "search" => vec!["search".to_string(), name.to_string()],
         _ => return Err(format!("Unknown operation: {op}")),
     };
-
-    exec(cmd, &args)
+    Ok(("pkg".to_string(), args))
 }
 
 #[cfg(target_os = "openbsd")]
-fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
+pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
     match op {
-        "install" => exec("pkg_add", &[name]),
-        "remove" => exec("pkg_delete", &[name]),
+        "install" => Ok(("pkg_add".to_string(), vec![name.to_string()])),
+        "remove" => Ok(("pkg_delete".to_string(), vec![name.to_string()])),
         "update" => Err("OpenBSD pkg_add has no repository update; packages are fetched directly".to_string()),
-        "upgrade" => exec("pkg_add", &["-u", name]),
-        "search" => exec("pkg_info", &["-Q", name]),
+        "upgrade" => Ok(("pkg_add".to_string(), vec!["-u".to_string(), name.to_string()])),
+        "search" => Ok(("pkg_info".to_string(), vec!["-Q".to_string(), name.to_string()])),
         _ => Err(format!("Unknown operation: {op}")),
     }
 }
 
 #[cfg(target_os = "netbsd")]
-fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
+pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
     let has_pkgin = Command::new("pkgin")
         .arg("--version")
         .output()
@@ -80,19 +102,19 @@ fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
 
     if has_pkgin {
         match op {
-            "install" => exec("pkgin", &["-y", "install", name]),
-            "remove" => exec("pkgin", &["-y", "remove", name]),
-            "update" => exec("pkgin", &["-y", "update"]),
-            "upgrade" => exec("pkgin", &["-y", "upgrade"]),
-            "search" => exec("pkgin", &["search", name]),
-            _ => return Err(format!("Unknown operation: {op}")),
+            "install" => Ok(("pkgin".to_string(), vec!["-y".to_string(), "install".to_string(), name.to_string()])),
+            "remove" => Ok(("pkgin".to_string(), vec!["-y".to_string(), "remove".to_string(), name.to_string()])),
+            "update" => Ok(("pkgin".to_string(), vec!["-y".to_string(), "update".to_string()])),
+            "upgrade" => Ok(("pkgin".to_string(), vec!["-y".to_string(), "upgrade".to_string()])),
+            "search" => Ok(("pkgin".to_string(), vec!["search".to_string(), name.to_string()])),
+            _ => Err(format!("Unknown operation: {op}")),
         }
     } else {
         match op {
-            "install" => exec("pkg_add", &[name]),
-            "remove" => exec("pkg_delete", &[name]),
+            "install" => Ok(("pkg_add".to_string(), vec![name.to_string()])),
+            "remove" => Ok(("pkg_delete".to_string(), vec![name.to_string()])),
             "update" => Err("NetBSD pkg_add has no repository update command".to_string()),
-            "upgrade" => exec("pkg_add", &["-u", name]),
+            "upgrade" => Ok(("pkg_add".to_string(), vec!["-u".to_string(), name.to_string()])),
             "search" => Err("NetBSD: install pkgin for search support".to_string()),
             _ => Err(format!("Unknown operation: {op}")),
         }
@@ -100,7 +122,7 @@ fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
+pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
     let has_brew = Command::new("brew")
         .arg("--version")
         .output()
@@ -109,11 +131,11 @@ fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
 
     if has_brew {
         match op {
-            "install" => exec("brew", &["install", name]),
-            "remove" => exec("brew", &["uninstall", name]),
-            "update" => exec("brew", &["update"]),
-            "upgrade" => exec("brew", &["upgrade"]),
-            "search" => exec("brew", &["search", name]),
+            "install" => Ok(("brew".to_string(), vec!["install".to_string(), name.to_string()])),
+            "remove" => Ok(("brew".to_string(), vec!["uninstall".to_string(), name.to_string()])),
+            "update" => Ok(("brew".to_string(), vec!["update".to_string()])),
+            "upgrade" => Ok(("brew".to_string(), vec!["upgrade".to_string()])),
+            "search" => Ok(("brew".to_string(), vec!["search".to_string(), name.to_string()])),
             _ => Err(format!("Unknown operation: {op}")),
         }
     } else {
@@ -122,66 +144,59 @@ fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
 }
 
 #[cfg(target_os = "linux")]
-fn detect_linux_pkg_manager() -> Option<(&'static str, &'static str)> {
-    let candidates: &[(&str, &str)] = &[
-        ("apt-get", "deb"),
-        ("dnf", "rpm"),
-        ("yum", "rpm"),
-        ("zypper", "rpm"),
-        ("pacman", "arch"),
-        ("apk", "apk"),
-    ];
+pub(crate) fn detect_linux_pkg_manager() -> Option<&'static str> {
+    let candidates: &[&str] = &["apt-get", "dnf", "yum", "zypper", "pacman", "apk"];
 
-    candidates.iter().find_map(|(bin, family)| {
+    candidates.iter().find_map(|bin| {
         Command::new(bin)
             .arg("--version")
             .output()
             .ok()
             .filter(|o| o.status.success())
-            .map(|_| (*bin, *family))
+            .map(|_| *bin)
     })
 }
 
 #[cfg(target_os = "linux")]
-fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
-    let (bin, _family) = detect_linux_pkg_manager()
+pub(crate) fn get_pkg_command(op: &str, name: &str) -> Result<(String, Vec<String>), String> {
+    let bin = detect_linux_pkg_manager()
         .ok_or_else(|| "No supported package manager found (tried: apt-get, dnf, yum, zypper, pacman, apk)".to_string())?;
 
-    let args: Vec<&str> = match (bin, op) {
-        ("apt-get", "install") => vec!["install", "-y", name],
-        ("apt-get", "remove") => vec!["remove", "-y", name],
-        ("apt-get", "update") => vec!["update"],
-        ("apt-get", "upgrade") => vec!["upgrade", "-y"],
-        ("apt-get", "search") => return apt_search(name),
+    let args = match (bin, op) {
+        ("apt-get", "install") => vec!["install".to_string(), "-y".to_string(), name.to_string()],
+        ("apt-get", "remove") => vec!["remove".to_string(), "-y".to_string(), name.to_string()],
+        ("apt-get", "update") => vec!["update".to_string()],
+        ("apt-get", "upgrade") => vec!["upgrade".to_string(), "-y".to_string()],
+        ("apt-get", "search") => return Ok(("apt-cache".to_string(), vec!["search".to_string(), name.to_string()])),
 
-        ("dnf" | "yum", "install") => vec!["install", "-y", name],
-        ("dnf" | "yum", "remove") => vec!["remove", "-y", name],
-        ("dnf" | "yum", "update") => vec!["makecache"],
-        ("dnf" | "yum", "upgrade") => vec!["upgrade", "-y"],
-        ("dnf" | "yum", "search") => vec!["search", name],
+        ("dnf" | "yum", "install") => vec!["install".to_string(), "-y".to_string(), name.to_string()],
+        ("dnf" | "yum", "remove") => vec!["remove".to_string(), "-y".to_string(), name.to_string()],
+        ("dnf" | "yum", "update") => vec!["makecache".to_string()],
+        ("dnf" | "yum", "upgrade") => vec!["upgrade".to_string(), "-y".to_string()],
+        ("dnf" | "yum", "search") => vec!["search".to_string(), name.to_string()],
 
-        ("zypper", "install") => vec!["install", "-y", name],
-        ("zypper", "remove") => vec!["remove", "-y", name],
-        ("zypper", "update") => vec!["refresh"],
-        ("zypper", "upgrade") => vec!["update", "-y"],
-        ("zypper", "search") => vec!["search", name],
+        ("zypper", "install") => vec!["install".to_string(), "-y".to_string(), name.to_string()],
+        ("zypper", "remove") => vec!["remove".to_string(), "-y".to_string(), name.to_string()],
+        ("zypper", "update") => vec!["refresh".to_string()],
+        ("zypper", "upgrade") => vec!["update".to_string(), "-y".to_string()],
+        ("zypper", "search") => vec!["search".to_string(), name.to_string()],
 
-        ("pacman", "install") => vec!["-S", "--noconfirm", name],
-        ("pacman", "remove") => vec!["-R", "--noconfirm", name],
-        ("pacman", "update") => vec!["-Sy"],
-        ("pacman", "upgrade") => vec!["-Su", "--noconfirm"],
-        ("pacman", "search") => vec!["-Ss", name],
+        ("pacman", "install") => vec!["-S".to_string(), "--noconfirm".to_string(), name.to_string()],
+        ("pacman", "remove") => vec!["-R".to_string(), "--noconfirm".to_string(), name.to_string()],
+        ("pacman", "update") => vec!["-Sy".to_string()],
+        ("pacman", "upgrade") => vec!["-Su".to_string(), "--noconfirm".to_string()],
+        ("pacman", "search") => vec!["-Ss".to_string(), name.to_string()],
 
-        ("apk", "install") => vec!["add", name],
-        ("apk", "remove") => vec!["del", name],
-        ("apk", "update") => vec!["update"],
-        ("apk", "upgrade") => vec!["upgrade"],
-        ("apk", "search") => vec!["search", name],
+        ("apk", "install") => vec!["add".to_string(), name.to_string()],
+        ("apk", "remove") => vec!["del".to_string(), name.to_string()],
+        ("apk", "update") => vec!["update".to_string()],
+        ("apk", "upgrade") => vec!["upgrade".to_string()],
+        ("apk", "search") => vec!["search".to_string(), name.to_string()],
 
-        _ => return Err(format!("Unsupported operation '{op}' for {bin}")),
+        _ => return Err(format!("Unsupported operation '{}' for {}", op, bin)),
     };
 
-    exec(bin, &args)
+    Ok((bin.to_string(), args))
 }
 
 #[cfg(not(any(
@@ -191,28 +206,15 @@ fn run_pkg_cmd(op: &str, name: &str) -> Result<(i32, String, String), String> {
     target_os = "linux",
     target_os = "macos"
 )))]
-fn run_pkg_cmd(_op: &str, _name: &str) -> Result<(i32, String, String), String> {
+pub(crate) fn get_pkg_command(_op: &str, _name: &str) -> Result<(String, Vec<String>), String> {
     Err("Unsupported operating system".to_string())
-}
-
-#[cfg(target_os = "linux")]
-fn apt_search(name: &str) -> Result<(i32, String, String), String> {
-    let output = Command::new("apt-cache")
-        .args(["search", name])
-        .output()
-        .map_err(|e| format!("Failed to execute apt-cache: {e}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    let code = output.status.code().unwrap_or(1);
-    Ok((code, stdout, stderr))
 }
 
 fn exec(cmd: &str, args: &[&str]) -> Result<(i32, String, String), String> {
     let output = Command::new(cmd)
         .args(args)
         .output()
-        .map_err(|e| format!("Failed to execute {cmd}: {e}"))?;
+        .map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();

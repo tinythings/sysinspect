@@ -21,6 +21,9 @@ options:
   - name: "search"
     description: "Search for a package"
 
+  - name: "dry-run"
+    description: "Print the command that would be run without executing it"
+
 arguments:
   - name: "name"
     type: "string"
