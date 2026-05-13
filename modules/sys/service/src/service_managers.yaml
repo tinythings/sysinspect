@@ -36,6 +36,7 @@ managers:
     restart: "rcctl restart {name}"
     reload: "rcctl reload {name}"
     status: "rcctl check {name}"
+    info: "rcctl get {name}"
     enable: "rcctl enable {name}"
     disable: "rcctl disable {name}"
 
@@ -72,6 +73,7 @@ managers:
     restart: "systemctl restart {name}"
     reload: "systemctl reload {name}"
     status: "systemctl is-active {name}"
+    info: "systemctl show {name}"
     enable: "systemctl enable {name}"
     disable: "systemctl disable {name}"
 
@@ -131,3 +133,17 @@ managers:
     stop: "setprop ctl.stop {name}"
     restart: "setprop ctl.stop {name} && setprop ctl.start {name}"
     status: "getprop init.svc.{name}"
+
+  # ---- Solaris (Illumos, Solaris 11+) ----
+  solaris-smf:
+    os: solaris
+    detect: "svcs"
+    description: "Solaris SMF"
+    start: "svcadm enable {name}"
+    stop: "svcadm disable {name}"
+    restart: "svcadm restart {name}"
+    reload: "svcadm refresh {name}"
+    status: "svcs -H {name}"
+    info: "svcs -l {name}"
+    enable: "svcadm enable {name}"
+    disable: "svcadm disable {name}"

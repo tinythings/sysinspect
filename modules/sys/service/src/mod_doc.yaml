@@ -17,10 +17,13 @@ description: |
 
 options:
   - name: "check"
-    description: "Inspect service state (running, pids, manager) — always returns telemetry, never changes state"
+    description: "Inspect service state (always returns telemetry)"
+
+  - name: "info"
+    description: "Rich service inspection — returns selectable fields for model constraints"
 
   - name: "status"
-    description: "Check whether a service is running (retcode 0 = running, 1 = not)"
+    description: "Check if running (retcode 0 = running, 1 = not)"
 
   - name: "start"
     description: "Start a service"

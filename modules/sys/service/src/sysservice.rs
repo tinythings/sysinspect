@@ -26,6 +26,8 @@ pub(crate) struct ManagerDef {
     pub(crate) enable: Option<String>,
     #[serde(default)]
     pub(crate) disable: Option<String>,
+    #[serde(default)]
+    pub(crate) info: Option<String>,
 }
 
 /// Top-level YAML structure: a map of manager IDs to their definitions.
@@ -72,6 +74,8 @@ pub(crate) fn current_os() -> &'static str {
         "macos"
     } else if cfg!(target_os = "android") {
         "android"
+    } else if cfg!(target_os = "solaris") {
+        "solaris"
     } else {
         ""
     }
@@ -141,34 +145,16 @@ pub fn run(rt: &ModRequest) -> ModResponse {
         return resp;
     }
 
+    if op == "check" || op == "status" || op == "info" {
+        return inspect(&cmd, mgr_id, &name, op, &mut resp);
+    }
+
     match exec_sh(&cmd) {
         Ok((code, stdout, stderr)) => {
-            let alive = if op == "status" { parse_status_output(mgr_id, &stdout) } else { code == 0 };
-            let pids = if alive { find_pids(&name) } else { Vec::new() };
-
-            if op == "check" {
-                resp.set_retcode(0);
-            } else if op == "status" {
-                resp.set_retcode(if alive { 0 } else { 1 });
-            } else {
-                resp.set_retcode(code);
-            }
-
-            if op == "check" || op == "status" {
-                resp.set_message(&format!("Service '{}' is {}", name, if alive { "running" } else { "not running" }));
-            } else {
-                resp.set_message(&format!("Service '{}' {} {}", name, op, if code == 0 { "successful" } else { "failed" }));
-            }
-
+            resp.set_retcode(code);
+            resp.set_message(&format!("Service '{}' {} {}", name, op, if code == 0 { "successful" } else { "failed" }));
             let mut data = telemetry_base(&name, mgr_id);
-            data.insert("running".to_string(), serde_json::Value::Bool(alive));
             data.insert("exit_code".to_string(), serde_json::Value::Number(serde_json::Number::from(code)));
-            if !pids.is_empty() {
-                data.insert(
-                    "pids".to_string(),
-                    serde_json::Value::Array(pids.iter().map(|p| serde_json::Value::Number(serde_json::Number::from(*p))).collect()),
-                );
-            }
             if !stdout.is_empty() {
                 data.insert("stdout".to_string(), serde_json::Value::String(stdout.trim().to_string()));
             }
@@ -182,15 +168,90 @@ pub fn run(rt: &ModRequest) -> ModResponse {
         Err(e) => {
             resp.set_retcode(1);
             resp.set_message(&e);
-            let mut data = telemetry_base(&name, mgr_id);
-            data.insert("running".to_string(), serde_json::Value::Bool(false));
-            if let Err(e) = resp.set_data(&data) {
-                resp.add_warning(&format!("{e}"));
-            }
         }
     }
 
     resp
+}
+
+/// Inspect a service (check, status, info). Returns structured data.
+/// `check` and `info` always retcode 0. `status` retcode 0 when running.
+fn inspect(cmd: &str, mgr_id: &str, name: &str, op: &str, resp: &mut ModResponse) -> ModResponse {
+    match exec_sh(cmd) {
+        Ok((code, stdout, _)) => {
+            let alive = parse_status_output(mgr_id, &stdout);
+            let pids = if alive { find_pids(name) } else { Vec::new() };
+
+            if op == "check" || op == "info" {
+                resp.set_retcode(0);
+            } else {
+                resp.set_retcode(if alive { 0 } else { 1 });
+            }
+
+            resp.set_message(&format!("Service '{}' is {}", name, if alive { "running" } else { "not running" }));
+
+            let mut data = telemetry_base(name, mgr_id);
+            data.insert("running".to_string(), serde_json::Value::Bool(alive));
+            data.insert("exit_code".to_string(), serde_json::Value::Number(serde_json::Number::from(code)));
+            if !pids.is_empty() {
+                data.insert(
+                    "pids".to_string(),
+                    serde_json::Value::Array(pids.iter().map(|p| serde_json::Value::Number(serde_json::Number::from(*p))).collect()),
+                );
+            }
+            if op == "info" {
+                parse_info_output(mgr_id, &stdout, &mut data);
+            }
+            if let Err(e) = resp.set_data(&data) {
+                resp.add_warning(&format!("{e}"));
+            }
+        }
+        Err(e) => {
+            resp.set_retcode(if op == "check" || op == "info" { 0 } else { 1 });
+            resp.set_message(&e);
+        }
+    }
+    resp.clone()
+}
+
+/// Parse manager-specific info output into flat selectable data fields.
+pub(crate) fn parse_info_output(mgr_id: &str, stdout: &str, data: &mut HashMap<String, serde_json::Value>) {
+    if mgr_id.contains("systemd") {
+        parse_systemd_show(stdout, data);
+    } else if mgr_id.contains("smf") || mgr_id.contains("solaris") {
+        parse_smf_svcs(stdout, data);
+    }
+}
+
+/// Parse `systemctl show <name>` Key=Value output.
+fn parse_systemd_show(stdout: &str, data: &mut HashMap<String, serde_json::Value>) {
+    for line in stdout.lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            let field = match k {
+                "LoadState" => "load_state",
+                "ActiveState" => "active_state",
+                "SubState" => "sub_state",
+                "UnitFileState" => "unit_file_state",
+                "FragmentPath" => "unit_path",
+                "Description" => "description",
+                _ => continue,
+            };
+            if !v.is_empty() {
+                data.insert(field.to_string(), serde_json::Value::String(v.to_string()));
+            }
+        }
+    }
+}
+
+/// Parse `svcs -l <name>` output for Solaris SMF.
+fn parse_smf_svcs(stdout: &str, data: &mut HashMap<String, serde_json::Value>) {
+    for line in stdout.lines() {
+        if let Some(state) = line.trim().strip_prefix("state ") {
+            data.insert("smf_state".to_string(), serde_json::Value::String(state.trim().to_string()));
+        } else if let Some(e) = line.trim().strip_prefix("enabled ") {
+            data.insert("enabled".to_string(), serde_json::Value::String(e.trim().to_string()));
+        }
+    }
 }
 
 /// Build the common telemetry fields returned by every operation.
@@ -227,6 +288,7 @@ pub(crate) fn resolve_template<'a>(mgr: &'a ManagerDef, op: &str) -> Option<&'a 
         "restart" => Some(mgr.restart.as_str()),
         "reload" => mgr.reload.as_deref(),
         "status" | "check" => Some(mgr.status.as_str()),
+        "info" => mgr.info.as_deref().or(Some(mgr.status.as_str())),
         "enable" => mgr.enable.as_deref(),
         "disable" => mgr.disable.as_deref(),
         _ => None,
@@ -237,6 +299,8 @@ pub(crate) fn resolve_template<'a>(mgr: &'a ManagerDef, op: &str) -> Option<&'a 
 pub(crate) fn parse_operation(rt: &ModRequest, resp: &mut ModResponse) -> Option<&'static str> {
     if runtime::get_opt(rt, "check") {
         Some("check")
+    } else if runtime::get_opt(rt, "info") {
+        Some("info")
     } else if runtime::get_opt(rt, "status") {
         Some("status")
     } else if runtime::get_opt(rt, "start") {
@@ -253,7 +317,7 @@ pub(crate) fn parse_operation(rt: &ModRequest, resp: &mut ModResponse) -> Option
         Some("disable")
     } else {
         resp.set_retcode(1);
-        resp.set_message("No operation specified. Use --check, --start, --stop, --restart, --reload, --enable, --disable, or --status");
+        resp.set_message("No operation specified. Use --check, --info, --status, --start, --stop, --restart, --reload, --enable, or --disable");
         None
     }
 }
