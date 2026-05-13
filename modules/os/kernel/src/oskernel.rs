@@ -93,6 +93,23 @@ pub fn run(rt: &ModRequest) -> ModResponse {
         None => return resp,
     };
 
+    if dry_run {
+        let (mgr_hint, maybe_cmd) = match cfg.detect() {
+            Some(m) => {
+                let tmpl = if op == "list" { m.1.list_modules.as_str() } else { resolve_template(m.1, op) };
+                (m.0.to_string(), Some(tmpl.replace("{name}", &name)))
+            }
+            None => ("<none>".to_string(), None),
+        };
+        resp.set_retcode(0);
+        if let Some(c) = maybe_cmd {
+            resp.set_message(&format!("[dry-run] manager={mgr_hint} cmd={c}"));
+        } else {
+            resp.set_message(&format!("[dry-run] no kernel module manager detected for OS '{}'", current_os()));
+        }
+        return resp;
+    }
+
     let (mgr_id, mgr) = match cfg.detect() {
         Some(m) => m,
         None => {
@@ -114,17 +131,6 @@ pub fn run(rt: &ModRequest) -> ModResponse {
 
     let template = resolve_template(mgr, op);
     let cmd = template.replace("{name}", &name);
-
-    if dry_run {
-        resp.set_retcode(0);
-        resp.set_message(&format!("[dry-run] {cmd}"));
-        let mut data = telemetry_base(&name, mgr_id);
-        data.insert("command".to_string(), serde_json::Value::String(cmd));
-        if let Err(e) = resp.set_data(&data) {
-            resp.add_warning(&format!("{e}"));
-        }
-        return resp;
-    }
 
     if op == "status" || op == "info" {
         return run_inspect(&cmd, mgr_id, &name, op, mgr, &mut resp);
@@ -336,9 +342,10 @@ fn parse_kldstat_info(stdout: &str, data: &mut HashMap<String, serde_json::Value
     for line in stdout.lines() {
         let trimmed = line.trim();
         if trimmed.contains(".ko")
-            && let Some(path) = trimmed.split_whitespace().last() {
-                data.insert("path".to_string(), serde_json::Value::String(path.to_string()));
-            }
+            && let Some(path) = trimmed.split_whitespace().last()
+        {
+            data.insert("path".to_string(), serde_json::Value::String(path.to_string()));
+        }
     }
 }
 
