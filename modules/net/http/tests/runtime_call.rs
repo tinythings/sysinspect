@@ -12,7 +12,7 @@ use std::{
 /// # Returns
 /// * `Value` - Parsed JSON response
 fn run_module(payload: &Value) -> Value {
-    let bin = env!("CARGO_BIN_EXE_http");
+    let bin = env!("CARGO_BIN_EXE_http_mod");
     let mut child =
         Command::new(bin).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap_or_else(|err| panic!("failed to spawn net.http binary: {err}"));
 
