@@ -1,4 +1,4 @@
-include!("../../.build-help.rs");
+include!("../../build-help.rs");
 
 fn main() {
     generate_help();
