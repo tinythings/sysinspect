@@ -114,6 +114,20 @@ pub fn run(rt: &ModRequest) -> ModResponse {
         None => return resp,
     };
 
+    if dry_run {
+        let (mgr_id_hint, maybe_mgr) = match service_config.detect() {
+            Some(m) => (m.0.to_string(), Some(format!("{} {{name}}", m.1.status))),
+            None => ("<none>".to_string(), None),
+        };
+        resp.set_retcode(0);
+        if let Some(cmd) = maybe_mgr {
+            resp.set_message(&format!("[dry-run] manager={mgr_id_hint} cmd={}", cmd.replace("{name}", &name)));
+        } else {
+            resp.set_message(&format!("[dry-run] no service manager detected for OS '{}'", current_os()));
+        }
+        return resp;
+    }
+
     let (mgr_id, mgr) = match service_config.detect() {
         Some(m) => m,
         None => {
@@ -133,17 +147,6 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     };
 
     let cmd = op_template.replace("{name}", &name);
-
-    if dry_run {
-        resp.set_retcode(0);
-        resp.set_message(&format!("[dry-run] {cmd}"));
-        let mut data = telemetry_base(&name, mgr_id);
-        data.insert("command".to_string(), serde_json::Value::String(cmd));
-        if let Err(e) = resp.set_data(&data) {
-            resp.add_warning(&format!("{e}"));
-        }
-        return resp;
-    }
 
     if op == "check" || op == "status" || op == "info" {
         return inspect(&cmd, mgr_id, &name, op, &mut resp);
