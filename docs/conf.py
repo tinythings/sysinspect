@@ -21,7 +21,7 @@ source_suffix = {
 }
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "requirements.txt"]
 
 html_show_sourcelink = False
 # html_static_path = ["_static"]
