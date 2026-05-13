@@ -65,36 +65,33 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     if !force && !name.is_empty() {
         let state = check_package(&name);
         match op.as_str() {
-            "install" => {
-                if state.installed {
+            "install"
+                if state.installed => {
                     response.set_retcode(0);
                     response.set_message(&format!("Package '{}' is already installed", name));
-                    if let Err(e) = response.set_data(&state.to_data(&name)) {
+                    if let Err(e) = response.set_data(state.to_data(&name)) {
                         response.add_warning(&format!("{e}"));
                     }
                     return response;
                 }
-            }
-            "remove" => {
-                if !state.installed {
+            "remove"
+                if !state.installed => {
                     response.set_retcode(0);
                     response.set_message(&format!("Package '{}' is not installed", name));
-                    if let Err(e) = response.set_data(&state.to_data(&name)) {
+                    if let Err(e) = response.set_data(state.to_data(&name)) {
                         response.add_warning(&format!("{e}"));
                     }
                     return response;
                 }
-            }
-            "upgrade" => {
-                if !state.upgradable {
+            "upgrade"
+                if !state.upgradable => {
                     response.set_retcode(0);
                     response.set_message(&format!("Package '{}' is already up to date", name));
-                    if let Err(e) = response.set_data(&state.to_data(&name)) {
+                    if let Err(e) = response.set_data(state.to_data(&name)) {
                         response.add_warning(&format!("{e}"));
                     }
                     return response;
                 }
-            }
             _ => {}
         }
     }
@@ -134,7 +131,7 @@ fn run_mutation(op: &str, name: &str, dry_run: bool, response: &mut ModResponse)
                         response.set_message(&format!("Package operation '{}' failed: {}", op, stderr.trim()));
                     }
                     if !stdout.is_empty() {
-                        response.add_warning(&stdout.trim());
+                        response.add_warning(stdout.trim());
                     }
                 }
                 Err(err) => {
@@ -195,7 +192,7 @@ fn run_check(name: &str, dry_run: bool, response: &mut ModResponse) -> ModRespon
     } else {
         response.set_message(&format!("Package '{}' is not installed", name));
     }
-    if let Err(e) = response.set_data(&state.to_data(name)) {
+    if let Err(e) = response.set_data(state.to_data(name)) {
         response.add_warning(&format!("{e}"));
     }
     response.clone()
@@ -387,7 +384,6 @@ fn check_package(name: &str) -> PkgState {
             let trimmed = line.trim();
             if !trimmed.is_empty() && !trimmed.starts_with("Name") {
                 if let Some(ver) = trimmed.split_whitespace().next() {
-                    // Strip pkg name prefix: "nginx-1.24.0" -> "1.24.0"
                     if let Some(v) = ver.strip_prefix(&format!("{}-", name)) {
                         state.installed_version = Some(v.to_string());
                     }
@@ -399,7 +395,7 @@ fn check_package(name: &str) -> PkgState {
 
     // Available version & repo
     if let Ok((0, stdout, _)) = exec("pkg", &["rquery", "%v\t%R", name]) {
-        for line in stdout.lines() {
+        if let Some(line) = stdout.lines().next() {
             let parts: Vec<&str> = line.split('\t').collect();
             if let Some(v) = parts.first() {
                 state.available_version = Some(v.to_string());
@@ -407,7 +403,6 @@ fn check_package(name: &str) -> PkgState {
             if parts.len() > 1 {
                 state.repo = Some(parts[1].to_string());
             }
-            break;
         }
     }
 
@@ -611,12 +606,11 @@ fn list_upgradable() -> Vec<String> {
 fn check_apt(name: &str) -> PkgState {
     let mut state = PkgState::default();
     // dpkg -s: check installed + version
-    if let Ok((0, stdout, _)) = exec("dpkg-query", &["-W", "-f=${Version}", name]) {
-        if !stdout.trim().is_empty() {
+    if let Ok((0, stdout, _)) = exec("dpkg-query", &["-W", "-f=${Version}", name])
+        && !stdout.trim().is_empty() {
             state.installed = true;
             state.installed_version = Some(stdout.trim().to_string());
         }
-    }
     // apt-cache policy: get candidate version
     if let Ok((0, stdout, _)) = exec("apt-cache", &["policy", name]) {
         for line in stdout.lines() {
@@ -627,13 +621,12 @@ fn check_apt(name: &str) -> PkgState {
         }
     }
     // Upgradable?
-    if state.installed {
-        if let Some(ref inst) = state.installed_version
+    if state.installed
+        && let Some(ref inst) = state.installed_version
             && let Some(ref cand) = state.available_version
         {
             state.upgradable = inst != cand;
         }
-    }
     state
 }
 
@@ -660,14 +653,13 @@ fn check_dnf(name: &str) -> PkgState {
             state.installed_version = Some(v);
         }
     }
-    if state.installed {
-        if let Ok((0, stdout, _)) = exec("dnf", &["check-update", name]) {
+    if state.installed
+        && let Ok((0, stdout, _)) = exec("dnf", &["check-update", name]) {
             // non-zero exit if updates exist, stdout has package info
             if !stdout.trim().is_empty() && !stdout.contains("Last metadata") {
                 state.upgradable = true;
             }
         }
-    }
     state
 }
 
@@ -692,18 +684,16 @@ fn check_zypper(name: &str) -> PkgState {
             if line.starts_with("Installed") && line.contains("Yes") {
                 state.installed = true;
             }
-            if let Some(v) = line.strip_prefix("Version        : ") {
-                if state.installed {
+            if let Some(v) = line.strip_prefix("Version        : ")
+                && state.installed {
                     state.installed_version = Some(v.trim().to_string());
                 }
-            }
         }
     }
-    if state.installed {
-        if let Ok((_, stdout, _)) = exec("zypper", &["list-updates", "-t", "package"]) {
+    if state.installed
+        && let Ok((_, stdout, _)) = exec("zypper", &["list-updates", "-t", "package"]) {
             state.upgradable = stdout.lines().any(|l| l.contains(name));
         }
-    }
     state
 }
 
@@ -764,24 +754,22 @@ fn check_apk(name: &str) -> PkgState {
     let mut state = PkgState::default();
     if let Ok((0, ..)) = exec("apk", &["info", "-e", name]) {
         state.installed = true;
-        if let Ok((0, stdout, _)) = exec("apk", &["info", name]) {
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    state.installed_version = Some(parts[0].to_string() + "-" + parts.get(1).unwrap_or(&""));
-                }
-                break;
+        if let Ok((0, stdout, _)) = exec("apk", &["info", name])
+            && let Some(line) = stdout.lines().next()
+        {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                state.installed_version = Some(parts[0].to_string() + "-" + parts.get(1).unwrap_or(&""));
             }
         }
     }
-    if state.installed {
-        if let Ok((_, stdout, _)) = exec("apk", &["list", "-u"]) {
+    if state.installed
+        && let Ok((_, stdout, _)) = exec("apk", &["list", "-u"]) {
             state.upgradable = stdout.lines().any(|l| {
                 let pkg = l.split_whitespace().next().unwrap_or("");
                 pkg == name || pkg.starts_with(&format!("{}-", name))
             });
         }
-    }
     state
 }
 
