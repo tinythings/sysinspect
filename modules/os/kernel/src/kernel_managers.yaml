@@ -1,0 +1,83 @@
+# Built-in kernel module manager definitions for os.kernel.
+# User overrides go to $SHARELIB/lib/os.kernel.yaml.
+# Operations: load, unload, status, info, list.
+# {name} is substituted with the kernel module name.
+
+managers:
+
+  # ---- FreeBSD ----
+  freebsd-kld:
+    os: freebsd
+    detect: "kldstat"
+    description: "FreeBSD kernel linker (kld)"
+    load: "kldload {name}"
+    unload: "kldunload {name}"
+    status: "kldstat -q -m {name}"
+    info: "kldstat -v -n {name}"
+    list_modules: "kldstat -q"
+
+  # ---- NetBSD ----
+  netbsd-mod:
+    os: netbsd
+    detect: "modstat"
+    description: "NetBSD module loader"
+    load: "modload {name}"
+    unload: "modunload {name}"
+    status: "modstat -n {name}"
+    info: "modstat -n {name}"
+    list_modules: "modstat"
+
+  # ---- OpenBSD ----
+  openbsd-builtin:
+    os: openbsd
+    detect: "sysctl kern.version"
+    description: "OpenBSD monolithic kernel — modules are built-in"
+    load: "echo 'OpenBSD has no runtime module loading; drivers are compiled into the kernel' && exit 1"
+    unload: "echo 'OpenBSD has no runtime module loading; drivers are compiled into the kernel' && exit 1"
+    status: "dmesg | grep -q {name} && echo loaded || echo 'not found in dmesg'"
+    info: "dmesg | grep {name}"
+    list_modules: "sysctl -a | grep -E '^hw\\.(vendor|product|model|ncpu|physmem|machine)'"
+
+  # ---- Linux ----
+  linux-modprobe:
+    os: linux
+    detect: "modprobe --version"
+    description: "Linux modprobe/lsmod/modinfo"
+    load: "modprobe {name}"
+    unload: "modprobe -r {name}"
+    status: "lsmod | grep -q '^{name} ' && echo loaded || echo 'not loaded'"
+    info: "modinfo {name}"
+    list_modules: "lsmod"
+
+  # ---- macOS ----
+  macos-kext:
+    os: macos
+    detect: "kextstat"
+    description: "macOS kernel extension loader"
+    load: "kextload /Library/Extensions/{name}.kext"
+    unload: "kextunload /Library/Extensions/{name}.kext"
+    status: "kextstat -l | grep -q '{name}' && echo loaded || echo 'not loaded'"
+    info: "kextstat -l | grep '{name}'"
+    list_modules: "kextstat -l"
+
+  # ---- Solaris ----
+  solaris-mod:
+    os: solaris
+    detect: "modinfo"
+    description: "Solaris/Illumos module loader"
+    load: "modload {name}"
+    unload: "modunload -i $(modinfo | awk '/{name}/{print $1}')"
+    status: "modinfo | grep -q '{name}' && echo loaded || echo 'not loaded'"
+    info: "modinfo -c {name}"
+    list_modules: "modinfo"
+
+  # ---- Android ----
+  android-mod:
+    os: android
+    detect: "lsmod"
+    description: "Android kernel modules (via insmod/rmmod/lsmod)"
+    load: "insmod /system/lib/modules/{name}.ko"
+    unload: "rmmod {name}"
+    status: "lsmod | grep -q '^{name} ' && echo loaded || echo 'not loaded'"
+    info: "modinfo /system/lib/modules/{name}.ko 2>/dev/null || lsmod | grep '^{name} '"
+    list_modules: "lsmod"

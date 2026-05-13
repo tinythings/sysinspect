@@ -1,0 +1,104 @@
+name: "os.kernel"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Cross-platform kernel module management. Load, unload, inspect and list
+  kernel modules across FreeBSD, NetBSD, OpenBSD, Linux, macOS, Solaris
+  and Android.
+
+  Kernel module manager definitions live in embedded YAML. Users can
+  override or extend them via $SHARELIB/lib/os.kernel.yaml.
+
+  The module provides telemetry: every operation returns the module name,
+  manager used, loaded state, and platform-specific fields such as version,
+  size, dependencies, path and description.
+
+options:
+  - name: "status"
+    description: "Check if a kernel module is loaded"
+
+  - name: "load"
+    description: "Load a kernel module"
+
+  - name: "unload"
+    description: "Unload a kernel module"
+
+  - name: "info"
+    description: "Detailed module information (version, size, dependencies, path)"
+
+  - name: "list"
+    description: "List all kernel modules with their state"
+
+  - name: "dry-run"
+    description: "Print the command that would be run without executing it"
+
+arguments:
+  - name: "name"
+    type: "string"
+    required: false
+    description: "Kernel module name (required for status, load, unload, info)"
+
+examples:
+  - description: "Check if a module is loaded"
+    code: |
+      "options": ["status"],
+      "arguments": {
+        "name": "pf"
+      }
+
+  - description: "Get detailed module information"
+    code: |
+      "options": ["info"],
+      "arguments": {
+        "name": "zfs"
+      }
+
+  - description: "List all loaded modules"
+    code: |
+      "options": ["list"]
+
+  - description: "Load a module"
+    code: |
+      "options": ["load"],
+      "arguments": {
+        "name": "fuse"
+      }
+
+returns:
+  status:
+    :description: |
+      Returns loaded state. retcode 0 = loaded, 1 = not.
+
+    retcode: 0
+    data:
+      name: "pf"
+      loaded: true
+      manager: "freebsd-kld"
+
+  info:
+    :description: |
+      Returns rich module data. Fields vary by platform.
+
+    retcode: 0
+    data:
+      name: "zfs"
+      loaded: true
+      manager: "freebsd-kld"
+      version: "2.2.0"
+      size_bytes: 1234567
+      path: "/boot/kernel/zfs.ko"
+      dependencies: ["opensolaris"]
+
+  list:
+    :description: |
+      Returns an array of modules with their state.
+
+    retcode: 0
+    data:
+      modules:
+        - name: "pf"
+          loaded: true
+          size: 12345
+        - name: "zfs"
+          loaded: true
+          size: 23456
