@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::MetadataExt};
 use std::{fs::File, path::PathBuf};
 use std::{io::BufReader, time::SystemTime};
-use users::{get_group_by_gid, get_user_by_uid};
+use uzers::{get_group_by_gid, get_user_by_uid};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct FileMetadata {

@@ -393,9 +393,7 @@ impl SysInspectModPakMinion {
         let libt = ridx.library().len();
         let mut synced = 0;
 
-        if libt > 0 {
-            log::warn!("{}% of library objects synced", (synced * 100) / libt);
-        }
+        log::warn!("{}% of library objects synced", (synced * 100_usize).checked_div(libt).unwrap_or(0));
 
         for (_, lf) in ridx.library() {
             let (verified, _) = self
@@ -448,9 +446,7 @@ impl SysInspectModPakMinion {
         let modt = ridx.modules().len();
         log::info!("Syncing {modt} modules");
         let mut synced = 0;
-        if modt > 0 {
-            log::warn!("{}% of modules synced", (synced * 100) / modt);
-        }
+        log::warn!("{}% of modules synced", (synced * 100_usize).checked_div(modt).unwrap_or(0));
 
         // Modules
         for (name, attrs) in ridx.modules() {
@@ -928,7 +924,7 @@ impl SysInspectModPak {
 
         // Sort modules by name
         let mut entries: Vec<(&String, &ModAttrs)> = modules.iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(a, _)| *a);
 
         let wrap_opts = Options::new(50);
         for (modname, modattr) in entries {

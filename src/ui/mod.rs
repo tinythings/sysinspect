@@ -499,13 +499,12 @@ impl SysInspectUX {
                         }
                         self.shift_next();
                     }
-                    ActiveBox::Events => {
-                        if !self.li_events.is_empty() && self.get_selected_event().is_some() {
+                    ActiveBox::Events
+                        if !self.li_events.is_empty() && self.get_selected_event().is_some() => {
                             self.status_at_action_data();
                             self.active_box = ActiveBox::Info;
                             self.event_data = self.get_selected_event().unwrap().event().flatten();
                         }
-                    }
                     _ => {}
                 };
             }
@@ -521,19 +520,17 @@ impl SysInspectUX {
                 self.help_popup_visible = true;
             }
 
-            KeyCode::BackTab => {
-                if self.active_box == ActiveBox::Info {
+            KeyCode::BackTab
+                if self.active_box == ActiveBox::Info => {
                     self.status_at_action_results();
                     self.active_box = ActiveBox::Events;
                 }
-            }
 
-            KeyCode::Tab => {
-                if self.active_box == ActiveBox::Events {
+            KeyCode::Tab
+                if self.active_box == ActiveBox::Events => {
                     self.status_at_action_data();
                     self.active_box = ActiveBox::Info;
                 }
-            }
 
             _ => {}
         }

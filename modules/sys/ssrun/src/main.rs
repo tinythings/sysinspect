@@ -1,5 +1,5 @@
 use anyhow::Context;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use libmodcore::modinit::ModInterface;
 use libmodcore::response::ModResponse;
 use libmodcore::runtime::{ModRequest, get_arg, get_call_args, send_call_response};
