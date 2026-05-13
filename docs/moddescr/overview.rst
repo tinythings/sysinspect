@@ -46,6 +46,7 @@ Below is a list of available control modules and their documentation:
 
    sys_proc
    sys_net
+   sys_pkg
    net_http
    sys_run
    sys_ssrun
