@@ -12,8 +12,8 @@ ACTIVE=no
 
 if [ "$ACTIVE" = "yes" ] && [ -f xrun.conf ]; then
 	command -v xrun >/dev/null 2>&1 || { echo "Missing xrun binary. Install it first." >&2; exit 1; }
-	XRUN_CONFIG=xrun.conf xrun run "$ENTRY"
-	# xrun handled it — do not fall through to local build.
+	XRUN_CONFIG=xrun.conf xrun run "$ENTRY" || true
+	# xrun handled it (or was interrupted) — do not fall through to local build.
 	exit 0
 fi
 

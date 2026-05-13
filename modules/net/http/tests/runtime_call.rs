@@ -2,9 +2,27 @@ use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
     net::TcpListener,
+    path::PathBuf,
     process::{Command, Stdio},
     thread,
 };
+
+/// Locate the `http-mod` binary.
+/// CARGO_BIN_EXE_http_mod is only set when the binary is declared as a
+/// test artifact dependency; fall back to finding it next to the test
+/// executable (cargo test places test binaries in target/debug/deps/
+/// and the actual binary in target/debug/).
+fn bin_path() -> PathBuf {
+    if let Ok(p) = std::env::var("CARGO_BIN_EXE_http_mod") {
+        return PathBuf::from(p);
+    }
+    let mut p = std::env::current_exe().expect("cannot locate test executable");
+    p.pop(); // deps/
+    p.pop(); // debug/ or release/
+    p.push("http-mod");
+    assert!(p.exists(), "http-mod binary not found at {}", p.display());
+    p
+}
 
 /// Run `net.http` binary with JSON request payload.
 /// # Arguments
@@ -12,7 +30,7 @@ use std::{
 /// # Returns
 /// * `Value` - Parsed JSON response
 fn run_module(payload: &Value) -> Value {
-    let bin = env!("CARGO_BIN_EXE_http_mod");
+    let bin = bin_path();
     let mut child =
         Command::new(bin).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap_or_else(|err| panic!("failed to spawn net.http binary: {err}"));
 
