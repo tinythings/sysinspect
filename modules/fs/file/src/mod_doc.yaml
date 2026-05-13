@@ -1,43 +1,66 @@
 name: "fs.file"
-version: "0.1.0"
+version: "0.2.0"
 author: "Bo Maryniuk"
-description: Plugin to create, delete and copy files.
+description: |
+  Plugin to create, delete, copy files and manage file content.
+  Supports line-presence assertions and pattern replacement
+  following the Sysinspect inspect-then-act philosophy.
 
-# Options, flags, switches
 options:
-  - name: create
+  - name: "create"
     description: "Create an empty file with possible content (see args)"
 
-  - name: delete
+  - name: "delete"
     description: "Delete a specified file"
 
-  - name: info
-    description: "Get file information"
+  - name: "info"
+    description: "Get file information (metadata, checksum)"
 
-# Keyword arguments
+  - name: "line-present"
+    description: "Ensure a line exists in the file. Appends if missing, skips if present."
+
+  - name: "line-absent"
+    description: "Ensure a line is absent from the file. Removes all matching lines, skips if none found."
+
+  - name: "replace"
+    description: "Replace all occurrences of a pattern with a value in the file. Skips if no matches."
+
 arguments:
-  - name: name
-    type: string
+  - name: "name"
+    type: "string"
     required: true
     description: "A target filename"
 
-  - name: mode
-    type: string
+  - name: "mode"
+    type: "string"
     required: false
     description: |
       Can be one of "strict", "easy". Default is "easy".
 
-      strict: the module will always return non-zero error
-              code if the state wasn't changed.
-      easy:   the module will return error code zero
+      strict: the module will return non-zero error code if the desired state was not changed.
 
-  - name: pull
-    type: string
+      easy: the module will return error code zero.
+
+  - name: "pull"
+    type: "string"
     required: false
     description: |
-      If starts with "file://" scheme, then it is a local file.
-      Otherwise it is a filename, served on the master's data
-      fileserver to use as a content.
+      Used with "create". If starts with "file://" scheme, then it is a local file.
+      Otherwise it is a filename, served on the master's data fileserver to use as a content.
+
+  - name: "pattern"
+    type: "string"
+    required: false
+    description: |
+      Required for "line-present", "line-absent" and "replace".
+      The exact line or substring to match in the file.
+
+  - name: "value"
+    type: "string"
+    required: false
+    description: |
+      Required for "replace". The replacement string substituted for every
+      occurrence of "pattern".
 
 examples:
   - description: "Pull a file from a master"
@@ -60,14 +83,66 @@ examples:
         }
       }
 
-# Description of additional data format
+  - description: "Ensure a config line is present"
+    code: |
+      {
+        "opts": ["line-present"],
+        "arguments": {
+          "name": "/etc/ssh/sshd_config",
+          "pattern": "PermitRootLogin no"
+        }
+      }
+
+  - description: "Remove a deprecated config line"
+    code: |
+      {
+        "opts": ["line-absent"],
+        "arguments": {
+          "name": "/etc/ssh/sshd_config",
+          "pattern": "Protocol 1"
+        }
+      }
+
+  - description: "Replace a value in a config file"
+    code: |
+      {
+        "opts": ["replace"],
+        "arguments": {
+          "name": "/etc/nginx/nginx.conf",
+          "pattern": "listen 80",
+          "value": "listen 8080"
+        }
+      }
+
 returns:
-  # Output data structure as a sample
-  # Happens by default
   fill:
     :description: |
       Returns just a regular text of the command STDOUT.
     retcode: 0
     message: "Content of /etc/group updated"
+    data:
+      changed: true
+
+  line-present:
+    :description: |
+      Returns changed=true when a line was appended, changed=false when it was already present.
+    retcode: 0
+    message: "Line added to /etc/ssh/sshd_config"
+    data:
+      changed: true
+
+  line-absent:
+    :description: |
+      Returns changed=true when lines were removed, changed=false when nothing matched.
+    retcode: 0
+    message: "2 line(s) removed from /etc/ssh/sshd_config"
+    data:
+      changed: true
+
+  replace:
+    :description: |
+      Returns changed=true when substitutions occurred, changed=false when nothing matched.
+    retcode: 0
+    message: "3 replacement(s) in /etc/nginx/nginx.conf"
     data:
       changed: true

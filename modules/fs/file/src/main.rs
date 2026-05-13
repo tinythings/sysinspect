@@ -8,6 +8,12 @@ use libmodcore::{
 mod fdel;
 mod fill;
 mod info;
+mod line_absent;
+mod line_absent_ut;
+mod line_present;
+mod line_present_ut;
+mod replace;
+mod replace_ut;
 
 /// Run module
 fn run_mod(rq: &ModRequest) -> ModResponse {
@@ -37,6 +43,9 @@ fn run_mod(rq: &ModRequest) -> ModResponse {
         "create" => fill::do_create(rq, &mut resp, strict),
         "delete" => fdel::do_delete(rq, &mut resp, strict),
         "info" => info::info(rq, &mut resp),
+        "line-present" => line_present::ensure_line_present(rq, &mut resp, strict),
+        "line-absent" => line_absent::ensure_line_absent(rq, &mut resp, strict),
+        "replace" => replace::replace_content(rq, &mut resp, strict),
         opt => {
             resp.set_message(&format!("Unknown option: {opt}"));
             return resp;
