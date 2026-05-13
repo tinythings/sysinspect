@@ -105,6 +105,24 @@ fn dry_run_check_shows_status_command() {
 }
 
 #[test]
+fn info_returns_rich_telemetry() {
+    let out = run_module(&json!({
+        "options": ["info"],
+        "arguments": { "name": "sshd" }
+    }));
+
+    assert_eq!(out["retcode"], 0);
+    let data = &out["data"];
+    assert_eq!(data["name"], "sshd");
+    assert!(data.get("running").and_then(|v| v.as_bool()).is_some());
+    // systemd hosts will have these extra fields
+    if data.get("active_state").is_some() {
+        assert!(data.get("load_state").is_some());
+        assert!(data.get("sub_state").is_some());
+    }
+}
+
+#[test]
 fn check_nonexistent_service_returns_telemetry() {
     let out = run_module(&json!({
         "options": ["check"],
