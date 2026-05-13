@@ -1,0 +1,91 @@
+name: "sys.pkg"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Cross-platform package management module. Inspect package state, install,
+  remove, update, upgrade and search packages across FreeBSD, OpenBSD, NetBSD,
+  Linux and macOS.
+
+  Inspect-first: --install, --remove and --upgrade check current state before
+  acting. Use --force to skip inspection.
+
+options:
+  - name: "check"
+    description: "Inspect package state (installed version, available version, upgradable)"
+
+  - name: "install"
+    description: "Install a package (skipped if already installed, unless --force)"
+
+  - name: "remove"
+    description: "Remove a package (skipped if not installed, unless --force)"
+
+  - name: "update"
+    description: "Update package repository metadata"
+
+  - name: "upgrade"
+    description: "Upgrade packages (skipped if already up to date, unless --force)"
+
+  - name: "search"
+    description: "Search for a package"
+
+  - name: "dry-run"
+    description: "Print the command that would be run without executing it"
+
+  - name: "force"
+    description: "Skip pre-inspection and force the operation"
+
+arguments:
+  - name: "name"
+    type: "string"
+    required: false
+    description: "Package name (required for install, remove, search, check)"
+
+examples:
+  - description: "Check if nginx is installed and what version"
+    code: |
+      "options": ["check"],
+      "arguments": {
+        "name": "nginx"
+      }
+
+  - description: "Install nginx (only if not already installed)"
+    code: |
+      "options": ["install"],
+      "arguments": {
+        "name": "nginx"
+      }
+
+  - description: "Force reinstall even if already present"
+    code: |
+      "options": ["install", "force"],
+      "arguments": {
+        "name": "nginx"
+      }
+
+  - description: "Dry-run: see what would be executed"
+    code: |
+      "options": ["install", "dry-run"],
+      "arguments": {
+        "name": "nginx"
+      }
+
+returns:
+  check:
+    :description: |
+      Returns structured package state suitable for CM decision-making.
+
+    retcode: 0
+    data:
+      name: "bash"
+      installed: true
+      installed_version: "5.2.21"
+      available_version: "5.2.21"
+      upgradable: false
+      repo: "main"
+
+  $:
+    :description: |
+      Default return for mutation operations (install, remove, update, upgrade, search).
+
+    retcode: 0
+    message: "Package operation 'install' completed"

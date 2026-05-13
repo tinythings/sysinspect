@@ -5611,6 +5611,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pkg"
+version = "0.1.0"
+dependencies = [
+ "libcommon",
+ "libmodcore",
+ "libsysinspect",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
