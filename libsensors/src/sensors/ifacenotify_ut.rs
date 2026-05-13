@@ -1,4 +1,7 @@
-use crate::sensors::{ifacenotify::{IfaceMask, IfaceSensor}, sensor::Sensor};
+use crate::sensors::{
+    ifacenotify::{IfaceMask, IfaceSensor},
+    sensor::Sensor,
+};
 use crate::sspec::SensorConf;
 
 fn mk_cfg(opts: Vec<&str>) -> SensorConf {

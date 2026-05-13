@@ -112,10 +112,7 @@ impl IfaceSensor {
 
     #[cfg(target_os = "freebsd")]
     fn ifindex(ifname: &str) -> u32 {
-        CString::new(ifname)
-            .ok()
-            .map(|ifname| unsafe { libc::if_nametoindex(ifname.as_ptr()) })
-            .unwrap_or_default()
+        CString::new(ifname).ok().map(|ifname| unsafe { libc::if_nametoindex(ifname.as_ptr()) }).unwrap_or_default()
     }
 
     #[cfg(target_os = "freebsd")]
@@ -141,7 +138,9 @@ impl IfaceSensor {
                                 addrs: HashSet::new(),
                             },
                         );
-                    } else if !ifname.is_empty() && let Some(state) = out.get_mut(&ifname) {
+                    } else if !ifname.is_empty()
+                        && let Some(state) = out.get_mut(&ifname)
+                    {
                         let line = line.trim();
                         if line.starts_with("status:") {
                             state.link_up = line.eq("status: active");
@@ -160,13 +159,7 @@ impl IfaceSensor {
 
     #[cfg(target_os = "freebsd")]
     async fn emit_freebsd(
-        &self,
-        emit: &(dyn Fn(SensorEvent) + Send + Sync),
-        locked: bool,
-        action: &str,
-        ifname: &str,
-        ifindex: u32,
-        addr: Option<&str>,
+        &self, emit: &(dyn Fn(SensorEvent) + Send + Sync), locked: bool, action: &str, ifname: &str, ifindex: u32, addr: Option<&str>,
     ) {
         let eid = format!("{}|{}|{}@{}|{}", self.sid, self.listener_id_with_tag(), action, ifname, 0);
         if locked && !libcommon::eidhub::get_eidhub().add("net.iface", &eid).await {
@@ -231,7 +224,13 @@ impl Sensor for IfaceSensor {
             let mut seen = self.freebsd_snapshot();
             let mut tick = time::interval(pulse);
 
-            log::info!("[{}] '{}' started with poll timeout {:?} and opts {:?} via ifconfig", Self::id().bright_magenta(), self.sid, pulse, self.cfg.opts());
+            log::info!(
+                "[{}] '{}' started with poll timeout {:?} and opts {:?} via ifconfig",
+                Self::id().bright_magenta(),
+                self.sid,
+                pulse,
+                self.cfg.opts()
+            );
 
             loop {
                 tick.tick().await;

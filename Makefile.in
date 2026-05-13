@@ -212,11 +212,12 @@ define stage_profile_modules
 	stage_dir=$$(if [ -n "$(2)" ]; then echo $(STAGE_ROOT)/$(2)/$(1); else echo $(STAGE_ROOT)/native/$(1); fi); \
 	echo "Staging binaries in $$stage_dir"; \
 	rm -rf "$$stage_dir"; \
-	mkdir -p "$$stage_dir/sys" "$$stage_dir/net" "$$stage_dir/fs" "$$stage_dir/runtime" "$$stage_dir/cfg"; \
+	mkdir -p "$$stage_dir/sys" "$$stage_dir/os" "$$stage_dir/net" "$$stage_dir/fs" "$$stage_dir/runtime" "$$stage_dir/cfg"; \
 	if [ -f "$$build_dir/proc" ]; then cp -f "$$build_dir/proc" "$$stage_dir/sys/proc" && chmod +x "$$stage_dir/sys/proc"; fi; \
 	if [ -f "$$build_dir/net" ]; then cp -f "$$build_dir/net" "$$stage_dir/sys/net" && chmod +x "$$stage_dir/sys/net"; fi; \
 	if [ -f "$$build_dir/run" ]; then cp -f "$$build_dir/run" "$$stage_dir/sys/run" && chmod +x "$$stage_dir/sys/run"; fi; \
 	if [ -f "$$build_dir/ssrun" ]; then cp -f "$$build_dir/ssrun" "$$stage_dir/sys/ssrun" && chmod +x "$$stage_dir/sys/ssrun"; fi; \
+	if [ -f "$$build_dir/facts" ]; then cp -f "$$build_dir/facts" "$$stage_dir/os/facts" && chmod +x "$$stage_dir/os/facts"; fi; \
 	if [ -f "$$build_dir/pkg" ]; then cp -f "$$build_dir/pkg" "$$stage_dir/sys/pkg" && chmod +x "$$stage_dir/sys/pkg"; fi; \
 	if [ -f "$$build_dir/http-mod" ]; then cp -f "$$build_dir/http-mod" "$$stage_dir/net/http" && chmod +x "$$stage_dir/net/http"; fi; \
 	if [ -f "$$build_dir/file" ]; then cp -f "$$build_dir/file" "$$stage_dir/fs/file" && chmod +x "$$stage_dir/fs/file"; fi; \
@@ -260,6 +261,7 @@ define stage_modules_dist
 		py3-runtime) rel=runtime/py3-runtime ;; \
 		wasm-runtime) rel=runtime/wasm-runtime ;; \
 		resource) rel=cfg/resource ;; \
+facts) rel=os/facts ;; \
 		*) rel=$$pkg ;; \
 	esac; \
 	bin=$(STAGE_ROOT)/native/release/$$rel; \
@@ -297,6 +299,7 @@ define stage_modules_dist_from
 			py3-runtime) rel=runtime/py3-runtime ;; \
 			wasm-runtime) rel=runtime/wasm-runtime ;; \
 			resource) rel=cfg/resource ;; \
+facts) rel=os/facts ;; \
 			*) rel=$$pkg ;; \
 		esac; \
 		bin=$$stage_dir/$$rel; \
@@ -333,6 +336,7 @@ define stage_native_modules_dist
 			py3-runtime) rel=runtime/py3-runtime ;; \
 			wasm-runtime) rel=runtime/wasm-runtime ;; \
 			resource) rel=cfg/resource ;; \
+facts) rel=os/facts ;; \
 			*) rel=$$pkg ;; \
 		esac; \
 		bin=$$stage_dir/$$rel; \

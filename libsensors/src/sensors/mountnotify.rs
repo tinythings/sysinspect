@@ -128,13 +128,7 @@ impl MountSensor {
 
     #[cfg(target_os = "freebsd")]
     async fn emit_freebsd(
-        &self,
-        emit: &(dyn Fn(SensorEvent) + Send + Sync),
-        locked: bool,
-        action: &str,
-        target: &str,
-        old: Option<&MountInfo>,
-        new: Option<&MountInfo>,
+        &self, emit: &(dyn Fn(SensorEvent) + Send + Sync), locked: bool, action: &str, target: &str, old: Option<&MountInfo>, new: Option<&MountInfo>,
     ) {
         let eid = format!("{}|{}|{}@{}|{}", self.sid, self.listener_id_with_tag(), action, target, 0);
         if locked && !libcommon::eidhub::get_eidhub().add("sys.mount", &eid).await {

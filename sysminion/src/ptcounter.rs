@@ -1,11 +1,11 @@
+#[cfg(target_os = "freebsd")]
+use std::process::Command;
 use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
     time::Instant,
 };
-#[cfg(target_os = "freebsd")]
-use std::process::Command;
 use sysinfo::{DiskKind, Disks, System};
 
 #[derive(Debug, Clone)]
@@ -150,10 +150,7 @@ impl PTCounter {
             .filter(|output| output.status.success())
             .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
             .and_then(|stdout: String| {
-                stdout
-                    .split_whitespace()
-                    .nth(1)
-                    .map(|field: &str| field.trim_matches(|ch| ch == '{' || ch == '}').to_string())
+                stdout.split_whitespace().nth(1).map(|field: &str| field.trim_matches(|ch| ch == '{' || ch == '}').to_string())
             })
             .and_then(|value: String| value.parse::<f32>().ok())
     }
@@ -174,24 +171,20 @@ impl PTCounter {
                     .filter_map(|line: &str| {
                         let fields = line.split_whitespace().collect::<Vec<_>>();
                         (fields.len() >= 5).then(|| {
-                            fields[3]
-                                .parse::<f64>()
-                                .ok()
-                                .zip(fields[4].parse::<f64>().ok())
-                                .map(|(kr_s, kw_s)| {
-                                    let mut stats = DiskStats::new(
-                                        fields[0].to_string(),
-                                        if fields[0].starts_with("vt") || fields[0].starts_with("da") || fields[0].starts_with("ada") {
-                                            "/".to_string()
-                                        } else {
-                                            "".to_string()
-                                        },
-                                    );
-                                    stats.initialized = true;
-                                    stats.read_bps = kr_s * 1024.0;
-                                    stats.write_bps = kw_s * 1024.0;
-                                    stats
-                                })
+                            fields[3].parse::<f64>().ok().zip(fields[4].parse::<f64>().ok()).map(|(kr_s, kw_s)| {
+                                let mut stats = DiskStats::new(
+                                    fields[0].to_string(),
+                                    if fields[0].starts_with("vt") || fields[0].starts_with("da") || fields[0].starts_with("ada") {
+                                        "/".to_string()
+                                    } else {
+                                        "".to_string()
+                                    },
+                                );
+                                stats.initialized = true;
+                                stats.read_bps = kr_s * 1024.0;
+                                stats.write_bps = kw_s * 1024.0;
+                                stats
+                            })
                         })?
                     })
                     .collect::<Vec<_>>()

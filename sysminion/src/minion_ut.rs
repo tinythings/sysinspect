@@ -3,8 +3,8 @@ mod tests {
     use crate::minion::{_minion_instance, MINION_SID, SysMinion};
     use crate::proto::msg::{CONNECTION_TX, ExitState};
     use crate::rsa::MinionRSAKeyManager;
-    use libdpq::DiskPersistentQueue;
     use libcommon::SysinspectError;
+    use libdpq::DiskPersistentQueue;
     use libsysinspect::{
         cfg::mmconf::{CFG_MASTER_KEY_PUB, MinionConfig},
         rsa::keys::{RsaKey::Public, key_to_file, keygen},
@@ -137,15 +137,9 @@ mod tests {
         key_to_file(&Public(master_pbk.clone()), root.to_str().unwrap(), CFG_MASTER_KEY_PUB).unwrap();
 
         let keyman = MinionRSAKeyManager::new(root.to_path_buf()).unwrap();
-        let minion_pbk = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem()))
-            .unwrap()
-            .1
-            .unwrap();
+        let minion_pbk = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem())).unwrap().1.unwrap();
 
-        TransportStore::for_minion(cfg)
-            .unwrap()
-            .save(&secure_state(&master_pbk, &minion_pbk))
-            .unwrap();
+        TransportStore::for_minion(cfg).unwrap().save(&secure_state(&master_pbk, &minion_pbk)).unwrap();
     }
 
     #[tokio::test]
@@ -279,11 +273,7 @@ mod tests {
             .expect("fake master never became ready for second connect")
             .expect("fake master readiness signal dropped");
 
-        match timeout(reconnect_exit_timeout(), h1)
-            .await
-            .expect("first instance never exited after reconnect")
-            .expect("first instance join failed")
-        {
+        match timeout(reconnect_exit_timeout(), h1).await.expect("first instance never exited after reconnect").expect("first instance join failed") {
             Ok(_) => {}
             Err(SysinspectError::IoErr(err))
                 if matches!(

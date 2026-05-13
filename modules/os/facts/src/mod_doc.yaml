@@ -1,0 +1,58 @@
+name: "os.facts"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Gather system facts: OS, kernel, architecture, hostname, memory, CPU,
+  uptime, load average. Pure inspection — no system changes.
+
+  Built with no_std, raw libc syscalls, and fixed-size stack buffers
+  for a minimal binary footprint (~300 KB release).
+
+options:
+  - name: "gather"
+    description: "Collect all system facts"
+
+  - name: "get"
+    description: "Get a single fact by key"
+
+  - name: "list-keys"
+    description: "List all available fact keys"
+
+arguments:
+  - name: "key"
+    type: "string"
+    required: false
+    description: "Fact key to retrieve (used with --get)"
+
+examples:
+  - description: "Gather all system facts"
+    code: |
+      "options": ["gather"]
+
+  - description: "Get a single fact"
+    code: |
+      "options": ["get"],
+      "arguments": {
+        "key": "os"
+      }
+
+returns:
+  gather:
+    :description: |
+      Returns all system facts as a flat JSON object.
+
+    retcode: 0
+    data:
+      os: "linux"
+      arch: "x86_64"
+      hostname: "alien"
+      kernel: "5.19.0-50-generic"
+      uptime_seconds: "342447.19"
+      memory_total_kb: "32535648"
+      memory_free_kb: "4788896"
+      swap_total_kb: "15625212"
+      swap_free_kb: "14428668"
+      cpu_model: "12th Gen Intel(R) Core(TM) i7-12700H"
+      cpu_cores: "2"
+      load_1m: "1.75"
+      load_5m: "1.41"
