@@ -1,0 +1,49 @@
+name: "sys.pkg"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Cross-platform package management module. Install, remove, update, upgrade
+  and search packages across FreeBSD, OpenBSD, NetBSD, Linux and macOS.
+
+options:
+  - name: "install"
+    description: "Install the specified package"
+
+  - name: "remove"
+    description: "Remove the specified package"
+
+  - name: "update"
+    description: "Update package repository metadata"
+
+  - name: "upgrade"
+    description: "Upgrade installed packages"
+
+  - name: "search"
+    description: "Search for a package"
+
+arguments:
+  - name: "name"
+    type: "string"
+    required: false
+    description: "Package name (required for install, remove, search)"
+
+examples:
+  - description: "Install nginx"
+    code: |
+      "options": ["install"],
+      "arguments": {
+        "name": "nginx"
+      }
+
+  - description: "Update repository and upgrade all packages"
+    code: |
+      "options": ["update", "upgrade"]
+
+returns:
+  $:
+    :description: |
+      Returns exit code and output from the package manager command.
+
+    retcode: 0
+    message: "Package operation completed"
+
