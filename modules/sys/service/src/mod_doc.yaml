@@ -1,0 +1,120 @@
+name: "sys.service"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Cross-platform service management. Start, stop, restart, reload, enable,
+  disable and inspect services across FreeBSD, OpenBSD, NetBSD, Linux, macOS
+  and Android.
+
+  Service manager definitions live in embedded YAML. Users can override or
+  extend them by dropping a sys.service.yaml file as a Sysinspect library
+  ($SHARELIB/lib/sys.service.yaml) — no recompilation needed.
+
+  The module provides rich telemetry: every operation returns the service
+  name, manager used, running state, PIDs, exit code, stdout and stderr.
+  Model-level conditions and constraints consume this data to decide what
+  to do next.
+
+options:
+  - name: "check"
+    description: "Inspect service state (running, pids, manager) — always returns telemetry, never changes state"
+
+  - name: "status"
+    description: "Check whether a service is running (retcode 0 = running, 1 = not)"
+
+  - name: "start"
+    description: "Start a service"
+
+  - name: "stop"
+    description: "Stop a service"
+
+  - name: "restart"
+    description: "Restart a service"
+
+  - name: "reload"
+    description: "Reload a service configuration"
+
+  - name: "enable"
+    description: "Enable a service to start at boot"
+
+  - name: "disable"
+    description: "Disable a service from starting at boot"
+
+  - name: "dry-run"
+    description: "Print the command that would be run without executing it"
+
+arguments:
+  - name: "name"
+    type: "string"
+    required: true
+    description: "Service name (e.g. sshd, nginx, cron)"
+
+examples:
+  - description: "Inspect sshd state (always returns telemetry)"
+    code: |
+      "options": ["check"],
+      "arguments": {
+        "name": "sshd"
+      }
+
+  - description: "Check if sshd is running (retcode 0 = running)"
+    code: |
+      "options": ["status"],
+      "arguments": {
+        "name": "sshd"
+      }
+
+  - description: "Start nginx"
+    code: |
+      "options": ["start"],
+      "arguments": {
+        "name": "nginx"
+      }
+
+  - description: "Enable and start a service"
+    code: |
+      "options": ["enable", "start"],
+      "arguments": {
+        "name": "cron"
+      }
+
+  - description: "Dry-run: see what command would be executed"
+    code: |
+      "options": ["restart", "dry-run"],
+      "arguments": {
+        "name": "sshd"
+      }
+
+returns:
+  check:
+    :description: |
+      Returns rich telemetry data. Always retcode 0.
+
+    retcode: 0
+    data:
+      name: "sshd"
+      running: true
+      manager: "linux-systemd"
+      pids: [1234]
+      exit_code: 0
+
+  status:
+    :description: |
+      Same data as check but retcode 0 when running, 1 when not.
+
+    retcode: 0
+    data:
+      name: "sshd"
+      running: true
+      manager: "linux-systemd"
+
+  $:
+    :description: |
+      Default return for mutation operations. Includes telemetry data.
+
+    retcode: 0
+    message: "Service 'nginx' start successful"
+    data:
+      name: "nginx"
+      manager: "linux-systemd"
+      exit_code: 0
