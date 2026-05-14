@@ -1,5 +1,9 @@
 use libmodcore::{init_mod_doc, modinit::ModInterface, runtime};
 use sysnet::run;
+mod connect;
+mod connect_ut;
+mod ping;
+mod ping_ut;
 mod routing;
 mod sysnet;
 
