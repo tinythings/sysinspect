@@ -114,7 +114,7 @@ fn check_dir(input: &[u8], out: &mut [u8; 4096]) -> usize {
     dp += wb(&mut data_buf, dp, if exists { b"true" } else { b"false" });
     if exists {
         dp += wb(&mut data_buf, dp, b",\"is_dir\":");
-        dp += wb(&mut data_buf, dp, if (stat.st_mode & libc::S_IFDIR as u32) != 0 { b"true" } else { b"false" });
+        dp += wb(&mut data_buf, dp, if (stat.st_mode & libc::S_IFDIR) != 0 { b"true" } else { b"false" });
         dp += wb(&mut data_buf, dp, b",\"mode\":\"");
         let mode = &mut [0u8; 16];
         let mode_str = format_mode(stat.st_mode & 0o777, mode);
@@ -150,7 +150,7 @@ fn ensure_present(input: &[u8], out: &mut [u8; 4096]) -> usize {
     }
 
     if exists {
-        let is_dir = (stat.st_mode & libc::S_IFDIR as u32) != 0;
+        let is_dir = (stat.st_mode & libc::S_IFDIR) != 0;
         if !is_dir {
             return write_json(out, 1, b"Path exists but is not a directory", b"");
         }
@@ -206,7 +206,7 @@ fn ensure_absent(input: &[u8], out: &mut [u8; 4096]) -> usize {
 fn parse_octal(bytes: &[u8]) -> u32 {
     let mut n = 0u32;
     for &b in bytes {
-        if b >= b'0' && b <= b'7' {
+        if (b'0'..=b'7').contains(&b) {
             n = n * 8 + (b - b'0') as u32;
         }
     }
