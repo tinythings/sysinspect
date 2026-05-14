@@ -3777,6 +3777,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernel"
+version = "0.1.0"
+dependencies = [
+ "libmodcore",
+ "libsysinspect",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "lab"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

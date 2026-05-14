@@ -38,6 +38,7 @@ members = [
     "modules/sys/run",
     "modules/sys/ssrun",
     "modules/sys/pkg",
+    "modules/os/kernel",
     "modules/os/facts",
     "modules/net/http",
     "modules/runtime/lua-runtime",

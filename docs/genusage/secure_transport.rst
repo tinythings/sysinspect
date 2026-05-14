@@ -318,7 +318,7 @@ What Each Rotation Option Does
 The current operator-facing rotation options are:
 
 ``network --rotate <target>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Starts a managed transport rotation.
 
@@ -336,7 +336,7 @@ Examples:
    sysinspect network --rotate 'edge-1,edge-2'
 
 ``network --rotate --rotate-overlap <seconds>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Controls how long the old key remains in ``retiring`` state before it is
 removed.
@@ -355,7 +355,7 @@ That keeps the previous key material around for 30 minutes before retirement
 cleanup removes it.
 
 ``network --rotate --rotate-reason <text>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Adds operator-visible context to the signed rotation intent.
 
@@ -395,7 +395,7 @@ These options are not rotation-specific, but they are commonly used together
 with transport-key rotation:
 
 ``network --online``
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
 
 Shows which registered Minions are currently online.
 

@@ -130,7 +130,7 @@ but it is a compound one, where one can "zoom in" to see its smaller parts, whic
 entities representing some part of the network, and so on.
 
 claims
-^^^^^
+^^^^^^
 
 Each entity **must** contain some claims about it.
 

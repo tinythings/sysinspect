@@ -1,5 +1,5 @@
 ``net.packet``: React to Network Connection Events
-=================================================
+==================================================
 
 The ``net.packet`` sensor monitors network socket table changes and emits events
 when connections are opened or closed.

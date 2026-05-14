@@ -217,9 +217,9 @@ define stage_profile_modules
 	if [ -f "$$build_dir/net" ]; then cp -f "$$build_dir/net" "$$stage_dir/sys/net" && chmod +x "$$stage_dir/sys/net"; fi; \
 	if [ -f "$$build_dir/run" ]; then cp -f "$$build_dir/run" "$$stage_dir/sys/run" && chmod +x "$$stage_dir/sys/run"; fi; \
 	if [ -f "$$build_dir/ssrun" ]; then cp -f "$$build_dir/ssrun" "$$stage_dir/sys/ssrun" && chmod +x "$$stage_dir/sys/ssrun"; fi; \
-	if [ -f "$$build_dir/facts" ]; then cp -f "$$build_dir/facts" "$$stage_dir/os/facts" && chmod +x "$$stage_dir/os/facts"; fi; \
-	if [ -f "$$build_dir/pkg" ]; then cp -f "$$build_dir/pkg" "$$stage_dir/sys/pkg" && chmod +x "$$stage_dir/sys/pkg"; fi; \
-	if [ -f "$$build_dir/http-mod" ]; then cp -f "$$build_dir/http-mod" "$$stage_dir/net/http" && chmod +x "$$stage_dir/net/http"; fi; \
+	if [ -f "$$build_dir/kernel" ]; then cp -f "$$build_dir/kernel" "$$stage_dir/os/kernel" && chmod +x "$$stage_dir/os/kernel"; fi; \
+		if [ -f "$build_dir/http-mod" ]; then cp -f "$build_dir/http-mod" "$stage_dir/net/http" && chmod +x "$stage_dir/net/http"; fi; \
+
 	if [ -f "$$build_dir/file" ]; then cp -f "$$build_dir/file" "$$stage_dir/fs/file" && chmod +x "$$stage_dir/fs/file"; fi; \
 	if [ -f "$$build_dir/lua-runtime" ]; then cp -f "$$build_dir/lua-runtime" "$$stage_dir/runtime/lua-runtime" && chmod +x "$$stage_dir/runtime/lua-runtime"; fi; \
 	if [ -f "$$build_dir/py3-runtime" ]; then cp -f "$$build_dir/py3-runtime" "$$stage_dir/runtime/py3-runtime" && chmod +x "$$stage_dir/runtime/py3-runtime"; fi; \
@@ -253,26 +253,25 @@ define stage_modules_dist
 			proc) rel=sys/proc ;; \
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
-		ssrun) rel=sys/ssrun ;; \
-		pkg) rel=sys/pkg ;; \
-		http-mod) rel=net/http ;; \
-		file) rel=fs/file ;; \
-		lua-runtime) rel=runtime/lua-runtime ;; \
-		py3-runtime) rel=runtime/py3-runtime ;; \
-		wasm-runtime) rel=runtime/wasm-runtime ;; \
-		resource) rel=cfg/resource ;; \
-facts) rel=os/facts ;; \
-		*) rel=$$pkg ;; \
-	esac; \
-	bin=$(STAGE_ROOT)/native/release/$$rel; \
-	spec=$$srcdir/src/mod_doc.yaml; \
-	dstdir=$$dist/$$pkg; \
-	if [ ! -f "$$bin" ]; then echo "Skipping missing built module binary: $$bin"; continue; fi; \
-	if [ ! -f "$$spec" ]; then echo "Skipping module without spec source: $$spec"; continue; fi; \
-	mkdir -p "$$dstdir"; \
-	cp "$$bin" "$$dstdir/$$pkg"; \
-	chmod +x "$$dstdir/$$pkg"; \
-	cp "$$spec" "$$dstdir/$$pkg.spec"; \
+			ssrun) rel=sys/ssrun ;; \
+kernel) rel=os/kernel ;; \
+			http-mod) rel=net/http ;; \
+			file) rel=fs/file ;; \
+			lua-runtime) rel=runtime/lua-runtime ;; \
+			py3-runtime) rel=runtime/py3-runtime ;; \
+			wasm-runtime) rel=runtime/wasm-runtime ;; \
+			resource) rel=cfg/resource ;; \
+			*) rel=$$pkg ;; \
+		esac; \
+		bin=$(STAGE_ROOT)/native/release/$$rel; \
+		spec=$$srcdir/src/mod_doc.yaml; \
+		dstdir=$$dist/$$pkg; \
+		if [ ! -f "$$bin" ]; then echo "Skipping missing built module binary: $$bin"; continue; fi; \
+		if [ ! -f "$$spec" ]; then echo "Skipping module without spec source: $$spec"; continue; fi; \
+		mkdir -p "$$dstdir"; \
+		cp "$$bin" "$$dstdir/$$pkg"; \
+		chmod +x "$$dstdir/$$pkg"; \
+		cp "$$spec" "$$dstdir/$$pkg.spec"; \
 	done
 endef
 
@@ -292,14 +291,13 @@ define stage_modules_dist_from
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
-		pkg) rel=sys/pkg ;; \
+kernel) rel=os/kernel ;; \
 			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
 			py3-runtime) rel=runtime/py3-runtime ;; \
 			wasm-runtime) rel=runtime/wasm-runtime ;; \
 			resource) rel=cfg/resource ;; \
-facts) rel=os/facts ;; \
 			*) rel=$$pkg ;; \
 		esac; \
 		bin=$$stage_dir/$$rel; \
@@ -329,14 +327,13 @@ define stage_native_modules_dist
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
-			pkg) rel=sys/pkg ;; \
+kernel) rel=os/kernel ;; \
 			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
 			py3-runtime) rel=runtime/py3-runtime ;; \
 			wasm-runtime) rel=runtime/wasm-runtime ;; \
 			resource) rel=cfg/resource ;; \
-facts) rel=os/facts ;; \
 			*) rel=$$pkg ;; \
 		esac; \
 		bin=$$stage_dir/$$rel; \

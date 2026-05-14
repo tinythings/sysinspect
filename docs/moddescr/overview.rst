@@ -48,6 +48,8 @@ Below is a list of available control modules and their documentation:
    sys_net
    sys_pkg
    os_facts
+   sys_service
+   os_kernel
    net_http
    sys_run
    sys_ssrun
