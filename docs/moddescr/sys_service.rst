@@ -81,22 +81,27 @@ The following keyword arguments are available:
 Supported Init Systems
 ----------------------
 
-+------------------+---------------------------------------------------+
-| Platform         | Detected Manager(s)                               |
-+==================+===================================================+
-| FreeBSD          | rc.d via ``service(8)``                           |
-+------------------+---------------------------------------------------+
-| OpenBSD          | ``rcctl``                                         |
-+------------------+---------------------------------------------------+
-| NetBSD           | rc.d via ``service(8)``                           |
-+------------------+---------------------------------------------------+
-| Linux            | systemd, OpenRC, runit, s6, SysV init, Busybox    |
-|                  | init (detected in that order)                     |
-+------------------+---------------------------------------------------+
-| macOS            | ``launchctl``                                     |
-+------------------+---------------------------------------------------+
-| Android          | ``setprop ctl.start`` / ``ctl.stop``              |
-+------------------+---------------------------------------------------+
+FreeBSD
+    rc.d via ``service(8)``
+
+OpenBSD
+    ``rcctl``
+
+NetBSD
+    rc.d via ``service(8)``
+
+Linux
+    systemd, OpenRC, runit, s6, SysV init, Busybox init
+    (detected in that order)
+
+macOS
+    ``launchctl``
+
+Solaris
+    SMF via ``svcadm``
+
+Android
+    ``setprop ctl.start`` / ``ctl.stop``
 
 Detection on Linux runs through the list in the order shown above: it tries
 ``systemctl --version`` first (because systemd is overwhelmingly common), then

@@ -64,23 +64,26 @@ The following keyword arguments are available:
 Supported Platforms
 -------------------
 
-+------------------+----------------------------------------------+
-| Platform         | Tooling                                       |
-+==================+==============================================+
-| FreeBSD          | ``kldload`` / ``kldunload`` / ``kldstat``     |
-+------------------+----------------------------------------------+
-| NetBSD           | ``modload`` / ``modunload`` / ``modstat``     |
-+------------------+----------------------------------------------+
-| OpenBSD          | Monolithic kernel — ``dmesg`` for inspection  |
-+------------------+----------------------------------------------+
-| Linux            | ``modprobe`` / ``lsmod`` / ``modinfo``        |
-+------------------+----------------------------------------------+
-| macOS            | ``kextload`` / ``kextunload`` / ``kextstat``  |
-+------------------+----------------------------------------------+
-| Solaris/Illumos  | ``modload`` / ``modunload`` / ``modinfo``     |
-+------------------+----------------------------------------------+
-| Android          | ``insmod`` / ``rmmod`` / ``lsmod``            |
-+------------------+----------------------------------------------+
+FreeBSD
+    ``kldload`` / ``kldunload`` / ``kldstat``
+
+NetBSD
+    ``modload`` / ``modunload`` / ``modstat``
+
+OpenBSD
+    Monolithic kernel — ``dmesg`` for inspection only
+
+Linux
+    ``modprobe`` / ``lsmod`` / ``modinfo``
+
+macOS
+    ``kextload`` / ``kextunload`` / ``kextstat``
+
+Solaris / Illumos
+    ``modload`` / ``modunload`` / ``modinfo``
+
+Android
+    ``insmod`` / ``rmmod`` / ``lsmod``
 
 Custom Managers
 ---------------

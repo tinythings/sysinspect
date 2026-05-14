@@ -46,11 +46,10 @@ Below is a list of available control modules and their documentation:
 
    sys_proc
    sys_net
-<<<<<<< HEAD
    sys_pkg
-=======
    sys_service
->>>>>>> e423944 (sys.service implementation)
+   os_kernel
+   os_facts
    net_http
    sys_run
    sys_ssrun
