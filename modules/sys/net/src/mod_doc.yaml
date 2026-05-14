@@ -1,8 +1,9 @@
 name: "sys.net"
-version: "0.2.0"
+version: "0.3.0"
 author: "Bo Maryniuk"
 description: |
-  Plugin to review the network details
+  Network introspection: interface details, routing tables,
+  TCP/UDP port connectivity checks and ICMP ping.
 
 options:
   - name: "if-up"
@@ -11,17 +12,64 @@ options:
   - name: "route-table"
     description: "Flag to return current routing table"
 
+  - name: "connect"
+    description: "Check if a TCP or UDP port is open on a remote host"
+
+  - name: "ping"
+    description: "ICMP ping a host, return latency and packet loss"
+
 arguments:
   - name: "if-list"
     type: "string"
     required: false
-    description: "Comma-separated list of interfaces to get their status (see flags)"
+    description: "Comma-separated list of interfaces to get their status"
+
+  - name: "host"
+    type: "string"
+    required: false
+    description: "Target hostname or IP (required for connect, ping)"
+
+  - name: "port"
+    type: "int"
+    required: false
+    description: "TCP or UDP port number (required for connect)"
+
+  - name: "protocol"
+    type: "string"
+    required: false
+    description: "tcp or udp (default: tcp)"
+
+  - name: "timeout"
+    type: "int"
+    required: false
+    description: "Timeout in seconds (default: 3)"
+
+  - name: "count"
+    type: "int"
+    required: false
+    description: "Number of ping packets (default: 3)"
 
 examples:
   - description: "Query status of two network interfaces"
     code: |
       "arguments": {
         "if-stat": "eth0,virbr01",
+      }
+
+  - description: "Check if port 22 is open on a host"
+    code: |
+      "options": ["connect"],
+      "arguments": {
+        "host": "192.168.1.1",
+        "port": 22
+      }
+
+  - description: "Ping a host with 5 packets"
+    code: |
+      "options": ["ping"],
+      "arguments": {
+        "host": "8.8.8.8",
+        "count": 5
       }
 
 returns:
@@ -50,3 +98,27 @@ returns:
           - mac: "00:00:00:00:00:00"
           - IPv4: "127.0.0.1"
             port: 0
+
+  connect:
+    :description: "Returns TCP/UDP port connectivity result."
+    retcode: 0
+    message: "Port 22 on 192.168.1.1 is open"
+    data:
+      host: "192.168.1.1"
+      port: 22
+      protocol: "tcp"
+      open: true
+      latency_ms: 1
+
+  ping:
+    :description: "Returns ICMP ping statistics."
+    retcode: 0
+    message: "Ping to 8.8.8.8: 3 sent, 3 received, 0% loss"
+    data:
+      host: "8.8.8.8"
+      sent: 3
+      received: 3
+      loss_pct: 0.0
+      rtt_min: 10.5
+      rtt_avg: 12.3
+      rtt_max: 14.1

@@ -203,6 +203,15 @@ fn get_data(rt: &ModRequest, netinfo: &mut NetInfo) -> Result<HashMap<String, se
 pub fn run(rt: &ModRequest) -> ModResponse {
     let mut response = runtime::new_call_response();
 
+    if runtime::get_opt(rt, "connect") {
+        crate::connect::check_connectivity(rt, &mut response);
+        return response;
+    }
+    if runtime::get_opt(rt, "ping") {
+        crate::ping::ping_host(rt, &mut response);
+        return response;
+    }
+
     match NetInfo::new() {
         Ok(mut netinfo) => match get_data(rt, &mut netinfo) {
             Ok(ret) => {
