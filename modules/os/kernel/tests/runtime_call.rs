@@ -73,6 +73,7 @@ fn dry_run_shows_command() {
     }));
     let msg = out["message"].as_str().unwrap();
     assert!(msg.starts_with("[dry-run] "));
+    assert!(msg.len() > 15, "message too short: {msg}");
 }
 
 #[test]
