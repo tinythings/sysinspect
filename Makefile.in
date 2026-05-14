@@ -217,6 +217,7 @@ define stage_profile_modules
 	if [ -f "$$build_dir/net" ]; then cp -f "$$build_dir/net" "$$stage_dir/sys/net" && chmod +x "$$stage_dir/sys/net"; fi; \
 	if [ -f "$$build_dir/run" ]; then cp -f "$$build_dir/run" "$$stage_dir/sys/run" && chmod +x "$$stage_dir/sys/run"; fi; \
 	if [ -f "$$build_dir/ssrun" ]; then cp -f "$$build_dir/ssrun" "$$stage_dir/sys/ssrun" && chmod +x "$$stage_dir/sys/ssrun"; fi; \
+	if [ -f "$$build_dir/user" ]; then cp -f "$$build_dir/user" "$$stage_dir/sys/user" && chmod +x "$$stage_dir/sys/user"; fi; \
 	if [ -f "$$build_dir/service" ]; then cp -f "$$build_dir/service" "$$stage_dir/sys/service" && chmod +x "$$stage_dir/sys/service"; fi; \
 		if [ -f "$build_dir/http-mod" ]; then cp -f "$build_dir/http-mod" "$stage_dir/net/http" && chmod +x "$stage_dir/net/http"; fi; \
 
@@ -254,6 +255,7 @@ define stage_modules_dist
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
+user) rel=sys/user ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \
@@ -291,6 +293,7 @@ define stage_modules_dist_from
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
+user) rel=sys/user ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \
@@ -327,6 +330,7 @@ define stage_native_modules_dist
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
+user) rel=sys/user ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
 			file) rel=fs/file ;; \

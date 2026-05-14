@@ -1,0 +1,125 @@
+name: "sys.user"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Cross-platform user and group management. Create, inspect and remove
+  users and groups across FreeBSD, OpenBSD, NetBSD, Linux, macOS and
+  Solaris.
+
+  Operations use raw libc file I/O against /etc/passwd, /etc/group and
+  /etc/shadow — no external tools required. Works on minimal systems
+  with just a kernel and filesystem.
+
+  Inspect-first: --present checks current state and skips if already
+  satisfied. All operations return structured telemetry.
+
+options:
+  - name: "check"
+    description: "Inspect user: uid, gid, home, shell, groups. Retcode always 0."
+
+  - name: "present"
+    description: "Ensure user exists with specified attributes"
+
+  - name: "absent"
+    description: "Ensure user does not exist"
+
+  - name: "group-present"
+    description: "Ensure group exists with specified gid"
+
+  - name: "group-absent"
+    description: "Ensure group does not exist"
+
+  - name: "dry-run"
+    description: "Print what would be done without executing"
+
+arguments:
+  - name: "name"
+    type: "string"
+    required: true
+    description: "Username or group name"
+
+  - name: "uid"
+    type: "int"
+    required: false
+    description: "Desired user ID"
+
+  - name: "gid"
+    type: "int"
+    required: false
+    description: "Desired group ID or primary group"
+
+  - name: "home"
+    type: "string"
+    required: false
+    description: "Home directory path (default: /home/<name>)"
+
+  - name: "shell"
+    type: "string"
+    required: false
+    description: "Login shell (default: platform default)"
+
+  - name: "groups"
+    type: "string"
+    required: false
+    description: "Comma-separated secondary group names"
+
+  - name: "password"
+    type: "string"
+    required: false
+    description: "Password hash or plaintext"
+
+  - name: "remove-home"
+    type: "bool"
+    required: false
+    description: "Remove home directory when removing user"
+
+  - name: "mode"
+    type: "string"
+    required: false
+    description: "strict or easy (default: easy)"
+
+examples:
+  - description: "Inspect a user"
+    code: |
+      "options": ["check"],
+      "arguments": { "name": "nginx" }
+
+  - description: "Ensure a system user exists"
+    code: |
+      "options": ["present"],
+      "arguments": {
+        "name": "myapp",
+        "uid": 501,
+        "home": "/opt/myapp",
+        "shell": "/sbin/nologin"
+      }
+
+  - description: "Remove a user and their home directory"
+    code: |
+      "options": ["absent"],
+      "arguments": {
+        "name": "olduser",
+        "remove-home": true
+      }
+
+returns:
+  check:
+    :description: "User inspection telemetry."
+    retcode: 0
+    data:
+      name: "nginx"
+      uid: 101
+      gid: 101
+      home: "/var/empty"
+      shell: "/sbin/nologin"
+      groups: ["www"]
+      exists: true
+
+  present:
+    :description: "User creation or update result."
+    retcode: 0
+    message: "User 'myapp' created"
+    data:
+      name: "myapp"
+      uid: 501
+      changed: true
