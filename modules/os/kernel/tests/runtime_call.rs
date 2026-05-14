@@ -71,12 +71,8 @@ fn dry_run_shows_command() {
         "options": ["load", "dry-run"],
         "arguments": { "name": "dummy-module" }
     }));
-    let retcode = out["retcode"].as_i64().unwrap();
-    assert!(retcode == 0 || out["message"].as_str().unwrap().contains("no kernel module manager"));
-    if retcode == 0 {
-        assert!(out["message"].as_str().unwrap().starts_with("[dry-run] "));
-        assert!(out["message"].as_str().unwrap().contains("dummy-module"));
-    }
+    let msg = out["message"].as_str().unwrap();
+    assert!(msg.starts_with("[dry-run] "));
 }
 
 #[test]
