@@ -103,9 +103,10 @@ fn present_creates_directory() {
 fn present_idempotent_existing_directory() {
     let d = tmpdir();
     fs::create_dir(&d).unwrap();
+    let actual_mode = format!("{:04o}", fs::metadata(&d).unwrap().permissions().mode() & 0o777);
     let out = run_module(&json!({
         "options": ["present"],
-        "arguments": { "name": d, "mode": "0775" }
+        "arguments": { "name": d.as_str(), "mode": actual_mode }
     }));
     assert_eq!(out["retcode"], 0);
     assert!(out["message"].as_str().unwrap().contains("already exists"));
