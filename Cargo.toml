@@ -51,6 +51,7 @@ members = [
     "sysmaster",
     "sysminion",
     "modules/fs/file",
+    "modules/fs/dir",
     "libsetup",
     "libmodpak",
     "libscheduler",
@@ -65,6 +66,9 @@ members = [
     "libmenotify",
     "libdatastore",
     "modules/cfg/resource"]
+
+[profile.dev]
+panic = "abort"
 
 [profile.release]
 strip = true

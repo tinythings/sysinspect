@@ -1,0 +1,111 @@
+name: "fs.dir"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Directory state management module. Ensure directories exist, inspect
+  their attributes, and remove them. Idempotent and allocation-free.
+
+options:
+  - name: check
+    description: "Inspect directory state (exists, mode, uid, gid)"
+
+  - name: present
+    description: "Ensure directory exists with given attributes"
+
+  - name: absent
+    description: "Remove directory if it exists"
+
+  - name: dry-run
+    description: "Print what would be done without making changes"
+
+  - name: help
+    description: "Show this help message"
+
+arguments:
+  - name: name
+    type: "string"
+    required: true
+    description: "Directory path"
+
+  - name: mode
+    type: "string"
+    required: false
+    description: "Octal mode for directory (default: 0755)"
+
+  - name: uid
+    type: "int"
+    required: false
+    description: "Owner UID (0 = skip)"
+
+  - name: gid
+    type: "int"
+    required: false
+    description: "Group GID (0 = skip)"
+
+examples:
+  - description: "Create /etc/myapp/config with default mode"
+    code: |
+      "options": ["present"],
+      "arguments": {
+        "name": "/etc/myapp/config"
+      }
+
+  - description: "Create directory with specific mode and owner"
+    code: |
+      "options": ["present"],
+      "arguments": {
+        "name": "/var/lib/data",
+        "mode": "0700",
+        "uid": 1000,
+        "gid": 1000
+      }
+
+  - description: "Inspect a directory"
+    code: |
+      "options": ["check"],
+      "arguments": {
+        "name": "/etc/myapp/config"
+      }
+
+  - description: "Remove a directory"
+    code: |
+      "options": ["absent"],
+      "arguments": {
+        "name": "/tmp/stale-cache"
+      }
+
+returns:
+  check:
+    :description: "Directory state inspection result"
+    retcode: 0
+    data:
+      name: "/etc/myapp"
+      exists: true
+      is_dir: true
+      mode: "0755"
+      uid: 0
+      gid: 0
+
+  present:
+    :description: "Creation or attribute update result"
+    retcode: 0
+    message: "Directory created"
+
+  absent:
+    :description: "Removal result"
+    retcode: 0
+    message: "Directory removed"
+
+manpage: |
+  This module manages directory state through three operations:
+
+  - [B::]check[N]: inspect a directory's existence, type, mode, owner, and group.
+  - [B::]present[N]: ensure a directory exists with the given attributes.
+    If it already exists, mode and ownership are updated if they differ.
+  - [B::]absent[N]: remove a directory if it exists.
+
+  All operations are idempotent. [B::]dry-run[N] prints what would happen
+  without making changes.
+
+  This module is [G::]#![no_std][N] and makes no heap allocations — only raw
+  libc calls, suitable for minimal environments.
