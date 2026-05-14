@@ -51,6 +51,7 @@ members = [
     "sysmaster",
     "sysminion",
     "modules/fs/file",
+    "modules/fs/dir",
     "libsetup",
     "libmodpak",
     "libscheduler",
