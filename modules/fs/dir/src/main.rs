@@ -22,9 +22,16 @@ pub extern "C" fn rust_eh_personality() {}
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     let mut stdin_buf = [0u8; 512];
+
+    if unsafe { libc::isatty(0) } != 0 {
+        let help = include_bytes!(concat!(env!("OUT_DIR"), "/help.txt"));
+        unsafe { libc::write(1, help.as_ptr() as *const libc::c_void, help.len()) };
+        return 0;
+    }
+
     let n = unsafe { libc::read(0, stdin_buf.as_mut_ptr() as *mut libc::c_void, stdin_buf.len()) };
     if n <= 0 {
-        unsafe { libc::exit(1) };
+        return 1;
     }
     let input = &stdin_buf[..n as usize];
     let mut out = [0u8; 4096];
