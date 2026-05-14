@@ -67,6 +67,9 @@ members = [
     "libdatastore",
     "modules/cfg/resource"]
 
+[profile.dev]
+panic = "abort"
+
 [profile.release]
 strip = true
 opt-level = "z"

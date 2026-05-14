@@ -1,15 +1,24 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+#![cfg_attr(test, allow(dead_code))]
 
+#[cfg(not(test))]
 extern crate libc;
 
+#[cfg(not(test))]
 use core::panic::PanicInfo;
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     unsafe { libc::exit(1) };
 }
 
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+pub extern "C" fn rust_eh_personality() {}
+
+#[cfg(not(test))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     let mut stdin_buf = [0u8; 512];
@@ -83,7 +92,7 @@ fn cstr(bytes: &[u8]) -> [u8; 512] {
 fn check_dir(input: &[u8], out: &mut [u8; 4096]) -> usize {
     let name = get_arg(input, b"name");
     if name.is_empty() {
-        return write_json(out, 1, b"Argument \"name\" is required", b"");
+        return write_json(out, 1, b"Argument 'name' is required", b"");
     }
 
     let path = cstr(name);
@@ -115,7 +124,7 @@ fn check_dir(input: &[u8], out: &mut [u8; 4096]) -> usize {
 fn ensure_present(input: &[u8], out: &mut [u8; 4096]) -> usize {
     let name = get_arg(input, b"name");
     if name.is_empty() {
-        return write_json(out, 1, b"Argument \"name\" is required", b"");
+        return write_json(out, 1, b"Argument 'name' is required", b"");
     }
 
     let mode_arg = get_arg(input, b"mode");
@@ -129,14 +138,8 @@ fn ensure_present(input: &[u8], out: &mut [u8; 4096]) -> usize {
     let exists = unsafe { libc::stat(path.as_ptr() as *const libc::c_char, &mut stat) == 0 };
 
     if dry_run {
-        let mut data = [0u8; 4096];
-        let dp;
-        if exists {
-            dp = wb_str(&mut data, 0, b"already exists");
-        } else {
-            dp = wb_str(&mut data, 0, b"would create");
-        }
-        return write_json(out, 0, b"[dry-run]", &data[..dp]);
+        let msg: &[u8] = if exists { b"[dry-run] already exists" } else { b"[dry-run] would create" };
+        return write_json(out, 0, msg, b"");
     }
 
     if exists {
@@ -171,7 +174,7 @@ fn ensure_present(input: &[u8], out: &mut [u8; 4096]) -> usize {
 fn ensure_absent(input: &[u8], out: &mut [u8; 4096]) -> usize {
     let name = get_arg(input, b"name");
     if name.is_empty() {
-        return write_json(out, 1, b"Argument \"name\" is required", b"");
+        return write_json(out, 1, b"Argument 'name' is required", b"");
     }
 
     let dry_run = has_opt(input, b"dry-run");
@@ -241,10 +244,6 @@ fn wb(out: &mut [u8; 4096], pos: usize, bytes: &[u8]) -> usize {
     }
 }
 
-fn wb_str(out: &mut [u8; 4096], pos: usize, s: &[u8]) -> usize {
-    wb(out, pos, s)
-}
-
 fn wb_u32(out: &mut [u8; 4096], pos: usize, n: u32) -> usize {
     let mut buf = [0u8; 16];
     let mut i = 16;
@@ -262,3 +261,6 @@ fn wb_u32(out: &mut [u8; 4096], pos: usize, n: u32) -> usize {
     out[pos..pos + len].copy_from_slice(&buf[i..]);
     len
 }
+
+#[cfg(test)]
+fn main() {}
