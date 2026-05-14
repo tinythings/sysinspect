@@ -1,0 +1,149 @@
+# Built-in service manager definitions for sys.service.
+# User overrides go to $SHARELIB/lib/sys.service.yaml.
+# Format: each manager has an `os` filter (which OS it applies to),
+# a `detect` command (return 0 = available), and operation templates
+# where `{name}` is substituted with the service name.
+#
+# Operations:
+#   start, stop, restart, reload, status  (always)
+#   enable, disable                       (optional — skipped if absent)
+#
+# Detection order within an OS is the definition order below.
+# The first manager whose `detect` succeeds wins.
+
+managers:
+
+  # ---- FreeBSD ----
+  freebsd-rcd:
+    os: freebsd
+    detect: "service -l"
+    description: "FreeBSD rc.d via service(8)"
+    start: "service {name} start"
+    stop: "service {name} stop"
+    restart: "service {name} restart"
+    reload: "service {name} reload"
+    status: "service {name} status"
+    enable: "sysrc {name}_enable=YES"
+    disable: "sysrc {name}_enable=NO"
+
+  # ---- OpenBSD ----
+  openbsd-rcctl:
+    os: openbsd
+    detect: "rcctl"
+    description: "OpenBSD rcctl"
+    start: "rcctl start {name}"
+    stop: "rcctl stop {name}"
+    restart: "rcctl restart {name}"
+    reload: "rcctl reload {name}"
+    status: "rcctl check {name}"
+    info: "rcctl get {name}"
+    enable: "rcctl enable {name}"
+    disable: "rcctl disable {name}"
+
+  # ---- NetBSD ----
+  netbsd-rcd:
+    os: netbsd
+    detect: "service -l"
+    description: "NetBSD rc.d via service(8)"
+    start: "service {name} start"
+    stop: "service {name} stop"
+    restart: "service {name} restart"
+    reload: "service {name} reload"
+    status: "service {name} status"
+
+  # ---- macOS ----
+  macos-launchctl:
+    os: macos
+    detect: "launchctl"
+    description: "macOS launchctl"
+    start: "launchctl load -w /Library/LaunchDaemons/{name}.plist"
+    stop: "launchctl unload -w /Library/LaunchDaemons/{name}.plist"
+    restart: "launchctl unload -w /Library/LaunchDaemons/{name}.plist && launchctl load -w /Library/LaunchDaemons/{name}.plist"
+    status: "launchctl list {name}"
+
+  # ---- Linux ----
+  # Detection order: systemd first (most common), then openrc, runit, s6, sysv.
+
+  linux-systemd:
+    os: linux
+    detect: "systemctl --version"
+    description: "systemd"
+    start: "systemctl start {name}"
+    stop: "systemctl stop {name}"
+    restart: "systemctl restart {name}"
+    reload: "systemctl reload {name}"
+    status: "systemctl is-active {name}"
+    info: "systemctl show {name}"
+    enable: "systemctl enable {name}"
+    disable: "systemctl disable {name}"
+
+  linux-openrc:
+    os: linux
+    detect: "rc-service --version"
+    description: "OpenRC"
+    start: "rc-service {name} start"
+    stop: "rc-service {name} stop"
+    restart: "rc-service {name} restart"
+    status: "rc-service {name} status"
+    enable: "rc-update add {name}"
+    disable: "rc-update del {name}"
+
+  linux-runit:
+    os: linux
+    detect: "sv --version"
+    description: "runit"
+    start: "sv up {name}"
+    stop: "sv down {name}"
+    restart: "sv restart {name}"
+    status: "sv status {name}"
+
+  linux-s6:
+    os: linux
+    detect: "s6-svc -h"
+    description: "s6/s6-rc"
+    start: "s6-svc -u /run/service/{name}"
+    stop: "s6-svc -d /run/service/{name}"
+    restart: "s6-svc -r /run/service/{name}"
+    status: "s6-svstat /run/service/{name}"
+
+  linux-sysv:
+    os: linux
+    detect: "test -x /etc/init.d/{name}"
+    description: "SysV init"
+    start: "/etc/init.d/{name} start"
+    stop: "/etc/init.d/{name} stop"
+    restart: "/etc/init.d/{name} restart"
+    status: "/etc/init.d/{name} status"
+
+  linux-busybox:
+    os: linux
+    detect: "test -x /etc/init.d/{name} && busybox --help"
+    description: "Busybox init"
+    start: "/etc/init.d/{name} start"
+    stop: "/etc/init.d/{name} stop"
+    restart: "/etc/init.d/{name} restart"
+    status: "/etc/init.d/{name} status"
+
+  # ---- Android ----
+  android-prop:
+    os: android
+    detect: "getprop"
+    description: "Android setprop"
+    start: "setprop ctl.start {name}"
+    stop: "setprop ctl.stop {name}"
+    restart: "setprop ctl.stop {name} && setprop ctl.start {name}"
+    status: "getprop init.svc.{name}"
+
+  # ---- Solaris (Illumos, Solaris 11+) ----
+  solaris-smf:
+    os: solaris
+    detect: "svcs"
+    description: "Solaris SMF"
+    start: "svcadm enable {name}"
+    stop: "svcadm disable {name}"
+    restart: "svcadm restart {name}"
+    reload: "svcadm refresh {name}"
+    status: "svcs -H {name}"
+    info: "svcs -l {name}"
+    enable: "svcadm enable {name}"
+    disable: "svcadm disable {name}"

@@ -2367,7 +2367,7 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "file"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "libmodcore",
@@ -7727,6 +7727,17 @@ dependencies = [
  "ryu",
  "serde",
  "unsafe-libyaml",
+]
+
+[[package]]
+name = "service"
+version = "0.1.0"
+dependencies = [
+ "libmodcore",
+ "libsysinspect",
+ "serde",
+ "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]

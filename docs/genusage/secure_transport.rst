@@ -318,7 +318,7 @@ What Each Rotation Option Does
 The current operator-facing rotation options are:
 
 ``network --rotate <target>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Starts a managed transport rotation.
 
