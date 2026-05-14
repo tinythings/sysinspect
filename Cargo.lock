@@ -9229,6 +9229,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
+name = "user"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libmodcore",
+ "libsysinspect",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "users"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
