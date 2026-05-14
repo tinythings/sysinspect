@@ -53,6 +53,7 @@ Below is a list of available control modules and their documentation:
    net_http
    sys_run
    sys_ssrun
+   sys_user
    fs_file
    cfg_resource
 
