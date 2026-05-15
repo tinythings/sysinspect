@@ -1,2 +1,4 @@
 include!("../../build-help.rs");
-fn main() { generate_help(); }
+fn main() {
+    generate_help();
+}
