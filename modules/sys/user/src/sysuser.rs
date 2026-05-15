@@ -187,10 +187,11 @@ fn ensure_absent(rt: &ModRequest, name: &str, resp: &mut ModResponse) -> ModResp
     let mut groups = db::read_db(db::group_path());
     for line in groups.iter_mut() {
         if let Some(mut g) = db::parse_group(line)
-            && g.members.contains(&name.to_string()) {
-                g.members.retain(|m| m != name);
-                *line = db::format_group(&g);
-            }
+            && g.members.contains(&name.to_string())
+        {
+            g.members.retain(|m| m != name);
+            *line = db::format_group(&g);
+        }
     }
 
     if let Err(e) = db::write_db(db::passwd_path(), &passwd) {
