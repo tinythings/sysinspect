@@ -220,6 +220,7 @@ define stage_profile_modules
 	if [ -f "$$build_dir/user" ]; then cp -f "$$build_dir/user" "$$stage_dir/sys/user" && chmod +x "$$stage_dir/sys/user"; fi; \
 	if [ -f "$$build_dir/service" ]; then cp -f "$$build_dir/service" "$$stage_dir/sys/service" && chmod +x "$$stage_dir/sys/service"; fi; \
 	if [ -f "$$build_dir/pkg" ]; then cp -f "$$build_dir/pkg" "$$stage_dir/sys/pkg" && chmod +x "$$stage_dir/sys/pkg"; fi; \
+	if [ -f "$$build_dir/ipfw" ]; then cp -f "$$build_dir/ipfw" "$$stage_dir/net/ipfw" && chmod +x "$$stage_dir/net/ipfw"; fi; \
 		if [ -f "$build_dir/http-mod" ]; then cp -f "$build_dir/http-mod" "$stage_dir/net/http" && chmod +x "$stage_dir/net/http"; fi; \
 
 	if [ -f "$$build_dir/file" ]; then cp -f "$$build_dir/file" "$$stage_dir/fs/file" && chmod +x "$$stage_dir/fs/file"; fi; \
@@ -261,6 +262,7 @@ define stage_modules_dist
 			pkg) rel=sys/pkg ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
+			ipfw) rel=net/ipfw ;; \
 			file) rel=fs/file ;; \
 			dir) rel=fs/dir ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
@@ -300,6 +302,7 @@ define stage_modules_dist_from
 user) rel=sys/user ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
+			ipfw) rel=net/ipfw ;; \
 			file) rel=fs/file ;; \
 			dir) rel=fs/dir ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
@@ -338,6 +341,7 @@ define stage_native_modules_dist
 user) rel=sys/user ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
+			ipfw) rel=net/ipfw ;; \
 			file) rel=fs/file ;; \
 			dir) rel=fs/dir ;; \
 			lua-runtime) rel=runtime/lua-runtime ;; \
