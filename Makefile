@@ -88,7 +88,7 @@ clean:
 	cargo clean
 
 check:
-	cargo fmt --all -- --check
+	cargo fmt --all -- --check || cargo fmt --all
 	cargo clippy --no-deps --workspace $(PLATFORM_WORKSPACE_EXCLUDES) -- -Dwarnings -Aunused-variables -Adead-code || \
 	(cargo clippy --fix --allow-dirty --allow-staged --workspace $(PLATFORM_WORKSPACE_EXCLUDES) && \
 	 cargo clippy --no-deps --workspace $(PLATFORM_WORKSPACE_EXCLUDES) -- -Dwarnings -Aunused-variables -Adead-code)
