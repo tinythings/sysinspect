@@ -11,68 +11,152 @@ Overview
 Purpose
 ^^^^^^^
 
-A module in Sysinspect is a unit, that mighd do any (or all) of the following functions:
-
-- Returns a general arbitrary information, which can be then later accessed and processed
-  by a constraint or an event reactor.
-
-- Performs a specific checks and verifications, returning **True** (``errcode 0``) or
-  **False** (``errorode >0``).
-
-Any of these functions above are up to the specific use case.
+A module in Sysinspect is a standalone executable that receives JSON on stdin
+and returns JSON on stdout. Modules can inspect, enforce, or query system state
+— from installing packages to managing firewall rules.
 
 Module Types
 ^^^^^^^^^^^^
 
-Modules in Sysinspect are simply standalone executables. They can be scripts,
-programs etc. However there are few rules that needs to be complied:
-
-- All communication between Sysinspect and a module is done via JSON (STDIN/STDOUT).
-- An executable must always accept data from STDIN on default.
-- An executable must return help documentation when ``-h`` or ``--help`` option is passed.
+- **Control modules** are Rust (or Lua) binaries that perform a specific system
+  operation.
+- **Runtime modules** execute user-written scripts (Lua, Python, Wasm) in a
+  sandboxed environment inside the Sysinspect ecosystem.
 
 .. important::
 
-    Refer to the detailed communication protocol documentation in chapter :ref:`commproto`.
+    Refer to the communication protocol in chapter :ref:`commproto`.
 
+System (``sys.*``)
+------------------
 
-Control Modules
----------------
+Core system operations: processes, packages, services, users, commands,
+and network interfaces.
 
-Below is a list of available control modules and their documentation:
++------------------+----------------------------------------------------------+
+| Module           | Purpose                                                  |
++==================+==========================================================+
+| :doc:`sys_run`   | Run arbitrary local commands with env/STDIN control      |
++------------------+----------------------------------------------------------+
+| :doc:`sys_ssrun` | Run commands on remote hosts over SSH                    |
++------------------+----------------------------------------------------------+
+| :doc:`sys_proc`  | Inspect and manage processes (search, start, stop)       |
++------------------+----------------------------------------------------------+
+| :doc:`sys_pkg`   | Cross-platform package management (install/remove/query) |
++------------------+----------------------------------------------------------+
+| :doc:`sys_service` | Cross-platform service management (start/stop/enable)  |
++------------------+----------------------------------------------------------+
+| :doc:`sys_user`  | Manage users and groups (create/modify/delete)           |
++------------------+----------------------------------------------------------+
+| :doc:`sys_net`   | Query network interfaces, routes, and addresses          |
++------------------+----------------------------------------------------------+
 
 .. toctree::
    :maxdepth: 1
+   :hidden:
 
-   sys_proc
-   sys_net
-   sys_pkg
-   sys_service
-   os_kernel
-   os_facts
-   net_http
    sys_run
    sys_ssrun
+   sys_proc
+   sys_pkg
+   sys_service
    sys_user
-   fs_file
-   cfg_resource
+   sys_net
 
-Runtime Modules
-----------------
+Filesystem (``fs.*``)
+---------------------
 
-Runtime modules are the same control modules as usual, but they are simply additionally
-running specific targets they are meant to run. For example, WASM runtime, Python runtime, Lua etc.
-These modules are enabling certain types of user-written modules to be executed
-inside Sysinspect ecosystem.
+State enforcement for files, directories, content, and symlinks.
 
-This is done for the reason of security, isolation, portability and customisation.
-For example, there are cases where no Python interpreter is needed at all, so user
-can simply remove that module from the Minion in a whole.
-
-Below is a list of available runtime modules and their documentation:
++-----------------+-----------------------------------------------------------+
+| Module          | Purpose                                                   |
++=================+===========================================================+
+| :doc:`fs_file`  | Create, copy, delete, inspect files. Content line ops.    |
++-----------------+-----------------------------------------------------------+
+| :doc:`fs_dir`   | Ensure directory state with mode, uid, gid                |
++-----------------+-----------------------------------------------------------+
 
 .. toctree::
    :maxdepth: 1
+   :hidden:
+
+   fs_file
+   fs_dir
+
+Configuration (``cfg.*``)
+--------------------------
+
+Artifact push/pull between master and minions.
+
++---------------------+------------------------------------------------------+
+| Module              | Purpose                                              |
++=====================+======================================================+
+| :doc:`cfg_resource` | Push/pull configuration artifacts to/from the master |
++---------------------+------------------------------------------------------+
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   cfg_resource
+
+Network (``net.*``)
+-------------------
+
+Outbound network operations and firewall management.
+
++------------------+--------------------------------------------------------------+
+| Module           | Purpose                                                      |
++==================+==============================================================+
+| :doc:`net_http`  | One-shot HTTP client with auth, TLS, and JSON parsing        |
++------------------+--------------------------------------------------------------+
+| :doc:`net_ipfw`  | Cross-platform firewall rules (pf, ipfw, nftables, iptables) |
++------------------+--------------------------------------------------------------+
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   net_http
+   net_ipfw
+
+Operating System (``os.*``)
+----------------------------
+
+Kernel-level and system-facts introspection.
+
++-------------------+---------------------------------------------------+
+| Module            | Purpose                                           |
++===================+===================================================+
+| :doc:`os_kernel`  | Kernel module management (load/unload/list)       |
++-------------------+---------------------------------------------------+
+| :doc:`os_facts`   | Collect system hardware and software facts        |
++-------------------+---------------------------------------------------+
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   os_kernel
+   os_facts
+
+Runtime
+-------
+
+Sandboxed script execution in Lua, Python, and Wasm. Each runtime provides
+isolation, portability, and language-specific libraries.
+
++---------------------+-----------------------------------------------------+
+| Module              | Purpose                                             |
++=====================+=====================================================+
+| :doc:`runtime_lua`  | Lua 5.4 runtime with full stdlib and site-packages  |
++---------------------+-----------------------------------------------------+
+| :doc:`runtime_py3`  | Python 3.14 runtime with site-packages support      |
++---------------------+-----------------------------------------------------+
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
 
    runtime_lua
    runtime_py3

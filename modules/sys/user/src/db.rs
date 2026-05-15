@@ -110,9 +110,5 @@ pub(crate) fn shadow_path() -> &'static str {
 
 /// Default shell for new users on this platform.
 pub(crate) fn default_shell() -> &'static str {
-    if cfg!(target_os = "freebsd") || cfg!(target_os = "openbsd") || cfg!(target_os = "netbsd") {
-        "/bin/sh"
-    } else {
-        "/bin/bash"
-    }
+    if cfg!(target_os = "freebsd") || cfg!(target_os = "openbsd") || cfg!(target_os = "netbsd") { "/bin/sh" } else { "/bin/bash" }
 }

@@ -2,7 +2,15 @@ on:
   push:
     branches:
       - "master"
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '**.rst'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '**.rst'
 
 name: Insanity check
 jobs:
@@ -10,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup component add clippy
+      - run: rustup component add clippy rustfmt
       - name: Install deps
         run: |
           sudo apt-get update

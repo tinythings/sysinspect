@@ -1,0 +1,206 @@
+name: "net.ipfw"
+version: "0.1.0"
+author: "Bo Maryniuk"
+description: |
+  Cross-platform firewall rule management. Uses a common expression
+  language that translates to the detected backend (pf, ipfw, nftables,
+  iptables). Supports raw native rules for backend-specific features.
+
+manpage: |
+  This module manages firewall rules through a common expression interface.
+  Rules are expressed as JSON objects with fields for action, protocol,
+  source, destination, port, interface, direction, statefulness, and
+  logging. The module translates these to the appropriate backend syntax.
+
+  [Y::b]Supported backends[N]:
+
+  - [B::]pf[N] (FreeBSD, OpenBSD, NetBSD, macOS)
+  - [B::]ipfw[N] (FreeBSD)
+  - [B::]nftables[N] (modern Linux)
+  - [B::]iptables[N] (legacy Linux)
+
+  [Y::b]Native escape hatch[N]:
+
+  When the common expression language is not expressive enough, use the
+  [B::]native[N] argument to supply raw backend rules. If [B::]native[N]
+  is present, it takes precedence over common fields.
+
+  [Y::b]Example: allow HTTP[N]
+
+      [M::b]actions[N]:
+        [M::b]allow-http[N]:
+          [M::b]module[N]: [B::]net.ipfw[N]
+          [M::b]bind[N]:
+            - [C::]web-servers[N]
+          [M::b]state[N]:
+            [M::b]$[N]:
+              [M::b]opts[N]:
+                - [C::]present[N]
+              [M::b]args[N]:
+                [M::b]action[N]: [C::]allow[N]
+                [M::b]protocol[N]: [C::]tcp[N]
+                [M::b]port[N]: [C::]"80"[N]
+                [M::b]stateful[N]: [C::]"true"[N]
+                [M::b]comment[N]: [C::]"HTTP web traffic"[N]
+
+options:
+  - name: "check"
+    description: "List current rules for the detected backend"
+
+  - name: "present"
+    description: "Ensure a rule exists (add if missing)"
+
+  - name: "absent"
+    description: "Remove a matching rule"
+
+  - name: "flush"
+    description: "Remove all rules"
+
+  - name: "dry-run"
+    description: "Show what would be done without modifying rules"
+
+arguments:
+  - name: "action"
+    type: "string"
+    required: false
+    description: "allow or deny (required for present/absent)"
+
+  - name: "protocol"
+    type: "string"
+    required: false
+    description: "tcp, udp, icmp, or any (default: tcp)"
+
+  - name: "source"
+    type: "string"
+    required: false
+    description: "Source IP or CIDR (default: any)"
+
+  - name: "destination"
+    type: "string"
+    required: false
+    description: "Destination IP or CIDR (default: any)"
+
+  - name: "port"
+    type: "string"
+    required: false
+    description: "Single port, e.g. 80"
+
+  - name: "port-range"
+    type: "string"
+    required: false
+    description: "Port range, e.g. 8000-8080"
+
+  - name: "interface"
+    type: "string"
+    required: false
+    description: "Network interface, e.g. eth0"
+
+  - name: "direction"
+    type: "string"
+    required: false
+    description: "in or out (default: in)"
+
+  - name: "stateful"
+    type: "bool"
+    required: false
+    description: "Keep state tracking (where supported)"
+
+  - name: "log"
+    type: "bool"
+    required: false
+    description: "Log matching packets"
+
+  - name: "comment"
+    type: "string"
+    required: false
+    description: "Human-readable rule description"
+
+  - name: "backend"
+    type: "string"
+    required: false
+    description: "Force a specific backend (pf, ipfw, nftables, iptables)"
+
+  - name: "native"
+    type: "object"
+    required: false
+    description: "Raw backend rules keyed by backend name"
+
+examples:
+  - description: "Allow HTTP (port 80/tcp, stateful)"
+    code: |
+      "options": ["present"],
+      "arguments": {
+        "action": "allow",
+        "protocol": "tcp",
+        "port": "80",
+        "stateful": true,
+        "comment": "HTTP web traffic"
+      }
+
+  - description: "Block outbound SMTP"
+    code: |
+      "options": ["present"],
+      "arguments": {
+        "action": "deny",
+        "protocol": "tcp",
+        "port": "25",
+        "direction": "out"
+      }
+
+  - description: "Native pf anti-spoofing rules"
+    code: |
+      "options": ["present"],
+      "arguments": {
+        "native": {
+          "pf": "scrub in all\nantispoof quick for egress"
+        }
+      }
+
+  - description: "Remove a rule by port"
+    code: |
+      "options": ["absent"],
+      "arguments": {
+        "protocol": "tcp",
+        "port": "8080"
+      }
+
+  - description: "List all current rules"
+    code: |
+      "options": ["check"],
+      "arguments": {}
+
+  - description: "Dry-run deny on port range"
+    code: |
+      "options": ["present", "dry-run"],
+      "arguments": {
+        "action": "deny",
+        "protocol": "tcp",
+        "port-range": "9000-9100"
+      }
+
+  - description: "Flush all firewall rules"
+    code: |
+      "options": ["flush"],
+      "arguments": {}
+
+returns:
+  check:
+    :description: "Current rule listing"
+    retcode: 0
+    message: "pf rules listed"
+    data:
+      rules:
+        - "pass in quick proto tcp from any to any port 80"
+
+  present:
+    :description: "Rule addition result"
+    retcode: 0
+    message: "Firewall rule added"
+    data:
+      rule: "pass in quick proto tcp from any to any port 80"
+      backend: "pf"
+
+  absent:
+    :description: "Rule removal result"
+    retcode: 0
+    message: "Firewall rule removed"
