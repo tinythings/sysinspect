@@ -118,3 +118,24 @@ fn rule_with_interface() {
     let msg = out["message"].as_str().unwrap();
     assert!(msg.contains("443"));
 }
+
+#[test]
+fn dry_run_absent_shows_remove() {
+    let out = run_module(&json!({
+        "options": ["absent", "dry-run"],
+        "arguments": {"action": "deny", "port": "22"}
+    }));
+    assert_eq!(out["retcode"], 0);
+    assert!(out["message"].as_str().unwrap().contains("remove"));
+}
+
+#[test]
+fn dry_run_present_with_log() {
+    let out = run_module(&json!({
+        "options": ["present", "dry-run"],
+        "arguments": {"action": "deny", "port": "23", "log": true}
+    }));
+    assert_eq!(out["retcode"], 0);
+    let msg = out["message"].as_str().unwrap();
+    assert!(msg.contains("23"));
+}
