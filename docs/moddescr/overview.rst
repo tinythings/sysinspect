@@ -44,7 +44,7 @@ and network interfaces.
 +------------------+----------------------------------------------------------+
 | :doc:`sys_pkg`   | Cross-platform package management (install/remove/query) |
 +------------------+----------------------------------------------------------+
-| :doc:`sys_service`| Cross-platform service management (start/stop/enable)   |
+| :doc:`sys_service` | Cross-platform service management (start/stop/enable)  |
 +------------------+----------------------------------------------------------+
 | :doc:`sys_user`  | Manage users and groups (create/modify/delete)           |
 +------------------+----------------------------------------------------------+
@@ -146,13 +146,13 @@ Runtime
 Sandboxed script execution in Lua, Python, and Wasm. Each runtime provides
 isolation, portability, and language-specific libraries.
 
-+---------------------+---------------------------------------------------+
-| Module              | Purpose                                           |
-+=====================+===================================================+
-| :doc:`runtime_lua`  | Lua 5.4 runtime with full stdlib and site-packages |
-+---------------------+---------------------------------------------------+
-| :doc:`runtime_py3`  | Python 3.14 runtime with site-packages support     |
-+---------------------+---------------------------------------------------+
++---------------------+-----------------------------------------------------+
+| Module              | Purpose                                             |
++=====================+=====================================================+
+| :doc:`runtime_lua`  | Lua 5.4 runtime with full stdlib and site-packages  |
++---------------------+-----------------------------------------------------+
+| :doc:`runtime_py3`  | Python 3.14 runtime with site-packages support      |
++---------------------+-----------------------------------------------------+
 
 .. toctree::
    :maxdepth: 1
