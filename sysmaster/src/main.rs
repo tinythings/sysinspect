@@ -28,7 +28,7 @@ use std::{env, fs::File, sync::OnceLock};
 use std::{path::PathBuf, process::exit};
 
 static APPNAME: &str = "sysmaster";
-static VERSION: &str = "0.4.0";
+static VERSION: &str = "0.5.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 
 fn start_master(cfg: MasterConfig) -> Result<(), SysinspectError> {

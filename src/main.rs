@@ -44,7 +44,7 @@ mod ui;
 #[cfg(test)]
 mod netadd_ut;
 
-static VERSION: &str = "0.4.0";
+static VERSION: &str = "0.5.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
 const CONSOLE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
