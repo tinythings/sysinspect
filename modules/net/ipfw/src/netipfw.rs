@@ -12,14 +12,7 @@ pub(crate) fn detect_backend() -> Option<&'static str> {
         ("nftables", &["nft", "list", "ruleset"]),
         ("iptables", &["iptables", "-L", "-n"]),
     ];
-    candidates.iter().find_map(|(name, args)| {
-        Command::new(args[0])
-            .args(&args[1..])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|_| *name)
-    })
+    candidates.iter().find_map(|(name, args)| Command::new(args[0]).args(&args[1..]).output().ok().filter(|o| o.status.success()).map(|_| *name))
 }
 
 fn exec(cmd: &str, args: &[&str]) -> Result<(i32, String, String), String> {
@@ -132,34 +125,82 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
     match backend {
         "pf" => {
             let mut rule = String::from(if action == "allow" { "pass" } else { "block" });
-            if dir == "out" { rule.push_str(" out"); } else { rule.push_str(" in"); }
+            if dir == "out" {
+                rule.push_str(" out");
+            } else {
+                rule.push_str(" in");
+            }
             rule.push_str(" quick");
-            if proto != "any" { rule.push_str(&format!(" proto {proto}")); }
-            if src != "any" { rule.push_str(&format!(" from {src}")); } else { rule.push_str(" from any"); }
-            if dst != "any" { rule.push_str(&format!(" to {dst}")); } else { rule.push_str(" to any"); }
-            if !port_spec.is_empty() { rule.push_str(&format!(" port {port_spec}")); }
-            if !iface.is_empty() { rule.push_str(&format!(" on {iface}")); }
+            if proto != "any" {
+                rule.push_str(&format!(" proto {proto}"));
+            }
+            if src != "any" {
+                rule.push_str(&format!(" from {src}"));
+            } else {
+                rule.push_str(" from any");
+            }
+            if dst != "any" {
+                rule.push_str(&format!(" to {dst}"));
+            } else {
+                rule.push_str(" to any");
+            }
+            if !port_spec.is_empty() {
+                rule.push_str(&format!(" port {port_spec}"));
+            }
+            if !iface.is_empty() {
+                rule.push_str(&format!(" on {iface}"));
+            }
             Ok(rule)
         }
         "ipfw" => {
             let act = if action == "allow" { "allow" } else { "deny" };
             let mut rule = format!("add {act} {proto}");
-            if src != "any" { rule.push_str(&format!(" from {src}")); } else { rule.push_str(" from any"); }
-            if dst != "any" { rule.push_str(&format!(" to {dst}")); } else { rule.push_str(" to any"); }
-            if !port_spec.is_empty() { rule.push_str(&format!(" dst-port {port_spec}")); }
-            if !iface.is_empty() { rule.push_str(&format!(" via {iface}")); }
-            if dir == "out" { rule.push_str(" out"); } else { rule.push_str(" in"); }
+            if src != "any" {
+                rule.push_str(&format!(" from {src}"));
+            } else {
+                rule.push_str(" from any");
+            }
+            if dst != "any" {
+                rule.push_str(&format!(" to {dst}"));
+            } else {
+                rule.push_str(" to any");
+            }
+            if !port_spec.is_empty() {
+                rule.push_str(&format!(" dst-port {port_spec}"));
+            }
+            if !iface.is_empty() {
+                rule.push_str(&format!(" via {iface}"));
+            }
+            if dir == "out" {
+                rule.push_str(" out");
+            } else {
+                rule.push_str(" in");
+            }
             Ok(rule)
         }
         "nftables" => {
             let act = if action == "allow" { "accept" } else { "drop" };
             let mut rule = String::from("add rule inet filter");
-            if dir == "out" { rule.push_str(" output"); } else { rule.push_str(" input"); }
-            if proto != "any" { rule.push_str(&format!(" {proto}")); }
-            if !port_spec.is_empty() { rule.push_str(&format!(" dport {port_spec}")); }
-            if src != "any" { rule.push_str(&format!(" ip saddr {src}")); }
-            if dst != "any" { rule.push_str(&format!(" ip daddr {dst}")); }
-            if !iface.is_empty() { rule.push_str(&format!(" iifname {iface}")); }
+            if dir == "out" {
+                rule.push_str(" output");
+            } else {
+                rule.push_str(" input");
+            }
+            if proto != "any" {
+                rule.push_str(&format!(" {proto}"));
+            }
+            if !port_spec.is_empty() {
+                rule.push_str(&format!(" dport {port_spec}"));
+            }
+            if src != "any" {
+                rule.push_str(&format!(" ip saddr {src}"));
+            }
+            if dst != "any" {
+                rule.push_str(&format!(" ip daddr {dst}"));
+            }
+            if !iface.is_empty() {
+                rule.push_str(&format!(" iifname {iface}"));
+            }
             rule.push_str(&format!(" {act}"));
             Ok(rule)
         }
@@ -167,13 +208,21 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
             let chain = if dir == "out" { "OUTPUT" } else { "INPUT" };
             let jump = if action == "allow" { "ACCEPT" } else { "DROP" };
             let mut rule = format!("-A {chain}");
-            if proto != "any" { rule.push_str(&format!(" -p {proto}")); }
+            if proto != "any" {
+                rule.push_str(&format!(" -p {proto}"));
+            }
             if !port_spec.is_empty() {
                 rule.push_str(&format!(" --dport {port_spec}"));
             }
-            if src != "any" { rule.push_str(&format!(" -s {src}")); }
-            if dst != "any" { rule.push_str(&format!(" -d {dst}")); }
-            if !iface.is_empty() { rule.push_str(&format!(" -i {iface}")); }
+            if src != "any" {
+                rule.push_str(&format!(" -s {src}"));
+            }
+            if dst != "any" {
+                rule.push_str(&format!(" -d {dst}"));
+            }
+            if !iface.is_empty() {
+                rule.push_str(&format!(" -i {iface}"));
+            }
             rule.push_str(&format!(" -j {jump}"));
             Ok(rule)
         }
@@ -272,7 +321,9 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     let raw_native = runtime::get_arg(rt, "native");
     let args_val = parse_rule_args(rt);
     let native_from_arg = if !raw_native.is_empty() {
-        serde_json::from_str::<serde_json::Value>(&raw_native).ok().and_then(|n| n.get(effective_backend.as_str()).and_then(|v| v.as_str()).map(|s| s.to_string()))
+        serde_json::from_str::<serde_json::Value>(&raw_native)
+            .ok()
+            .and_then(|n| n.get(effective_backend.as_str()).and_then(|v| v.as_str()).map(|s| s.to_string()))
     } else {
         None
     };
@@ -282,7 +333,11 @@ pub fn run(rt: &ModRequest) -> ModResponse {
     } else {
         match translate_rule(&effective_backend, &args_val) {
             Ok(r) => r,
-            Err(e) => { resp.set_retcode(1); resp.set_message(&e); return resp; }
+            Err(e) => {
+                resp.set_retcode(1);
+                resp.set_message(&e);
+                return resp;
+            }
         }
     };
 

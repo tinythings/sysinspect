@@ -25,12 +25,7 @@ fn run_module(payload: &Value) -> Value {
         .spawn()
         .unwrap_or_else(|err| panic!("failed to spawn {} binary: {}", bin.display(), err));
 
-    child
-        .stdin
-        .as_mut()
-        .expect("ipfw stdin not available")
-        .write_all(payload.to_string().as_bytes())
-        .expect("failed to write request payload");
+    child.stdin.as_mut().expect("ipfw stdin not available").write_all(payload.to_string().as_bytes()).expect("failed to write request payload");
 
     let out = child.wait_with_output().expect("failed to wait for ipfw output");
     let _ = out.status;
