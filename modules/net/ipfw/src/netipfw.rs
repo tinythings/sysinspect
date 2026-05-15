@@ -110,6 +110,73 @@ fn backend_add(backend: &str, rule_text: &str) -> Result<(i32, String, String), 
     }
 }
 
+fn backend_remove(backend: &str, rule_text: &str) -> Result<String, String> {
+    match backend {
+        "pf" => {
+            let tmp = format!("/tmp/ipfw-pf-remove-{}", std::process::id());
+            let current = backend_list(backend)?;
+            let filtered: Vec<&str> = current.lines().filter(|l| !l.contains(rule_text)).collect();
+            let content = filtered.join("\n");
+            if filtered.len() == current.lines().count() {
+                return Err("No matching pf rule found".to_string());
+            }
+            std::fs::write(&tmp, format!("{content}\n")).map_err(|e| e.to_string())?;
+            let result = exec("pfctl", &["-f", &tmp]);
+            let _ = std::fs::remove_file(&tmp);
+            match result {
+                Ok(_) => Ok("pf rule removed".to_string()),
+                Err(e) => Err(e),
+            }
+        }
+        "ipfw" => {
+            let current = backend_list(backend)?;
+            for line in current.lines() {
+                if line.contains(rule_text)
+                    && let Some(num) = line.split_whitespace().next() {
+                        let _ = exec("ipfw", &["-q", "delete", num])?;
+                        return Ok("ipfw rule removed".to_string());
+                    }
+            }
+            Err("No matching ipfw rule found".to_string())
+        }
+        "nftables" => {
+            let (_, out, _) = exec("nft", &["-a", "list", "chain", "inet", "filter", "input"])?;
+            let mut handle = String::new();
+            for line in out.lines() {
+                if line.contains(rule_text)
+                    && let Some(h) = line.split_whitespace().last()
+                        && h != "handle" {
+                            handle = h.to_string();
+                            break;
+                        }
+            }
+            if handle.is_empty() {
+                return Err("No matching nftables rule found".to_string());
+            }
+            exec("nft", &["delete", "rule", "inet", "filter", "input", "handle", &handle])?;
+            Ok("nftables rule removed".to_string())
+        }
+        "iptables" => {
+            let (_, out, _) = exec("iptables", &["-L", "INPUT", "-n", "--line-numbers"])?;
+            let mut rule_num = String::new();
+            for line in out.lines() {
+                if line.contains(rule_text)
+                    && let Some(num) = line.split_whitespace().next()
+                        && num.parse::<u32>().is_ok() {
+                            rule_num = num.to_string();
+                            break;
+                        }
+            }
+            if rule_num.is_empty() {
+                return Err("No matching iptables rule found".to_string());
+            }
+            exec("iptables", &["-D", "INPUT", &rule_num])?;
+            Ok("iptables rule removed".to_string())
+        }
+        _ => Err(format!("unknown backend: {backend}")),
+    }
+}
+
 pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<String, String> {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("allow");
     let proto = args.get("protocol").and_then(|v| v.as_str()).unwrap_or("tcp");
@@ -119,6 +186,8 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
     let dst = args.get("destination").and_then(|v| v.as_str()).unwrap_or("any");
     let iface = args.get("interface").and_then(|v| v.as_str()).unwrap_or("");
     let dir = args.get("direction").and_then(|v| v.as_str()).unwrap_or("in");
+    let stateful = args.get("stateful").and_then(|v| v.as_bool()).unwrap_or(false);
+    let log = args.get("log").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let port_spec = if !port_range.is_empty() { port_range } else { port };
 
@@ -150,6 +219,12 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
             if !iface.is_empty() {
                 rule.push_str(&format!(" on {iface}"));
             }
+            if stateful {
+                rule.push_str(" keep state");
+            }
+            if log {
+                rule.push_str(" log");
+            }
             Ok(rule)
         }
         "ipfw" => {
@@ -176,6 +251,12 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
             } else {
                 rule.push_str(" in");
             }
+            if stateful {
+                rule.push_str(" keep-state");
+            }
+            if log {
+                rule.push_str(" log");
+            }
             Ok(rule)
         }
         "nftables" => {
@@ -201,6 +282,12 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
             if !iface.is_empty() {
                 rule.push_str(&format!(" iifname {iface}"));
             }
+            if stateful {
+                rule.push_str(" ct state new,established");
+            }
+            if log {
+                rule.push_str(" log prefix \"net.ipfw: \"");
+            }
             rule.push_str(&format!(" {act}"));
             Ok(rule)
         }
@@ -223,7 +310,14 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
             if !iface.is_empty() {
                 rule.push_str(&format!(" -i {iface}"));
             }
-            rule.push_str(&format!(" -j {jump}"));
+            if stateful {
+                rule.push_str(" -m conntrack --ctstate NEW,ESTABLISHED");
+            }
+            if log {
+                rule.push_str(" -j LOG --log-prefix \"net.ipfw: \"");
+            } else {
+                rule.push_str(&format!(" -j {jump}"));
+            }
             Ok(rule)
         }
         _ => Err(format!("Unsupported backend: {backend}")),
@@ -363,9 +457,16 @@ pub fn run(rt: &ModRequest) -> ModResponse {
             }
         }
     } else {
-        // absent: not implemented yet — would need rule number tracking
-        resp.set_retcode(1);
-        resp.set_message("--absent not yet implemented. Use --flush to clear all rules.");
+        match backend_remove(&effective_backend, &rule_text) {
+            Ok(msg) => {
+                resp.set_retcode(0);
+                resp.set_message(&msg);
+            }
+            Err(e) => {
+                resp.set_retcode(1);
+                resp.set_message(&e);
+            }
+        }
     }
 
     resp
