@@ -20,73 +20,125 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # RUSTFLAGS: -D warnings
 
 jobs:
+  changes:
+    name: Detect what changed
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      modules: ${{ steps.filter.outputs.modules }}
+      sensors: ${{ steps.filter.outputs.sensors }}
+      integration: ${{ steps.filter.outputs.integration }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            core:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Makefile.in'
+              - 'libcommon/**'
+              - 'libdpq/**'
+              - 'libeventreg/**'
+              - 'libmenotify/**'
+              - 'libmodcore/**'
+              - 'libmodpak/**'
+              - 'libscheduler/**'
+              - 'libsetup/**'
+              - 'libsysinspect/**'
+              - 'libsysproto/**'
+              - 'libtelemetry/**'
+              - 'libwebapi/**'
+              - 'src/**'
+              - 'sysmaster/**'
+              - 'sysminion/**'
+              - 'sysclient/**'
+            modules:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Makefile.in'
+              - 'libcommon/**'
+              - 'libmodcore/**'
+              - 'libmodpak/**'
+              - 'modules/**'
+            sensors:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'libsensors/**'
+              - 'libcommon/**'
+              - 'libmenotify/**'
+            integration:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Makefile.in'
+              - 'smoke-tests/**'
+              - 'tests/**'
+              - 'lib**/**/tests/**'
+              - 'modules/**/tests/**'
+
   core_unit_tests:
     name: Core unit tests
+    needs: changes
+    if: ${{ needs.changes.outputs.core == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: rust:1-bookworm
-
     steps:
       - name: Install deps
         run: |
           apt-get update
           apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
-
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Run test target
-        run: |
-          make test-core
+        run: make test-core
 
   modules_unit_tests:
     name: Modules unit tests
+    needs: changes
+    if: ${{ needs.changes.outputs.modules == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: rust:1-bookworm
-
     steps:
       - name: Install deps
         run: |
           apt-get update
           apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
-
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Run test target
-        run: |
-          make test-modules
+        run: make test-modules
 
   sensors_unit_tests:
     name: Sensors unit tests
+    needs: changes
+    if: ${{ needs.changes.outputs.sensors == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: rust:1-bookworm
-
     steps:
       - name: Install deps
         run: |
           apt-get update
           apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
-
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Run test target
-        run: |
-          make test-sensors
+        run: make test-sensors
 
   integration_tests:
     name: Integration tests
+    needs: changes
+    if: ${{ needs.changes.outputs.integration == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: rust:1-bookworm
-
     steps:
       - name: Install deps
         run: |
           apt-get update
           apt-get install -y protobuf-compiler llvm-dev clang libclang-dev cmake libsodium-dev libpam0g-dev
-
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Run test target
-        run: |
-          make test-integration
+        run: make test-integration
