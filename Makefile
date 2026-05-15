@@ -88,7 +88,11 @@ clean:
 	cargo clean
 
 check:
+ifeq ($(CI),true)
+	cargo fmt --all -- --check
+else
 	cargo fmt --all -- --check || cargo fmt --all
+endif
 	cargo clippy --no-deps --workspace $(PLATFORM_WORKSPACE_EXCLUDES) -- -Dwarnings -Aunused-variables -Adead-code || \
 	(cargo clippy --fix --allow-dirty --allow-staged --workspace $(PLATFORM_WORKSPACE_EXCLUDES) && \
 	 cargo clippy --no-deps --workspace $(PLATFORM_WORKSPACE_EXCLUDES) -- -Dwarnings -Aunused-variables -Adead-code)
