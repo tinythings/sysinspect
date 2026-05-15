@@ -132,10 +132,11 @@ fn backend_remove(backend: &str, rule_text: &str) -> Result<String, String> {
             let current = backend_list(backend)?;
             for line in current.lines() {
                 if line.contains(rule_text)
-                    && let Some(num) = line.split_whitespace().next() {
-                        let _ = exec("ipfw", &["-q", "delete", num])?;
-                        return Ok("ipfw rule removed".to_string());
-                    }
+                    && let Some(num) = line.split_whitespace().next()
+                {
+                    let _ = exec("ipfw", &["-q", "delete", num])?;
+                    return Ok("ipfw rule removed".to_string());
+                }
             }
             Err("No matching ipfw rule found".to_string())
         }
@@ -145,10 +146,11 @@ fn backend_remove(backend: &str, rule_text: &str) -> Result<String, String> {
             for line in out.lines() {
                 if line.contains(rule_text)
                     && let Some(h) = line.split_whitespace().last()
-                        && h != "handle" {
-                            handle = h.to_string();
-                            break;
-                        }
+                    && h != "handle"
+                {
+                    handle = h.to_string();
+                    break;
+                }
             }
             if handle.is_empty() {
                 return Err("No matching nftables rule found".to_string());
@@ -162,10 +164,11 @@ fn backend_remove(backend: &str, rule_text: &str) -> Result<String, String> {
             for line in out.lines() {
                 if line.contains(rule_text)
                     && let Some(num) = line.split_whitespace().next()
-                        && num.parse::<u32>().is_ok() {
-                            rule_num = num.to_string();
-                            break;
-                        }
+                    && num.parse::<u32>().is_ok()
+                {
+                    rule_num = num.to_string();
+                    break;
+                }
             }
             if rule_num.is_empty() {
                 return Err("No matching iptables rule found".to_string());
