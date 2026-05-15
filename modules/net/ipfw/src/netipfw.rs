@@ -111,7 +111,7 @@ fn backend_add(backend: &str, rule_text: &str) -> Result<(i32, String, String), 
         "nftables" => exec_stdin("nft", &["-f", "-"], &format!("{rule_text}\n")),
         "iptables" => {
             let parts: Vec<&str> = rule_text.split_whitespace().collect();
-            exec("iptables", &parts.iter().map(|s| *s).collect::<Vec<_>>())
+            exec("iptables", &parts)
         }
         _ => Err(format!("unknown backend: {backend}")),
     }
@@ -169,11 +169,7 @@ pub(crate) fn translate_rule(backend: &str, args: &serde_json::Value) -> Result<
             let mut rule = format!("-A {chain}");
             if proto != "any" { rule.push_str(&format!(" -p {proto}")); }
             if !port_spec.is_empty() {
-                if port_spec.contains('-') {
-                    rule.push_str(&format!(" --dport {port_spec}"));
-                } else {
-                    rule.push_str(&format!(" --dport {port_spec}"));
-                }
+                rule.push_str(&format!(" --dport {port_spec}"));
             }
             if src != "any" { rule.push_str(&format!(" -s {src}")); }
             if dst != "any" { rule.push_str(&format!(" -d {dst}")); }
@@ -304,7 +300,7 @@ pub fn run(rt: &ModRequest) -> ModResponse {
             }
             Ok((code, _, stderr)) => {
                 resp.set_retcode(code);
-                resp.set_message(&format!("Firewall rule failed: {stderr}").trim().to_string());
+                resp.set_message(format!("Firewall rule failed: {stderr}").trim());
             }
             Err(e) => {
                 resp.set_retcode(1);
