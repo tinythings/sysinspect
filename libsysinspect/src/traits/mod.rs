@@ -1,5 +1,6 @@
 //! Trait parsing, loading, and master-managed static trait helpers.
 
+pub mod osinfo;
 pub mod systraits;
 
 use crate::cfg::mmconf::MinionConfig;

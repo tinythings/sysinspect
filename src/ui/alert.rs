@@ -157,54 +157,46 @@ impl SysInspectUX {
             let host_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::online_host(r), max_w as usize)).collect();
             let ver_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::_fmt_version(r), max_w as usize)).collect();
             let id_data: Vec<String> = filtered.iter().map(|r| Self::shorten_mid(&r.minion_id, 4)).collect();
+            let os_data: Vec<String> = filtered
+                .iter()
+                .map(|r| {
+                    let name = if r.os_name.is_empty() { "-" } else { r.os_name.as_str() };
+                    let dist = if r.os_distribution.is_empty() { "-" } else { r.os_distribution.as_str() };
+                    let s = format!("{}/{}", name, dist);
+                    Self::_trunc_ellipsis(&s, max_w as usize)
+                })
+                .collect();
+            let osv_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&r.os_version, max_w as usize)).collect();
+            let ker_data: Vec<String> = filtered.iter().map(|r| r.kernel.clone()).collect();
 
             let ip_w = ip_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
             let host_w = host_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(4).max(4);
-            let ver_w_actual = ver_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(7);
-            let ver_w = ver_w_actual.min(max_w);
+            let ver_w = ver_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(7).min(max_w);
             let id_w = id_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
 
-            let table_w = ip_w + host_w + ver_w + id_w + col_spacing * 3 + 1; // +1 scrollbar
-            let horiz =
-                Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(table_w), Constraint::Min(0)]).split(main_area);
+            if self.online_minions_info_visible {
+                let base_w: Vec<u16> = vec![ip_w, host_w, ver_w, id_w];
+                let table_w = base_w.iter().sum::<u16>() + col_spacing * 3 + 1;
+                let horiz = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Length(table_w), Constraint::Min(0)])
+                    .split(main_area);
+                let table_area = horiz[0];
+                let info_area = horiz[1];
+                let cols = base_w.into_iter().map(Constraint::Length).collect::<Vec<_>>();
 
-            let table_area = horiz[0];
-            let info_area = horiz[1];
-
-            let cols = [Constraint::Length(ip_w), Constraint::Length(host_w), Constraint::Length(ver_w), Constraint::Length(id_w)];
-
-            let sel_style = if self.online_minions_focus == 2 {
-                Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+                Self::_render_table(self, &filtered, table_area, buf, bg, &cols, &ip_data, &host_data, &ver_data, &id_data);
+                Self::_render_minion_info_panel(self, info_area, buf);
             } else {
-                Style::default().fg(Color::Black).bg(Color::Gray)
-            };
-            let norm_style = Style::default().fg(Color::White).bg(bg);
-
-            let table_rows: Vec<Row> = filtered
-                .iter()
-                .enumerate()
-                .map(|(idx, _)| {
-                    let sty = if idx == self.online_minions_selected { sel_style } else { norm_style };
-                    Row::new(vec![ip_data[idx].as_str(), host_data[idx].as_str(), ver_data[idx].as_str(), id_data[idx].as_str()]).style(sty)
-                })
-                .collect();
-
-            let vis_rows = table_area.height as usize;
-            let start = if self.online_minions_selected < vis_rows { 0 } else { (self.online_minions_selected + 1).saturating_sub(vis_rows) };
-            let end = (start + vis_rows).min(table_rows.len());
-            let displayed: Vec<Row> = if start < table_rows.len() { table_rows[start..end].to_vec() } else { vec![] };
-
-            Widget::render(Table::new(displayed, cols).column_spacing(2).style(Style::default().bg(bg)), table_area, buf);
-
-            let scroller_area = Rect { x: table_area.right().saturating_sub(1), y: table_area.y, width: 1, height: table_area.height };
-            let mut sr_scroller = ScrollbarState::default().content_length(table_rows.len()).position(self.online_minions_selected);
-            Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
-                scroller_area,
-                buf,
-                &mut sr_scroller,
-            );
-
-            Self::_render_minion_info_panel(self, info_area, buf);
+                let os_w = os_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
+                let osv_w = osv_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
+                let ker_w = ker_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
+                let base_w: Vec<u16> = vec![ip_w, host_w, ver_w, id_w, os_w, osv_w, ker_w];
+                let mut cols: Vec<Constraint> = base_w.into_iter().map(Constraint::Length).collect();
+                cols.push(Constraint::Min(1));
+                let all_data: [&[String]; 7] = [&ip_data, &host_data, &ver_data, &id_data, &os_data, &osv_data, &ker_data];
+                Self::_render_table_wide(self, &filtered, main_area, buf, bg, &cols, &all_data);
+            }
         }
 
         let close_w = close_label.len() as u16;
@@ -361,6 +353,68 @@ impl SysInspectUX {
 
     fn _trunc_ellipsis(s: &str, max: usize) -> String {
         if s.chars().count() <= max { s.to_string() } else { format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>()) }
+    }
+
+    fn _render_table(
+        &self, filtered: &[&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, bg: Color, cols: &[Constraint], ip_data: &[String],
+        host_data: &[String], ver_data: &[String], id_data: &[String],
+    ) {
+        let sel_style = if self.online_minions_focus == 2 {
+            Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Black).bg(Color::Gray)
+        };
+        let norm_style = Style::default().fg(Color::White).bg(bg);
+        let rows: Vec<Row> = filtered
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                let sty = if idx == self.online_minions_selected { sel_style } else { norm_style };
+                Row::new(vec![ip_data[idx].as_str(), host_data[idx].as_str(), ver_data[idx].as_str(), id_data[idx].as_str()]).style(sty)
+            })
+            .collect();
+        Self::_render_scrollable_table(area, buf, bg, cols, &rows, self.online_minions_selected);
+    }
+
+    fn _render_table_wide(
+        &self, filtered: &[&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, bg: Color, cols: &[Constraint], data: &[&[String]; 7],
+    ) {
+        let sel_style = if self.online_minions_focus == 2 {
+            Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Black).bg(Color::Gray)
+        };
+        let norm_style = Style::default().fg(Color::White).bg(bg);
+        let rows: Vec<Row> = filtered
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                let sty = if idx == self.online_minions_selected { sel_style } else { norm_style };
+                Row::new(vec![
+                    data[0][idx].as_str(),
+                    data[1][idx].as_str(),
+                    data[2][idx].as_str(),
+                    data[3][idx].as_str(),
+                    data[4][idx].as_str(),
+                    data[5][idx].as_str(),
+                    data[6][idx].as_str(),
+                    "",
+                ])
+                .style(sty)
+            })
+            .collect();
+        Self::_render_scrollable_table(area, buf, bg, cols, &rows, self.online_minions_selected);
+    }
+
+    fn _render_scrollable_table(area: Rect, buf: &mut Buffer, bg: Color, cols: &[Constraint], rows: &[Row], selected: usize) {
+        let vis_rows = area.height as usize;
+        let start = if selected < vis_rows { 0 } else { (selected + 1).saturating_sub(vis_rows) };
+        let end = (start + vis_rows).min(rows.len());
+        let displayed: Vec<Row> = if start < rows.len() { rows[start..end].to_vec() } else { vec![] };
+        Widget::render(Table::new(displayed, cols).column_spacing(2).style(Style::default().bg(bg)), area, buf);
+        let scroller_area = Rect { x: area.right().saturating_sub(1), y: area.y, width: 1, height: area.height };
+        let mut scroller = ScrollbarState::default().content_length(rows.len()).position(selected);
+        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(scroller_area, buf, &mut scroller);
     }
 
     pub fn dialog_exit(&self, parent: Rect, buf: &mut Buffer) {

@@ -100,6 +100,7 @@ pub struct SysInspectUX {
     pub online_minions_selected: usize,
     pub online_minions_show_alive: bool,
     pub online_minions_focus: usize,
+    pub online_minions_info_visible: bool,
     pub online_minions_info_rows: Vec<ConsoleMinionInfoRow>,
     pub online_minions_tree_state: Option<TreeState>,
 
@@ -147,6 +148,7 @@ impl Default for SysInspectUX {
             online_minions_selected: 0,
             online_minions_show_alive: true,
             online_minions_focus: 2,
+            online_minions_info_visible: false,
             online_minions_info_rows: Vec::new(),
             online_minions_tree_state: None,
 
@@ -368,6 +370,14 @@ impl SysInspectUX {
             }
             KeyCode::BackTab => {
                 self.online_minions_focus = (self.online_minions_focus + 3) % 4;
+            }
+            KeyCode::Enter | KeyCode::Char('i') if self.online_minions_focus == 2 => {
+                self.online_minions_info_visible = !self.online_minions_info_visible;
+                self.online_minions_info_rows = Vec::new();
+                self.online_minions_tree_state = None;
+                if self.online_minions_info_visible {
+                    self.load_selected_minion_info();
+                }
             }
             KeyCode::Enter | KeyCode::Char(' ') => match self.online_minions_focus {
                 0 => {

@@ -181,13 +181,14 @@ impl SysMaster {
                     let cmdb = self.mreg.lock().await.get_cmdb(minion.id()).unwrap_or_default();
                     let (fqdn, hostname, ip) = Self::preferred_host(&minion, cmdb.as_ref());
                     let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let os_dist = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let target_version = repo_versions
-                        .get(&(
-                            minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                            minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                        ))
+                        .get(&(os_dist.clone(), minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string()))
                         .cloned()
                         .unwrap_or_default();
+                    let os_name = minion.get_traits().get("system.os.name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let os_version = minion.get_traits().get("system.os.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let kernel = minion.get_traits().get("system.kernel").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     rows.push(ConsoleOnlineMinionRow {
                         fqdn,
                         hostname,
@@ -199,6 +200,10 @@ impl SysMaster {
                             && compare_versions(&current_version, &target_version).is_lt(),
                         version: current_version,
                         target_version,
+                        os_distribution: os_dist,
+                        os_name,
+                        os_version,
+                        kernel,
                     });
                 }
                 rows

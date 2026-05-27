@@ -1,3 +1,4 @@
+use super::osinfo;
 use crate::{
     cfg::mmconf::MinionConfig,
     traits::{
@@ -180,8 +181,8 @@ impl SystemTraits {
             self.put(SYS_OS_VERSION.to_string(), json!(v));
         }
 
-        self.put(SYS_OS_NAME.to_string(), json!(super::os_display_name(super::current_os_type())));
-        self.put(SYS_OS_DISTRO.to_string(), json!(super::current_os_type()));
+        self.put(SYS_OS_NAME.to_string(), json!(osinfo::os_name()));
+        self.put(SYS_OS_DISTRO.to_string(), json!(osinfo::os_distribution()));
         self.put(
             SYS_ARCH.to_string(),
             json!(match std::env::consts::ARCH {
