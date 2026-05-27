@@ -235,7 +235,10 @@ impl SysInspectUX {
             groups.entry(prefix).or_default().push(r);
         }
 
-        groups
+        let mut ordered: Vec<(String, Vec<&ConsoleMinionInfoRow>)> = groups.into_iter().collect();
+        ordered.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        ordered
             .into_iter()
             .map(|(prefix, items)| {
                 let max_key = items.iter().map(|r| r.key.len()).max().unwrap_or(0);
