@@ -70,4 +70,26 @@ impl SysInspectUX {
             Span::styled("for more help", Style::default().fg(Color::LightCyan)),
         ]);
     }
+
+    /// Set status when online minions popup is active
+    pub(crate) fn status_at_online_minions(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+        let desc = |s| Span::styled(s, Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD));
+        self.status_text = Line::from(vec![
+            key("TAB "),
+            desc("cycle focus, "),
+            key("SHIFT+TAB "),
+            desc("reverse, "),
+            key("↑↓ "),
+            desc("navigate, "),
+            key("←→ "),
+            desc("tree fold, "),
+            key("Enter "),
+            desc("select/toggle, "),
+            key("PgUp/PgDn "),
+            desc("skip rows, "),
+            key("ESC "),
+            desc("close"),
+        ]);
+    }
 }

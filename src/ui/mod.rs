@@ -28,6 +28,7 @@ use std::{
     cell::{Cell, RefCell},
     io::{self, Error},
     sync::Arc,
+    time::Duration,
 };
 use tokio::sync::Mutex;
 
@@ -201,10 +202,14 @@ impl SysInspectUX {
     }
 
     fn on_events(&mut self) -> io::Result<()> {
-        if let Event::Key(e) = event::read()?
-            && e.kind == KeyEventKind::Press
-        {
-            self.on_key(e);
+        if event::poll(Duration::from_secs(1))? {
+            if let Event::Key(e) = event::read()?
+                && e.kind == KeyEventKind::Press
+            {
+                self.on_key(e);
+            }
+        } else if self.online_minions_visible {
+            self.refresh_online_minions();
         }
         Ok(())
     }
@@ -365,12 +370,13 @@ impl SysInspectUX {
                 self.online_minions_focus = (self.online_minions_focus + 3) % 4;
             }
             KeyCode::Enter | KeyCode::Char(' ') => match self.online_minions_focus {
-                0 => self.online_minions_visible = false,
+                0 => {
+                    self.online_minions_visible = false;
+                    self.restore_status();
+                }
                 1 => {
                     self.online_minions_show_alive = !self.online_minions_show_alive;
                     self.online_minions_selected = 0;
-                    self.online_minions_info_rows = Vec::new();
-                    self.online_minions_tree_state = None;
                     self.load_selected_minion_info();
                 }
                 3 => {
@@ -380,11 +386,13 @@ impl SysInspectUX {
                 }
                 _ => {}
             },
-            KeyCode::Esc => self.online_minions_visible = false,
+            KeyCode::Esc => {
+                self.online_minions_visible = false;
+                self.restore_status();
+            }
             KeyCode::Up => match self.online_minions_focus {
                 2 => {
                     self.online_minions_selected = self.online_minions_selected.saturating_sub(1);
-                    self.online_minions_tree_state = None;
                     self.load_selected_minion_info();
                 }
                 3 => {
@@ -399,7 +407,6 @@ impl SysInspectUX {
                 2 => {
                     let filtered = self.filtered_minions();
                     self.online_minions_selected = (self.online_minions_selected + 1).min(filtered.len().saturating_sub(1));
-                    self.online_minions_tree_state = None;
                     self.load_selected_minion_info();
                 }
                 3 => {
@@ -429,13 +436,11 @@ impl SysInspectUX {
             KeyCode::PageUp if self.online_minions_focus == 2 => {
                 let vis = 10usize;
                 self.online_minions_selected = self.online_minions_selected.saturating_sub(vis);
-                self.online_minions_tree_state = None;
                 self.load_selected_minion_info();
             }
             KeyCode::PageDown if self.online_minions_focus == 2 => {
                 let filtered = self.filtered_minions();
                 self.online_minions_selected = (self.online_minions_selected + 10).min(filtered.len().saturating_sub(1));
-                self.online_minions_tree_state = None;
                 self.load_selected_minion_info();
             }
             _ => {}
@@ -447,12 +452,51 @@ impl SysInspectUX {
         self.online_minions_rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect()
     }
 
+    fn restore_status(&mut self) {
+        match self.active_box {
+            ActiveBox::Cycles => self.status_at_cycles(),
+            ActiveBox::Minions => self.status_at_minions(),
+            ActiveBox::Events => self.status_at_action_results(),
+            ActiveBox::Info => self.status_at_action_data(),
+        }
+    }
+
+    fn refresh_online_minions(&mut self) {
+        if let Ok(rows) = self.get_online_minions() {
+            let old_mid = self.filtered_minions().get(self.online_minions_selected).map(|r| r.minion_id.clone());
+            self.online_minions_rows = rows;
+            if let Some(mid) = old_mid {
+                let filtered = self.filtered_minions();
+                if let Some(pos) = filtered.iter().position(|r| r.minion_id == mid) {
+                    self.online_minions_selected = pos;
+                } else {
+                    self.online_minions_selected = 0;
+                    self.online_minions_tree_state = None;
+                    self.load_selected_minion_info();
+                }
+            }
+        }
+    }
+
     fn load_selected_minion_info(&mut self) {
         let filtered: Vec<&ConsoleOnlineMinionRow> = self.online_minions_rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect();
         if let Some(row) = filtered.get(self.online_minions_selected) {
+            let expanded: Vec<String> = if let Some(ref ts) = self.online_minions_tree_state {
+                let old_groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
+                old_groups.iter().enumerate().filter(|(i, _)| ts.is_expanded(*i)).map(|(_, g)| g.header().text().to_string()).collect()
+            } else {
+                Vec::new()
+            };
             match self.get_minion_info(&row.minion_id) {
                 Ok(rows) => {
-                    self.online_minions_tree_state = Some(TreeState::new(rows.len()));
+                    let new_groups = SysInspectUX::build_info_tree(&rows);
+                    let mut ts = TreeState::new(new_groups.len());
+                    for (i, g) in new_groups.iter().enumerate() {
+                        if expanded.contains(&g.header().text().to_string()) {
+                            ts.expand(i);
+                        }
+                    }
+                    self.online_minions_tree_state = Some(ts);
                     self.online_minions_info_rows = rows;
                 }
                 Err(_) => {
@@ -676,6 +720,7 @@ impl SysInspectUX {
                     self.online_minions_selected = 0;
                     self.online_minions_tree_state = None;
                     self.load_selected_minion_info();
+                    self.status_at_online_minions();
                 }
                 Err(err) => {
                     self.error_alert_visible = true;

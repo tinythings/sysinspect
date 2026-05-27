@@ -73,7 +73,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Help"),
-            "\"p\" - to purge all records from the dataase\n\"q\" - to quit the UI\n\"h\" - to show this help\n",
+            "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - online/offline minions popup\n\nIn minions popup:\nTAB / SHIFT+TAB - cycle focus\nUp/Down - select minion / navigate tree\nLeft/Right - collapse/expand tree\nEnter - select / toggle tree node\nPgUp/PgDown - skip 10 rows\n",
             Alignment::Left,
             Some(Color::Green),
             AlertResult::Quit,
@@ -144,58 +144,68 @@ impl SysInspectUX {
         let main_area = vert[0];
         let btn_area = vert[1];
 
-        let ip_data: Vec<String> = filtered.iter().map(|r| Self::_fmt_ip(&r.ip)).collect();
-        let host_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::online_host(r), max_w as usize)).collect();
-        let ver_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::_fmt_version(r), max_w as usize)).collect();
-        let id_data: Vec<String> = filtered.iter().map(|r| Self::shorten_mid(&r.minion_id, 4)).collect();
-
-        let ip_w = ip_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
-        let host_w = host_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(4).max(4);
-        let ver_w_actual = ver_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(7);
-        let ver_w = ver_w_actual.min(max_w);
-        let id_w = id_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
-
-        let table_w = ip_w + host_w + ver_w + id_w + col_spacing * 3 + 1; // +1 scrollbar
-        let horiz =
-            Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(table_w), Constraint::Min(0)]).split(main_area);
-
-        let table_area = horiz[0];
-        let info_area = horiz[1];
-
-        let cols = [Constraint::Length(ip_w), Constraint::Length(host_w), Constraint::Length(ver_w), Constraint::Length(id_w)];
-
-        let sel_style = if self.online_minions_focus == 2 {
-            Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+        if filtered.is_empty() {
+            let label = if self.online_minions_show_alive { "No minions online" } else { "No minions offline" };
+            let v_pad = main_area.height.saturating_sub(1) / 2;
+            let centered = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(v_pad), Constraint::Length(1), Constraint::Min(0)])
+                .split(main_area);
+            Paragraph::new(label).alignment(Alignment::Center).style(Style::default().fg(Color::White).bg(bg)).render(centered[1], buf);
         } else {
-            Style::default().fg(Color::Black).bg(Color::Gray)
-        };
-        let norm_style = Style::default().fg(Color::White).bg(bg);
+            let ip_data: Vec<String> = filtered.iter().map(|r| Self::_fmt_ip(&r.ip)).collect();
+            let host_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::online_host(r), max_w as usize)).collect();
+            let ver_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::_fmt_version(r), max_w as usize)).collect();
+            let id_data: Vec<String> = filtered.iter().map(|r| Self::shorten_mid(&r.minion_id, 4)).collect();
 
-        let table_rows: Vec<Row> = filtered
-            .iter()
-            .enumerate()
-            .map(|(idx, _)| {
-                let sty = if idx == self.online_minions_selected { sel_style } else { norm_style };
-                Row::new(vec![ip_data[idx].as_str(), host_data[idx].as_str(), ver_data[idx].as_str(), id_data[idx].as_str()]).style(sty)
-            })
-            .collect();
+            let ip_w = ip_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
+            let host_w = host_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(4).max(4);
+            let ver_w_actual = ver_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(7);
+            let ver_w = ver_w_actual.min(max_w);
+            let id_w = id_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
 
-        let vis_rows = table_area.height as usize;
-        let start = if self.online_minions_selected < vis_rows { 0 } else { (self.online_minions_selected + 1).saturating_sub(vis_rows) };
-        let end = (start + vis_rows).min(table_rows.len());
-        let displayed: Vec<Row> = if start < table_rows.len() { table_rows[start..end].to_vec() } else { vec![] };
+            let table_w = ip_w + host_w + ver_w + id_w + col_spacing * 3 + 1; // +1 scrollbar
+            let horiz =
+                Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(table_w), Constraint::Min(0)]).split(main_area);
 
-        Widget::render(Table::new(displayed, cols).column_spacing(2).style(Style::default().bg(bg)), table_area, buf);
+            let table_area = horiz[0];
+            let info_area = horiz[1];
 
-        let scroller_area = Rect { x: table_area.right().saturating_sub(1), y: table_area.y, width: 1, height: table_area.height };
-        let mut sr_scroller = ScrollbarState::default().content_length(table_rows.len()).position(self.online_minions_selected);
-        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
-            scroller_area,
-            buf,
-            &mut sr_scroller,
-        );
+            let cols = [Constraint::Length(ip_w), Constraint::Length(host_w), Constraint::Length(ver_w), Constraint::Length(id_w)];
 
-        Self::_render_minion_info_panel(self, info_area, buf);
+            let sel_style = if self.online_minions_focus == 2 {
+                Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Black).bg(Color::Gray)
+            };
+            let norm_style = Style::default().fg(Color::White).bg(bg);
+
+            let table_rows: Vec<Row> = filtered
+                .iter()
+                .enumerate()
+                .map(|(idx, _)| {
+                    let sty = if idx == self.online_minions_selected { sel_style } else { norm_style };
+                    Row::new(vec![ip_data[idx].as_str(), host_data[idx].as_str(), ver_data[idx].as_str(), id_data[idx].as_str()]).style(sty)
+                })
+                .collect();
+
+            let vis_rows = table_area.height as usize;
+            let start = if self.online_minions_selected < vis_rows { 0 } else { (self.online_minions_selected + 1).saturating_sub(vis_rows) };
+            let end = (start + vis_rows).min(table_rows.len());
+            let displayed: Vec<Row> = if start < table_rows.len() { table_rows[start..end].to_vec() } else { vec![] };
+
+            Widget::render(Table::new(displayed, cols).column_spacing(2).style(Style::default().bg(bg)), table_area, buf);
+
+            let scroller_area = Rect { x: table_area.right().saturating_sub(1), y: table_area.y, width: 1, height: table_area.height };
+            let mut sr_scroller = ScrollbarState::default().content_length(table_rows.len()).position(self.online_minions_selected);
+            Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
+                scroller_area,
+                buf,
+                &mut sr_scroller,
+            );
+
+            Self::_render_minion_info_panel(self, info_area, buf);
+        }
 
         let close_w = close_label.len() as u16;
         let toggle_w = toggle_label.len() as u16;
@@ -264,7 +274,7 @@ impl SysInspectUX {
         };
         let tree = Tree::default().groups(groups).styles(styles).chevron_collapsed("▶ ").chevron_expanded("▼ ");
 
-        if let Some(ref mut ts) = self.online_minions_tree_state.clone() {
+        if let Some(ref ts) = self.online_minions_tree_state {
             let mut state = ts.clone();
             StatefulWidget::render(&tree, inner, buf, &mut state);
         } else {
