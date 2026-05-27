@@ -1,13 +1,16 @@
 use super::{SysInspectUX, elements::AlertResult};
 use indexmap::IndexMap;
-use libsysinspect::console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow};
+use libsysinspect::{
+    console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow},
+    traits::TraitSource,
+};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Position},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Clear, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
 };
-use ratatui_cheese::tree::{Tree, TreeGroup, TreeItem, TreeState};
+use ratatui_cheese::tree::{Tree, TreeGroup, TreeItem, TreeState, TreeStyles};
 use serde_json::Value;
 
 #[derive(Default)]
@@ -116,10 +119,12 @@ impl SysInspectUX {
 
         let filtered: Vec<&ConsoleOnlineMinionRow> = rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect();
         let title = if self.online_minions_show_alive { "Online Minions" } else { "Offline Minions" };
+        let title_style =
+            if self.online_minions_focus == 3 { Style::default().fg(Color::Black).bg(bg) } else { Style::default().fg(Color::Black).bg(Color::Gray) };
         let block = Block::default()
             .title(format!(" {} ({}) ", title, filtered.len()))
             .title_alignment(Alignment::Center)
-            .title_style(Style::default().fg(Color::Black).bg(Color::Gray))
+            .title_style(title_style)
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(Color::Gray))
@@ -132,41 +137,32 @@ impl SysInspectUX {
         let toggle_label = Self::format_button(if self.online_minions_show_alive { OFFLINE_LABEL } else { ONLINE_LABEL });
         let btn_gap = 3u16;
 
+        let col_spacing = 2u16;
+        let max_w = 15u16;
+
         let vert = Layout::default().direction(Direction::Vertical).constraints([Constraint::Min(1), Constraint::Length(1)]).split(inner);
         let main_area = vert[0];
         let btn_area = vert[1];
 
+        let ip_data: Vec<String> = filtered.iter().map(|r| Self::_fmt_ip(&r.ip)).collect();
+        let host_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::online_host(r), max_w as usize)).collect();
+        let ver_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::_fmt_version(r), max_w as usize)).collect();
+        let id_data: Vec<String> = filtered.iter().map(|r| Self::shorten_mid(&r.minion_id, 4)).collect();
+
+        let ip_w = ip_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
+        let host_w = host_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(4).max(4);
+        let ver_w_actual = ver_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(7);
+        let ver_w = ver_w_actual.min(max_w);
+        let id_w = id_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
+
+        let table_w = ip_w + host_w + ver_w + id_w + col_spacing * 3 + 1; // +1 scrollbar
         let horiz =
-            Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(55), Constraint::Percentage(45)]).split(main_area);
+            Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(table_w), Constraint::Min(0)]).split(main_area);
 
         let table_area = horiz[0];
         let info_area = horiz[1];
 
-        let host_w = filtered.iter().map(|r| Self::online_host(r).chars().count() as u16).max().unwrap_or(4).max(4);
-        let ip_w = filtered.iter().map(|r| if r.ip.is_empty() { 7 } else { r.ip.chars().count() as u16 }).max().unwrap_or(2).max(2);
-        let ver_w = filtered
-            .iter()
-            .map(|r| {
-                if r.outdated && !r.version.is_empty() && !r.target_version.is_empty() {
-                    format!("{} -> {}", r.version, r.target_version).chars().count() as u16
-                } else if r.version.is_empty() {
-                    1
-                } else {
-                    r.version.chars().count() as u16
-                }
-            })
-            .max()
-            .unwrap_or(7)
-            .max(7);
-        let id_w = filtered.iter().map(|r| Self::shorten_mid(&r.minion_id, 4).chars().count() as u16).max().unwrap_or(2).max(2);
-
-        let col_spacing = 2u16;
-        let cols = [
-            Constraint::Length(host_w + col_spacing),
-            Constraint::Length(ip_w + col_spacing),
-            Constraint::Length(ver_w + col_spacing),
-            Constraint::Length(id_w),
-        ];
+        let cols = [Constraint::Length(ip_w), Constraint::Length(host_w), Constraint::Length(ver_w), Constraint::Length(id_w)];
 
         let sel_style = if self.online_minions_focus == 2 {
             Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
@@ -178,20 +174,9 @@ impl SysInspectUX {
         let table_rows: Vec<Row> = filtered
             .iter()
             .enumerate()
-            .map(|(idx, r)| {
-                let host = Self::online_host(r);
-                let ip = if r.ip.is_empty() { "unknown".to_string() } else { r.ip.clone() };
-                let version = if r.outdated && !r.version.is_empty() && !r.target_version.is_empty() {
-                    format!("{} -> {}", r.version, r.target_version)
-                } else if r.version.is_empty() {
-                    "-".to_string()
-                } else {
-                    r.version.clone()
-                };
-                let id = Self::shorten_mid(&r.minion_id, 4);
-
+            .map(|(idx, _)| {
                 let sty = if idx == self.online_minions_selected { sel_style } else { norm_style };
-                Row::new(vec![host, ip, version, id]).style(sty)
+                Row::new(vec![ip_data[idx].as_str(), host_data[idx].as_str(), ver_data[idx].as_str(), id_data[idx].as_str()]).style(sty)
             })
             .collect();
 
@@ -247,7 +232,7 @@ impl SysInspectUX {
     }
 
     fn _render_minion_info_panel(&self, area: Rect, buf: &mut Buffer) {
-        let info_bg = Color::Cyan;
+        let info_bg = Color::Blue;
         let is_active = self.online_minions_focus == 3;
         let border_fg = if is_active { Color::White } else { Color::LightCyan };
 
@@ -267,7 +252,17 @@ impl SysInspectUX {
 
         let groups = Self::build_info_tree(&self.online_minions_info_rows);
         let n_groups = groups.len();
-        let tree = Tree::default().groups(groups);
+        let styles = TreeStyles {
+            parent: Style::default().fg(Color::LightCyan).bg(info_bg).add_modifier(Modifier::BOLD),
+            child: Style::default().fg(Color::White).bg(info_bg).add_modifier(Modifier::BOLD),
+            selected: Style::default().fg(Color::Black).bg(Color::LightCyan),
+            chevron: Style::default().fg(Color::LightCyan).bg(info_bg),
+            chevron_active: Style::default().fg(Color::LightCyan).bg(info_bg),
+            chevron_dim: Style::default().fg(Color::LightCyan).bg(info_bg),
+            count: Style::default().fg(Color::White).bg(info_bg),
+            icon: Style::default().fg(Color::LightYellow).bg(info_bg),
+        };
+        let tree = Tree::default().groups(groups).styles(styles).chevron_collapsed("▶ ").chevron_expanded("▼ ");
 
         if let Some(ref mut ts) = self.online_minions_tree_state.clone() {
             let mut state = ts.clone();
@@ -278,25 +273,39 @@ impl SysInspectUX {
         }
     }
 
-    /// Build tree groups from minion info rows, grouping by the first dot-separated segment.
+    /// Build tree groups from minion info rows.
+    /// Preset traits are grouped by first dot-segment, Static keys under "Static", Function keys under "Scripts".
     pub fn build_info_tree(rows: &[ConsoleMinionInfoRow]) -> Vec<TreeGroup> {
         let mut sorted = rows.to_vec();
         sorted.sort_by(|a, b| a.key.cmp(&b.key));
 
         let mut groups: IndexMap<String, Vec<&ConsoleMinionInfoRow>> = IndexMap::new();
         for r in &sorted {
-            let prefix = r.key.split('.').next().unwrap_or(&r.key).to_string();
+            let prefix = match r.source {
+                TraitSource::Static => "Static".to_string(),
+                TraitSource::Function => "Scripts".to_string(),
+                TraitSource::Preset => {
+                    let seg = r.key.split('.').next().unwrap_or(&r.key);
+                    let mut chars = seg.chars();
+                    match chars.next() {
+                        None => seg.to_string(),
+                        Some(c) => c.to_uppercase().chain(chars).collect(),
+                    }
+                }
+            };
             groups.entry(prefix).or_default().push(r);
         }
 
         groups
             .into_iter()
             .map(|(prefix, items)| {
+                let max_key = items.iter().map(|r| r.key.len()).max().unwrap_or(0);
                 let children: Vec<TreeItem> = items
                     .iter()
                     .map(|r| {
                         let v = Self::_info_value_str(&r.value);
-                        TreeItem::new(format!("{}: {}", r.key, v))
+                        let key = format!("{:<width$}: ", r.key, width = max_key);
+                        TreeItem::new(v).icon(key)
                     })
                     .collect();
                 TreeGroup::new(TreeItem::new(prefix)).children(children)
@@ -318,6 +327,30 @@ impl SysInspectUX {
             }
             Value::Object(_) => serde_json::to_string(value).unwrap_or_else(|_| value.to_string()),
         }
+    }
+
+    fn _fmt_ip(ip: &str) -> String {
+        if ip.is_empty() {
+            return "unknown".to_string();
+        }
+        if ip.len() > 15 {
+            return ip.chars().take(15).collect::<String>() + "…";
+        }
+        ip.to_string()
+    }
+
+    fn _fmt_version(r: &ConsoleOnlineMinionRow) -> String {
+        if r.outdated && !r.version.is_empty() && !r.target_version.is_empty() {
+            format!("{} -> {}", r.version, r.target_version)
+        } else if r.version.is_empty() {
+            "-".to_string()
+        } else {
+            r.version.clone()
+        }
+    }
+
+    fn _trunc_ellipsis(s: &str, max: usize) -> String {
+        if s.chars().count() <= max { s.to_string() } else { format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>()) }
     }
 
     pub fn dialog_exit(&self, parent: Rect, buf: &mut Buffer) {

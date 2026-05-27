@@ -452,7 +452,7 @@ impl SysInspectUX {
         if let Some(row) = filtered.get(self.online_minions_selected) {
             match self.get_minion_info(&row.minion_id) {
                 Ok(rows) => {
-                    self.online_minions_tree_state = Some(TreeState::all_expanded(rows.len()));
+                    self.online_minions_tree_state = Some(TreeState::new(rows.len()));
                     self.online_minions_info_rows = rows;
                 }
                 Err(_) => {
