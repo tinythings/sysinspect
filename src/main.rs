@@ -47,9 +47,9 @@ mod netadd_ut;
 static VERSION: &str = "0.5.0";
 static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
-const CONSOLE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const CONSOLE_READ_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_CONSOLE_RESPONSE_SIZE: u64 = 64 * 1024;
+pub(crate) const CONSOLE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const CONSOLE_READ_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const MAX_CONSOLE_RESPONSE_SIZE: u64 = 64 * 1024;
 
 /// Display event handlers
 fn print_event_handlers() {
@@ -61,7 +61,7 @@ fn print_event_handlers() {
     println!();
 }
 
-async fn call_master_console(
+pub(crate) async fn call_master_console(
     cfg: &MasterConfig, model: &str, query: &str, traits: Option<&String>, mid: Option<&str>, context: Option<&String>,
 ) -> Result<ConsoleResponse, SysinspectError> {
     let request = ConsoleQuery {

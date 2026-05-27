@@ -1,5 +1,4 @@
-use crate::MEM_LOGGER;
-use crate::ui::elements::DbListItem;
+use crate::{MEM_LOGGER, call_master_console, ui::elements::DbListItem};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
@@ -9,7 +8,14 @@ use libeventreg::{
     ipcc::DbIPCClient,
     kvdb::{EventData, EventMinion, EventSession},
 };
-use libsysinspect::cfg::mmconf::MasterConfig;
+use libsysinspect::{
+    cfg::mmconf::MasterConfig,
+    console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload},
+};
+use libsysproto::query::{
+    SCHEME_COMMAND,
+    commands::{CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS},
+};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout},
@@ -17,6 +23,7 @@ use ratatui::{
     text::Line,
     widgets::{Paragraph, Row},
 };
+use ratatui_cheese::tree::TreeState;
 use std::{
     cell::{Cell, RefCell},
     io::{self, Error},
@@ -30,7 +37,7 @@ mod statusbar;
 mod wgt;
 
 pub async fn run(cfg: MasterConfig) -> io::Result<()> {
-    match SysInspectUX::new(cfg.telemetry_socket().to_str().unwrap_or_default()).await {
+    match SysInspectUX::new(cfg.clone()).await {
         Ok(mut app) => {
             let mut terminal = ratatui::init();
             let r = app.run(&mut terminal);
@@ -86,8 +93,20 @@ pub struct SysInspectUX {
     // Help popup
     pub help_popup_visible: bool,
 
+    // Online minions popup
+    pub online_minions_visible: bool,
+    pub online_minions_rows: Vec<ConsoleOnlineMinionRow>,
+    pub online_minions_selected: usize,
+    pub online_minions_show_alive: bool,
+    pub online_minions_focus: usize,
+    pub online_minions_info_rows: Vec<ConsoleMinionInfoRow>,
+    pub online_minions_tree_state: Option<TreeState>,
+
     // DB
     pub evtipc: Option<Arc<Mutex<DbIPCClient>>>,
+
+    // Config
+    pub cfg: MasterConfig,
 
     // Buffers
     pub cycles_buf: Vec<CycleListItem>,
@@ -122,7 +141,16 @@ impl Default for SysInspectUX {
             error_alert_message: String::new(),
             help_popup_visible: false,
 
+            online_minions_visible: false,
+            online_minions_rows: Vec::new(),
+            online_minions_selected: 0,
+            online_minions_show_alive: true,
+            online_minions_focus: 2,
+            online_minions_info_rows: Vec::new(),
+            online_minions_tree_state: None,
+
             evtipc: None,
+            cfg: MasterConfig::default(),
             cycles_buf: Vec::new(),
             minions_buf: Vec::new(),
             events_buf: Vec::new(),
@@ -138,10 +166,11 @@ impl Default for SysInspectUX {
 
 impl SysInspectUX {
     #[allow(clippy::field_reassign_with_default)]
-    pub async fn new(ipc_socket: &str) -> Result<Self, SysinspectError> {
+    pub async fn new(cfg: MasterConfig) -> Result<Self, SysinspectError> {
         let mut ux = SysInspectUX::default();
 
-        ux.evtipc = Some(Arc::new(Mutex::new(DbIPCClient::new(ipc_socket).await?)));
+        ux.evtipc = Some(Arc::new(Mutex::new(DbIPCClient::new(cfg.telemetry_socket().to_str().unwrap_or_default()).await?)));
+        ux.cfg = cfg;
 
         Ok(ux)
     }
@@ -323,6 +352,117 @@ impl SysInspectUX {
         stat
     }
 
+    /// Process online minions popup key events
+    fn on_online_minions_popup(&mut self, e: event::KeyEvent) -> bool {
+        if !self.online_minions_visible {
+            return false;
+        }
+        match e.code {
+            KeyCode::Tab => {
+                self.online_minions_focus = (self.online_minions_focus + 1) % 4;
+            }
+            KeyCode::BackTab => {
+                self.online_minions_focus = (self.online_minions_focus + 3) % 4;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => match self.online_minions_focus {
+                0 => self.online_minions_visible = false,
+                1 => {
+                    self.online_minions_show_alive = !self.online_minions_show_alive;
+                    self.online_minions_selected = 0;
+                    self.online_minions_info_rows = Vec::new();
+                    self.online_minions_tree_state = None;
+                    self.load_selected_minion_info();
+                }
+                3 => {
+                    if let Some(ref mut ts) = self.online_minions_tree_state {
+                        ts.toggle_selected();
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Esc => self.online_minions_visible = false,
+            KeyCode::Up => match self.online_minions_focus {
+                2 => {
+                    self.online_minions_selected = self.online_minions_selected.saturating_sub(1);
+                    self.online_minions_tree_state = None;
+                    self.load_selected_minion_info();
+                }
+                3 => {
+                    if let Some(ref mut ts) = self.online_minions_tree_state {
+                        let groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
+                        ts.select_prev(&groups);
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Down => match self.online_minions_focus {
+                2 => {
+                    let filtered = self.filtered_minions();
+                    self.online_minions_selected = (self.online_minions_selected + 1).min(filtered.len().saturating_sub(1));
+                    self.online_minions_tree_state = None;
+                    self.load_selected_minion_info();
+                }
+                3 => {
+                    if let Some(ref mut ts) = self.online_minions_tree_state {
+                        let groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
+                        ts.select_next(&groups);
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Right => {
+                if self.online_minions_focus == 3
+                    && let Some(ref mut ts) = self.online_minions_tree_state
+                {
+                    let (group, _) = ts.selected();
+                    ts.expand(group);
+                }
+            }
+            KeyCode::Left => {
+                if self.online_minions_focus == 3
+                    && let Some(ref mut ts) = self.online_minions_tree_state
+                {
+                    let (group, _) = ts.selected();
+                    ts.collapse(group);
+                }
+            }
+            KeyCode::PageUp if self.online_minions_focus == 2 => {
+                let vis = 10usize;
+                self.online_minions_selected = self.online_minions_selected.saturating_sub(vis);
+                self.online_minions_tree_state = None;
+                self.load_selected_minion_info();
+            }
+            KeyCode::PageDown if self.online_minions_focus == 2 => {
+                let filtered = self.filtered_minions();
+                self.online_minions_selected = (self.online_minions_selected + 10).min(filtered.len().saturating_sub(1));
+                self.online_minions_tree_state = None;
+                self.load_selected_minion_info();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn filtered_minions(&self) -> Vec<&ConsoleOnlineMinionRow> {
+        self.online_minions_rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect()
+    }
+
+    fn load_selected_minion_info(&mut self) {
+        let filtered: Vec<&ConsoleOnlineMinionRow> = self.online_minions_rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect();
+        if let Some(row) = filtered.get(self.online_minions_selected) {
+            match self.get_minion_info(&row.minion_id) {
+                Ok(rows) => {
+                    self.online_minions_tree_state = Some(TreeState::all_expanded(rows.len()));
+                    self.online_minions_info_rows = rows;
+                }
+                Err(_) => {
+                    self.online_minions_info_rows = Vec::new();
+                    self.online_minions_tree_state = None;
+                }
+            }
+        }
+    }
+
     /// Update cycles on up/down keystrokes
     fn on_update_cycles(&mut self, down: bool) {
         match self.get_cycles() {
@@ -361,6 +501,10 @@ impl SysInspectUX {
         }
 
         if self.on_error_alert(e) {
+            return;
+        }
+
+        if self.on_online_minions_popup(e) {
             return;
         }
 
@@ -518,6 +662,26 @@ impl SysInspectUX {
             KeyCode::Char('h') => {
                 self.help_popup_visible = true;
             }
+            KeyCode::Char('o') => match self.get_online_minions() {
+                Ok(rows) if rows.is_empty() => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "No minions registered yet".to_string();
+                }
+                Ok(rows) => {
+                    let has_online = rows.iter().any(|r| r.alive);
+                    self.online_minions_rows = rows;
+                    self.online_minions_show_alive = has_online;
+                    self.online_minions_visible = true;
+                    self.online_minions_focus = 2;
+                    self.online_minions_selected = 0;
+                    self.online_minions_tree_state = None;
+                    self.load_selected_minion_info();
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to get online minions: {err}");
+                }
+            },
 
             KeyCode::BackTab if self.active_box == ActiveBox::Info => {
                 self.status_at_action_results();
@@ -684,6 +848,34 @@ impl SysInspectUX {
         }
 
         out
+    }
+
+    /// Query the master console for currently online minions.
+    pub fn get_online_minions(&self) -> Result<Vec<ConsoleOnlineMinionRow>, SysinspectError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "*", None, None, None).await.map(|resp| {
+                    match resp.payload {
+                        ConsolePayload::OnlineMinions { rows } => rows,
+                        _ => Vec::new(),
+                    }
+                })
+            })
+        })
+    }
+
+    /// Query the master console for detailed minion info.
+    pub fn get_minion_info(&self, mid: &str) -> Result<Vec<ConsoleMinionInfoRow>, SysinspectError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_INFO}"), "*", None, Some(mid), None).await.map(|resp| {
+                    match resp.payload {
+                        ConsolePayload::MinionInfo { rows } => rows,
+                        _ => Vec::new(),
+                    }
+                })
+            })
+        })
     }
 
     /// Count the vertical space for the alert display, plus three empty lines
