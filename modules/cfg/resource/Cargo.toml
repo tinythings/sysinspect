@@ -8,9 +8,9 @@ libdatastore = { path = "../../../libdatastore" }
 libmodcore = { path = "../../../libmodcore"}
 libsysinspect = { path = "../../../libsysinspect" }
 serde = "1.0.228"
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 serde_yaml = "0.9.34"
-clap = { version = "4.0.32", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 log = "0.4.29"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 sha2 = "0.10.9"
