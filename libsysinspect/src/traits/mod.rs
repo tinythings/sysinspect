@@ -15,6 +15,8 @@ use std::fs;
 use systraits::SystemTraits;
 
 #[cfg(test)]
+mod osinfo_ut;
+#[cfg(test)]
 mod traits_ut;
 
 /// Standard Traits
