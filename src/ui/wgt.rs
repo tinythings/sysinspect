@@ -242,9 +242,11 @@ impl Widget for &SysInspectUX {
         self._render_right_pane(events_a, buf);
 
         // Catch dialogs
-        self.dialog_error(area, buf);
         self.dialog_purge(area, buf);
         self.dialog_exit(area, buf);
         self.dialog_help(area, buf);
+        self.dialog_online_minions(area, buf);
+        self.dialog_trait_tag(area, buf);
+        self.dialog_error(area, buf);
     }
 }

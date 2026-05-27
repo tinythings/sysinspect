@@ -13,6 +13,7 @@ enum AlertButtons {
     #[default]
     Ok,
     Quit,
+    Close,
 }
 
 static YES_LABEL: &str = "Yes";
@@ -20,6 +21,7 @@ static NO_LABEL: &str = "No";
 static OK_LABEL: &str = "OK";
 static CANCEL_LABEL: &str = "Cancel";
 static QUIT_LABEL: &str = "Quit";
+static CLOSE_LABEL: &str = "Close";
 static DEFAULT_BUTTON_WIDTH: u16 = 12;
 
 #[allow(clippy::too_many_arguments)]
@@ -28,14 +30,15 @@ impl SysInspectUX {
         if !self.error_alert_visible {
             return;
         }
-        Self::quit_popup(
+        Self::_popup(
             parent,
             buf,
             Some("Error"),
-            &format!("An unexpected error occurred:\n{}\n\nPlease check the logs for more information.", self.error_alert_message),
-            Alignment::Center,
+            &self.error_alert_message,
             Some(Color::Red),
+            Alignment::Center,
             AlertResult::Quit,
+            AlertButtons::Close,
             Some(0),
         );
     }
@@ -63,7 +66,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Help"),
-            "\"p\" - to purge all records from the dataase\n\"q\" - to quit the UI\n\"h\" - to show this help\n",
+            "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - online/offline minions popup\n",
             Alignment::Left,
             Some(Color::Green),
             AlertResult::Quit,
@@ -80,7 +83,7 @@ impl SysInspectUX {
     }
 
     /// Draws a button in MS-DOS style (no shadow)
-    fn format_button(label: &str) -> String {
+    pub(crate) fn format_button(label: &str) -> String {
         let trimmed: String = if label.chars().count() > 10 { label.chars().take(10).collect() } else { label.to_string() };
         let total_pad = 10 - trimmed.chars().count();
         let left_pad = total_pad / 2;
@@ -156,6 +159,7 @@ impl SysInspectUX {
             AlertButtons::OkCancel => (Self::format_button(OK_LABEL), Self::format_button(CANCEL_LABEL)),
             AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
             AlertButtons::Quit => (Self::format_button(QUIT_LABEL), "".to_string()),
+            AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 
         let button_splits = Layout::default()

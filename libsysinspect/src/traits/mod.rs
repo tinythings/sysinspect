@@ -1,5 +1,6 @@
 //! Trait parsing, loading, and master-managed static trait helpers.
 
+pub mod osinfo;
 pub mod systraits;
 
 use crate::cfg::mmconf::MinionConfig;
@@ -13,6 +14,8 @@ use serde_json::Value;
 use std::fs;
 use systraits::SystemTraits;
 
+#[cfg(test)]
+mod osinfo_ut;
 #[cfg(test)]
 mod traits_ut;
 
@@ -279,6 +282,28 @@ fn store_master_traits(cfg: &MinionConfig, traits: &IndexMap<String, Value>) -> 
     Ok(())
 }
 
+/// Remove a key from all `.cfg` files in the traits directory.
+fn unset_from_cfg_files(cfg: &MinionConfig, key: &str) -> Result<(), SysinspectError> {
+    let files: Vec<_> = fs::read_dir(cfg.traits_dir())?.flatten().filter(|f| f.file_name().to_str().unwrap_or_default().ends_with(".cfg")).collect();
+    for f in files {
+        let path = f.path();
+        let raw = fs::read_to_string(&path)?;
+        let trimmed = raw.trim_start_matches(MASTER_TRAITS_FILE_HEADER);
+        let mut map: IndexMap<String, Value> = serde_yaml::from_str(trimmed).unwrap_or_default();
+        if map.shift_remove(key).is_some() {
+            if map.is_empty() {
+                let header = if f.file_name().to_str() == Some(MASTER_TRAITS_FILE) { MASTER_TRAITS_FILE_HEADER } else { "" };
+                fs::write(&path, header)?;
+            } else {
+                let body = serde_yaml::to_string(&map)?;
+                let header = if f.file_name().to_str() == Some(MASTER_TRAITS_FILE) { MASTER_TRAITS_FILE_HEADER } else { "" };
+                fs::write(&path, format!("{header}{body}"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 /// Generic master-to-minion trait update payload.
 pub struct TraitUpdateRequest {
@@ -310,16 +335,22 @@ impl TraitUpdateRequest {
                         current.insert(key.to_string(), value.clone());
                     }
                 }
+                store_master_traits(cfg, &current)?;
             }
             "unset" => {
-                for key in self.traits.keys() {
+                let keys: Vec<&str> = self.traits.keys().map(|k| k.as_str()).collect();
+                for &key in &keys {
                     current.shift_remove(key);
+                    unset_from_cfg_files(cfg, key)?;
                 }
+                store_master_traits(cfg, &current)?;
             }
-            "reset" => current.clear(),
+            "reset" => {
+                current.clear();
+                store_master_traits(cfg, &current)?;
+            }
             _ => return Err(SysinspectError::InvalidQuery(format!("Unknown trait update operation: {}", self.op))),
         }
-        store_master_traits(cfg, &current)?;
         Ok(current)
     }
 

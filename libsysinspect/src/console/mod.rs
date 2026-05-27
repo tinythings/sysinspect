@@ -165,6 +165,18 @@ pub struct ConsoleOnlineMinionRow {
     /// Whether the current runtime version is older than the matching repository version.
     #[serde(default)]
     pub outdated: bool,
+    /// OS distribution reported by minion traits, if present.
+    #[serde(default)]
+    pub os_distribution: String,
+    /// OS name reported by minion traits, if present.
+    #[serde(default)]
+    pub os_name: String,
+    /// OS version reported by minion traits, if present.
+    #[serde(default)]
+    pub os_version: String,
+    /// Kernel release reported by minion traits, if present.
+    #[serde(default)]
+    pub kernel: String,
 }
 
 /// One transport-status row returned by the master.
