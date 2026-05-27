@@ -76,6 +76,64 @@ fn trait_update_request_reset_clears_master_managed_traits_file_body() {
 }
 
 #[test]
+fn unset_removes_key_from_separate_cfg_file() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir(root.path().to_str().unwrap_or_default());
+
+    ensure_master_traits_file(&cfg).unwrap();
+    fs::write(cfg.traits_dir().join("jedi.cfg"), "name: Yoda\nsaber: green\n").unwrap();
+
+    let set = TraitUpdateRequest::from_context(r#"{"op":"set","traits":{"name":"Anakin"}}"#).unwrap();
+    set.apply(&cfg).unwrap();
+
+    let unset = TraitUpdateRequest::from_context(r#"{"op":"unset","traits":{"name":null}}"#).unwrap();
+    unset.apply(&cfg).unwrap();
+
+    let master = fs::read_to_string(cfg.traits_dir().join(MASTER_TRAITS_FILE)).unwrap();
+    assert!(!master.contains("name:"), "name should be gone from master.cfg");
+
+    let jedi = fs::read_to_string(cfg.traits_dir().join("jedi.cfg")).unwrap();
+    assert!(!jedi.contains("name:"), "name should be gone from jedi.cfg");
+    assert!(jedi.contains("saber: green"), "unrelated key preserved in jedi.cfg");
+}
+
+#[test]
+fn unset_preserves_yaml_order_in_cfg_files() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir(root.path().to_str().unwrap_or_default());
+
+    ensure_master_traits_file(&cfg).unwrap();
+    fs::write(cfg.traits_dir().join("rebels.cfg"), "rank: General\nalias: Fulcrum\nhome: Yavin\n# comment\n").unwrap();
+
+    let unset = TraitUpdateRequest::from_context(r#"{"op":"unset","traits":{"alias":null}}"#).unwrap();
+    unset.apply(&cfg).unwrap();
+
+    let rebels = fs::read_to_string(cfg.traits_dir().join("rebels.cfg")).unwrap();
+    assert!(!rebels.contains("alias:"));
+    let rank_pos = rebels.find("rank:").unwrap();
+    let home_pos = rebels.find("home:").unwrap();
+    assert!(rank_pos < home_pos, "order preserved after key removal");
+}
+
+#[test]
+fn unset_idempotent_on_missing_key() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir(root.path().to_str().unwrap_or_default());
+
+    ensure_master_traits_file(&cfg).unwrap();
+    fs::write(cfg.traits_dir().join("jedi.cfg"), "saber: blue\n").unwrap();
+
+    let unset = TraitUpdateRequest::from_context(r#"{"op":"unset","traits":{"nonexistent":null}}"#).unwrap();
+    unset.apply(&cfg).unwrap();
+
+    let jedi = fs::read_to_string(cfg.traits_dir().join("jedi.cfg")).unwrap();
+    assert!(jedi.contains("saber: blue"), "unrelated file untouched");
+}
+
+#[test]
 fn empty_master_traits_file_is_accepted_during_trait_load() {
     let root = tempfile::tempdir().unwrap_or_else(|err| panic!("failed to create tempdir: {err}"));
     let mut cfg = MinionConfig::default();
