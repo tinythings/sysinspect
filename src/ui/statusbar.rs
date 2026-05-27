@@ -88,6 +88,8 @@ impl SysInspectUX {
             desc("select/toggle, "),
             key("PgUp/PgDn "),
             desc("skip rows, "),
+            key("'t' "),
+            desc("tag trait, "),
             key("ESC "),
             desc("close"),
         ]);
