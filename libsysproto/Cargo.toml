@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-indexmap = { version = "2.13.0", features = ["serde"] }
+indexmap = { version = "2.14.0", features = ["serde"] }
 libcommon = { path = "../libcommon" }
 serde = "1.0.228"
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 strum = "0.27.2"
 strum_macros = "0.27.2"
-tokio = { version = "1.49.0", features = ["full"] }
-uuid = { version = "1.20.0", features = ["v4"] }
+tokio = { version = "1.52.3", features = ["full"] }
+uuid = { version = "1.23.1", features = ["v4"] }

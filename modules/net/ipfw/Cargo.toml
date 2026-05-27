@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 libmodcore = { path = "../../../libmodcore" }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 serde_yaml = "0.9.34"
 
 [dev-dependencies]
-serde_json = "1.0.149"
+serde_json = "1.0.150"
