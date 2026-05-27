@@ -73,7 +73,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Help"),
-            "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - online/offline minions popup\n\nIn minions popup:\nTAB / SHIFT+TAB - cycle focus\nUp/Down - select minion / navigate tree\nLeft/Right - collapse/expand tree\nEnter - select / toggle tree node\nPgUp/PgDown - skip 10 rows\n",
+            "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - online/offline minions popup\n",
             Alignment::Left,
             Some(Color::Green),
             AlertResult::Quit,
