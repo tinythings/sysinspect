@@ -34,6 +34,7 @@ use tokio::sync::Mutex;
 
 mod alert;
 mod elements;
+mod online;
 mod statusbar;
 mod wgt;
 
