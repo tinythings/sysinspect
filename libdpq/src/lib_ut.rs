@@ -133,3 +133,24 @@ async fn aborting_runner_leaves_job_recoverable_on_reopen() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn stats_report_pending_and_inflight_jobs() {
+    let dir = temp_dir("stats");
+    let q = DiskPersistentQueue::open(&dir).unwrap();
+    let id1 = q.add(work_item()).unwrap();
+    let _id2 = q.add(work_item()).unwrap();
+
+    let stats = q.stats();
+    assert_eq!(stats.pending_jobs, 2);
+    assert_eq!(stats.inflight_jobs, 0);
+
+    let fetched = q.fetch().unwrap();
+    assert!(matches!(fetched, Some((job_id, _)) if job_id == id1));
+
+    let stats = q.stats();
+    assert_eq!(stats.pending_jobs, 1);
+    assert_eq!(stats.inflight_jobs, 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

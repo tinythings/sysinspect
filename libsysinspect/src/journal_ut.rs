@@ -238,6 +238,22 @@ fn completed_cycle_marker_persists_across_reopen_until_ack() {
 }
 
 #[test]
+fn stats_report_cycles_entries_and_bytes() {
+    let dir = temp_dir();
+    let j = Journal::open(&dir, 0).unwrap();
+    j.append("c1", b"aa").unwrap();
+    j.append("c1", b"bbb").unwrap();
+    j.append("c2", b"cccc").unwrap();
+
+    let stats = j.stats().unwrap();
+    assert_eq!(stats.pending_cycles, 2);
+    assert_eq!(stats.pending_entries, 3);
+    assert_eq!(stats.pending_bytes, 9);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn cycle_id_with_colons() {
     let dir = temp_dir();
     let j = Journal::open(&dir, 0).unwrap();
