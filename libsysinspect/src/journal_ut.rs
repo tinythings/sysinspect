@@ -214,6 +214,8 @@ fn append_after_ack_reuses_cycle_id() {
     assert_eq!(s, 1);
     let pending = j.pending().unwrap();
     assert_eq!(pending[0].1[0].1, b"second");
+    assert_eq!(j.ack_cycle("c1").unwrap(), 1);
+    assert!(j.pending().unwrap().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
