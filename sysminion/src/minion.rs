@@ -716,6 +716,11 @@ impl SysMinion {
                         break;
                     }
 
+                    RequestType::CycleAck => {
+                        let cycle_id = msg.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?");
+                        log::warn!("ACK from master on {:?}", cycle_id);
+                    }
+
                     RequestType::Command => {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
@@ -921,6 +926,19 @@ impl SysMinion {
         }
     }
 
+    /// Send model completion ACK to master.
+    async fn send_model_ack(self: &Arc<Self>, cycle_id: &str) {
+        let r = MinionMessage::new(
+            self.get_minion_id().to_string(),
+            RequestType::ModelAck,
+            json!({"cycle_id": cycle_id}),
+        );
+        match r.sendable() {
+            Ok(msg) => self.request(msg).await,
+            Err(e) => log::error!("Failed to send model ack: {e}"),
+        }
+    }
+
     async fn apply_rotation_command(self: Arc<Self>, context: &str) -> Result<(), SysinspectError> {
         let payload: RotationCommandPayload =
             serde_json::from_str(context).map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse rotate payload: {err}")))?;
@@ -1097,6 +1115,7 @@ impl SysMinion {
                     log::error!("Blocking task crashed: {e}");
                 }
             };
+            self.as_ptr().send_model_ack(cycle_id).await;
             self.as_ptr().pt_counter.lock().await.dec(cycle_id);
         }
     }

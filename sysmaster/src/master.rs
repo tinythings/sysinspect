@@ -137,6 +137,7 @@ pub struct SysMaster {
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
+    peer_direct_tx: HashMap<String, mpsc::Sender<Vec<u8>>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
 }
@@ -171,6 +172,7 @@ impl SysMaster {
             ptr: None,
             vmcluster,
             conn_to_mid: HashMap::new(),
+            peer_direct_tx: HashMap::new(),
             peer_transport: PeerTransport::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
@@ -898,6 +900,23 @@ impl SysMaster {
                     _ = c_bcast.send(guard.msg_sensors_files());
                 });
             }
+            RequestType::ModelAck => {
+                let cycle_id = req.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+                let minion_id = req.id().to_string();
+                log::warn!("ACK from minion {} for cycle {}", minion_id, cycle_id);
+
+                let c_master = Arc::clone(&master);
+                let c_addr = minion_addr.clone();
+                tokio::spawn(async move {
+                    let mut guard = c_master.lock().await;
+                    let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
+                    if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack) {
+                        if let Some(tx) = guard.peer_direct_tx.get(&c_addr) {
+                            let _ = tx.try_send(encrypted);
+                        }
+                    }
+                });
+            }
             _ => {
                 log::error!("Minion sends unknown request type");
             }
@@ -1267,6 +1286,9 @@ impl SysMaster {
         let c_master_writer = Arc::clone(&master);
         let c_master_reader = Arc::clone(&master);
         let (direct_tx, direct_rx) = mpsc::channel::<Vec<u8>>(8);
+        {
+            master.lock().await.peer_direct_tx.insert(peer_addr.clone(), direct_tx.clone());
+        }
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
         let cancel_writer = cancel_tx.clone();
 
