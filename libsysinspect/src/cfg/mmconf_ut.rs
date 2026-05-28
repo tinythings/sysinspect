@@ -264,18 +264,12 @@ fn minion_journal_path_can_be_overridden() {
 
 #[test]
 fn minion_journal_size_parses_human_readable_with_unit_suffix() {
-    let cfg = MinionConfig::new(write_master_cfg(
-        "config:\n  minion:\n    master.ip: ''\n    journal.size: 1 MB\n",
-    ))
-    .unwrap();
+    let cfg = MinionConfig::new(write_master_cfg("config:\n  minion:\n    master.ip: ''\n    journal.size: 1 MB\n")).unwrap();
     assert_eq!(cfg.journal_max_bytes(), 1_000_000);
 }
 
 #[test]
 fn minion_journal_size_parses_plain_integer() {
-    let cfg = MinionConfig::new(write_master_cfg(
-        "config:\n  minion:\n    master.ip: ''\n    journal.size: 65536\n",
-    ))
-    .unwrap();
+    let cfg = MinionConfig::new(write_master_cfg("config:\n  minion:\n    master.ip: ''\n    journal.size: 65536\n")).unwrap();
     assert_eq!(cfg.journal_max_bytes(), 65536);
 }

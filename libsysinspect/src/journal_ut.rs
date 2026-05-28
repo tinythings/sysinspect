@@ -319,7 +319,7 @@ fn large_payload_near_budget_single_entry_causes_eviction() {
     let dir = temp_dir();
     let j = Journal::open(&dir, 50).unwrap();
     j.append("alpha", b"1234567890").unwrap();
-    j.append("beta",  b"1234567890").unwrap();
+    j.append("beta", b"1234567890").unwrap();
     j.append("gamma", b"1234567890").unwrap();
     j.append("extra", &vec![0u8; 45]).unwrap();
     let pending = j.pending().unwrap();
