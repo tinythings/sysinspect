@@ -928,11 +928,7 @@ impl SysMinion {
 
     /// Send model completion ACK to master.
     async fn send_model_ack(self: &Arc<Self>, cycle_id: &str) {
-        let r = MinionMessage::new(
-            self.get_minion_id().to_string(),
-            RequestType::ModelAck,
-            json!({"cycle_id": cycle_id}),
-        );
+        let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelAck, json!({"cycle_id": cycle_id}));
         match r.sendable() {
             Ok(msg) => self.request(msg).await,
             Err(e) => log::error!("Failed to send model ack: {e}"),

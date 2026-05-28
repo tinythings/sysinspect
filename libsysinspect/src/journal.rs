@@ -8,25 +8,22 @@ use libcommon::SysinspectError;
 use sled::{Db, Tree};
 use std::{path::Path, sync::Arc};
 
+pub type CycleEntry = (u64, Vec<u8>);
+pub type CycleEntries = Vec<(String, Vec<CycleEntry>)>;
+
 #[derive(Clone, Debug)]
 pub struct Journal {
     db: Arc<Db>,
-    pending: Tree,   // key = cycle_id:seq, val = payload
-    seq: Tree,       // key = cycle_id, val = next_seq (u64 BE)
-    acked: Tree,     // key = cycle_id, val = "" (marker, entries already deleted)
+    pending: Tree, // key = cycle_id:seq, val = payload
+    seq: Tree,     // key = cycle_id, val = next_seq (u64 BE)
+    acked: Tree,   // key = cycle_id, val = "" (marker, entries already deleted)
     max_bytes: u64,
 }
 
 impl Journal {
     pub fn open<P: AsRef<Path>>(path: P, max_bytes: u64) -> Result<Self, SysinspectError> {
         let db = Arc::new(sled::open(path)?);
-        Ok(Self {
-            pending: db.open_tree("pending")?,
-            seq: db.open_tree("seq")?,
-            acked: db.open_tree("acked")?,
-            db,
-            max_bytes,
-        })
+        Ok(Self { pending: db.open_tree("pending")?, seq: db.open_tree("seq")?, acked: db.open_tree("acked")?, db, max_bytes })
     }
 
     // ---- helpers ----
@@ -48,14 +45,10 @@ impl Journal {
 
     fn next_seq(&self, cycle_id: &str) -> Result<u64, SysinspectError> {
         let raw = self.seq.fetch_and_update(cycle_id.as_bytes(), |old| {
-            let cur = old.and_then(|v| {
-                if v.len() >= 8 { Some(u64::from_be_bytes(v[..8].try_into().unwrap())) } else { None }
-            }).unwrap_or(0);
+            let cur = old.and_then(|v| if v.len() >= 8 { Some(u64::from_be_bytes(v[..8].try_into().unwrap())) } else { None }).unwrap_or(0);
             Some(cur.wrapping_add(1).to_be_bytes().to_vec())
         })?;
-        let assigned = raw.and_then(|v| {
-            if v.len() >= 8 { Some(u64::from_be_bytes(v[..8].try_into().unwrap())) } else { None }
-        }).unwrap_or(0);
+        let assigned = raw.and_then(|v| if v.len() >= 8 { Some(u64::from_be_bytes(v[..8].try_into().unwrap())) } else { None }).unwrap_or(0);
         Ok(assigned)
     }
 
@@ -65,20 +58,19 @@ impl Journal {
 
     fn add_total(&self, delta: i64) -> Result<u64, SysinspectError> {
         let raw = self.pending.fetch_and_update(Self::total_key(), |old| {
-            let cur = old.and_then(|v| {
-                if v.len() >= 8 { Some(i64::from_be_bytes(v[..8].try_into().unwrap())) } else { None }
-            }).unwrap_or(0);
+            let cur = old.and_then(|v| if v.len() >= 8 { Some(i64::from_be_bytes(v[..8].try_into().unwrap())) } else { None }).unwrap_or(0);
             Some((cur + delta).max(0).to_be_bytes().to_vec())
         })?;
-        Ok(raw.and_then(|v| {
-            if v.len() >= 8 { Some(i64::from_be_bytes(v[..8].try_into().unwrap()) as u64) } else { None }
-        }).unwrap_or(0))
+        Ok(raw.and_then(|v| if v.len() >= 8 { Some(i64::from_be_bytes(v[..8].try_into().unwrap()) as u64) } else { None }).unwrap_or(0))
     }
 
     fn _total_bytes(&self) -> u64 {
-        self.pending.get(Self::total_key()).ok().flatten().and_then(|v| {
-            if v.len() >= 8 { Some(i64::from_be_bytes(v[..8].try_into().unwrap()) as u64) } else { None }
-        }).unwrap_or(0)
+        self.pending
+            .get(Self::total_key())
+            .ok()
+            .flatten()
+            .and_then(|v| if v.len() >= 8 { Some(i64::from_be_bytes(v[..8].try_into().unwrap()) as u64) } else { None })
+            .unwrap_or(0)
     }
 
     fn evict_if_needed(&self) {
@@ -144,8 +136,8 @@ impl Journal {
     }
 
     /// Return all un-acked cycles with their entries in insertion order.
-    pub fn pending(&self) -> Result<Vec<(String, Vec<(u64, Vec<u8>)>)>, SysinspectError> {
-        let mut cycles: Vec<(String, Vec<(u64, Vec<u8>)>)> = Vec::new();
+    pub fn pending(&self) -> Result<CycleEntries, SysinspectError> {
+        let mut cycles: CycleEntries = Vec::new();
         for item in self.pending.iter() {
             let (k, v) = item?;
             let key_bytes = k.as_ref();
@@ -173,4 +165,3 @@ impl Journal {
         Ok(cycles)
     }
 }
-

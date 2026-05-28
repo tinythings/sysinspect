@@ -844,10 +844,7 @@ impl MinionConfig {
     /// Path to the journal directory.
     /// Default: `{managed_db_dir}/journal`.
     pub fn journal_path(&self) -> PathBuf {
-        self.journal_path.as_ref().map_or_else(
-            || self.managed_db_dir().join(CFG_JOURNAL_DIR),
-            PathBuf::from,
-        )
+        self.journal_path.as_ref().map_or_else(|| self.managed_db_dir().join(CFG_JOURNAL_DIR), PathBuf::from)
     }
 
     pub fn set_journal_path(&mut self, path: &str) {

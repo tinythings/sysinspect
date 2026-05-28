@@ -6,10 +6,7 @@ fn temp_dir(label: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "libsysinspect-journal-int-{}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
         label
     ));
     std::fs::create_dir_all(&dir).unwrap();
@@ -105,11 +102,7 @@ fn heavy_budget_pressure() {
     let survivor_ids: Vec<&str> = pending.iter().map(|(c, _)| c.as_str()).collect();
     for i in (170..200u16).rev() {
         let expected = format!("c-{:04}", i);
-        assert!(
-            survivor_ids.contains(&expected.as_str()),
-            "newest cycle {} should survive budget pressure",
-            expected
-        );
+        assert!(survivor_ids.contains(&expected.as_str()), "newest cycle {} should survive budget pressure", expected);
     }
 
     drop(pending);

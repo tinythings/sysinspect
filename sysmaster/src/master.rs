@@ -910,10 +910,10 @@ impl SysMaster {
                 tokio::spawn(async move {
                     let mut guard = c_master.lock().await;
                     let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
-                    if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack) {
-                        if let Some(tx) = guard.peer_direct_tx.get(&c_addr) {
-                            let _ = tx.try_send(encrypted);
-                        }
+                    if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack)
+                        && let Some(tx) = guard.peer_direct_tx.get(&c_addr)
+                    {
+                        let _ = tx.try_send(encrypted);
                     }
                 });
             }
