@@ -84,6 +84,24 @@ use uuid::Uuid;
 
 const RUNNER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[derive(Debug, Clone, Copy, Default)]
+struct BacklogSnapshot {
+    journal_cycles: usize,
+    journal_entries: usize,
+    journal_bytes: u64,
+    dpq_pending: usize,
+    dpq_inflight: usize,
+}
+
+impl BacklogSnapshot {
+    fn format(self) -> String {
+        format!(
+            "journal={}/{} entries ({} bytes), dpq={}/{} pending/inflight",
+            self.journal_cycles, self.journal_entries, self.journal_bytes, self.dpq_pending, self.dpq_inflight
+        )
+    }
+}
+
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
 
@@ -174,6 +192,18 @@ pub struct SysMinion {
 }
 
 impl SysMinion {
+    fn backlog_snapshot(&self) -> BacklogSnapshot {
+        let journal = self.journal.stats().unwrap_or_default();
+        let dpq = self.dpq.stats();
+        BacklogSnapshot {
+            journal_cycles: journal.pending_cycles,
+            journal_entries: journal.pending_entries,
+            journal_bytes: journal.pending_bytes,
+            dpq_pending: dpq.pending_jobs,
+            dpq_inflight: dpq.inflight_jobs,
+        }
+    }
+
     fn cleanup_empty_sensor_dirs(root: &Path, dir: &Path) {
         let Ok(rd) = fs::read_dir(dir) else {
             return;
@@ -343,7 +373,7 @@ impl SysMinion {
         };
 
         if let Err(err) = self.write_frame(&payload).await {
-            log::warn!("Failed to send message to master: {err}; triggering reconnect");
+            log::warn!("Failed to send message to master: {err}; triggering reconnect; backlog: {}", self.backlog_snapshot().format());
             let _ = CONNECTION_TX.send(());
             return Err(err);
         }
@@ -487,7 +517,7 @@ impl SysMinion {
                     }
 
                     if this.last_ping.lock().await.elapsed() > this.ping_timeout {
-                        log::warn!("Master seems unresponsive, triggering reconnect.");
+                        log::warn!("Master seems unresponsive, triggering reconnect. Backlog: {}", this.backlog_snapshot().format());
                         let _ = reconnect_sender.send(());
                         state.exit.store(true, Ordering::Relaxed);
                         break;
@@ -623,7 +653,7 @@ impl SysMinion {
                 let msg = match this.read_frame().await {
                     Ok(msg) => msg,
                     Err(err) => {
-                        log::warn!("Proto read failed: {err}; triggering reconnect");
+                        log::warn!("Proto read failed: {err}; triggering reconnect; backlog: {}", this.backlog_snapshot().format());
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -730,7 +760,14 @@ impl SysMinion {
                     RequestType::CycleAck => {
                         let cycle_id = msg.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?");
                         match this.journal.ack_cycle(cycle_id) {
-                            Ok(n) if n > 0 => log::info!("Journal freed {} entries for cycle {}", n, cycle_id),
+                            Ok(n) if n > 0 => {
+                                log::info!(
+                                    "Journal freed {} entries for cycle {}; remaining backlog: {}",
+                                    n,
+                                    cycle_id,
+                                    this.backlog_snapshot().format()
+                                )
+                            }
                             Ok(_) => log::debug!("Journal cycle {} already acked", cycle_id),
                             Err(err) => log::error!("Failed to ack journal cycle {}: {}", cycle_id, err),
                         }
@@ -987,6 +1024,7 @@ impl SysMinion {
     async fn replay_pending(self: Arc<Self>) {
         match self.journal.pending() {
             Ok(cycles) => {
+                let before = self.backlog_snapshot();
                 let cycle_count = cycles.len();
                 let mut total_entries = 0usize;
                 for (cycle_id, entries) in &cycles {
@@ -1000,7 +1038,12 @@ impl SysMinion {
                     }
                 }
                 if total_entries > 0 {
-                    log::info!("Resent {} journal entries from {} cycle(s) to master", total_entries, cycle_count);
+                    log::info!(
+                        "Resent {} journal entries from {} cycle(s) to master; backlog before replay: {}",
+                        total_entries,
+                        cycle_count,
+                        before.format()
+                    );
                 }
             }
             Err(e) => log::error!("Failed to read pending journal entries: {}", e),
@@ -1556,7 +1599,7 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
         }
 
         let interval = cfg.reconnect_interval();
-        log::info!("Reconnecting in {interval} seconds...");
+        log::info!("Reconnecting in {interval} seconds... Current backlog: {}", dpq.stats().format());
         sleep(Duration::from_secs(interval)).await;
     }
 }

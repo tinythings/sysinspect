@@ -11,6 +11,13 @@ use std::{path::Path, sync::Arc};
 pub type CycleEntry = (u64, Vec<u8>);
 pub type CycleEntries = Vec<(String, Vec<CycleEntry>)>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct JournalStats {
+    pub pending_cycles: usize,
+    pub pending_entries: usize,
+    pub pending_bytes: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct Journal {
     db: Arc<Db>,
@@ -90,6 +97,7 @@ impl Journal {
             let Some(oldest) = self.oldest_unacked_cycle() else {
                 break;
             };
+            log::warn!("Journal exceeded byte budget ({} > {}); evicting oldest unacked cycle {}", self._total_bytes(), self.max_bytes, oldest);
             self.ack_cycle_inner(&oldest);
         }
     }
@@ -162,6 +170,29 @@ impl Journal {
     /// Return whether the cycle has already finished local execution and only delivery recovery may remain.
     pub fn is_cycle_locally_complete(&self, cycle_id: &str) -> Result<bool, SysinspectError> {
         self.completed.contains_key(cycle_id.as_bytes()).map_err(Into::into)
+    }
+
+    /// Return current backlog counters for operator visibility.
+    pub fn stats(&self) -> Result<JournalStats, SysinspectError> {
+        let mut stats = JournalStats { pending_bytes: self._total_bytes(), ..Default::default() };
+        let mut last_cycle: Option<String> = None;
+        for item in self.pending.iter() {
+            let (k, _v) = item?;
+            let key_bytes = k.as_ref();
+            if key_bytes.starts_with(b"__") {
+                continue;
+            }
+            let Some(colon) = key_bytes.iter().rposition(|&b| b == b':') else {
+                continue;
+            };
+            let cycle_id = String::from_utf8_lossy(&key_bytes[..colon]).to_string();
+            stats.pending_entries += 1;
+            if last_cycle.as_deref() != Some(cycle_id.as_str()) {
+                stats.pending_cycles += 1;
+                last_cycle = Some(cycle_id);
+            }
+        }
+        Ok(stats)
     }
 
     /// Return all un-acked cycles with their entries in insertion order.

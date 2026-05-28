@@ -47,6 +47,18 @@ pub struct DiskPersistentQueue {
     tx: mpsc::Sender<()>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct QueueStats {
+    pub pending_jobs: usize,
+    pub inflight_jobs: usize,
+}
+
+impl QueueStats {
+    pub fn format(self) -> String {
+        format!("{}/{} pending/inflight", self.pending_jobs, self.inflight_jobs)
+    }
+}
+
 impl DiskPersistentQueue {
     /// Open or create a new disk-backed queue at the specified path.
     /// This will create the necessary sled database and trees if they don't exist.
@@ -66,7 +78,10 @@ impl DiskPersistentQueue {
 
         let (tx, _rx) = mpsc::channel::<()>(1);
         let q = Self { db, meta, pending, inflight, jobs, tx };
-        q.recover()?;
+        let recovered = q.recover()?;
+        if recovered > 0 {
+            log::warn!("Recovered {} inflight DPQ job(s) back to pending on startup", recovered);
+        }
 
         // Wake up any runners waiting for jobs
         let _ = q.tx.try_send(());
@@ -280,7 +295,7 @@ impl DiskPersistentQueue {
     /// let q = DiskPersistentQueue::open("/path/to/queue")?;
     /// q.recover()?;
     /// ```text
-    pub fn recover(&self) -> Result<(), SysinspectError> {
+    pub fn recover(&self) -> Result<usize, SysinspectError> {
         let keys: Vec<[u8; 8]> = self
             .inflight
             .iter()
@@ -306,7 +321,12 @@ impl DiskPersistentQueue {
             self.db.flush()?;
         }
 
-        Ok(())
+        Ok(keys.len())
+    }
+
+    /// Return current queue backlog counters for operator visibility.
+    pub fn stats(&self) -> QueueStats {
+        QueueStats { pending_jobs: self.pending.len(), inflight_jobs: self.inflight.len() }
     }
 
     /// Start a runner that continuously tries to dequeue and execute jobs using the provided async closure.
