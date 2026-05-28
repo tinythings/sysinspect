@@ -220,6 +220,24 @@ fn append_after_ack_reuses_cycle_id() {
 }
 
 #[test]
+fn completed_cycle_marker_persists_across_reopen_until_ack() {
+    let dir = temp_dir();
+    {
+        let j = Journal::open(&dir, 0).unwrap();
+        j.append("c1", b"payload").unwrap();
+        j.mark_cycle_locally_complete("c1").unwrap();
+        assert!(j.is_cycle_locally_complete("c1").unwrap());
+    }
+    {
+        let j = Journal::open(&dir, 0).unwrap();
+        assert!(j.is_cycle_locally_complete("c1").unwrap());
+        j.ack_cycle("c1").unwrap();
+        assert!(!j.is_cycle_locally_complete("c1").unwrap());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn cycle_id_with_colons() {
     let dir = temp_dir();
     let j = Journal::open(&dir, 0).unwrap();
