@@ -31,6 +31,7 @@ use libsysinspect::{
         actproc::{modfinder::ModCall, response::ActionResponse},
         inspector::SysInspector,
     },
+    journal::Journal,
     mdescr::mspecdef::ModelSpec,
     reactor::{
         evtproc::EventProcessor,
@@ -155,6 +156,7 @@ pub struct SysMinion {
 
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
+    journal: Journal,
     connected: AtomicBool,
     secure: Mutex<Option<SecureChannel>>,
 
@@ -208,6 +210,7 @@ impl SysMinion {
             ping_timeout: Duration::from_secs(10),
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
+            journal: Journal::open(cfg.journal_path(), cfg.journal_max_bytes())?,
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
             minion_id: dataconv::as_str(SystemTraits::new(cfg.clone(), true).get(traits::SYS_ID)),
@@ -718,7 +721,10 @@ impl SysMinion {
 
                     RequestType::CycleAck => {
                         let cycle_id = msg.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?");
-                        log::warn!("ACK from master on {:?}", cycle_id);
+                        log::debug!("ACK from master on {:?} with payload {}", cycle_id, msg.payload());
+                        if let Err(err) = this.journal.ack_cycle(cycle_id) {
+                            log::error!("Failed to ack journal cycle {}: {}", cycle_id, err);
+                        }
                     }
 
                     RequestType::Command => {
@@ -896,14 +902,18 @@ impl SysMinion {
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
         log::debug!("Callback: {ar:#?}");
-        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?).await;
+        let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?;
+        self.journal.append(ar.cid(), &msg)?;
+        self.request(msg).await;
         Ok(())
     }
 
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
+        let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?;
+        self.journal.append(ar.cid(), &msg)?;
+        self.request(msg).await;
         Ok(())
     }
 
@@ -1306,6 +1316,23 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
         minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_ehlo().await?;
+        match minion.as_ptr().journal.pending() {
+            Ok(cycles) => {
+                let cycle_count = cycles.len();
+                let mut total_entries = 0usize;
+                for (cycle_id, entries) in &cycles {
+                    for (_seq, payload) in entries {
+                        minion.as_ptr().request(payload.clone()).await;
+                        total_entries += 1;
+                    }
+                    minion.as_ptr().send_model_ack(cycle_id).await;
+                }
+                if total_entries > 0 {
+                    log::info!("Resent {} journal entries from {} cycle(s) to master", total_entries, cycle_count);
+                }
+            }
+            Err(e) => log::error!("Failed to read pending journal entries: {}", e),
+        }
         if cfg.autosync_startup() {
             tokio::select! {
                 sync_res = modpak.sync() => {

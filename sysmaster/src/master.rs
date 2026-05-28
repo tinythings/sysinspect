@@ -903,17 +903,19 @@ impl SysMaster {
             RequestType::ModelAck => {
                 let cycle_id = req.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?").to_string();
                 let minion_id = req.id().to_string();
-                log::warn!("ACK from minion {} for cycle {}", minion_id, cycle_id);
+                log::debug!("ACK from minion {} for cycle {} with payload {}", minion_id, cycle_id, req.payload());
 
                 let c_master = Arc::clone(&master);
                 let c_addr = minion_addr.clone();
                 tokio::spawn(async move {
                     let mut guard = c_master.lock().await;
+                    let label = guard.resolved_peer_label(&minion_id, &c_addr).await;
                     let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
                     if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack)
                         && let Some(tx) = guard.peer_direct_tx.get(&c_addr)
                     {
                         let _ = tx.try_send(encrypted);
+                        log::info!("Synced journal with minion {} for cycle {}", label, cycle_id);
                     }
                 });
             }
