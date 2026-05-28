@@ -81,6 +81,8 @@ use tokio::{
 };
 use uuid::Uuid;
 
+const RUNNER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
 
@@ -325,22 +327,27 @@ impl SysMinion {
 
     /// Talk-back to the master
     pub(crate) async fn request(&self, msg: Vec<u8>) {
+        let _ = self.try_request(msg).await;
+    }
+
+    async fn try_request(&self, msg: Vec<u8>) -> Result<(), SysinspectError> {
         let payload = match self.secure.lock().await.as_mut().map(|secure| secure.seal_bytes(&msg)).transpose() {
             Ok(Some(msg)) => msg,
             Ok(None) => msg,
             Err(err) => {
                 log::error!("Failed to encode secure payload to master: {err}");
                 let _ = CONNECTION_TX.send(());
-                return;
+                return Err(err);
             }
         };
 
         if let Err(err) = self.write_frame(&payload).await {
             log::warn!("Failed to send message to master: {err}; triggering reconnect");
             let _ = CONNECTION_TX.send(());
-        } else {
-            log::trace!("To master: {}", String::from_utf8_lossy(&payload));
+            return Err(err);
         }
+        log::trace!("To master: {}", String::from_utf8_lossy(&payload));
+        Ok(())
     }
 
     /// Write one length-prefixed transport frame to the master connection.
@@ -721,9 +728,10 @@ impl SysMinion {
 
                     RequestType::CycleAck => {
                         let cycle_id = msg.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?");
-                        log::debug!("ACK from master on {:?} with payload {}", cycle_id, msg.payload());
-                        if let Err(err) = this.journal.ack_cycle(cycle_id) {
-                            log::error!("Failed to ack journal cycle {}: {}", cycle_id, err);
+                        match this.journal.ack_cycle(cycle_id) {
+                            Ok(n) if n > 0 => log::info!("Journal freed {} entries for cycle {}", n, cycle_id),
+                            Ok(_) => log::debug!("Journal cycle {} already acked", cycle_id),
+                            Err(err) => log::error!("Failed to ack journal cycle {}: {}", cycle_id, err),
                         }
                     }
 
@@ -766,6 +774,10 @@ impl SysMinion {
                             Ok(_) => {
                                 log::info!("Connected");
                                 this.set_connected(true);
+                                let this = this.clone();
+                                tokio::spawn(async move {
+                                    this.replay_pending().await;
+                                });
                             }
                             Err(err) => log::error!("Unable to send traits: {err}"),
                         }
@@ -940,8 +952,53 @@ impl SysMinion {
     async fn send_model_ack(self: &Arc<Self>, cycle_id: &str) {
         let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelAck, json!({"cycle_id": cycle_id}));
         match r.sendable() {
-            Ok(msg) => self.request(msg).await,
+            Ok(msg) => {
+                if let Err(e) = self.journal.append(cycle_id, &msg) {
+                    log::error!("Failed to journal model ack for cycle {}: {}", cycle_id, e);
+                }
+                self.request(msg).await
+            }
             Err(e) => log::error!("Failed to send model ack: {e}"),
+        }
+    }
+
+    fn pending_cycle_needs_model_ack(entries: &[(u64, Vec<u8>)]) -> bool {
+        let mut has_model_event = false;
+        let mut has_model_ack = false;
+
+        for (_, payload) in entries {
+            if let Ok(msg) = serde_json::from_slice::<MinionMessage>(payload) {
+                match msg.req_type() {
+                    RequestType::ModelEvent => has_model_event = true,
+                    RequestType::ModelAck => has_model_ack = true,
+                    _ => {}
+                }
+            }
+        }
+
+        has_model_event && !has_model_ack
+    }
+
+    async fn replay_pending(self: Arc<Self>) {
+        match self.journal.pending() {
+            Ok(cycles) => {
+                let cycle_count = cycles.len();
+                let mut total_entries = 0usize;
+                for (cycle_id, entries) in &cycles {
+                    for (_seq, payload) in entries {
+                        if self.try_request(payload.clone()).await.is_ok() {
+                            total_entries += 1;
+                        }
+                    }
+                    if Self::pending_cycle_needs_model_ack(entries) {
+                        self.send_model_ack(cycle_id).await;
+                    }
+                }
+                if total_entries > 0 {
+                    log::info!("Resent {} journal entries from {} cycle(s) to master", total_entries, cycle_count);
+                }
+            }
+            Err(e) => log::error!("Failed to read pending journal entries: {}", e),
         }
     }
 
@@ -1276,9 +1333,26 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
     });
 
+    async fn wait_for_runner_drain(minion: &Arc<SysMinion>) {
+        let start = Instant::now();
+        loop {
+            if minion.pt_counter.lock().await.is_done() {
+                // Let the queue runner finish the ack path for the just-completed job.
+                sleep(Duration::from_millis(100)).await;
+                break;
+            }
+            if start.elapsed() >= RUNNER_DRAIN_TIMEOUT {
+                log::warn!("Timed out waiting for in-flight minion work to finish; forcing runner shutdown.");
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     async fn stop_instance(minion: &Arc<SysMinion>, runner: tokio::task::JoinHandle<()>) -> Result<(), tokio::task::JoinError> {
         minion.as_ptr().stop_sensors().await;
         minion.as_ptr().stop_background().await;
+        wait_for_runner_drain(minion).await;
         runner.abort();
         runner.await
     }
@@ -1316,23 +1390,6 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
         minion.as_ptr().do_proto().await?;
         minion.as_ptr().send_ehlo().await?;
-        match minion.as_ptr().journal.pending() {
-            Ok(cycles) => {
-                let cycle_count = cycles.len();
-                let mut total_entries = 0usize;
-                for (cycle_id, entries) in &cycles {
-                    for (_seq, payload) in entries {
-                        minion.as_ptr().request(payload.clone()).await;
-                        total_entries += 1;
-                    }
-                    minion.as_ptr().send_model_ack(cycle_id).await;
-                }
-                if total_entries > 0 {
-                    log::info!("Resent {} journal entries from {} cycle(s) to master", total_entries, cycle_count);
-                }
-            }
-            Err(e) => log::error!("Failed to read pending journal entries: {}", e),
-        }
         if cfg.autosync_startup() {
             tokio::select! {
                 sync_res = modpak.sync() => {
@@ -1361,6 +1418,7 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     }
 
     if state.exit.load(Ordering::Relaxed) {
+        wait_for_runner_drain(&minion).await;
         runner.abort();
         let _ = runner.await;
         return Ok(());
@@ -1395,6 +1453,7 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     minion.as_ptr().stop_sensors().await;
     minion.as_ptr().stop_background().await;
 
+    wait_for_runner_drain(&minion).await;
     runner.abort();
     let _ = runner.await;
 
@@ -1441,11 +1500,11 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             sig = reconnect_rx.recv() => {
                 match sig {
                     Ok(_) => {
-                        log::warn!("Reconnect signal received; aborting current minion instance.");
+                        log::warn!("Reconnect signal received; waiting for current minion instance to stop.");
                         let _ = mhdl.await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!("Missed {n} reconnect notification(s) in supervisor loop; aborting current minion instance.");
+                        log::warn!("Missed {n} reconnect notification(s) in supervisor loop; waiting for current minion instance to stop.");
                         let _ = mhdl.await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {

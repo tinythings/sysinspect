@@ -914,8 +914,10 @@ impl SysMaster {
                     if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack)
                         && let Some(tx) = guard.peer_direct_tx.get(&c_addr)
                     {
-                        let _ = tx.try_send(encrypted);
-                        log::info!("Synced journal with minion {} for cycle {}", label, cycle_id);
+                        match tx.try_send(encrypted) {
+                            Ok(_) => log::info!("Synced journal with minion {} for cycle {}", label, cycle_id),
+                            Err(e) => log::warn!("Failed to send journal ack to {}: {}", label, e),
+                        }
                     }
                 });
             }

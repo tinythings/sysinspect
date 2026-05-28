@@ -22,7 +22,8 @@ pub struct Journal {
 
 impl Journal {
     pub fn open<P: AsRef<Path>>(path: P, max_bytes: u64) -> Result<Self, SysinspectError> {
-        let db = Arc::new(sled::open(path)?);
+        let config = sled::Config::new().flush_every_ms(Some(0)).path(&path);
+        let db = Arc::new(config.open()?);
         Ok(Self { pending: db.open_tree("pending")?, seq: db.open_tree("seq")?, acked: db.open_tree("acked")?, db, max_bytes })
     }
 
@@ -98,23 +99,30 @@ impl Journal {
         None
     }
 
-    fn ack_cycle_inner(&self, cycle_id: &str) {
+    fn ack_cycle_inner(&self, cycle_id: &str) -> usize {
         let prefix = Self::cycle_prefix(cycle_id);
         let keys: Vec<sled::IVec> = self.pending.scan_prefix(&prefix).filter_map(|r| r.ok().map(|(k, _)| k)).collect();
+        let mut count = 0usize;
         for k in &keys {
             if let Ok(Some(v)) = self.pending.get(k) {
-                self.add_total(-(v.len() as i64)).ok();
+                let _ = self.add_total(-(v.len() as i64));
             }
-            self.pending.remove(k).ok();
+            if self.pending.remove(k).is_ok() {
+                count += 1;
+            }
         }
-        self.acked.insert(cycle_id.as_bytes(), &[][..]).ok();
-        self.db.flush().ok();
+        let _ = self.acked.insert(cycle_id.as_bytes(), &[][..]);
+        let _ = self.db.flush();
+        count
     }
 
     // ---- public API ----
 
     /// Append a payload under a cycle.  Returns the per-cycle sequence number.
     pub fn append(&self, cycle_id: &str, payload: &[u8]) -> Result<u64, SysinspectError> {
+        if self.acked.contains_key(cycle_id.as_bytes())? {
+            self.acked.remove(cycle_id.as_bytes())?;
+        }
         let seq = self.next_seq(cycle_id)?;
         self.pending.insert(Self::pending_key(cycle_id, seq), payload)?;
         self.add_total(payload.len() as i64)?;
@@ -127,12 +135,12 @@ impl Journal {
 
     /// Acknowledge a cycle — all its entries are deleted.
     /// Idempotent: calling twice on the same cycle is safe.
-    pub fn ack_cycle(&self, cycle_id: &str) -> Result<(), SysinspectError> {
+    /// Returns the number of entries freed.
+    pub fn ack_cycle(&self, cycle_id: &str) -> Result<usize, SysinspectError> {
         if self.acked.contains_key(cycle_id.as_bytes())? {
-            return Ok(());
+            return Ok(0);
         }
-        self.ack_cycle_inner(cycle_id);
-        Ok(())
+        Ok(self.ack_cycle_inner(cycle_id))
     }
 
     /// Return all un-acked cycles with their entries in insertion order.
