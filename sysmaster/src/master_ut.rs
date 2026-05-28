@@ -12,6 +12,7 @@ use libsysinspect::{
 use libsysproto::secure::{
     SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding,
 };
+use libsysproto::{MinionMessage, replay::ReplayIdentity, rqtypes::RequestType};
 use rsa::RsaPublicKey;
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -242,22 +243,45 @@ fn invalid_hello_does_not_poison_replay_cache_then_valid_retry_is_accepted() {
 
 #[test]
 fn event_replay_key_uses_stable_minion_cycle_entity_session_action_identity() {
-    let payload = HashMap::from([
-        ("cid".to_string(), json!("cycle-1")),
-        ("eid".to_string(), json!("entity-1")),
-        ("sid".to_string(), json!("session-1")),
-        ("aid".to_string(), json!("action-1")),
-    ]);
+    let msg = MinionMessage::new(
+        "minion-1".to_string(),
+        RequestType::Event,
+        json!({"cid":"cycle-1","eid":"entity-1","sid":"session-1","aid":"action-1","timestamp":"1"}),
+    );
 
-    assert_eq!(SysMaster::event_replay_key_for_test("minion-1", &payload), "evt|minion-1|cycle-1|entity-1|session-1|action-1");
+    assert_eq!(SysMaster::replay_identity_key_for_test(&msg).unwrap(), "evt|minion-1|cycle-1|entity-1|session-1|action-1");
 }
 
 #[test]
 fn model_event_and_ack_replay_keys_are_distinct() {
-    let payload = HashMap::from([("cid".to_string(), json!("cycle-1"))]);
+    let model_event = MinionMessage::new(
+        "minion-1".to_string(),
+        RequestType::ModelEvent,
+        json!({"cid":"cycle-1","eid":"entity-1","sid":"session-1","aid":"action-1","timestamp":"1"}),
+    );
+    let model_ack = MinionMessage::new("minion-1".to_string(), RequestType::ModelAck, json!({"cycle_id":"cycle-1"}));
 
-    assert_eq!(SysMaster::model_event_replay_key_for_test("minion-1", &payload), "mvt|minion-1|cycle-1");
-    assert_eq!(SysMaster::model_ack_replay_key_for_test("minion-1", "cycle-1"), "mack|minion-1|cycle-1");
+    assert_eq!(SysMaster::replay_identity_key_for_test(&model_event).unwrap(), "mvt|minion-1|cycle-1");
+    assert_eq!(SysMaster::replay_identity_key_for_test(&model_ack).unwrap(), "mack|minion-1|cycle-1");
+}
+
+#[test]
+fn duplicate_model_ack_still_allows_cycle_ack_resend() {
+    assert!(SysMaster::duplicate_replay_blocks_processing_for_test(&ReplayIdentity::Event {
+        minion_id: "minion-1".to_string(),
+        cycle_id: "cycle-1".to_string(),
+        entity_id: "entity-1".to_string(),
+        session_id: "session-1".to_string(),
+        action_id: "action-1".to_string(),
+    }));
+    assert!(SysMaster::duplicate_replay_blocks_processing_for_test(&ReplayIdentity::ModelEvent {
+        minion_id: "minion-1".to_string(),
+        cycle_id: "cycle-1".to_string(),
+    }));
+    assert!(!SysMaster::duplicate_replay_blocks_processing_for_test(&ReplayIdentity::ModelAck {
+        minion_id: "minion-1".to_string(),
+        cycle_id: "cycle-1".to_string(),
+    }));
 }
 
 #[tokio::test]
