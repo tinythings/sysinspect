@@ -57,6 +57,7 @@ use libsysproto::{
         MinionQuery, SCHEME_COMMAND,
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
+    replay::{ReplayIdentity, replay_identity_from_minion_bytes},
     rqtypes::{ProtoValue, RequestType},
     secure::{SecureDiagnosticCode, SecureFrame},
 };
@@ -967,11 +968,11 @@ impl SysMinion {
         let mut has_model_ack = false;
 
         for (_, payload) in entries {
-            if let Ok(msg) = serde_json::from_slice::<MinionMessage>(payload) {
-                match msg.req_type() {
-                    RequestType::ModelEvent => has_model_event = true,
-                    RequestType::ModelAck => has_model_ack = true,
-                    _ => {}
+            if let Ok(Some(identity)) = replay_identity_from_minion_bytes(payload) {
+                match identity {
+                    ReplayIdentity::ModelEvent { .. } => has_model_event = true,
+                    ReplayIdentity::ModelAck { .. } => has_model_ack = true,
+                    ReplayIdentity::Event { .. } => {}
                 }
             }
         }

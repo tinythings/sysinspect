@@ -42,6 +42,7 @@ use libsysproto::{
             CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
+    replay::{ReplayIdentity, replay_identity_from_minion_message},
     rqtypes::{ProtoKey, ProtoValue, RequestType},
     secure::SECURE_PROTOCOL_VERSION,
 };
@@ -69,10 +70,6 @@ use tokio::time::{Duration, sleep};
 pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 const DEFAULT_ROTATION_OVERLAP_SECONDS: u64 = 900;
-
-const REPLAY_KIND_EVENT: &str = "evt";
-const REPLAY_KIND_MODEL_EVENT: &str = "mvt";
-const REPLAY_KIND_MODEL_ACK: &str = "mack";
 
 #[derive(Debug, Clone, Deserialize)]
 struct RotationConsoleRequest {
@@ -223,49 +220,18 @@ impl SysMaster {
         PeerTransport::rate_limit_key(peer_addr)
     }
 
-    fn replay_identity(kind: &str, parts: &[&str]) -> String {
-        let mut key = String::from(kind);
-        for part in parts {
-            key.push('|');
-            key.push_str(part);
-        }
-        key
+    #[cfg(test)]
+    pub(crate) fn replay_identity_key_for_test(msg: &MinionMessage) -> Option<String> {
+        replay_identity_from_minion_message(msg).ok().flatten().map(|identity| identity.key())
     }
 
-    fn event_replay_key(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
-        Self::replay_identity(
-            REPLAY_KIND_EVENT,
-            &[
-                minion_id,
-                &util::dataconv::as_str(payload.get(&ProtoKey::CycleId.to_string()).cloned()),
-                &util::dataconv::as_str(payload.get(&ProtoKey::EntityId.to_string()).cloned()),
-                &util::dataconv::as_str(payload.get(&ProtoKey::SessionId.to_string()).cloned()),
-                &util::dataconv::as_str(payload.get(&ProtoKey::ActionId.to_string()).cloned()),
-            ],
-        )
-    }
-
-    fn model_event_replay_key(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
-        Self::replay_identity(REPLAY_KIND_MODEL_EVENT, &[minion_id, &util::dataconv::as_str(payload.get(&ProtoKey::CycleId.to_string()).cloned())])
-    }
-
-    fn model_ack_replay_key(minion_id: &str, cycle_id: &str) -> String {
-        Self::replay_identity(REPLAY_KIND_MODEL_ACK, &[minion_id, cycle_id])
+    fn duplicate_replay_blocks_processing(identity: &ReplayIdentity) -> bool {
+        !matches!(identity, ReplayIdentity::ModelAck { .. })
     }
 
     #[cfg(test)]
-    pub(crate) fn event_replay_key_for_test(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
-        Self::event_replay_key(minion_id, payload)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn model_event_replay_key_for_test(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
-        Self::model_event_replay_key(minion_id, payload)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn model_ack_replay_key_for_test(minion_id: &str, cycle_id: &str) -> String {
-        Self::model_ack_replay_key(minion_id, cycle_id)
+    pub(crate) fn duplicate_replay_blocks_processing_for_test(identity: &ReplayIdentity) -> bool {
+        Self::duplicate_replay_blocks_processing(identity)
     }
 
     #[cfg(test)]
@@ -859,7 +825,20 @@ impl SysMaster {
                         }
                     };
 
-                    let replay_key = Self::event_replay_key(req.id(), &pl);
+                    let replay_key = match replay_identity_from_minion_message(&req) {
+                        Ok(Some(ReplayIdentity::Event { .. })) => {
+                            replay_identity_from_minion_message(&req).ok().flatten().map(|identity| identity.key())
+                        }
+                        Ok(_) => None,
+                        Err(err) => {
+                            log::error!("Failed to derive Event replay identity for {}: {}", req.id(), err);
+                            return;
+                        }
+                    };
+                    let Some(replay_key) = replay_key else {
+                        log::error!("Missing Event replay identity for {}", req.id());
+                        return;
+                    };
                     match m.evtipc.claim_replay_key(&replay_key).await {
                         Ok(true) => {}
                         Ok(false) => {
@@ -923,7 +902,20 @@ impl SysMaster {
                             return;
                         }
                     };
-                    let replay_key = Self::model_event_replay_key(req.id(), &pl);
+                    let replay_key = match replay_identity_from_minion_message(&req) {
+                        Ok(Some(ReplayIdentity::ModelEvent { .. })) => {
+                            replay_identity_from_minion_message(&req).ok().flatten().map(|identity| identity.key())
+                        }
+                        Ok(_) => None,
+                        Err(err) => {
+                            log::error!("Failed to derive ModelEvent replay identity for {}: {}", req.id(), err);
+                            return;
+                        }
+                    };
+                    let Some(replay_key) = replay_key else {
+                        log::error!("Missing ModelEvent replay identity for {}", req.id());
+                        return;
+                    };
                     match master.evtipc.claim_replay_key(&replay_key).await {
                         Ok(true) => {}
                         Ok(false) => {
@@ -983,12 +975,27 @@ impl SysMaster {
                 let c_addr = minion_addr.clone();
                 tokio::spawn(async move {
                     let mut guard = c_master.lock().await;
-                    let replay_key = Self::model_ack_replay_key(&minion_id, &cycle_id);
+                    let replay_identity = match replay_identity_from_minion_message(&req) {
+                        Ok(Some(identity @ ReplayIdentity::ModelAck { .. })) => Some(identity),
+                        Ok(_) => None,
+                        Err(err) => {
+                            log::error!("Failed to derive ModelAck replay identity for {}: {}", minion_id, err);
+                            return;
+                        }
+                    };
+                    let Some(replay_identity) = replay_identity else {
+                        log::error!("Missing ModelAck replay identity for {}", minion_id);
+                        return;
+                    };
+                    let replay_key = replay_identity.key();
                     match guard.evtipc.claim_replay_key(&replay_key).await {
                         Ok(true) => {}
                         Ok(false) => {
-                            log::debug!("Dropped duplicate ModelAck replay for {} with key {}", minion_id, replay_key);
-                            return;
+                            if Self::duplicate_replay_blocks_processing(&replay_identity) {
+                                log::debug!("Dropped duplicate ModelAck replay for {} with key {}", minion_id, replay_key);
+                                return;
+                            }
+                            log::debug!("Received duplicate ModelAck replay for {} with key {}; re-sending CycleAck", minion_id, replay_key);
                         }
                         Err(err) => {
                             log::error!("Failed to claim ModelAck replay key for {}: {}", minion_id, err);
