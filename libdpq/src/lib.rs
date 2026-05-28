@@ -356,7 +356,7 @@ impl DiskPersistentQueue {
     ///     }
     /// });
     /// ```
-pub fn start_ack<F, Fut>(&self, mut exec: F) -> tokio::task::JoinHandle<()>
+    pub fn start_ack<F, Fut>(&self, mut exec: F) -> tokio::task::JoinHandle<()>
     where
         F: FnMut(u64, WorkItem) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(), SysinspectError>> + Send + 'static,
