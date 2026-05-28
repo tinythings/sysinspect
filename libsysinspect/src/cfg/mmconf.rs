@@ -139,10 +139,14 @@ pub static CFG_AUTOSYNC_FAST: &str = "fast";
 pub static CFG_AUTOSYNC_SHALLOW: &str = "shallow";
 pub static CFG_AUTOSYNC_DEFAULT: &str = CFG_AUTOSYNC_FULL;
 
-// Reconnect to the master
+// Reconect to the master
 pub static CFG_RECONNECT_DEFAULT: bool = true;
 pub static CFG_RECONNECT_FREQ_DEFAULT: u32 = 0;
 pub static CFG_RECONNECT_DEFAULT_INTERVAL: &str = "5-30";
+
+// Outgoing journal
+pub static CFG_JOURNAL_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024; // 64 MiB
+pub static CFG_JOURNAL_DIR: &str = "journal";
 
 // Task Intervals
 // ---------------
@@ -474,6 +478,18 @@ pub struct MinionConfig {
     #[serde(rename = "master.reconnect.interval")]
     #[serde(skip_serializing_if = "Option::is_none")]
     master_reconnect_interval: Option<String>,
+
+    /// Maximum disk space for the outgoing journal (bytes).
+    /// Default: 64 MiB. Set to 0 to disable the budget (unlimited).
+    #[serde(rename = "journal.size", default, deserialize_with = "libcommon::humaninput::h2bytes")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal_max_bytes: Option<u64>,
+
+    /// Path to the persistent journal directory.
+    /// Default: `{managed_db_dir}/journal`.
+    #[serde(rename = "journal.path")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal_path: Option<String>,
 
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
@@ -813,6 +829,29 @@ impl MinionConfig {
         }
 
         rand::random::<u64>() % 30 + 5
+    }
+
+    /// Maximum outgoing journal size in bytes.
+    /// 0 = unlimited, default = 64 MiB.
+    pub fn journal_max_bytes(&self) -> u64 {
+        self.journal_max_bytes.unwrap_or(CFG_JOURNAL_MAX_BYTES_DEFAULT)
+    }
+
+    pub fn set_journal_max_bytes(&mut self, max_bytes: u64) {
+        self.journal_max_bytes = Some(max_bytes);
+    }
+
+    /// Path to the journal directory.
+    /// Default: `{managed_db_dir}/journal`.
+    pub fn journal_path(&self) -> PathBuf {
+        self.journal_path.as_ref().map_or_else(
+            || self.managed_db_dir().join(CFG_JOURNAL_DIR),
+            PathBuf::from,
+        )
+    }
+
+    pub fn set_journal_path(&mut self, path: &str) {
+        self.journal_path = Some(path.to_string());
     }
 
     /// Get temp path
