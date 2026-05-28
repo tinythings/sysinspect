@@ -221,3 +221,61 @@ fn minion_performance_can_be_set_to_embedded_or_server() {
     assert_eq!(server.performance().register_threads(), (4, 4));
     assert_eq!(server.performance().daemon_threads(), (8, 8));
 }
+
+#[test]
+fn minion_journal_uses_default_max_bytes() {
+    let cfg = MinionConfig::default();
+    assert_eq!(cfg.journal_max_bytes(), 64 * 1024 * 1024); // 64 MiB
+}
+
+#[test]
+fn minion_journal_max_bytes_zero_disables_budget() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_journal_max_bytes(0);
+    assert_eq!(cfg.journal_max_bytes(), 0);
+}
+
+#[test]
+fn minion_journal_custom_max_bytes() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_journal_max_bytes(1024 * 1024);
+    assert_eq!(cfg.journal_max_bytes(), 1024 * 1024);
+}
+
+#[test]
+fn minion_journal_path_defaults_to_managed_db_dir() {
+    let cfg = MinionConfig::default();
+    assert_eq!(cfg.journal_path(), cfg.managed_db_dir().join("journal"));
+}
+
+#[test]
+fn minion_journal_path_follows_custom_managed_db_dir() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_root_dir("/srv/sysinspect");
+    assert_eq!(cfg.journal_path(), std::path::PathBuf::from("/srv/sysinspect/tmp/journal"));
+}
+
+#[test]
+fn minion_journal_path_can_be_overridden() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_journal_path("/var/lib/sysinspect/journal");
+    assert_eq!(cfg.journal_path(), std::path::PathBuf::from("/var/lib/sysinspect/journal"));
+}
+
+#[test]
+fn minion_journal_size_parses_human_readable_with_unit_suffix() {
+    let cfg = MinionConfig::new(write_master_cfg(
+        "config:\n  minion:\n    master.ip: ''\n    journal.size: 1 MB\n",
+    ))
+    .unwrap();
+    assert_eq!(cfg.journal_max_bytes(), 1_000_000);
+}
+
+#[test]
+fn minion_journal_size_parses_plain_integer() {
+    let cfg = MinionConfig::new(write_master_cfg(
+        "config:\n  minion:\n    master.ip: ''\n    journal.size: 65536\n",
+    ))
+    .unwrap();
+    assert_eq!(cfg.journal_max_bytes(), 65536);
+}
