@@ -936,6 +936,33 @@ and contains the following directives:
 
     Default is ``true``
 
+``journal.path``
+################
+
+    Type: **string**
+
+    Path to the persistent outgoing journal directory. The journal buffers
+    model/event results on disk before transmission to the master so that no
+    data is lost when the network connection drops. Each record stays in the
+    journal until the master acknowledges the cycle it belongs to.
+
+    Default: ``<managed_db_dir>/journal``, which resolves to ``/tmp/journal``
+    on a system-layout install and ``<root>/tmp/journal`` on a custom-layout
+    install.
+
+``journal.size``
+################
+
+    Type: **string / integer**
+
+    Maximum total size of the outgoing journal in bytes. Accepts plain
+    integers or human-readable strings with an optional unit suffix
+    (``B``, ``KB``, ``MB``, ``GB``, ``TB``). When the un-acked data exceeds
+    this budget the oldest cycle is evicted automatically. Set to ``0`` to
+    disable the budget entirely (unlimited).
+
+    Default: ``64 MiB``.
+
 
 Example configuration for the Sysinspect Minion:
 
@@ -948,6 +975,10 @@ Example configuration for the Sysinspect Minion:
             root: /etc/sysinspect
             master.ip: 192.168.2.31
             master.port: 4200
+
+            # Outgoing journal (defaults shown):
+            # journal.path: /tmp/journal
+            # journal.size: 64 MiB
 
 Layout of ``/etc/sysinspect``
 -----------------------------
