@@ -14,9 +14,10 @@ pub type CycleEntries = Vec<(String, Vec<CycleEntry>)>;
 #[derive(Clone, Debug)]
 pub struct Journal {
     db: Arc<Db>,
-    pending: Tree, // key = cycle_id:seq, val = payload
-    seq: Tree,     // key = cycle_id, val = next_seq (u64 BE)
-    acked: Tree,   // key = cycle_id, val = "" (marker, entries already deleted)
+    pending: Tree,   // key = cycle_id:seq, val = payload
+    seq: Tree,       // key = cycle_id, val = next_seq (u64 BE)
+    acked: Tree,     // key = cycle_id, val = "" (marker, entries already deleted)
+    completed: Tree, // key = cycle_id, val = "" (local execution finished, delivery may still be pending)
     max_bytes: u64,
 }
 
@@ -24,7 +25,14 @@ impl Journal {
     pub fn open<P: AsRef<Path>>(path: P, max_bytes: u64) -> Result<Self, SysinspectError> {
         let config = sled::Config::new().flush_every_ms(Some(0)).path(&path);
         let db = Arc::new(config.open()?);
-        Ok(Self { pending: db.open_tree("pending")?, seq: db.open_tree("seq")?, acked: db.open_tree("acked")?, db, max_bytes })
+        Ok(Self {
+            pending: db.open_tree("pending")?,
+            seq: db.open_tree("seq")?,
+            acked: db.open_tree("acked")?,
+            completed: db.open_tree("completed")?,
+            db,
+            max_bytes,
+        })
     }
 
     // ---- helpers ----
@@ -112,6 +120,7 @@ impl Journal {
             }
         }
         let _ = self.acked.insert(cycle_id.as_bytes(), &[][..]);
+        let _ = self.completed.remove(cycle_id.as_bytes());
         let _ = self.db.flush();
         count
     }
@@ -141,6 +150,18 @@ impl Journal {
             return Ok(0);
         }
         Ok(self.ack_cycle_inner(cycle_id))
+    }
+
+    /// Mark a cycle as locally completed. Delivery may still be pending until master `CycleAck` arrives.
+    pub fn mark_cycle_locally_complete(&self, cycle_id: &str) -> Result<(), SysinspectError> {
+        self.completed.insert(cycle_id.as_bytes(), &[][..])?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Return whether the cycle has already finished local execution and only delivery recovery may remain.
+    pub fn is_cycle_locally_complete(&self, cycle_id: &str) -> Result<bool, SysinspectError> {
+        self.completed.contains_key(cycle_id.as_bytes()).map_err(Into::into)
     }
 
     /// Return all un-acked cycles with their entries in insertion order.

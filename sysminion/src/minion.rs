@@ -956,6 +956,10 @@ impl SysMinion {
             Ok(msg) => {
                 if let Err(e) = self.journal.append(cycle_id, &msg) {
                     log::error!("Failed to journal model ack for cycle {}: {}", cycle_id, e);
+                } else if let Err(e) = self.journal.mark_cycle_locally_complete(cycle_id) {
+                    log::error!("Failed to mark cycle {} as locally complete: {}", cycle_id, e);
+                } else {
+                    log::info!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
                 }
                 self.request(msg).await
             }
@@ -1326,6 +1330,21 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                         while MODPAK_SYNC_STATE.is_syncing().await {
                             tokio::time::sleep(Duration::from_millis(200)).await;
                         }
+                        if !cmd.cycle().is_empty() {
+                            match m.journal.is_cycle_locally_complete(cmd.cycle()) {
+                                Ok(true) => {
+                                    log::info!("Skipping already-completed local cycle {}; replay recovery will finish delivery", cmd.cycle());
+                                    return Ok(());
+                                }
+                                Ok(false) => {
+                                    log::info!("Cycle {} has no durable local-completion marker; executing recovered job", cmd.cycle());
+                                }
+                                Err(err) => {
+                                    log::error!("Failed to inspect local completion state for cycle {}: {}", cmd.cycle(), err);
+                                }
+                            }
+                        }
+                        log::info!("Dispatching recovered or queued job for cycle {}", cmd.cycle());
                         m.clone().dispatch(cmd).await;
                         Ok(())
                     }
