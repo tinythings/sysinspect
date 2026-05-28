@@ -1,6 +1,8 @@
 use crate::master::SysMaster;
 use chrono::Utc;
+use libeventreg::{ipcs::DbIPCService, kvdb::EventsRegistry};
 use libsysinspect::{
+    cfg::mmconf::HistoryConfig,
     rsa::keys::{get_fingerprint, keygen},
     transport::{
         TransportKeyExchangeModel, TransportPeerState, TransportProvisioningMode, TransportRotationStatus, secure_bootstrap::SecureBootstrapSession,
@@ -12,7 +14,8 @@ use libsysproto::secure::{
 };
 use rsa::RsaPublicKey;
 use serde_json::json;
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
+use tokio::sync::Mutex;
 
 fn fresh_timestamp() -> i64 {
     Utc::now().timestamp()
@@ -235,4 +238,35 @@ fn invalid_hello_does_not_poison_replay_cache_then_valid_retry_is_accepted() {
         .unwrap(),
         SecureFrame::BootstrapDiagnostic(frame) if frame.message.contains("replay")
     ));
+}
+
+#[test]
+fn event_replay_key_uses_stable_minion_cycle_entity_session_action_identity() {
+    let payload = HashMap::from([
+        ("cid".to_string(), json!("cycle-1")),
+        ("eid".to_string(), json!("entity-1")),
+        ("sid".to_string(), json!("session-1")),
+        ("aid".to_string(), json!("action-1")),
+    ]);
+
+    assert_eq!(SysMaster::event_replay_key_for_test("minion-1", &payload), "evt|minion-1|cycle-1|entity-1|session-1|action-1");
+}
+
+#[test]
+fn model_event_and_ack_replay_keys_are_distinct() {
+    let payload = HashMap::from([("cid".to_string(), json!("cycle-1"))]);
+
+    assert_eq!(SysMaster::model_event_replay_key_for_test("minion-1", &payload), "mvt|minion-1|cycle-1");
+    assert_eq!(SysMaster::model_ack_replay_key_for_test("minion-1", "cycle-1"), "mack|minion-1|cycle-1");
+}
+
+#[tokio::test]
+async fn replay_claim_rejects_duplicate_identity_across_calls() {
+    let tmp = tempfile::tempdir().unwrap();
+    let evtreg = Arc::new(Mutex::new(EventsRegistry::new(tmp.path().join("telemetry"), HistoryConfig::default()).unwrap()));
+    let service = DbIPCService::new(evtreg, tmp.path().join("telemetry.sock").to_str().unwrap()).unwrap();
+    let key = "evt|minion-1|cycle-1|entity-1|session-1|action-1";
+
+    assert!(service.claim_replay_key(key).await.unwrap());
+    assert!(!service.claim_replay_key(key).await.unwrap());
 }

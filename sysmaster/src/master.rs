@@ -70,6 +70,10 @@ pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::n
 static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ModelSpec>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 const DEFAULT_ROTATION_OVERLAP_SECONDS: u64 = 900;
 
+const REPLAY_KIND_EVENT: &str = "evt";
+const REPLAY_KIND_MODEL_EVENT: &str = "mvt";
+const REPLAY_KIND_MODEL_ACK: &str = "mack";
+
 #[derive(Debug, Clone, Deserialize)]
 struct RotationConsoleRequest {
     op: Option<String>,
@@ -217,6 +221,51 @@ impl SysMaster {
     #[cfg(test)]
     pub(crate) fn peer_rate_limit_key_for_test(peer_addr: &str) -> String {
         PeerTransport::rate_limit_key(peer_addr)
+    }
+
+    fn replay_identity(kind: &str, parts: &[&str]) -> String {
+        let mut key = String::from(kind);
+        for part in parts {
+            key.push('|');
+            key.push_str(part);
+        }
+        key
+    }
+
+    fn event_replay_key(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
+        Self::replay_identity(
+            REPLAY_KIND_EVENT,
+            &[
+                minion_id,
+                &util::dataconv::as_str(payload.get(&ProtoKey::CycleId.to_string()).cloned()),
+                &util::dataconv::as_str(payload.get(&ProtoKey::EntityId.to_string()).cloned()),
+                &util::dataconv::as_str(payload.get(&ProtoKey::SessionId.to_string()).cloned()),
+                &util::dataconv::as_str(payload.get(&ProtoKey::ActionId.to_string()).cloned()),
+            ],
+        )
+    }
+
+    fn model_event_replay_key(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
+        Self::replay_identity(REPLAY_KIND_MODEL_EVENT, &[minion_id, &util::dataconv::as_str(payload.get(&ProtoKey::CycleId.to_string()).cloned())])
+    }
+
+    fn model_ack_replay_key(minion_id: &str, cycle_id: &str) -> String {
+        Self::replay_identity(REPLAY_KIND_MODEL_ACK, &[minion_id, cycle_id])
+    }
+
+    #[cfg(test)]
+    pub(crate) fn event_replay_key_for_test(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
+        Self::event_replay_key(minion_id, payload)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn model_event_replay_key_for_test(minion_id: &str, payload: &HashMap<String, serde_json::Value>) -> String {
+        Self::model_event_replay_key(minion_id, payload)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn model_ack_replay_key_for_test(minion_id: &str, cycle_id: &str) -> String {
+        Self::model_ack_replay_key(minion_id, cycle_id)
     }
 
     #[cfg(test)]
@@ -810,6 +859,19 @@ impl SysMaster {
                         }
                     };
 
+                    let replay_key = Self::event_replay_key(req.id(), &pl);
+                    match m.evtipc.claim_replay_key(&replay_key).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            log::debug!("Dropped duplicate Event replay for {} with key {}", req.id(), replay_key);
+                            return;
+                        }
+                        Err(err) => {
+                            log::error!("Failed to claim Event replay key for {}: {}", req.id(), err);
+                            return;
+                        }
+                    }
+
                     if m.cfg().telemetry_enabled() {
                         OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
                     }
@@ -861,6 +923,18 @@ impl SysMaster {
                             return;
                         }
                     };
+                    let replay_key = Self::model_event_replay_key(req.id(), &pl);
+                    match master.evtipc.claim_replay_key(&replay_key).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            log::debug!("Dropped duplicate ModelEvent replay for {} with key {}", req.id(), replay_key);
+                            return;
+                        }
+                        Err(err) => {
+                            log::error!("Failed to claim ModelEvent replay key for {}: {}", req.id(), err);
+                            return;
+                        }
+                    }
                     let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned())).await {
                         Ok(sid) => sid,
                         Err(err) => {
@@ -909,6 +983,18 @@ impl SysMaster {
                 let c_addr = minion_addr.clone();
                 tokio::spawn(async move {
                     let mut guard = c_master.lock().await;
+                    let replay_key = Self::model_ack_replay_key(&minion_id, &cycle_id);
+                    match guard.evtipc.claim_replay_key(&replay_key).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            log::debug!("Dropped duplicate ModelAck replay for {} with key {}", minion_id, replay_key);
+                            return;
+                        }
+                        Err(err) => {
+                            log::error!("Failed to claim ModelAck replay key for {}: {}", minion_id, err);
+                            return;
+                        }
+                    }
                     let label = guard.resolved_peer_label(&minion_id, &c_addr).await;
                     let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
                     if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack)
