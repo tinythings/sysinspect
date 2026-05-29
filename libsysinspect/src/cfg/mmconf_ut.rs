@@ -1,6 +1,6 @@
 use super::mmconf::{
     CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CMDB_UPDATE_AGE, DEFAULT_CONSOLE_PORT,
-    MasterConfig, MinionConfig, MinionPerformanceProfile,
+    MasterConfig, MinionConfig, MinionOfflineMode, MinionPerformanceProfile,
 };
 use std::{
     fs,
@@ -272,4 +272,43 @@ fn minion_journal_size_parses_human_readable_with_unit_suffix() {
 fn minion_journal_size_parses_plain_integer() {
     let cfg = MinionConfig::new(write_master_cfg("config:\n  minion:\n    master.ip: ''\n    journal.size: 65536\n")).unwrap();
     assert_eq!(cfg.journal_max_bytes(), 65536);
+}
+
+// ---- offline mode --------------------------------------------------------
+
+#[test]
+fn minion_offline_mode_defaults_to_follow() {
+    let cfg = MinionConfig::default();
+    assert_eq!(cfg.offline(), MinionOfflineMode::Follow);
+}
+
+#[test]
+fn minion_offline_mode_can_be_set_to_independent() {
+    let mut cfg = MinionConfig::default();
+    cfg.set_offline(MinionOfflineMode::Independent);
+    assert_eq!(cfg.offline(), MinionOfflineMode::Independent);
+}
+
+#[test]
+fn minion_offline_mode_parses_follow_from_yaml() {
+    let cfg = MinionConfig::new(write_master_cfg("config:\n  minion:\n    master.ip: ''\n    offline: follow\n")).unwrap();
+    assert_eq!(cfg.offline(), MinionOfflineMode::Follow);
+}
+
+#[test]
+fn minion_offline_mode_parses_independent_from_yaml() {
+    let cfg = MinionConfig::new(write_master_cfg("config:\n  minion:\n    master.ip: ''\n    offline: independent\n")).unwrap();
+    assert_eq!(cfg.offline(), MinionOfflineMode::Independent);
+}
+
+#[test]
+fn minion_offline_mode_roundtrips_through_setter() {
+    let mut cfg = MinionConfig::default();
+    assert_eq!(cfg.offline(), MinionOfflineMode::Follow);
+
+    cfg.set_offline(MinionOfflineMode::Independent);
+    assert_eq!(cfg.offline(), MinionOfflineMode::Independent);
+
+    cfg.set_offline(MinionOfflineMode::Follow);
+    assert_eq!(cfg.offline(), MinionOfflineMode::Follow);
 }
