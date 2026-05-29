@@ -814,6 +814,58 @@ and contains the following directives:
 
     Port of Master's fileserver. By default it is set to ``4201``.
 
+``offline``
+##########
+
+    Type: **string**
+
+    Controls whether the Minion continues local execution when the Master becomes
+    unreachable. This is the highest-level policy for network-degraded behaviour.
+
+    Accepted values:
+
+    - ``follow`` — execution stays coupled to master visibility. Loss of the
+      master may pause or stop normal work while the Minion focuses on
+      reconnection. This matches the pre-existing reconnect-driven behaviour
+      and is the **default**.
+
+    - ``independent`` — the Minion keeps running local work even when the
+      master is gone. Result traffic (events, model results and acknowledgements)
+      is journaled to disk and flushed later when the link returns. Transport
+      recovery happens in the background without destroying the local execution
+      runtime.
+
+    Summary of the two modes:
+
+    +----------------+------------------------------------+-------------------------------------------+
+    | Behaviour      | ``follow``                         | ``independent``                           |
+    +================+====================================+===========================================+
+    | Execution      | Coupled to master visibility       | Continues while master is absent          |
+    +----------------+------------------------------------+-------------------------------------------+
+    | Delivery       | Best-effort with reconnect         | Durable journal + background flush        |
+    +----------------+------------------------------------+-------------------------------------------+
+    | Transport loss | Triggers full instance restart     | Degrades transport independently          |
+    +----------------+------------------------------------+-------------------------------------------+
+    | Use case       | Tightly controlled environments    | Hostile or unreliable networks            |
+    +----------------+------------------------------------+-------------------------------------------+
+
+    When ``offline`` is ``independent``, the durable result journal (described
+    below) becomes a first-class mechanism rather than just a post-restart
+    recovery tool. The Minion will:
+
+    1. journal every result message before attempting network delivery
+    2. continue local work even when writes to the master fail
+    3. replay all pending results once the transport recovers
+    4. keep its module and sensor runners alive through master absence
+
+    .. warning::
+
+        ``independent`` mode allows the journal backlog to grow while the
+        master is unreachable. Monitor ``journal.size`` and the journal
+        eviction warnings to avoid data loss during prolonged outages.
+
+    Default is ``follow`` (preserving the pre-existing reconnect-driven behaviour).
+
 ``master.reconnect``
 ####################
 
@@ -1036,6 +1088,9 @@ Example configuration for the Sysinspect Minion:
             root: /etc/sysinspect
             master.ip: 192.168.2.31
             master.port: 4200
+
+            # Network-degraded behaviour:
+            # offline: follow|independent (default: follow)
 
             # Outgoing journal (defaults shown):
             # journal.path: /tmp/journal
