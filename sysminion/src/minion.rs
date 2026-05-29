@@ -367,18 +367,36 @@ impl SysMinion {
             Ok(None) => msg,
             Err(err) => {
                 log::error!("Failed to encode secure payload to master: {err}");
-                let _ = CONNECTION_TX.send(());
+                self.maybe_signal_delivery_failure(class);
                 return Err(err);
             }
         };
 
         if let Err(err) = self.write_frame(&payload).await {
-            log::warn!("Failed to send message to master: {err}; triggering reconnect; backlog: {}", self.backlog_snapshot().format());
-            let _ = CONNECTION_TX.send(());
+            log::warn!("Failed to send message to master: {err}; backlog: {}", self.backlog_snapshot().format());
+            self.maybe_signal_delivery_failure(class);
             return Err(err);
         }
         log::trace!("To master: {}", String::from_utf8_lossy(&payload));
         Ok(())
+    }
+
+    /// Decide whether a failed outbound delivery should trigger a reconnect
+    /// teardown based on the configured offline mode and message class.
+    fn maybe_signal_delivery_failure(&self, class: OutboundMessageClass) {
+        match (self.cfg.offline(), class) {
+            (MinionOfflineMode::Follow, _) => {
+                log::warn!("Follow mode: delivery failure triggers reconnect");
+                let _ = CONNECTION_TX.send(());
+            }
+            (MinionOfflineMode::Independent, OutboundMessageClass::SessionControl) => {
+                log::warn!("Independent mode: session/control delivery failed; triggering reconnect");
+                let _ = CONNECTION_TX.send(());
+            }
+            (MinionOfflineMode::Independent, OutboundMessageClass::DurableData) => {
+                log::warn!("Independent mode: durable data delivery failed; execution continues, transport degraded");
+            }
+        }
     }
 
     /// Write one length-prefixed transport frame to the master connection.
