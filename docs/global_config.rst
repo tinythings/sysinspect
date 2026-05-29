@@ -1032,7 +1032,29 @@ and contains the following directives:
         dropped to protect local storage. Sysinspect logs a warning when this
         happens.
 
+    In ``independent`` mode, Sysinspect also emits periodic backlog warnings
+    as the journal approaches this limit. The current built-in thresholds are
+    75%, 90%, and 100% of the configured budget.
+
     Default: ``64 MiB``.
+
+``offline.backlog.policy``
+##########################
+
+    Type: **string**
+
+    Controls what Sysinspect does when the outgoing journal budget is exceeded
+    during prolonged offline operation.
+
+    Accepted values:
+
+    - ``evict`` - drop the oldest un-acknowledged cycle to protect local disk
+      space. This is the **default** and matches the current implementation.
+
+    This policy is applied when ``journal.size`` is non-zero and the durable
+    journal grows beyond that byte budget.
+
+    Default is ``evict``.
 
 Journaled delivery model
 ########################
@@ -1075,6 +1097,13 @@ As a result, hard restart recovery follows these rules:
 
 This model is designed for unreliable networks where the Master may disappear
 temporarily, but the Minion must still converge and later flush its results.
+
+While transport is degraded, Sysinspect also tracks local scheduler backlog.
+The current DPQ warning thresholds are:
+
+- any non-empty backlog
+- 25 or more queued/inflight jobs
+- 100 or more queued/inflight jobs
 
 
 Example configuration for the Sysinspect Minion:
