@@ -864,6 +864,21 @@ and contains the following directives:
         master is unreachable. Monitor ``journal.size`` and the journal
         eviction warnings to avoid data loss during prolonged outages.
 
+    Reliability guarantees by mode:
+
+    - ``independent``
+      - local execution is allowed to continue while transport is unavailable
+      - durable result traffic is retained and replayed later
+      - delivery is **at-least-once**, so duplicate result messages are possible
+      - completed cycles are cleared only after the Master returns ``CycleAck``
+      - if reconnect is disabled or reconnect attempts are exhausted, execution
+        may continue with transport offline and backlog accumulating locally
+
+    - ``follow``
+      - transport health is treated as execution health
+      - transport/protocol failure may stop the current minion instance
+      - no execution-independence guarantee is made while the Master is absent
+
     Default is ``independent``.
 
 ``master.reconnect``
