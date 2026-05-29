@@ -599,9 +599,22 @@ impl SysMinion {
                     }
 
                     if this.last_ping.lock().await.elapsed() > this.ping_timeout {
-                        log::warn!("Master seems unresponsive, triggering reconnect. Backlog: {}", this.backlog_snapshot().format());
+                        match this.cfg.offline() {
+                            MinionOfflineMode::Follow => {
+                                log::warn!(
+                                    "Master seems unresponsive in follow mode; reconnect teardown will stop execution. Backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                                state.exit.store(true, Ordering::Relaxed);
+                            }
+                            MinionOfflineMode::Independent => {
+                                log::warn!(
+                                    "Master seems unresponsive in independent mode; marking transport unavailable and starting background recovery while execution continues. Backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                            }
+                        }
                         let _ = reconnect_sender.send(());
-                        state.exit.store(true, Ordering::Relaxed);
                         break;
                     }
                 }
@@ -735,7 +748,20 @@ impl SysMinion {
                 let msg = match this.read_frame().await {
                     Ok(msg) => msg,
                     Err(err) => {
-                        log::warn!("Proto read failed: {err}; triggering reconnect; backlog: {}", this.backlog_snapshot().format());
+                        match this.cfg.offline() {
+                            MinionOfflineMode::Follow => {
+                                log::warn!(
+                                    "Proto read failed in follow mode: {err}; reconnect teardown will stop execution; backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                            }
+                            MinionOfflineMode::Independent => {
+                                log::warn!(
+                                    "Proto read failed in independent mode: {err}; marking transport unavailable and starting background recovery while execution continues; backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                            }
+                        }
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -745,7 +771,18 @@ impl SysMinion {
                     Ok(Some(msg)) => msg,
                     Ok(None) => msg,
                     Err(err) => {
-                        log::error!("Failed to decode secure frame from master: {err}");
+                        match this.cfg.offline() {
+                            MinionOfflineMode::Follow => {
+                                log::error!(
+                                    "Failed to decode secure frame from master in follow mode: {err}; reconnect teardown will stop execution"
+                                );
+                            }
+                            MinionOfflineMode::Independent => {
+                                log::error!(
+                                    "Failed to decode secure frame from master in independent mode: {err}; marking transport unavailable and starting background recovery while execution continues"
+                                );
+                            }
+                        }
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -1601,15 +1638,33 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                         match cfg.offline() {
                             MinionOfflineMode::Independent => {
                                 log::warn!("Transport lost in independent mode; starting background recovery");
-                                match minion.as_ptr().reconnect_transport().await {
-                                    Ok(()) => {
-                                        reconnect_rx = CONNECTION_TX.subscribe();
-                                        false
+                                if !cfg.reconnect() {
+                                    log::warn!("Reconnect is disabled; leaving transport offline while local execution continues.");
+                                    false
+                                } else {
+                                    let mut attempts = 0u32;
+                                    loop {
+                                        attempts += 1;
+                                        if cfg.reconnect_freq() > 0 && attempts > cfg.reconnect_freq() {
+                                            log::error!(
+                                                "Transport recovery exceeded {} attempt(s); leaving transport offline while local execution continues.",
+                                                cfg.reconnect_freq()
+                                            );
+                                            break false;
+                                        }
+
+                                    match minion.as_ptr().reconnect_transport().await {
+                                        Ok(()) => {
+                                            reconnect_rx = CONNECTION_TX.subscribe();
+                                            break false;
+                                        }
+                                        Err(err) => {
+                                            let interval = cfg.reconnect_interval();
+                                            log::error!("Transport recovery failed: {err}; retrying in {interval} seconds...");
+                                            sleep(Duration::from_secs(interval)).await;
+                                        }
                                     }
-                                    Err(err) => {
-                                        log::error!("Transport recovery failed: {err}; exiting instance");
-                                        true
-                                    }
+                                }
                                 }
                             }
                             MinionOfflineMode::Follow => true,
