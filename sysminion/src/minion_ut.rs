@@ -854,10 +854,7 @@ mod tests {
 
         let mut rx = CONNECTION_TX.subscribe();
         let _ = minion.try_request(b"durable payload".to_vec(), OutboundMessageClass::DurableData).await;
-        assert!(
-            timeout(Duration::from_millis(500), rx.recv()).await.is_err(),
-            "durable send failure must not trigger reconnect in independent mode"
-        );
+        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_err(), "durable send failure must not trigger reconnect in independent mode");
     }
 
     #[tokio::test]
@@ -885,10 +882,7 @@ mod tests {
 
         let mut rx = CONNECTION_TX.subscribe();
         let _ = minion.try_request(b"durable payload".to_vec(), OutboundMessageClass::DurableData).await;
-        assert!(
-            timeout(Duration::from_millis(500), rx.recv()).await.is_ok(),
-            "durable send failure must trigger reconnect in follow mode"
-        );
+        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_ok(), "durable send failure must trigger reconnect in follow mode");
     }
 
     #[tokio::test]
@@ -916,10 +910,7 @@ mod tests {
 
         let mut rx = CONNECTION_TX.subscribe();
         let _ = minion.try_request(b"session ctl".to_vec(), OutboundMessageClass::SessionControl).await;
-        assert!(
-            timeout(Duration::from_millis(500), rx.recv()).await.is_ok(),
-            "session control delivery failure must always trigger reconnect"
-        );
+        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_ok(), "session control delivery failure must always trigger reconnect");
     }
 
     #[tokio::test]
@@ -952,10 +943,7 @@ mod tests {
 
         let res = timeout(Duration::from_secs(2), rx.recv()).await;
         assert!(res.is_ok(), "watchdog must fire reconnect signal in independent mode");
-        assert!(
-            !state.exit.load(std::sync::atomic::Ordering::Relaxed),
-            "watchdog must not stop execution in independent mode"
-        );
+        assert!(!state.exit.load(std::sync::atomic::Ordering::Relaxed), "watchdog must not stop execution in independent mode");
     }
 
     #[tokio::test]
@@ -1014,13 +1002,10 @@ mod tests {
         let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
 
         // Write a journaled event
-        let test_msg = MinionMessage::new(
-            "test-minion".to_string(),
-            RequestType::Event,
-            serde_json::json!({"eid":"e1","aid":"a1","sid":"s1","cid":"c1"}),
-        )
-        .sendable()
-        .unwrap();
+        let test_msg =
+            MinionMessage::new("test-minion".to_string(), RequestType::Event, serde_json::json!({"eid":"e1","aid":"a1","sid":"s1","cid":"c1"}))
+                .sendable()
+                .unwrap();
         minion.journal.append("c1", &test_msg).unwrap();
         assert_eq!(minion.journal.stats().unwrap().pending_entries, 1);
 
@@ -1034,21 +1019,13 @@ mod tests {
             let mut hello = vec![0u8; u32::from_be_bytes(lenb) as usize];
             tokio::io::AsyncReadExt::read_exact(&mut sock, &mut hello).await.unwrap();
 
-            let diag = serde_json::to_vec(&SecureFrame::BootstrapDiagnostic(
-                libsysproto::secure::SecureBootstrapDiagnostic {
-                    code: libsysproto::secure::SecureDiagnosticCode::UnsupportedVersion,
-                    message: "test recovery".to_string(),
-                    failure: libsysproto::secure::SecureFailureSemantics {
-                        retryable: true,
-                        disconnect: true,
-                        rate_limit: false,
-                    },
-                },
-            ))
+            let diag = serde_json::to_vec(&SecureFrame::BootstrapDiagnostic(libsysproto::secure::SecureBootstrapDiagnostic {
+                code: libsysproto::secure::SecureDiagnosticCode::UnsupportedVersion,
+                message: "test recovery".to_string(),
+                failure: libsysproto::secure::SecureFailureSemantics { retryable: true, disconnect: true, rate_limit: false },
+            }))
             .unwrap();
-            tokio::io::AsyncWriteExt::write_all(&mut sock, &(diag.len() as u32).to_be_bytes())
-                .await
-                .unwrap();
+            tokio::io::AsyncWriteExt::write_all(&mut sock, &(diag.len() as u32).to_be_bytes()).await.unwrap();
             tokio::io::AsyncWriteExt::write_all(&mut sock, &diag).await.unwrap();
             tokio::io::AsyncWriteExt::flush(&mut sock).await.unwrap();
         });
