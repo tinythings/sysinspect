@@ -277,9 +277,9 @@ fn minion_journal_size_parses_plain_integer() {
 // ---- offline mode --------------------------------------------------------
 
 #[test]
-fn minion_offline_mode_defaults_to_follow() {
+fn minion_offline_mode_defaults_to_independent() {
     let cfg = MinionConfig::default();
-    assert_eq!(cfg.offline(), MinionOfflineMode::Follow);
+    assert_eq!(cfg.offline(), MinionOfflineMode::Independent);
 }
 
 #[test]
@@ -304,11 +304,11 @@ fn minion_offline_mode_parses_independent_from_yaml() {
 #[test]
 fn minion_offline_mode_roundtrips_through_setter() {
     let mut cfg = MinionConfig::default();
-    assert_eq!(cfg.offline(), MinionOfflineMode::Follow);
-
-    cfg.set_offline(MinionOfflineMode::Independent);
     assert_eq!(cfg.offline(), MinionOfflineMode::Independent);
 
     cfg.set_offline(MinionOfflineMode::Follow);
     assert_eq!(cfg.offline(), MinionOfflineMode::Follow);
+
+    cfg.set_offline(MinionOfflineMode::Independent);
+    assert_eq!(cfg.offline(), MinionOfflineMode::Independent);
 }
