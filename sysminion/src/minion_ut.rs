@@ -14,8 +14,8 @@ mod tests {
             secure_channel::{SecureChannel, SecurePeerRole},
         },
     };
-    use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
     use libsysproto::rqtypes::OutboundMessageClass;
+    use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
     use once_cell::sync::Lazy;
     use rsa::RsaPublicKey;
     use std::io::ErrorKind;

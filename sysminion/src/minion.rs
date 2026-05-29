@@ -23,7 +23,7 @@ use libsetup::mnsetup::ensure_minion_tree;
 use libsysinspect::{
     cfg::{
         get_minion_config,
-        mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, SysInspectConfig},
+        mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, MinionOfflineMode, SysInspectConfig},
     },
     context,
     inspector::SysInspectRunner,
@@ -877,12 +877,20 @@ impl SysMinion {
                                     "cpu": cpu_usage,
                                 });
 
-                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl)), OutboundMessageClass::SessionControl).await;
+                                this.request(
+                                    proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl)),
+                                    OutboundMessageClass::SessionControl,
+                                )
+                                .await;
                             }
 
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 log::debug!("Received discovery ping from master");
-                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None), OutboundMessageClass::SessionControl).await;
+                                this.request(
+                                    proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None),
+                                    OutboundMessageClass::SessionControl,
+                                )
+                                .await;
                             }
 
                             Err(err) => log::warn!("Invalid ping payload `{}`: {}", p, err),
@@ -920,10 +928,13 @@ impl SysMinion {
         let fresh_traits = minion_traits(&self.cfg, false);
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
-        self.request(r.sendable().map_err(|e| {
-            log::error!("Error preparing traits message: {e}");
-            e
-        })?, OutboundMessageClass::SessionControl)
+        self.request(
+            r.sendable().map_err(|e| {
+                log::error!("Error preparing traits message: {e}");
+                e
+            })?,
+            OutboundMessageClass::SessionControl,
+        )
         .await;
         Ok(())
     }

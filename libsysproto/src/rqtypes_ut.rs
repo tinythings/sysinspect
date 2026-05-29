@@ -46,10 +46,7 @@ fn sensors_sync_request_is_session_control() {
 
 #[test]
 fn sensors_sync_response_is_session_control() {
-    assert_eq!(
-        RequestType::SensorsSyncResponse.message_class(),
-        OutboundMessageClass::SessionControl
-    );
+    assert_eq!(RequestType::SensorsSyncResponse.message_class(), OutboundMessageClass::SessionControl);
 }
 
 #[test]
@@ -129,10 +126,6 @@ fn only_the_three_journaled_types_are_durable_data() {
 #[test]
 fn durable_data_variants_match_the_documented_set() {
     for rt in &[RequestType::Event, RequestType::ModelEvent, RequestType::ModelAck] {
-        assert_eq!(
-            rt.message_class(),
-            OutboundMessageClass::DurableData,
-            "{rt:?} must be DurableData per spec"
-        );
+        assert_eq!(rt.message_class(), OutboundMessageClass::DurableData, "{rt:?} must be DurableData per spec");
     }
 }
