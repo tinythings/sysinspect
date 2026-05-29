@@ -167,8 +167,8 @@ pub struct SysMinion {
     fingerprint: Option<String>,
     kman: MinionRSAKeyManager,
 
-    rstm: Arc<Mutex<OwnedReadHalf>>,
-    wstm: Arc<Mutex<OwnedWriteHalf>>,
+    rstm: Arc<Mutex<Option<OwnedReadHalf>>>,
+    wstm: Arc<Mutex<Option<OwnedWriteHalf>>>,
 
     filedata: Mutex<MinionFiledata>,
 
@@ -236,8 +236,8 @@ impl SysMinion {
             cfg: cfg.clone(),
             fingerprint,
             kman: MinionRSAKeyManager::new(cfg.root_dir())?,
-            rstm: Arc::new(Mutex::new(rstm)),
-            wstm: Arc::new(Mutex::new(wstm)),
+            rstm: Arc::new(Mutex::new(Some(rstm))),
+            wstm: Arc::new(Mutex::new(Some(wstm))),
             filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
             last_ping: Mutex::new(Instant::now()),
             ping_timeout: Duration::from_secs(10),
@@ -402,6 +402,7 @@ impl SysMinion {
     /// Write one length-prefixed transport frame to the master connection.
     async fn write_frame(&self, frame: &[u8]) -> Result<(), SysinspectError> {
         let mut stm = self.wstm.lock().await;
+        let stm = stm.as_mut().ok_or_else(|| SysinspectError::ProtoError("Transport write half is not connected".to_string()))?;
         stm.write_all(&(frame.len() as u32).to_be_bytes()).await?;
         stm.write_all(frame).await?;
         stm.flush().await?;
@@ -411,6 +412,7 @@ impl SysMinion {
     /// Read one length-prefixed transport frame from the master connection.
     async fn read_frame(&self) -> Result<Vec<u8>, SysinspectError> {
         let mut stm = self.rstm.lock().await;
+        let stm = stm.as_mut().ok_or_else(|| SysinspectError::ProtoError("Transport read half is not connected".to_string()))?;
         let mut len = [0u8; 4];
         stm.read_exact(&mut len).await?;
         let frame_len = u32::from_be_bytes(len) as usize;
@@ -420,6 +422,68 @@ impl SysMinion {
         let mut frame = vec![0u8; frame_len];
         stm.read_exact(&mut frame).await?;
         Ok(frame)
+    }
+
+    /// Replace the transport streams with a new TCP connection.
+    /// Old streams are dropped when the Option values are replaced.
+    async fn set_streams(&self, rstm: OwnedReadHalf, wstm: OwnedWriteHalf) {
+        *self.rstm.lock().await = Some(rstm);
+        *self.wstm.lock().await = Some(wstm);
+    }
+
+    /// Disconnect transport streams (take them out of the Option).
+    async fn clear_streams(&self) {
+        *self.rstm.lock().await = None;
+        *self.wstm.lock().await = None;
+    }
+
+    /// Re-establish the full transport stack: TCP connect, secure bootstrap,
+    /// and journal replay.  Used in `independent` mode to recover transport
+    /// without tearing down the execution runtime.
+    async fn reconnect_transport(self: &Arc<Self>) -> Result<(), SysinspectError> {
+        log::info!("Re-establishing transport to master {}...", self.cfg.master());
+
+        // 1. Stop proto, ping, and stats tasks so they don't fight for the old streams.
+        Arc::clone(self).stop_background().await;
+
+        // 2. Drop old streams, then open a fresh connection.
+        self.clear_streams().await;
+        let (rstm, wstm) = match TcpStream::connect(self.cfg.master()).await {
+            Ok(s) => s.into_split(),
+            Err(err) => {
+                log::error!("Failed to connect to master during transport recovery: {err}");
+                return Err(SysinspectError::MinionGeneralError(format!("Transport recovery connect failed: {err}")));
+            }
+        };
+        self.set_streams(rstm, wstm).await;
+        log::info!("Transport socket reconnected to {}", self.cfg.master());
+
+        // 3. Bootstrap a fresh secure session.
+        *self.secure.lock().await = None;
+        if let Err(err) = self.bootstrap_secure().await {
+            log::error!("Secure bootstrap failed during transport recovery: {err}");
+            self.clear_streams().await;
+            return Err(err);
+        }
+
+        // 4. Restart the proto read loop and background tasks.
+        Arc::clone(self).do_proto().await?;
+
+        // 5. Re-establish session with the master. Journal replay is deferred
+        // until the master asks for fresh Traits, which confirms the logical
+        // session is live again.
+        Arc::clone(self).send_ehlo().await?;
+        // Resync sensors after reconnection.
+        if let Err(err) = Arc::clone(self).send_sensors_sync().await {
+            log::warn!("Sensors sync after transport recovery failed: {err}");
+        }
+
+        let state = Arc::new(ExitState::new());
+        Arc::clone(self).do_ping_update(state).await?;
+        Arc::clone(self).do_stats_update().await?;
+
+        log::info!("Transport recovery complete; backlog: {}", self.backlog_snapshot().format());
+        Ok(())
     }
 
     /// Mark the specified transport key, or the current managed key, as broken after a failed secure bootstrap.
@@ -946,14 +1010,14 @@ impl SysMinion {
         let fresh_traits = minion_traits(&self.cfg, false);
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
-        self.request(
+        self.try_request(
             r.sendable().map_err(|e| {
                 log::error!("Error preparing traits message: {e}");
                 e
             })?,
             OutboundMessageClass::SessionControl,
         )
-        .await;
+        .await?;
         Ok(())
     }
 
@@ -964,7 +1028,7 @@ impl SysMinion {
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
-        self.request(r.sendable()?, OutboundMessageClass::SessionControl).await;
+        self.try_request(r.sendable()?, OutboundMessageClass::SessionControl).await?;
         Ok(())
     }
 
@@ -973,7 +1037,7 @@ impl SysMinion {
         let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Add, json!(pbk_pem));
 
         log::info!("Registration request to {}", self.cfg.master());
-        self.request(r.sendable()?, OutboundMessageClass::SessionControl).await;
+        self.try_request(r.sendable()?, OutboundMessageClass::SessionControl).await?;
         Ok(())
     }
 
@@ -1000,7 +1064,7 @@ impl SysMinion {
         log::info!("Sending sensors sync callback for cycle");
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({}));
         r.set_sid(MINION_SID.to_string());
-        self.request(r.sendable()?, OutboundMessageClass::SessionControl).await;
+        self.try_request(r.sendable()?, OutboundMessageClass::SessionControl).await?;
         Ok(())
     }
 
@@ -1532,17 +1596,35 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
         tokio::select! {
             sig = reconnect_rx.recv() => {
-                match sig {
-                    Ok(_) => state.exit.store(true, Ordering::Relaxed),
+                let exit = match &sig {
+                    Ok(_) => {
+                        match cfg.offline() {
+                            MinionOfflineMode::Independent => {
+                                log::warn!("Transport lost in independent mode; starting background recovery");
+                                match minion.as_ptr().reconnect_transport().await {
+                                    Ok(()) => {
+                                        reconnect_rx = CONNECTION_TX.subscribe();
+                                        false
+                                    }
+                                    Err(err) => {
+                                        log::error!("Transport recovery failed: {err}; exiting instance");
+                                        true
+                                    }
+                                }
+                            }
+                            MinionOfflineMode::Follow => true,
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         log::warn!("Missed {n} reconnect notification(s) in main loop; exiting minion instance.");
-                        state.exit.store(true, Ordering::Relaxed);
+                        true
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         log::warn!("Reconnect channel closed in main loop; exiting minion instance.");
-                        state.exit.store(true, Ordering::Relaxed);
+                        true
                     }
-                }
+                };
+                state.exit.store(exit, Ordering::Relaxed);
             }
             _ = sleep(tokio::time::Duration::from_millis(200)) => {}
         }
