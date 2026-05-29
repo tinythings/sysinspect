@@ -177,7 +177,7 @@ pub struct SysMinion {
 
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
-    journal: Journal,
+    pub(crate) journal: Journal,
     connected: AtomicBool,
     secure: Mutex<Option<SecureChannel>>,
 
@@ -361,7 +361,7 @@ impl SysMinion {
         let _ = self.try_request(msg, class).await;
     }
 
-    async fn try_request(&self, msg: Vec<u8>, class: OutboundMessageClass) -> Result<(), SysinspectError> {
+    pub(crate) async fn try_request(&self, msg: Vec<u8>, class: OutboundMessageClass) -> Result<(), SysinspectError> {
         let payload = match self.secure.lock().await.as_mut().map(|secure| secure.seal_bytes(&msg)).transpose() {
             Ok(Some(msg)) => msg,
             Ok(None) => msg,
@@ -432,7 +432,7 @@ impl SysMinion {
     }
 
     /// Disconnect transport streams (take them out of the Option).
-    async fn clear_streams(&self) {
+    pub(crate) async fn clear_streams(&self) {
         *self.rstm.lock().await = None;
         *self.wstm.lock().await = None;
     }
@@ -440,7 +440,7 @@ impl SysMinion {
     /// Re-establish the full transport stack: TCP connect, secure bootstrap,
     /// and journal replay.  Used in `independent` mode to recover transport
     /// without tearing down the execution runtime.
-    async fn reconnect_transport(self: &Arc<Self>) -> Result<(), SysinspectError> {
+    pub(crate) async fn reconnect_transport(self: &Arc<Self>) -> Result<(), SysinspectError> {
         log::info!("Re-establishing transport to master {}...", self.cfg.master());
 
         // 1. Stop proto, ping, and stats tasks so they don't fight for the old streams.
