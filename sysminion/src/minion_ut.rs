@@ -15,6 +15,7 @@ mod tests {
         },
     };
     use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
+    use libsysproto::rqtypes::OutboundMessageClass;
     use once_cell::sync::Lazy;
     use rsa::RsaPublicKey;
     use std::io::ErrorKind;
@@ -326,7 +327,7 @@ mod tests {
         let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
 
         let payload = b"abc123".to_vec();
-        minion.request(payload.clone()).await;
+        minion.request(payload.clone(), OutboundMessageClass::SessionControl).await;
 
         let (n, msg) = server.await.unwrap();
         assert_eq!(n, payload.len());
@@ -361,7 +362,7 @@ mod tests {
         let (mut master_channel, minion_channel) = secure_channels(tmp.path());
         minion.set_secure_channel(minion_channel).await;
 
-        minion.request(br#"{"r":"ping"}"#.to_vec()).await;
+        minion.request(br#"{"r":"ping"}"#.to_vec(), OutboundMessageClass::SessionControl).await;
 
         assert_eq!(master_channel.open_bytes(&server.await.unwrap()).unwrap(), br#"{"r":"ping"}"#.to_vec());
     }
@@ -707,7 +708,7 @@ mod tests {
         let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
 
         // Should not panic
-        minion.request(b"abc".to_vec()).await;
+        minion.request(b"abc".to_vec(), OutboundMessageClass::SessionControl).await;
     }
 
     #[tokio::test]
