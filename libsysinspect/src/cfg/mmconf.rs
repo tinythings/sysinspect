@@ -396,12 +396,13 @@ impl MinionPerformanceProfile {
 #[serde(rename_all = "lowercase")]
 pub enum MinionOfflineMode {
     /// Minion keeps executing local work when the master is unreachable.
-    /// Result traffic is journaled and delivered later.
+    /// Result traffic is journaled and delivered later. This is the default.
+    #[default]
     Independent,
     /// Master visibility remains coupled to execution: loss of the master
     /// may pause or stop normal work while the minion focuses on reconnection.
-    /// This matches pre-existing reconnect-driven behaviour.
-    #[default]
+    /// Intended for tightly controlled environments that require backwards
+    /// compatible behaviour.
     Follow,
 }
 
@@ -473,7 +474,7 @@ pub struct MinionConfig {
     ///
     /// - `independent`: execution keeps running, results are journaled and
     ///   flushed later.  Transport recovery happens in the background.
-    /// - `follow`: execution is coupled to master visibility (current default).
+    /// - `follow`: execution is coupled to master visibility.
     ///   Loss of the master may pause or stop normal work.
     #[serde(rename = "offline")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -832,8 +833,8 @@ impl MinionConfig {
 
     /// Return the configured offline mode.
     ///
-    /// Defaults to `Follow` so existing deployments keep pre-existing
-    /// reconnect-driven behaviour until explicitly opted into `Independent`.
+    /// Defaults to `Independent` so the minion survives master absence
+    /// out of the box.  Set to `Follow` for backwards-compatible behaviour.
     pub fn offline(&self) -> MinionOfflineMode {
         self.offline.clone().unwrap_or_default()
     }
