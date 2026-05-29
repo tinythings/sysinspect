@@ -392,6 +392,19 @@ impl MinionPerformanceProfile {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MinionOfflineMode {
+    /// Minion keeps executing local work when the master is unreachable.
+    /// Result traffic is journaled and delivered later.
+    Independent,
+    /// Master visibility remains coupled to execution: loss of the master
+    /// may pause or stop normal work while the minion focuses on reconnection.
+    /// This matches pre-existing reconnect-driven behaviour.
+    #[default]
+    Follow,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MinionConfig {
     /// Root directory where minion keeps all data.
@@ -454,6 +467,17 @@ pub struct MinionConfig {
     #[serde(rename = "master.fileserver.port")]
     #[serde(skip_serializing_if = "Option::is_none")]
     master_fileserver_port: Option<u32>,
+
+    /// Offline mode determines whether the minion continues local execution
+    /// when the master is unreachable.
+    ///
+    /// - `independent`: execution keeps running, results are journaled and
+    ///   flushed later.  Transport recovery happens in the background.
+    /// - `follow`: execution is coupled to master visibility (current default).
+    ///   Loss of the master may pause or stop normal work.
+    #[serde(rename = "offline")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline: Option<MinionOfflineMode>,
 
     /// Reconnect policies to the master
     /// Values are:
@@ -804,6 +828,19 @@ impl MinionConfig {
     /// Set reconnection interval to the master
     pub fn set_reconnect_interval(&mut self, interval: &str) {
         self.master_reconnect_interval = Some(interval.to_string());
+    }
+
+    /// Return the configured offline mode.
+    ///
+    /// Defaults to `Follow` so existing deployments keep pre-existing
+    /// reconnect-driven behaviour until explicitly opted into `Independent`.
+    pub fn offline(&self) -> MinionOfflineMode {
+        self.offline.clone().unwrap_or_default()
+    }
+
+    /// Set offline mode (exposed for tests and programmatic construction).
+    pub fn set_offline(&mut self, mode: MinionOfflineMode) {
+        self.offline = Some(mode);
     }
 
     /// Reconnect policy
