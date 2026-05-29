@@ -243,7 +243,7 @@ impl SysMinion {
             ping_timeout: Duration::from_secs(10),
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
-            journal: Journal::open(cfg.journal_path(), cfg.journal_max_bytes())?,
+            journal: Journal::open_with_policy(cfg.journal_path(), cfg.journal_max_bytes(), cfg.backlog_policy())?,
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
             minion_id: dataconv::as_str(SystemTraits::new(cfg.clone(), true).get(traits::SYS_ID)),
@@ -729,10 +729,83 @@ impl SysMinion {
     pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
         let this = self.clone();
         let handle = tokio::spawn(async move {
+            let mut last_warn_level: u8 = 0;
+            let mut last_dpq_warn_level: u8 = 0;
             loop {
                 sleep(Duration::from_secs(5)).await;
                 let mut ptc = this.pt_counter.lock().await;
                 ptc.update_stats();
+                drop(ptc);
+
+                let snap = this.backlog_snapshot();
+
+                // Periodically inspect backlog growth so operators see it
+                // before the journal budget forces eviction.
+                let max_bytes = this.cfg.journal_max_bytes();
+                if max_bytes > 0 {
+                    let ratio = if snap.journal_bytes >= max_bytes { 1.0 } else { snap.journal_bytes as f64 / max_bytes as f64 };
+
+                    let warn_level = if ratio >= 1.0 {
+                        3
+                    } else if ratio >= 0.9 {
+                        2
+                    } else if ratio >= 0.75 {
+                        1
+                    } else {
+                        0
+                    };
+
+                    if warn_level != last_warn_level {
+                        match warn_level {
+                            0 => {}
+                            1 => log::warn!(
+                                "Journal backlog at {:.0}% of budget ({} / {}); delivery is degraded. {}",
+                                ratio * 100.0,
+                                snap.journal_bytes,
+                                max_bytes,
+                                snap.format()
+                            ),
+                            2 => log::warn!(
+                                "Journal backlog at {:.0}% of budget ({} / {}); eviction is imminent. {}",
+                                ratio * 100.0,
+                                snap.journal_bytes,
+                                max_bytes,
+                                snap.format()
+                            ),
+                            _ => log::error!(
+                                "Journal backlog has exceeded budget ({} > {}); oldest cycle may be evicted. {}",
+                                snap.journal_bytes,
+                                max_bytes,
+                                snap.format()
+                            ),
+                        }
+                        last_warn_level = warn_level;
+                    }
+                }
+
+                let dpq_total = snap.dpq_pending + snap.dpq_inflight;
+                let dpq_warn_level = if dpq_total >= 100 {
+                    3
+                } else if dpq_total >= 25 {
+                    2
+                } else if dpq_total > 0 {
+                    1
+                } else {
+                    0
+                };
+
+                if dpq_warn_level != last_dpq_warn_level {
+                    match dpq_warn_level {
+                        0 => {}
+                        1 => log::warn!("DPQ backlog is non-empty while transport is degraded; {}", snap.format()),
+                        2 => log::warn!("DPQ backlog has grown materially while transport is degraded; {}", snap.format()),
+                        _ => log::error!(
+                            "DPQ backlog is large while transport is degraded; local work is outrunning delivery recovery. {}",
+                            snap.format()
+                        ),
+                    }
+                    last_dpq_warn_level = dpq_warn_level;
+                }
             }
         });
 
