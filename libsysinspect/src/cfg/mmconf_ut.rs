@@ -1,6 +1,6 @@
 use super::mmconf::{
     CFG_TRANSPORT_MASTER, CFG_TRANSPORT_MINIONS, CFG_TRANSPORT_ROOT, CFG_TRANSPORT_STATE, DEFAULT_CMDB_UPDATE_AGE, DEFAULT_CONSOLE_PORT,
-    MasterConfig, MinionConfig, MinionOfflineMode, MinionPerformanceProfile,
+    MasterConfig, MinionConfig, MinionOfflineMode, MinionPerformanceProfile, OfflineBacklogPolicy,
 };
 use std::{
     fs,
@@ -311,4 +311,25 @@ fn minion_offline_mode_roundtrips_through_setter() {
 
     cfg.set_offline(MinionOfflineMode::Independent);
     assert_eq!(cfg.offline(), MinionOfflineMode::Independent);
+}
+
+#[test]
+fn minion_backlog_policy_defaults_to_evict() {
+    let cfg = MinionConfig::default();
+    assert_eq!(cfg.backlog_policy(), OfflineBacklogPolicy::Evict);
+}
+
+#[test]
+fn minion_backlog_policy_parses_evict_from_yaml() {
+    let cfg = MinionConfig::new(write_master_cfg("config:\n  minion:\n    master.ip: ''\n    offline.backlog.policy: evict\n")).unwrap();
+    assert_eq!(cfg.backlog_policy(), OfflineBacklogPolicy::Evict);
+}
+
+#[test]
+fn minion_backlog_policy_roundtrips_through_setter() {
+    let mut cfg = MinionConfig::default();
+    assert_eq!(cfg.backlog_policy(), OfflineBacklogPolicy::Evict);
+
+    cfg.set_backlog_policy(OfflineBacklogPolicy::Evict);
+    assert_eq!(cfg.backlog_policy(), OfflineBacklogPolicy::Evict);
 }
