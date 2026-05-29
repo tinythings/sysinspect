@@ -946,6 +946,18 @@ and contains the following directives:
     data is lost when the network connection drops. Each record stays in the
     journal until the master acknowledges the cycle it belongs to.
 
+    The journal is part of the Minion's durable delivery path:
+
+    - action callbacks (``Event``) are written before network send
+    - final model callbacks (``ModelEvent``) are written before network send
+    - model completion notices (``ModelAck``) are written before network send
+    - on reconnect, any still-pending records are replayed to the Master
+    - a cycle is freed only after the Master sends ``CycleAck``
+
+    This means the delivery model is intentionally **at-least-once**. Replay can
+    cause the same payload to be sent again after reconnect or restart, and the
+    Master is expected to handle that safely.
+
     Default: ``<managed_db_dir>/journal``, which resolves to ``/tmp/journal``
     on a system-layout install and ``<root>/tmp/journal`` on a custom-layout
     install.
@@ -961,7 +973,56 @@ and contains the following directives:
     this budget the oldest cycle is evicted automatically. Set to ``0`` to
     disable the budget entirely (unlimited).
 
+    .. warning::
+
+        Journal eviction is a durability boundary. If the Minion stays offline
+        long enough to exceed this budget, the oldest un-acknowledged cycle is
+        dropped to protect local storage. Sysinspect logs a warning when this
+        happens.
+
     Default: ``64 MiB``.
+
+Journaled delivery model
+########################
+
+The outgoing journal is not just a cache directory. It is the Minion's durable
+network-delivery ledger.
+
+Result traffic that is persisted and replayed:
+
+- ``Event``
+- ``ModelEvent``
+- ``ModelAck``
+
+Session/control traffic that is not persisted in the journal:
+
+- ``Ehlo``
+- ``Traits``
+- ``Ping`` / ``Pong``
+- sensor sync requests/responses
+- ``Bye`` and other session-management messages
+
+The design intentionally separates **local execution** from **result delivery**:
+
+- local work may finish even if the Master is temporarily unavailable
+- result messages stay in the journal until the Master confirms the cycle
+- reconnect or restart replays any still-pending result traffic
+
+When a cycle completes locally, the Minion also records a durable local
+completion marker. This marker exists so that after a hard restart, the Minion
+can distinguish:
+
+- work that never finished locally and must be executed again
+- work that already finished locally and only needs result replay/delivery
+
+As a result, hard restart recovery follows these rules:
+
+- if a cycle had not yet reached durable local completion, rerun is expected
+- if a cycle had already reached durable local completion, local re-execution is
+  skipped and only journal replay is used to finish delivery
+
+This model is designed for unreliable networks where the Master may disappear
+temporarily, but the Minion must still converge and later flush its results.
 
 
 Example configuration for the Sysinspect Minion:
