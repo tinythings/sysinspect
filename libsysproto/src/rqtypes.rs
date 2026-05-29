@@ -63,7 +63,7 @@ pub enum ProtoKey {
     Telemetry,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum RequestType {
     /// Minion registration request or context.
     #[serde(rename = "add")]
@@ -134,4 +134,27 @@ pub enum RequestType {
     /// Master→Minion: model cycle acknowledged.
     #[serde(rename = "cack")]
     CycleAck,
+}
+
+/// Classifies an outbound minion message so the transport layer can decide
+/// whether a delivery failure should tear down the execution runtime or
+/// merely degrade transport health.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutboundMessageClass {
+    /// Execution results that are journaled before send and can survive
+    /// temporary delivery failure without stopping local work.
+    DurableData,
+
+    /// Session or control messages whose failure may indicate a broken
+    /// connection that warrants reconnect/handshake recovery.
+    SessionControl,
+}
+
+impl RequestType {
+    pub fn message_class(&self) -> OutboundMessageClass {
+        match self {
+            RequestType::Event | RequestType::ModelEvent | RequestType::ModelAck => OutboundMessageClass::DurableData,
+            _ => OutboundMessageClass::SessionControl,
+        }
+    }
 }

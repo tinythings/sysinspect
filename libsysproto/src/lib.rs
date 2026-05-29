@@ -8,6 +8,9 @@ pub mod secure;
 #[cfg(test)]
 mod replay_ut;
 
+#[cfg(test)]
+mod rqtypes_ut;
+
 use std::collections::HashSet;
 
 use errcodes::ProtoErrorCode;

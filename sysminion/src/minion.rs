@@ -58,7 +58,7 @@ use libsysproto::{
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
     replay::{ReplayIdentity, replay_identity_from_minion_bytes},
-    rqtypes::{ProtoValue, RequestType},
+    rqtypes::{OutboundMessageClass, ProtoValue, RequestType},
     secure::{SecureDiagnosticCode, SecureFrame},
 };
 use once_cell::sync::Lazy;
@@ -357,11 +357,11 @@ impl SysMinion {
     }
 
     /// Talk-back to the master
-    pub(crate) async fn request(&self, msg: Vec<u8>) {
-        let _ = self.try_request(msg).await;
+    pub(crate) async fn request(&self, msg: Vec<u8>, class: OutboundMessageClass) {
+        let _ = self.try_request(msg, class).await;
     }
 
-    async fn try_request(&self, msg: Vec<u8>) -> Result<(), SysinspectError> {
+    async fn try_request(&self, msg: Vec<u8>, class: OutboundMessageClass) -> Result<(), SysinspectError> {
         let payload = match self.secure.lock().await.as_mut().map(|secure| secure.seal_bytes(&msg)).transpose() {
             Ok(Some(msg)) => msg,
             Ok(None) => msg,
@@ -877,12 +877,12 @@ impl SysMinion {
                                     "cpu": cpu_usage,
                                 });
 
-                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl))).await;
+                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl)), OutboundMessageClass::SessionControl).await;
                             }
 
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 log::debug!("Received discovery ping from master");
-                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None)).await;
+                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None), OutboundMessageClass::SessionControl).await;
                             }
 
                             Err(err) => log::warn!("Invalid ping payload `{}`: {}", p, err),
@@ -923,7 +923,7 @@ impl SysMinion {
         self.request(r.sendable().map_err(|e| {
             log::error!("Error preparing traits message: {e}");
             e
-        })?)
+        })?, OutboundMessageClass::SessionControl)
         .await;
         Ok(())
     }
@@ -935,7 +935,7 @@ impl SysMinion {
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
-        self.request(r.sendable()?).await;
+        self.request(r.sendable()?, OutboundMessageClass::SessionControl).await;
         Ok(())
     }
 
@@ -944,7 +944,7 @@ impl SysMinion {
         let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Add, json!(pbk_pem));
 
         log::info!("Registration request to {}", self.cfg.master());
-        self.request(r.sendable()?).await;
+        self.request(r.sendable()?, OutboundMessageClass::SessionControl).await;
         Ok(())
     }
 
@@ -954,7 +954,7 @@ impl SysMinion {
         log::debug!("Callback: {ar:#?}");
         let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?;
         self.journal.append(ar.cid(), &msg)?;
-        self.request(msg).await;
+        self.request(msg, OutboundMessageClass::DurableData).await;
         Ok(())
     }
 
@@ -963,7 +963,7 @@ impl SysMinion {
         log::debug!("Sending fin sync callback on {}", ar.aid());
         let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?;
         self.journal.append(ar.cid(), &msg)?;
-        self.request(msg).await;
+        self.request(msg, OutboundMessageClass::DurableData).await;
         Ok(())
     }
 
@@ -971,7 +971,7 @@ impl SysMinion {
         log::info!("Sending sensors sync callback for cycle");
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({}));
         r.set_sid(MINION_SID.to_string());
-        self.request(r.sendable()?).await;
+        self.request(r.sendable()?, OutboundMessageClass::SessionControl).await;
         Ok(())
     }
 
@@ -981,7 +981,7 @@ impl SysMinion {
 
         log::info!("Goodbye to {}", self.cfg.master());
         match r.sendable() {
-            Ok(msg) => self.request(msg).await,
+            Ok(msg) => self.request(msg, OutboundMessageClass::SessionControl).await,
             Err(e) => log::error!("Failed to send bye message: {e}"),
         }
     }
@@ -1000,7 +1000,7 @@ impl SysMinion {
                     // restart may replay delivery, but must not re-run the model locally.
                     log::info!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
                 }
-                self.request(msg).await
+                self.request(msg, OutboundMessageClass::DurableData).await
             }
             Err(e) => log::error!("Failed to send model ack: {e}"),
         }
@@ -1031,7 +1031,7 @@ impl SysMinion {
                 let mut total_entries = 0usize;
                 for (cycle_id, entries) in &cycles {
                     for (_seq, payload) in entries {
-                        if self.try_request(payload.clone()).await.is_ok() {
+                        if self.try_request(payload.clone(), OutboundMessageClass::DurableData).await.is_ok() {
                             total_entries += 1;
                         }
                     }
