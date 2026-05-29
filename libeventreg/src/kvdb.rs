@@ -15,6 +15,7 @@ use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf, sync::Mutex};
 use tempfile::Builder;
 
 const TR_SESSIONS: &str = "sessions";
+const TR_REPLAY: &str = "replay";
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct EventData {
@@ -293,6 +294,16 @@ impl EventsRegistry {
         } else {
             Ok(())
         }
+    }
+
+    /// Claim a replay key. Returns true only for the first successful claim.
+    pub fn claim_replay_key(&self, key: &str) -> Result<bool, SysinspectError> {
+        let replay = self.get_tree(TR_REPLAY)?;
+        if replay.contains_key(key)? {
+            return Ok(false);
+        }
+        replay.insert(key, &[][..])?;
+        Ok(true)
     }
 
     /// This either creates a new session or returns the existing one

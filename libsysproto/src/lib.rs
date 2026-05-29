@@ -1,8 +1,12 @@
 pub mod errcodes;
 pub mod payload;
 pub mod query;
+pub mod replay;
 pub mod rqtypes;
 pub mod secure;
+
+#[cfg(test)]
+mod replay_ut;
 
 use std::collections::HashSet;
 

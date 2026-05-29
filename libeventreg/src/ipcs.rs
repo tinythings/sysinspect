@@ -103,6 +103,11 @@ impl DbIPCService {
         self.evtreg.lock().await.add_event(sid, mid, payload)
     }
 
+    /// Claim a replay key. Returns true only for the first successful claim.
+    pub async fn claim_replay_key(&self, key: &str) -> Result<bool, SysinspectError> {
+        self.evtreg.lock().await.claim_replay_key(key)
+    }
+
     /// Get sessions
     pub async fn get_sessions(&self) -> Result<Vec<EventSession>, SysinspectError> {
         self.evtreg.lock().await.get_sessions()

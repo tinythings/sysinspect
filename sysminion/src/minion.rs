@@ -31,6 +31,7 @@ use libsysinspect::{
         actproc::{modfinder::ModCall, response::ActionResponse},
         inspector::SysInspector,
     },
+    journal::Journal,
     mdescr::mspecdef::ModelSpec,
     reactor::{
         evtproc::EventProcessor,
@@ -56,6 +57,7 @@ use libsysproto::{
         MinionQuery, SCHEME_COMMAND,
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
+    replay::{ReplayIdentity, replay_identity_from_minion_bytes},
     rqtypes::{ProtoValue, RequestType},
     secure::{SecureDiagnosticCode, SecureFrame},
 };
@@ -79,6 +81,26 @@ use tokio::{
     task::JoinHandle,
 };
 use uuid::Uuid;
+
+const RUNNER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, Copy, Default)]
+struct BacklogSnapshot {
+    journal_cycles: usize,
+    journal_entries: usize,
+    journal_bytes: u64,
+    dpq_pending: usize,
+    dpq_inflight: usize,
+}
+
+impl BacklogSnapshot {
+    fn format(self) -> String {
+        format!(
+            "journal={}/{} entries ({} bytes), dpq={}/{} pending/inflight",
+            self.journal_cycles, self.journal_entries, self.journal_bytes, self.dpq_pending, self.dpq_inflight
+        )
+    }
+}
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
@@ -155,6 +177,7 @@ pub struct SysMinion {
 
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
+    journal: Journal,
     connected: AtomicBool,
     secure: Mutex<Option<SecureChannel>>,
 
@@ -169,6 +192,18 @@ pub struct SysMinion {
 }
 
 impl SysMinion {
+    fn backlog_snapshot(&self) -> BacklogSnapshot {
+        let journal = self.journal.stats().unwrap_or_default();
+        let dpq = self.dpq.stats();
+        BacklogSnapshot {
+            journal_cycles: journal.pending_cycles,
+            journal_entries: journal.pending_entries,
+            journal_bytes: journal.pending_bytes,
+            dpq_pending: dpq.pending_jobs,
+            dpq_inflight: dpq.inflight_jobs,
+        }
+    }
+
     fn cleanup_empty_sensor_dirs(root: &Path, dir: &Path) {
         let Ok(rd) = fs::read_dir(dir) else {
             return;
@@ -208,6 +243,7 @@ impl SysMinion {
             ping_timeout: Duration::from_secs(10),
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
+            journal: Journal::open(cfg.journal_path(), cfg.journal_max_bytes())?,
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
             minion_id: dataconv::as_str(SystemTraits::new(cfg.clone(), true).get(traits::SYS_ID)),
@@ -322,22 +358,27 @@ impl SysMinion {
 
     /// Talk-back to the master
     pub(crate) async fn request(&self, msg: Vec<u8>) {
+        let _ = self.try_request(msg).await;
+    }
+
+    async fn try_request(&self, msg: Vec<u8>) -> Result<(), SysinspectError> {
         let payload = match self.secure.lock().await.as_mut().map(|secure| secure.seal_bytes(&msg)).transpose() {
             Ok(Some(msg)) => msg,
             Ok(None) => msg,
             Err(err) => {
                 log::error!("Failed to encode secure payload to master: {err}");
                 let _ = CONNECTION_TX.send(());
-                return;
+                return Err(err);
             }
         };
 
         if let Err(err) = self.write_frame(&payload).await {
-            log::warn!("Failed to send message to master: {err}; triggering reconnect");
+            log::warn!("Failed to send message to master: {err}; triggering reconnect; backlog: {}", self.backlog_snapshot().format());
             let _ = CONNECTION_TX.send(());
-        } else {
-            log::trace!("To master: {}", String::from_utf8_lossy(&payload));
+            return Err(err);
         }
+        log::trace!("To master: {}", String::from_utf8_lossy(&payload));
+        Ok(())
     }
 
     /// Write one length-prefixed transport frame to the master connection.
@@ -476,7 +517,7 @@ impl SysMinion {
                     }
 
                     if this.last_ping.lock().await.elapsed() > this.ping_timeout {
-                        log::warn!("Master seems unresponsive, triggering reconnect.");
+                        log::warn!("Master seems unresponsive, triggering reconnect. Backlog: {}", this.backlog_snapshot().format());
                         let _ = reconnect_sender.send(());
                         state.exit.store(true, Ordering::Relaxed);
                         break;
@@ -612,7 +653,7 @@ impl SysMinion {
                 let msg = match this.read_frame().await {
                     Ok(msg) => msg,
                     Err(err) => {
-                        log::warn!("Proto read failed: {err}; triggering reconnect");
+                        log::warn!("Proto read failed: {err}; triggering reconnect; backlog: {}", this.backlog_snapshot().format());
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -716,6 +757,22 @@ impl SysMinion {
                         break;
                     }
 
+                    RequestType::CycleAck => {
+                        let cycle_id = msg.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?");
+                        match this.journal.ack_cycle(cycle_id) {
+                            Ok(n) if n > 0 => {
+                                log::info!(
+                                    "Journal freed {} entries for cycle {}; remaining backlog: {}",
+                                    n,
+                                    cycle_id,
+                                    this.backlog_snapshot().format()
+                                )
+                            }
+                            Ok(_) => log::debug!("Journal cycle {} already acked", cycle_id),
+                            Err(err) => log::error!("Failed to ack journal cycle {}: {}", cycle_id, err),
+                        }
+                    }
+
                     RequestType::Command => {
                         log::debug!("Master sends a command");
                         match msg.get_retcode() {
@@ -755,6 +812,10 @@ impl SysMinion {
                             Ok(_) => {
                                 log::info!("Connected");
                                 this.set_connected(true);
+                                let this = this.clone();
+                                tokio::spawn(async move {
+                                    this.replay_pending().await;
+                                });
                             }
                             Err(err) => log::error!("Unable to send traits: {err}"),
                         }
@@ -891,14 +952,18 @@ impl SysMinion {
     pub async fn send_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending sync callback on {}", ar.aid());
         log::debug!("Callback: {ar:#?}");
-        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?).await;
+        let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?;
+        self.journal.append(ar.cid(), &msg)?;
+        self.request(msg).await;
         Ok(())
     }
 
     /// Send finalisation marker callback to the master on the results
     pub async fn send_fin_callback(self: Arc<Self>, ar: ActionResponse) -> Result<(), SysinspectError> {
         log::debug!("Sending fin sync callback on {}", ar.aid());
-        self.request(MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?).await;
+        let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?;
+        self.journal.append(ar.cid(), &msg)?;
+        self.request(msg).await;
         Ok(())
     }
 
@@ -918,6 +983,74 @@ impl SysMinion {
         match r.sendable() {
             Ok(msg) => self.request(msg).await,
             Err(e) => log::error!("Failed to send bye message: {e}"),
+        }
+    }
+
+    /// Send model completion ACK to master.
+    async fn send_model_ack(self: &Arc<Self>, cycle_id: &str) {
+        let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelAck, json!({"cycle_id": cycle_id}));
+        match r.sendable() {
+            Ok(msg) => {
+                if let Err(e) = self.journal.append(cycle_id, &msg) {
+                    log::error!("Failed to journal model ack for cycle {}: {}", cycle_id, e);
+                } else if let Err(e) = self.journal.mark_cycle_locally_complete(cycle_id) {
+                    log::error!("Failed to mark cycle {} as locally complete: {}", cycle_id, e);
+                } else {
+                    // This is the durable local-completion boundary. After this point a hard
+                    // restart may replay delivery, but must not re-run the model locally.
+                    log::info!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
+                }
+                self.request(msg).await
+            }
+            Err(e) => log::error!("Failed to send model ack: {e}"),
+        }
+    }
+
+    fn pending_cycle_needs_model_ack(entries: &[(u64, Vec<u8>)]) -> bool {
+        let mut has_model_event = false;
+        let mut has_model_ack = false;
+
+        for (_, payload) in entries {
+            if let Ok(Some(identity)) = replay_identity_from_minion_bytes(payload) {
+                match identity {
+                    ReplayIdentity::ModelEvent { .. } => has_model_event = true,
+                    ReplayIdentity::ModelAck { .. } => has_model_ack = true,
+                    ReplayIdentity::Event { .. } => {}
+                }
+            }
+        }
+
+        has_model_event && !has_model_ack
+    }
+
+    async fn replay_pending(self: Arc<Self>) {
+        match self.journal.pending() {
+            Ok(cycles) => {
+                let before = self.backlog_snapshot();
+                let cycle_count = cycles.len();
+                let mut total_entries = 0usize;
+                for (cycle_id, entries) in &cycles {
+                    for (_seq, payload) in entries {
+                        if self.try_request(payload.clone()).await.is_ok() {
+                            total_entries += 1;
+                        }
+                    }
+                    // Legacy journal entries may predate durable ModelAck journaling. Re-emit a
+                    // fresh ModelAck so master can still drive cycle cleanup with `CycleAck`.
+                    if Self::pending_cycle_needs_model_ack(entries) {
+                        self.send_model_ack(cycle_id).await;
+                    }
+                }
+                if total_entries > 0 {
+                    log::info!(
+                        "Resent {} journal entries from {} cycle(s) to master; backlog before replay: {}",
+                        total_entries,
+                        cycle_count,
+                        before.format()
+                    );
+                }
+            }
+            Err(e) => log::error!("Failed to read pending journal entries: {}", e),
         }
     }
 
@@ -1097,6 +1230,7 @@ impl SysMinion {
                     log::error!("Blocking task crashed: {e}");
                 }
             };
+            self.as_ptr().send_model_ack(cycle_id).await;
             self.as_ptr().pt_counter.lock().await.dec(cycle_id);
         }
     }
@@ -1243,6 +1377,23 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                         while MODPAK_SYNC_STATE.is_syncing().await {
                             tokio::time::sleep(Duration::from_millis(200)).await;
                         }
+                        if !cmd.cycle().is_empty() {
+                            match m.journal.is_cycle_locally_complete(cmd.cycle()) {
+                                Ok(true) => {
+                                    // DPQ recovers unfinished scheduler state after restart. Once a cycle crossed
+                                    // the durable local-completion boundary, execution must not happen again here.
+                                    log::info!("Skipping already-completed local cycle {}; replay recovery will finish delivery", cmd.cycle());
+                                    return Ok(());
+                                }
+                                Ok(false) => {
+                                    log::info!("Cycle {} has no durable local-completion marker; executing recovered job", cmd.cycle());
+                                }
+                                Err(err) => {
+                                    log::error!("Failed to inspect local completion state for cycle {}: {}", cmd.cycle(), err);
+                                }
+                            }
+                        }
+                        log::info!("Dispatching recovered or queued job for cycle {}", cmd.cycle());
                         m.clone().dispatch(cmd).await;
                         Ok(())
                     }
@@ -1251,9 +1402,26 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
     });
 
+    async fn wait_for_runner_drain(minion: &Arc<SysMinion>) {
+        let start = Instant::now();
+        loop {
+            if minion.pt_counter.lock().await.is_done() {
+                // Let the queue runner finish the ack path for the just-completed job.
+                sleep(Duration::from_millis(100)).await;
+                break;
+            }
+            if start.elapsed() >= RUNNER_DRAIN_TIMEOUT {
+                log::warn!("Timed out waiting for in-flight minion work to finish; forcing runner shutdown.");
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     async fn stop_instance(minion: &Arc<SysMinion>, runner: tokio::task::JoinHandle<()>) -> Result<(), tokio::task::JoinError> {
         minion.as_ptr().stop_sensors().await;
         minion.as_ptr().stop_background().await;
+        wait_for_runner_drain(minion).await;
         runner.abort();
         runner.await
     }
@@ -1319,6 +1487,7 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     }
 
     if state.exit.load(Ordering::Relaxed) {
+        wait_for_runner_drain(&minion).await;
         runner.abort();
         let _ = runner.await;
         return Ok(());
@@ -1353,6 +1522,7 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     minion.as_ptr().stop_sensors().await;
     minion.as_ptr().stop_background().await;
 
+    wait_for_runner_drain(&minion).await;
     runner.abort();
     let _ = runner.await;
 
@@ -1399,11 +1569,11 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
             sig = reconnect_rx.recv() => {
                 match sig {
                     Ok(_) => {
-                        log::warn!("Reconnect signal received; aborting current minion instance.");
+                        log::warn!("Reconnect signal received; waiting for current minion instance to stop.");
                         let _ = mhdl.await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!("Missed {n} reconnect notification(s) in supervisor loop; aborting current minion instance.");
+                        log::warn!("Missed {n} reconnect notification(s) in supervisor loop; waiting for current minion instance to stop.");
                         let _ = mhdl.await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
@@ -1435,7 +1605,7 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
         }
 
         let interval = cfg.reconnect_interval();
-        log::info!("Reconnecting in {interval} seconds...");
+        log::info!("Reconnecting in {interval} seconds... Current backlog: {}", dpq.stats().format());
         sleep(Duration::from_secs(interval)).await;
     }
 }

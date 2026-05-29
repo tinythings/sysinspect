@@ -42,6 +42,7 @@ use libsysproto::{
             CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
+    replay::{ReplayIdentity, replay_identity_from_minion_message},
     rqtypes::{ProtoKey, ProtoValue, RequestType},
     secure::SECURE_PROTOCOL_VERSION,
 };
@@ -137,6 +138,7 @@ pub struct SysMaster {
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
+    peer_direct_tx: HashMap<String, mpsc::Sender<Vec<u8>>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
 }
@@ -171,6 +173,7 @@ impl SysMaster {
             ptr: None,
             vmcluster,
             conn_to_mid: HashMap::new(),
+            peer_direct_tx: HashMap::new(),
             peer_transport: PeerTransport::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
@@ -215,6 +218,23 @@ impl SysMaster {
     #[cfg(test)]
     pub(crate) fn peer_rate_limit_key_for_test(peer_addr: &str) -> String {
         PeerTransport::rate_limit_key(peer_addr)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replay_identity_key_for_test(msg: &MinionMessage) -> Option<String> {
+        replay_identity_from_minion_message(msg).ok().flatten().map(|identity| identity.key())
+    }
+
+    fn duplicate_replay_blocks_processing(identity: &ReplayIdentity) -> bool {
+        // `Event` and `ModelEvent` duplicates must be suppressed before side effects like
+        // telemetry emission. `ModelAck` is different: even if duplicate, it may need to
+        // trigger a fresh `CycleAck` because the minion can miss the earlier ack.
+        !matches!(identity, ReplayIdentity::ModelAck { .. })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn duplicate_replay_blocks_processing_for_test(identity: &ReplayIdentity) -> bool {
+        Self::duplicate_replay_blocks_processing(identity)
     }
 
     #[cfg(test)]
@@ -808,6 +828,32 @@ impl SysMaster {
                         }
                     };
 
+                    let replay_key = match replay_identity_from_minion_message(&req) {
+                        Ok(Some(ReplayIdentity::Event { .. })) => {
+                            replay_identity_from_minion_message(&req).ok().flatten().map(|identity| identity.key())
+                        }
+                        Ok(_) => None,
+                        Err(err) => {
+                            log::error!("Failed to derive Event replay identity for {}: {}", req.id(), err);
+                            return;
+                        }
+                    };
+                    let Some(replay_key) = replay_key else {
+                        log::error!("Missing Event replay identity for {}", req.id());
+                        return;
+                    };
+                    match m.evtipc.claim_replay_key(&replay_key).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            log::debug!("Dropped duplicate Event replay for {} with key {}", req.id(), replay_key);
+                            return;
+                        }
+                        Err(err) => {
+                            log::error!("Failed to claim Event replay key for {}: {}", req.id(), err);
+                            return;
+                        }
+                    }
+
                     if m.cfg().telemetry_enabled() {
                         OtelLogger::new(&pl).log(&mrec, DataExportType::Action);
                     }
@@ -859,6 +905,31 @@ impl SysMaster {
                             return;
                         }
                     };
+                    let replay_key = match replay_identity_from_minion_message(&req) {
+                        Ok(Some(ReplayIdentity::ModelEvent { .. })) => {
+                            replay_identity_from_minion_message(&req).ok().flatten().map(|identity| identity.key())
+                        }
+                        Ok(_) => None,
+                        Err(err) => {
+                            log::error!("Failed to derive ModelEvent replay identity for {}: {}", req.id(), err);
+                            return;
+                        }
+                    };
+                    let Some(replay_key) = replay_key else {
+                        log::error!("Missing ModelEvent replay identity for {}", req.id());
+                        return;
+                    };
+                    match master.evtipc.claim_replay_key(&replay_key).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            log::debug!("Dropped duplicate ModelEvent replay for {} with key {}", req.id(), replay_key);
+                            return;
+                        }
+                        Err(err) => {
+                            log::error!("Failed to claim ModelEvent replay key for {}: {}", req.id(), err);
+                            return;
+                        }
+                    }
                     let sid = match master.evtipc.get_session(&util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned())).await {
                         Ok(sid) => sid,
                         Err(err) => {
@@ -896,6 +967,54 @@ impl SysMaster {
                 tokio::spawn(async move {
                     let mut guard = c_master.lock().await;
                     _ = c_bcast.send(guard.msg_sensors_files());
+                });
+            }
+            RequestType::ModelAck => {
+                let cycle_id = req.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+                let minion_id = req.id().to_string();
+                log::debug!("ACK from minion {} for cycle {} with payload {}", minion_id, cycle_id, req.payload());
+
+                let c_master = Arc::clone(&master);
+                let c_addr = minion_addr.clone();
+                tokio::spawn(async move {
+                    let mut guard = c_master.lock().await;
+                    let replay_identity = match replay_identity_from_minion_message(&req) {
+                        Ok(Some(identity @ ReplayIdentity::ModelAck { .. })) => Some(identity),
+                        Ok(_) => None,
+                        Err(err) => {
+                            log::error!("Failed to derive ModelAck replay identity for {}: {}", minion_id, err);
+                            return;
+                        }
+                    };
+                    let Some(replay_identity) = replay_identity else {
+                        log::error!("Missing ModelAck replay identity for {}", minion_id);
+                        return;
+                    };
+                    let replay_key = replay_identity.key();
+                    match guard.evtipc.claim_replay_key(&replay_key).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            if Self::duplicate_replay_blocks_processing(&replay_identity) {
+                                log::debug!("Dropped duplicate ModelAck replay for {} with key {}", minion_id, replay_key);
+                                return;
+                            }
+                            log::debug!("Received duplicate ModelAck replay for {} with key {}; re-sending CycleAck", minion_id, replay_key);
+                        }
+                        Err(err) => {
+                            log::error!("Failed to claim ModelAck replay key for {}: {}", minion_id, err);
+                            return;
+                        }
+                    }
+                    let label = guard.resolved_peer_label(&minion_id, &c_addr).await;
+                    let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
+                    if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack)
+                        && let Some(tx) = guard.peer_direct_tx.get(&c_addr)
+                    {
+                        match tx.try_send(encrypted) {
+                            Ok(_) => log::info!("Synced journal with minion {} for cycle {}", label, cycle_id),
+                            Err(e) => log::warn!("Failed to send journal ack to {}: {}", label, e),
+                        }
+                    }
                 });
             }
             _ => {
@@ -1267,6 +1386,9 @@ impl SysMaster {
         let c_master_writer = Arc::clone(&master);
         let c_master_reader = Arc::clone(&master);
         let (direct_tx, direct_rx) = mpsc::channel::<Vec<u8>>(8);
+        {
+            master.lock().await.peer_direct_tx.insert(peer_addr.clone(), direct_tx.clone());
+        }
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
         let cancel_writer = cancel_tx.clone();
 

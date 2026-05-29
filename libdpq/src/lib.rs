@@ -5,6 +5,9 @@ use sled::{Db, IVec, Tree};
 use std::{path::Path, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
+#[cfg(test)]
+mod lib_ut;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkItem {
     MasterCommand(MasterMessage),
@@ -17,7 +20,7 @@ pub enum WorkItem {
 /// It also has a recovery mechanism to move inflight jobs back to pending on startup, in case the process was killed while processing some jobs.
 /// Note: this implementation does not have features like delayed retries, dead-letter queues, or visibility timeouts, but it can be extended with those if needed.
 /// Example usage:
-/// ```
+/// ```text
 /// let q = DiskPersistentQueue::open("/path/to/queue")?;
 /// let item = WorkItem::MasterCommand(...);
 /// let job_id = q.add(item)?;
@@ -44,15 +47,27 @@ pub struct DiskPersistentQueue {
     tx: mpsc::Sender<()>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct QueueStats {
+    pub pending_jobs: usize,
+    pub inflight_jobs: usize,
+}
+
+impl QueueStats {
+    pub fn format(self) -> String {
+        format!("{}/{} pending/inflight", self.pending_jobs, self.inflight_jobs)
+    }
+}
+
 impl DiskPersistentQueue {
     /// Open or create a new disk-backed queue at the specified path.
     /// This will create the necessary sled database and trees if they don't exist.
     /// It will also perform recovery by moving any inflight jobs back to pending, so they can be retried.
     /// Returns a DiskPersistentQueue instance on success, or an error if the database cannot be opened or initialized.
     /// Example usage:
-    /// ```
+    /// ```text
     /// let q = DiskPersistentQueue::open("/path/to/queue")?;
-    /// ```
+    /// ```text
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, SysinspectError> {
         let db = Arc::new(sled::open(path)?);
 
@@ -63,7 +78,10 @@ impl DiskPersistentQueue {
 
         let (tx, _rx) = mpsc::channel::<()>(1);
         let q = Self { db, meta, pending, inflight, jobs, tx };
-        q.recover()?;
+        let recovered = q.recover()?;
+        if recovered > 0 {
+            log::warn!("Recovered {} inflight DPQ job(s) back to pending on startup", recovered);
+        }
 
         // Wake up any runners waiting for jobs
         let _ = q.tx.try_send(());
@@ -94,10 +112,10 @@ impl DiskPersistentQueue {
     /// Returns the next job ID on success, or an error if the operation fails.
     ///
     /// Example usage:
-    /// ```
+    /// ```text
     /// let job_id = q.next_id()?;
     /// println!("Next job ID: {job_id}");
-    /// ```
+    /// ```text
     fn next_id(&self) -> Result<u64, SysinspectError> {
         let key = b"next_id";
         let old = self.meta.fetch_and_update(key, |old| {
@@ -119,10 +137,10 @@ impl DiskPersistentQueue {
     /// Returns an error if the storage process fails, or Ok(()) if it succeeds.
     ///
     /// Example usage:
-    /// ```
+    /// ```text
     /// let item = WorkItem::MasterCommand(...);
     /// q.store_task(job_id, &item).unwrap();
-    /// ```
+    /// ```text
     fn store_task(&self, id: u64, item: &WorkItem) -> Result<(), SysinspectError> {
         let key = Self::u64_key(id);
         let val = serde_json::to_vec(item)?;
@@ -134,7 +152,7 @@ impl DiskPersistentQueue {
     /// Returns Ok(Some(WorkItem)) if the task is found and deserialized successfully,
     /// Ok(None) if the task is not found, or Err if there is an error during the process.
     /// Example usage:
-    /// ```
+    /// ```text
     /// match q.load_task(job_id) {
     ///     Ok(Some(item)) => {
     ///         // Process the item...
@@ -146,7 +164,7 @@ impl DiskPersistentQueue {
     ///         eprintln!("Error loading task with ID {job_id}: {e}");
     ///     }
     /// }
-    /// ```
+    /// ```text
     fn load_task(&self, id: u64) -> Result<Option<WorkItem>, SysinspectError> {
         let key = Self::u64_key(id);
         let Some(v) = self.jobs.get(key)? else {
@@ -157,11 +175,11 @@ impl DiskPersistentQueue {
 
     /// Add a new job to the queue. Returns the assigned job ID on success.
     /// Example usage:
-    /// ```
+    /// ```text
     /// let item = WorkItem::MasterCommand(...);
     /// let job_id = q.add(item).unwrap();
     /// println!("Enqueued job with ID: {job_id}");
-    /// ```
+    /// ```text
     pub fn add(&self, item: WorkItem) -> Result<u64, SysinspectError> {
         let id = self.next_id()?;
         self.store_task(id, &item)?;
@@ -176,7 +194,7 @@ impl DiskPersistentQueue {
     /// Returns Ok(Some((id, item))) if a job is available, Ok(None) if no jobs are pending, or Err if there is an error during the process.
     /// The caller should call ack(id) when the job is done, or nack(id) if it fails and should be retried.
     /// Example usage:
-    /// ```
+    /// ```text
     /// match q.fetch() {
     ///     Ok(Some((id, item))) => {
     ///         // Process the item...
@@ -228,7 +246,7 @@ impl DiskPersistentQueue {
     ///
     /// Returns an error if the ack process fails, or Ok(()) if it succeeds.
     /// Example usage:
-    /// ```
+    /// ```text
     /// if let Err(e) = q.ack(job_id) {
     ///     eprintln!("Ack failed for {job_id}: {e}");
     /// }
@@ -248,7 +266,7 @@ impl DiskPersistentQueue {
     /// Returns an error if the nack process fails, or Ok(()) if it succeeds.
     ///
     /// Example usage:
-    /// ```
+    /// ```text
     /// if let Err(e) = q.nack(job_id) {
     ///     eprintln!("Nack failed for {job_id}: {e}");
     /// }
@@ -263,9 +281,9 @@ impl DiskPersistentQueue {
     /// Recovery on startup: move all inflight items back to pending, so they can be retried.
     /// This is needed in case the process was killed while processing some jobs, to avoid losing them.
     ///
-    /// Note: this is a simple recovery mechanism that does not guarantee exactly-once processing,
-    ///       but it is sufficient for many use cases. For more advanced scenarios, consider adding
-    ///       timestamps and retry limits to the inflight items.
+    /// Note: this does not guarantee exactly-once execution by itself. Sysminion layers its own
+    ///       durable "local execution completed" marker on top so recovered jobs can be skipped
+    ///       once execution finished locally and only delivery recovery remains.
     ///
     /// Returns an error if the recovery process fails, or Ok(()) if it succeeds.
     ///
@@ -273,11 +291,11 @@ impl DiskPersistentQueue {
     ///       manually in normal operation.
     ///
     /// Example usage:
-    /// ```
+    /// ```text
     /// let q = DiskPersistentQueue::open("/path/to/queue")?;
     /// q.recover()?;
-    /// ```
-    pub fn recover(&self) -> Result<(), SysinspectError> {
+    /// ```text
+    pub fn recover(&self) -> Result<usize, SysinspectError> {
         let keys: Vec<[u8; 8]> = self
             .inflight
             .iter()
@@ -303,7 +321,12 @@ impl DiskPersistentQueue {
             self.db.flush()?;
         }
 
-        Ok(())
+        Ok(keys.len())
+    }
+
+    /// Return current queue backlog counters for operator visibility.
+    pub fn stats(&self) -> QueueStats {
+        QueueStats { pending_jobs: self.pending.len(), inflight_jobs: self.inflight.len() }
     }
 
     /// Start a runner that continuously tries to dequeue and execute jobs using the provided async closure.
@@ -313,7 +336,7 @@ impl DiskPersistentQueue {
     /// This is a convenience method that wraps the start_ack() method, but does not handle nacking for you.
     ///
     /// Example usage:
-    /// ```
+    /// ```text
     /// q.start(|job_id, item| async move {
     ///     // Process the item...
     ///     // Then ack or nack:
@@ -342,7 +365,7 @@ impl DiskPersistentQueue {
     /// and should return a Future that completes with a Result indicating whether the job was successful or not.
     ///
     /// Example usage:
-    /// ```
+    /// ```text
     /// q.start_ack(|job_id, item| async move {
     ///     // Process the item...
     ///     // Return Ok(()) if successful, or Err(e) if failed:

@@ -126,4 +126,12 @@ pub enum RequestType {
 
     #[serde(rename = "ssp")]
     SensorsSyncResponse,
+
+    /// Minion→Master: model cycle completed.
+    #[serde(rename = "mack")]
+    ModelAck,
+
+    /// Master→Minion: model cycle acknowledged.
+    #[serde(rename = "cack")]
+    CycleAck,
 }

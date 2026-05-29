@@ -1,6 +1,8 @@
 use crate::master::SysMaster;
 use chrono::Utc;
+use libeventreg::{ipcs::DbIPCService, kvdb::EventsRegistry};
 use libsysinspect::{
+    cfg::mmconf::HistoryConfig,
     rsa::keys::{get_fingerprint, keygen},
     transport::{
         TransportKeyExchangeModel, TransportPeerState, TransportProvisioningMode, TransportRotationStatus, secure_bootstrap::SecureBootstrapSession,
@@ -10,9 +12,11 @@ use libsysinspect::{
 use libsysproto::secure::{
     SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding,
 };
+use libsysproto::{MinionMessage, replay::ReplayIdentity, rqtypes::RequestType};
 use rsa::RsaPublicKey;
 use serde_json::json;
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
+use tokio::sync::Mutex;
 
 fn fresh_timestamp() -> i64 {
     Utc::now().timestamp()
@@ -235,4 +239,58 @@ fn invalid_hello_does_not_poison_replay_cache_then_valid_retry_is_accepted() {
         .unwrap(),
         SecureFrame::BootstrapDiagnostic(frame) if frame.message.contains("replay")
     ));
+}
+
+#[test]
+fn event_replay_key_uses_stable_minion_cycle_entity_session_action_identity() {
+    let msg = MinionMessage::new(
+        "minion-1".to_string(),
+        RequestType::Event,
+        json!({"cid":"cycle-1","eid":"entity-1","sid":"session-1","aid":"action-1","timestamp":"1"}),
+    );
+
+    assert_eq!(SysMaster::replay_identity_key_for_test(&msg).unwrap(), "evt|minion-1|cycle-1|entity-1|session-1|action-1");
+}
+
+#[test]
+fn model_event_and_ack_replay_keys_are_distinct() {
+    let model_event = MinionMessage::new(
+        "minion-1".to_string(),
+        RequestType::ModelEvent,
+        json!({"cid":"cycle-1","eid":"entity-1","sid":"session-1","aid":"action-1","timestamp":"1"}),
+    );
+    let model_ack = MinionMessage::new("minion-1".to_string(), RequestType::ModelAck, json!({"cycle_id":"cycle-1"}));
+
+    assert_eq!(SysMaster::replay_identity_key_for_test(&model_event).unwrap(), "mvt|minion-1|cycle-1");
+    assert_eq!(SysMaster::replay_identity_key_for_test(&model_ack).unwrap(), "mack|minion-1|cycle-1");
+}
+
+#[test]
+fn duplicate_model_ack_still_allows_cycle_ack_resend() {
+    assert!(SysMaster::duplicate_replay_blocks_processing_for_test(&ReplayIdentity::Event {
+        minion_id: "minion-1".to_string(),
+        cycle_id: "cycle-1".to_string(),
+        entity_id: "entity-1".to_string(),
+        session_id: "session-1".to_string(),
+        action_id: "action-1".to_string(),
+    }));
+    assert!(SysMaster::duplicate_replay_blocks_processing_for_test(&ReplayIdentity::ModelEvent {
+        minion_id: "minion-1".to_string(),
+        cycle_id: "cycle-1".to_string(),
+    }));
+    assert!(!SysMaster::duplicate_replay_blocks_processing_for_test(&ReplayIdentity::ModelAck {
+        minion_id: "minion-1".to_string(),
+        cycle_id: "cycle-1".to_string(),
+    }));
+}
+
+#[tokio::test]
+async fn replay_claim_rejects_duplicate_identity_across_calls() {
+    let tmp = tempfile::tempdir().unwrap();
+    let evtreg = Arc::new(Mutex::new(EventsRegistry::new(tmp.path().join("telemetry"), HistoryConfig::default()).unwrap()));
+    let service = DbIPCService::new(evtreg, tmp.path().join("telemetry.sock").to_str().unwrap()).unwrap();
+    let key = "evt|minion-1|cycle-1|entity-1|session-1|action-1";
+
+    assert!(service.claim_replay_key(key).await.unwrap());
+    assert!(!service.claim_replay_key(key).await.unwrap());
 }
