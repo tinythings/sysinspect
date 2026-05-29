@@ -406,6 +406,17 @@ pub enum MinionOfflineMode {
     Follow,
 }
 
+/// Controls what happens when the outgoing journal budget is exceeded
+/// during prolonged master absence.
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OfflineBacklogPolicy {
+    /// Evict the oldest un-acknowledged cycle when the budget is exceeded.
+    /// A warning is logged so operators can monitor for data loss.
+    #[default]
+    Evict,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MinionConfig {
     /// Root directory where minion keeps all data.
@@ -515,6 +526,14 @@ pub struct MinionConfig {
     #[serde(rename = "journal.path")]
     #[serde(skip_serializing_if = "Option::is_none")]
     journal_path: Option<String>,
+
+    /// Backlog eviction policy when the outgoing journal exceeds its budget
+    /// during prolonged master absence.
+    ///
+    /// - `evict`: drop the oldest un-acknowledged cycle (default, matches pre-existing behaviour).
+    #[serde(rename = "offline.backlog.policy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline_backlog_policy: Option<OfflineBacklogPolicy>,
 
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
@@ -887,6 +906,19 @@ impl MinionConfig {
 
     pub fn set_journal_path(&mut self, path: &str) {
         self.journal_path = Some(path.to_string());
+    }
+
+    /// Offline backlog eviction policy.
+    ///
+    /// Defaults to `Evict` — the oldest un-acked cycle is dropped when the
+    /// journal exceeds its byte budget.
+    pub fn backlog_policy(&self) -> OfflineBacklogPolicy {
+        self.offline_backlog_policy.clone().unwrap_or_default()
+    }
+
+    /// Set offline backlog policy (exposed for tests).
+    pub fn set_backlog_policy(&mut self, policy: OfflineBacklogPolicy) {
+        self.offline_backlog_policy = Some(policy);
     }
 
     /// Get temp path
