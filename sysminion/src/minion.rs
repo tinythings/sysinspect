@@ -23,7 +23,7 @@ use libsetup::mnsetup::ensure_minion_tree;
 use libsysinspect::{
     cfg::{
         get_minion_config,
-        mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, SysInspectConfig},
+        mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, MinionOfflineMode, SysInspectConfig},
     },
     context,
     inspector::SysInspectRunner,
@@ -58,7 +58,7 @@ use libsysproto::{
         commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
     },
     replay::{ReplayIdentity, replay_identity_from_minion_bytes},
-    rqtypes::{ProtoValue, RequestType},
+    rqtypes::{OutboundMessageClass, ProtoValue, RequestType},
     secure::{SecureDiagnosticCode, SecureFrame},
 };
 use once_cell::sync::Lazy;
@@ -167,8 +167,8 @@ pub struct SysMinion {
     fingerprint: Option<String>,
     kman: MinionRSAKeyManager,
 
-    rstm: Arc<Mutex<OwnedReadHalf>>,
-    wstm: Arc<Mutex<OwnedWriteHalf>>,
+    rstm: Arc<Mutex<Option<OwnedReadHalf>>>,
+    wstm: Arc<Mutex<Option<OwnedWriteHalf>>>,
 
     filedata: Mutex<MinionFiledata>,
 
@@ -177,7 +177,7 @@ pub struct SysMinion {
 
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
-    journal: Journal,
+    pub(crate) journal: Journal,
     connected: AtomicBool,
     secure: Mutex<Option<SecureChannel>>,
 
@@ -236,14 +236,14 @@ impl SysMinion {
             cfg: cfg.clone(),
             fingerprint,
             kman: MinionRSAKeyManager::new(cfg.root_dir())?,
-            rstm: Arc::new(Mutex::new(rstm)),
-            wstm: Arc::new(Mutex::new(wstm)),
+            rstm: Arc::new(Mutex::new(Some(rstm))),
+            wstm: Arc::new(Mutex::new(Some(wstm))),
             filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
             last_ping: Mutex::new(Instant::now()),
             ping_timeout: Duration::from_secs(10),
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
-            journal: Journal::open(cfg.journal_path(), cfg.journal_max_bytes())?,
+            journal: Journal::open_with_policy(cfg.journal_path(), cfg.journal_max_bytes(), cfg.backlog_policy())?,
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
             minion_id: dataconv::as_str(SystemTraits::new(cfg.clone(), true).get(traits::SYS_ID)),
@@ -357,33 +357,59 @@ impl SysMinion {
     }
 
     /// Talk-back to the master
-    pub(crate) async fn request(&self, msg: Vec<u8>) {
-        let _ = self.try_request(msg).await;
+    pub(crate) async fn request(&self, msg: Vec<u8>, class: OutboundMessageClass) {
+        let _ = self.try_request(msg, class).await;
     }
 
-    async fn try_request(&self, msg: Vec<u8>) -> Result<(), SysinspectError> {
+    pub(crate) async fn try_request(&self, msg: Vec<u8>, class: OutboundMessageClass) -> Result<(), SysinspectError> {
         let payload = match self.secure.lock().await.as_mut().map(|secure| secure.seal_bytes(&msg)).transpose() {
             Ok(Some(msg)) => msg,
             Ok(None) => msg,
             Err(err) => {
                 log::error!("Failed to encode secure payload to master: {err}");
-                let _ = CONNECTION_TX.send(());
+                self.maybe_signal_delivery_failure(class);
                 return Err(err);
             }
         };
 
         if let Err(err) = self.write_frame(&payload).await {
-            log::warn!("Failed to send message to master: {err}; triggering reconnect; backlog: {}", self.backlog_snapshot().format());
-            let _ = CONNECTION_TX.send(());
+            log::warn!("Failed to send message to master: {err}; backlog: {}", self.backlog_snapshot().format());
+            self.maybe_signal_delivery_failure(class);
             return Err(err);
         }
         log::trace!("To master: {}", String::from_utf8_lossy(&payload));
         Ok(())
     }
 
+    /// Reliability contract for outbound delivery failure:
+    ///
+    /// - `follow`: any delivery failure is treated as execution-affecting and
+    ///   tears the instance down through reconnect.
+    /// - `independent` + `SessionControl`: reconnect the transport/session path,
+    ///   because the control plane is broken.
+    /// - `independent` + `DurableData`: do not stop execution. The payload is
+    ///   already durable or replayable, so delivery failure degrades transport
+    ///   state but must not collapse local work.
+    fn maybe_signal_delivery_failure(&self, class: OutboundMessageClass) {
+        match (self.cfg.offline(), class) {
+            (MinionOfflineMode::Follow, _) => {
+                log::warn!("Follow mode: delivery failure triggers reconnect");
+                let _ = CONNECTION_TX.send(());
+            }
+            (MinionOfflineMode::Independent, OutboundMessageClass::SessionControl) => {
+                log::warn!("Independent mode: session/control delivery failed; triggering reconnect");
+                let _ = CONNECTION_TX.send(());
+            }
+            (MinionOfflineMode::Independent, OutboundMessageClass::DurableData) => {
+                log::warn!("Independent mode: durable data delivery failed; execution continues, transport degraded");
+            }
+        }
+    }
+
     /// Write one length-prefixed transport frame to the master connection.
     async fn write_frame(&self, frame: &[u8]) -> Result<(), SysinspectError> {
         let mut stm = self.wstm.lock().await;
+        let stm = stm.as_mut().ok_or_else(|| SysinspectError::ProtoError("Transport write half is not connected".to_string()))?;
         stm.write_all(&(frame.len() as u32).to_be_bytes()).await?;
         stm.write_all(frame).await?;
         stm.flush().await?;
@@ -393,6 +419,7 @@ impl SysMinion {
     /// Read one length-prefixed transport frame from the master connection.
     async fn read_frame(&self) -> Result<Vec<u8>, SysinspectError> {
         let mut stm = self.rstm.lock().await;
+        let stm = stm.as_mut().ok_or_else(|| SysinspectError::ProtoError("Transport read half is not connected".to_string()))?;
         let mut len = [0u8; 4];
         stm.read_exact(&mut len).await?;
         let frame_len = u32::from_be_bytes(len) as usize;
@@ -402,6 +429,74 @@ impl SysMinion {
         let mut frame = vec![0u8; frame_len];
         stm.read_exact(&mut frame).await?;
         Ok(frame)
+    }
+
+    /// Replace the transport streams with a new TCP connection.
+    /// Old streams are dropped when the Option values are replaced.
+    async fn set_streams(&self, rstm: OwnedReadHalf, wstm: OwnedWriteHalf) {
+        *self.rstm.lock().await = Some(rstm);
+        *self.wstm.lock().await = Some(wstm);
+    }
+
+    /// Disconnect transport streams (take them out of the Option).
+    pub(crate) async fn clear_streams(&self) {
+        *self.rstm.lock().await = None;
+        *self.wstm.lock().await = None;
+    }
+
+    /// Re-establish the full transport stack in `independent` mode without
+    /// destroying the execution runtime.
+    ///
+    /// Contract:
+    /// - this path only repairs transport/session state
+    /// - journal replay is NOT fired here blindly
+    /// - replay is deferred until the master resumes logical session flow by
+    ///   requesting fresh `Traits`
+    /// - therefore local execution and durable-delivery recovery stay decoupled
+    pub(crate) async fn reconnect_transport(self: &Arc<Self>) -> Result<(), SysinspectError> {
+        log::info!("Re-establishing transport to master {}...", self.cfg.master());
+
+        // 1. Stop proto, ping, and stats tasks so they don't fight for the old streams.
+        Arc::clone(self).stop_background().await;
+
+        // 2. Drop old streams, then open a fresh connection.
+        self.clear_streams().await;
+        let (rstm, wstm) = match TcpStream::connect(self.cfg.master()).await {
+            Ok(s) => s.into_split(),
+            Err(err) => {
+                log::error!("Failed to connect to master during transport recovery: {err}");
+                return Err(SysinspectError::MinionGeneralError(format!("Transport recovery connect failed: {err}")));
+            }
+        };
+        self.set_streams(rstm, wstm).await;
+        log::info!("Transport socket reconnected to {}", self.cfg.master());
+
+        // 3. Bootstrap a fresh secure session.
+        *self.secure.lock().await = None;
+        if let Err(err) = self.bootstrap_secure().await {
+            log::error!("Secure bootstrap failed during transport recovery: {err}");
+            self.clear_streams().await;
+            return Err(err);
+        }
+
+        // 4. Restart the proto read loop and background tasks.
+        Arc::clone(self).do_proto().await?;
+
+        // 5. Re-establish session with the master. Journal replay is deferred
+        // until the master asks for fresh Traits, which confirms the logical
+        // session is live again.
+        Arc::clone(self).send_ehlo().await?;
+        // Resync sensors after reconnection.
+        if let Err(err) = Arc::clone(self).send_sensors_sync().await {
+            log::warn!("Sensors sync after transport recovery failed: {err}");
+        }
+
+        let state = Arc::new(ExitState::new());
+        Arc::clone(self).do_ping_update(state).await?;
+        Arc::clone(self).do_stats_update().await?;
+
+        log::info!("Transport recovery complete; backlog: {}", self.backlog_snapshot().format());
+        Ok(())
     }
 
     /// Mark the specified transport key, or the current managed key, as broken after a failed secure bootstrap.
@@ -517,9 +612,22 @@ impl SysMinion {
                     }
 
                     if this.last_ping.lock().await.elapsed() > this.ping_timeout {
-                        log::warn!("Master seems unresponsive, triggering reconnect. Backlog: {}", this.backlog_snapshot().format());
+                        match this.cfg.offline() {
+                            MinionOfflineMode::Follow => {
+                                log::warn!(
+                                    "Master seems unresponsive in follow mode; reconnect teardown will stop execution. Backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                                state.exit.store(true, Ordering::Relaxed);
+                            }
+                            MinionOfflineMode::Independent => {
+                                log::warn!(
+                                    "Master seems unresponsive in independent mode; marking transport unavailable and starting background recovery while execution continues. Backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                            }
+                        }
                         let _ = reconnect_sender.send(());
-                        state.exit.store(true, Ordering::Relaxed);
                         break;
                     }
                 }
@@ -634,10 +742,83 @@ impl SysMinion {
     pub async fn do_stats_update(self: Arc<Self>) -> Result<(), SysinspectError> {
         let this = self.clone();
         let handle = tokio::spawn(async move {
+            let mut last_warn_level: u8 = 0;
+            let mut last_dpq_warn_level: u8 = 0;
             loop {
                 sleep(Duration::from_secs(5)).await;
                 let mut ptc = this.pt_counter.lock().await;
                 ptc.update_stats();
+                drop(ptc);
+
+                let snap = this.backlog_snapshot();
+
+                // Periodically inspect backlog growth so operators see it
+                // before the journal budget forces eviction.
+                let max_bytes = this.cfg.journal_max_bytes();
+                if max_bytes > 0 {
+                    let ratio = if snap.journal_bytes >= max_bytes { 1.0 } else { snap.journal_bytes as f64 / max_bytes as f64 };
+
+                    let warn_level = if ratio >= 1.0 {
+                        3
+                    } else if ratio >= 0.9 {
+                        2
+                    } else if ratio >= 0.75 {
+                        1
+                    } else {
+                        0
+                    };
+
+                    if warn_level != last_warn_level {
+                        match warn_level {
+                            0 => {}
+                            1 => log::warn!(
+                                "Journal backlog at {:.0}% of budget ({} / {}); delivery is degraded. {}",
+                                ratio * 100.0,
+                                snap.journal_bytes,
+                                max_bytes,
+                                snap.format()
+                            ),
+                            2 => log::warn!(
+                                "Journal backlog at {:.0}% of budget ({} / {}); eviction is imminent. {}",
+                                ratio * 100.0,
+                                snap.journal_bytes,
+                                max_bytes,
+                                snap.format()
+                            ),
+                            _ => log::error!(
+                                "Journal backlog has exceeded budget ({} > {}); oldest cycle may be evicted. {}",
+                                snap.journal_bytes,
+                                max_bytes,
+                                snap.format()
+                            ),
+                        }
+                        last_warn_level = warn_level;
+                    }
+                }
+
+                let dpq_total = snap.dpq_pending + snap.dpq_inflight;
+                let dpq_warn_level = if dpq_total >= 100 {
+                    3
+                } else if dpq_total >= 25 {
+                    2
+                } else if dpq_total > 0 {
+                    1
+                } else {
+                    0
+                };
+
+                if dpq_warn_level != last_dpq_warn_level {
+                    match dpq_warn_level {
+                        0 => {}
+                        1 => log::warn!("DPQ backlog is non-empty while transport is degraded; {}", snap.format()),
+                        2 => log::warn!("DPQ backlog has grown materially while transport is degraded; {}", snap.format()),
+                        _ => log::error!(
+                            "DPQ backlog is large while transport is degraded; local work is outrunning delivery recovery. {}",
+                            snap.format()
+                        ),
+                    }
+                    last_dpq_warn_level = dpq_warn_level;
+                }
             }
         });
 
@@ -653,7 +834,20 @@ impl SysMinion {
                 let msg = match this.read_frame().await {
                     Ok(msg) => msg,
                     Err(err) => {
-                        log::warn!("Proto read failed: {err}; triggering reconnect; backlog: {}", this.backlog_snapshot().format());
+                        match this.cfg.offline() {
+                            MinionOfflineMode::Follow => {
+                                log::warn!(
+                                    "Proto read failed in follow mode: {err}; reconnect teardown will stop execution; backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                            }
+                            MinionOfflineMode::Independent => {
+                                log::warn!(
+                                    "Proto read failed in independent mode: {err}; marking transport unavailable and starting background recovery while execution continues; backlog: {}",
+                                    this.backlog_snapshot().format()
+                                );
+                            }
+                        }
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -663,7 +857,18 @@ impl SysMinion {
                     Ok(Some(msg)) => msg,
                     Ok(None) => msg,
                     Err(err) => {
-                        log::error!("Failed to decode secure frame from master: {err}");
+                        match this.cfg.offline() {
+                            MinionOfflineMode::Follow => {
+                                log::error!(
+                                    "Failed to decode secure frame from master in follow mode: {err}; reconnect teardown will stop execution"
+                                );
+                            }
+                            MinionOfflineMode::Independent => {
+                                log::error!(
+                                    "Failed to decode secure frame from master in independent mode: {err}; marking transport unavailable and starting background recovery while execution continues"
+                                );
+                            }
+                        }
                         let _ = CONNECTION_TX.send(());
                         break;
                     }
@@ -877,12 +1082,20 @@ impl SysMinion {
                                     "cpu": cpu_usage,
                                 });
 
-                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl))).await;
+                                this.request(
+                                    proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeGeneral, Some(pl)),
+                                    OutboundMessageClass::SessionControl,
+                                )
+                                .await;
                             }
 
                             Ok(ProtoValue::PingTypeDiscovery) => {
                                 log::debug!("Received discovery ping from master");
-                                this.request(proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None)).await;
+                                this.request(
+                                    proto::msg::get_pong(this.get_minion_id(), ProtoValue::PingTypeDiscovery, None),
+                                    OutboundMessageClass::SessionControl,
+                                )
+                                .await;
                             }
 
                             Err(err) => log::warn!("Invalid ping payload `{}`: {}", p, err),
@@ -920,11 +1133,14 @@ impl SysMinion {
         let fresh_traits = minion_traits(&self.cfg, false);
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
-        self.request(r.sendable().map_err(|e| {
-            log::error!("Error preparing traits message: {e}");
-            e
-        })?)
-        .await;
+        self.try_request(
+            r.sendable().map_err(|e| {
+                log::error!("Error preparing traits message: {e}");
+                e
+            })?,
+            OutboundMessageClass::SessionControl,
+        )
+        .await?;
         Ok(())
     }
 
@@ -935,7 +1151,7 @@ impl SysMinion {
         r.set_sid(MINION_SID.to_string());
 
         log::info!("Ehlo on {}", self.cfg.master());
-        self.request(r.sendable()?).await;
+        self.try_request(r.sendable()?, OutboundMessageClass::SessionControl).await?;
         Ok(())
     }
 
@@ -944,7 +1160,7 @@ impl SysMinion {
         let r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Add, json!(pbk_pem));
 
         log::info!("Registration request to {}", self.cfg.master());
-        self.request(r.sendable()?).await;
+        self.try_request(r.sendable()?, OutboundMessageClass::SessionControl).await?;
         Ok(())
     }
 
@@ -954,7 +1170,7 @@ impl SysMinion {
         log::debug!("Callback: {ar:#?}");
         let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Event, json!(ar)).sendable()?;
         self.journal.append(ar.cid(), &msg)?;
-        self.request(msg).await;
+        self.request(msg, OutboundMessageClass::DurableData).await;
         Ok(())
     }
 
@@ -963,7 +1179,7 @@ impl SysMinion {
         log::debug!("Sending fin sync callback on {}", ar.aid());
         let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::ModelEvent, json!(ar)).sendable()?;
         self.journal.append(ar.cid(), &msg)?;
-        self.request(msg).await;
+        self.request(msg, OutboundMessageClass::DurableData).await;
         Ok(())
     }
 
@@ -971,7 +1187,7 @@ impl SysMinion {
         log::info!("Sending sensors sync callback for cycle");
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::SensorsSyncRequest, json!({}));
         r.set_sid(MINION_SID.to_string());
-        self.request(r.sendable()?).await;
+        self.try_request(r.sendable()?, OutboundMessageClass::SessionControl).await?;
         Ok(())
     }
 
@@ -981,7 +1197,7 @@ impl SysMinion {
 
         log::info!("Goodbye to {}", self.cfg.master());
         match r.sendable() {
-            Ok(msg) => self.request(msg).await,
+            Ok(msg) => self.request(msg, OutboundMessageClass::SessionControl).await,
             Err(e) => log::error!("Failed to send bye message: {e}"),
         }
     }
@@ -1000,7 +1216,7 @@ impl SysMinion {
                     // restart may replay delivery, but must not re-run the model locally.
                     log::info!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
                 }
-                self.request(msg).await
+                self.request(msg, OutboundMessageClass::DurableData).await
             }
             Err(e) => log::error!("Failed to send model ack: {e}"),
         }
@@ -1023,6 +1239,13 @@ impl SysMinion {
         has_model_event && !has_model_ack
     }
 
+    /// Replay durable backlog after session recovery.
+    ///
+    /// Contract:
+    /// - replay is at-least-once; duplicates are expected and handled by master
+    ///   replay identity + dedup
+    /// - replay repairs delivery only; it must not imply local re-execution
+    /// - completed cycles are still freed only by master `CycleAck`
     async fn replay_pending(self: Arc<Self>) {
         match self.journal.pending() {
             Ok(cycles) => {
@@ -1031,7 +1254,7 @@ impl SysMinion {
                 let mut total_entries = 0usize;
                 for (cycle_id, entries) in &cycles {
                     for (_seq, payload) in entries {
-                        if self.try_request(payload.clone()).await.is_ok() {
+                        if self.try_request(payload.clone(), OutboundMessageClass::DurableData).await.is_ok() {
                             total_entries += 1;
                         }
                     }
@@ -1503,17 +1726,53 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
         tokio::select! {
             sig = reconnect_rx.recv() => {
-                match sig {
-                    Ok(_) => state.exit.store(true, Ordering::Relaxed),
+                let exit = match &sig {
+                    Ok(_) => {
+                        match cfg.offline() {
+                            MinionOfflineMode::Independent => {
+                                log::warn!("Transport lost in independent mode; starting background recovery");
+                                if !cfg.reconnect() {
+                                    log::warn!("Reconnect is disabled; leaving transport offline while local execution continues.");
+                                    false
+                                } else {
+                                    let mut attempts = 0u32;
+                                    loop {
+                                        attempts += 1;
+                                        if cfg.reconnect_freq() > 0 && attempts > cfg.reconnect_freq() {
+                                            log::error!(
+                                                "Transport recovery exceeded {} attempt(s); leaving transport offline while local execution continues.",
+                                                cfg.reconnect_freq()
+                                            );
+                                            break false;
+                                        }
+
+                                    match minion.as_ptr().reconnect_transport().await {
+                                        Ok(()) => {
+                                            reconnect_rx = CONNECTION_TX.subscribe();
+                                            break false;
+                                        }
+                                        Err(err) => {
+                                            let interval = cfg.reconnect_interval();
+                                            log::error!("Transport recovery failed: {err}; retrying in {interval} seconds...");
+                                            sleep(Duration::from_secs(interval)).await;
+                                        }
+                                    }
+                                }
+                                }
+                            }
+                            MinionOfflineMode::Follow => true,
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         log::warn!("Missed {n} reconnect notification(s) in main loop; exiting minion instance.");
-                        state.exit.store(true, Ordering::Relaxed);
+                        true
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         log::warn!("Reconnect channel closed in main loop; exiting minion instance.");
-                        state.exit.store(true, Ordering::Relaxed);
+                        true
                     }
-                }
+                };
+                state.exit.store(exit, Ordering::Relaxed);
             }
             _ = sleep(tokio::time::Duration::from_millis(200)) => {}
         }

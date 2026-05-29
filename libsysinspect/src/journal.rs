@@ -4,6 +4,7 @@
 //! cycle all its entries are freed.  A byte budget caps un-acked data;
 //! the oldest cycle is evicted when the budget is exceeded.
 
+use crate::cfg::mmconf::OfflineBacklogPolicy;
 use libcommon::SysinspectError;
 use sled::{Db, Tree};
 use std::{path::Path, sync::Arc};
@@ -29,10 +30,15 @@ pub struct Journal {
     // is allowed to finish delivery until master `CycleAck` clears the cycle.
     completed: Tree, // key = cycle_id, val = "" (local execution finished, delivery may still be pending)
     max_bytes: u64,
+    backlog_policy: OfflineBacklogPolicy,
 }
 
 impl Journal {
     pub fn open<P: AsRef<Path>>(path: P, max_bytes: u64) -> Result<Self, SysinspectError> {
+        Self::open_with_policy(path, max_bytes, OfflineBacklogPolicy::Evict)
+    }
+
+    pub fn open_with_policy<P: AsRef<Path>>(path: P, max_bytes: u64, backlog_policy: OfflineBacklogPolicy) -> Result<Self, SysinspectError> {
         let config = sled::Config::new().flush_every_ms(Some(0)).path(&path);
         let db = Arc::new(config.open()?);
         Ok(Self {
@@ -42,6 +48,7 @@ impl Journal {
             completed: db.open_tree("completed")?,
             db,
             max_bytes,
+            backlog_policy,
         })
     }
 
@@ -100,8 +107,17 @@ impl Journal {
             let Some(oldest) = self.oldest_unacked_cycle() else {
                 break;
             };
-            log::warn!("Journal exceeded byte budget ({} > {}); evicting oldest unacked cycle {}", self._total_bytes(), self.max_bytes, oldest);
-            self.ack_cycle_inner(&oldest);
+            match self.backlog_policy {
+                OfflineBacklogPolicy::Evict => {
+                    log::warn!(
+                        "Journal exceeded byte budget ({} > {}); backlog policy=evict so oldest unacked cycle {} will be dropped",
+                        self._total_bytes(),
+                        self.max_bytes,
+                        oldest
+                    );
+                    self.ack_cycle_inner(&oldest);
+                }
+            }
         }
     }
 

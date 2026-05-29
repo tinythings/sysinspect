@@ -6,7 +6,7 @@ mod tests {
     use libcommon::SysinspectError;
     use libdpq::DiskPersistentQueue;
     use libsysinspect::{
-        cfg::mmconf::{CFG_MASTER_KEY_PUB, MinionConfig},
+        cfg::mmconf::{CFG_MASTER_KEY_PUB, MinionConfig, MinionOfflineMode},
         rsa::keys::{RsaKey::Public, key_to_file, keygen},
         transport::{
             TransportKeyExchangeModel, TransportKeyStatus, TransportPeerState, TransportProvisioningMode, TransportRotationStatus, TransportStore,
@@ -14,12 +14,15 @@ mod tests {
             secure_channel::{SecureChannel, SecurePeerRole},
         },
     };
+    use libsysproto::rqtypes::OutboundMessageClass;
     use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
+    use libsysproto::{MinionMessage, ProtoConversion, rqtypes::RequestType};
     use once_cell::sync::Lazy;
-    use rsa::RsaPublicKey;
+    use rsa::{RsaPrivateKey, RsaPublicKey};
     use std::io::ErrorKind;
     use std::sync::Arc;
-    use tokio::net::TcpListener;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::Mutex;
     use tokio::sync::oneshot;
     use tokio::time::{Duration, timeout};
@@ -142,6 +145,56 @@ mod tests {
         TransportStore::for_minion(cfg).unwrap().save(&secure_state(&master_pbk, &minion_pbk)).unwrap();
     }
 
+    fn seed_managed_transport_with_master(cfg: &MinionConfig, root: &std::path::Path) -> RsaPrivateKey {
+        let (master_prk, master_pbk) = keygen(2048).unwrap();
+        key_to_file(&Public(master_pbk.clone()), root.to_str().unwrap(), CFG_MASTER_KEY_PUB).unwrap();
+
+        let keyman = MinionRSAKeyManager::new(root.to_path_buf()).unwrap();
+        let minion_pbk = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem())).unwrap().1.unwrap();
+
+        TransportStore::for_minion(cfg).unwrap().save(&secure_state(&master_pbk, &minion_pbk)).unwrap();
+        master_prk
+    }
+
+    async fn read_frame(sock: &mut TcpStream) -> Vec<u8> {
+        let mut lenb = [0u8; 4];
+        sock.read_exact(&mut lenb).await.unwrap();
+        let mut msg = vec![0u8; u32::from_be_bytes(lenb) as usize];
+        sock.read_exact(&mut msg).await.unwrap();
+        msg
+    }
+
+    async fn write_frame(sock: &mut TcpStream, payload: &[u8]) {
+        sock.write_all(&(payload.len() as u32).to_be_bytes()).await.unwrap();
+        sock.write_all(payload).await.unwrap();
+        sock.flush().await.unwrap();
+    }
+
+    async fn accept_secure_minion(sock: &mut TcpStream, cfg: &MinionConfig, root: &std::path::Path, master_prk: &RsaPrivateKey) -> SecureChannel {
+        let hello_raw = read_frame(sock).await;
+        let hello = serde_json::from_slice::<SecureFrame>(&hello_raw).unwrap();
+        let keyman = MinionRSAKeyManager::new(root.to_path_buf()).unwrap();
+        let minion_pbk = libsysinspect::rsa::keys::from_pem(None, Some(&keyman.get_pubkey_pem())).unwrap().1.unwrap();
+        let state = TransportStore::for_minion(cfg).unwrap().load().unwrap().unwrap();
+        let accepted = SecureBootstrapSession::accept(
+            &state,
+            match &hello {
+                SecureFrame::BootstrapHello(hello) => hello,
+                _ => panic!("expected bootstrap hello"),
+            },
+            master_prk,
+            &minion_pbk,
+            Some("sid-test".to_string()),
+            Some("kid-1".to_string()),
+            None,
+        )
+        .unwrap();
+
+        let ack = serde_json::to_vec(&accepted.1).unwrap();
+        write_frame(sock, &ack).await;
+        SecureChannel::new(SecurePeerRole::Master, &accepted.0).unwrap()
+    }
+
     #[tokio::test]
     async fn reconnect_signal_exits_instance_cleanly() {
         let _guard = TEST_LOCK.lock().await;
@@ -203,7 +256,7 @@ mod tests {
         seed_managed_transport(&cfg, tmp.path());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
-        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        let minion = SysMinion::new(cfg.clone(), None, dpq).await.unwrap();
 
         let mut rx = CONNECTION_TX.subscribe();
         minion.as_ptr().do_proto().await.unwrap();
@@ -323,10 +376,10 @@ mod tests {
         cfg.set_root_dir(tmp.path().to_str().unwrap());
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
-        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        let minion = SysMinion::new(cfg.clone(), None, dpq).await.unwrap();
 
         let payload = b"abc123".to_vec();
-        minion.request(payload.clone()).await;
+        minion.request(payload.clone(), OutboundMessageClass::SessionControl).await;
 
         let (n, msg) = server.await.unwrap();
         assert_eq!(n, payload.len());
@@ -361,7 +414,7 @@ mod tests {
         let (mut master_channel, minion_channel) = secure_channels(tmp.path());
         minion.set_secure_channel(minion_channel).await;
 
-        minion.request(br#"{"r":"ping"}"#.to_vec()).await;
+        minion.request(br#"{"r":"ping"}"#.to_vec(), OutboundMessageClass::SessionControl).await;
 
         assert_eq!(master_channel.open_bytes(&server.await.unwrap()).unwrap(), br#"{"r":"ping"}"#.to_vec());
     }
@@ -707,7 +760,7 @@ mod tests {
         let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
 
         // Should not panic
-        minion.request(b"abc".to_vec()).await;
+        minion.request(b"abc".to_vec(), OutboundMessageClass::SessionControl).await;
     }
 
     #[tokio::test]
@@ -772,5 +825,364 @@ mod tests {
         let _ = shutdown_tx.send(());
 
         assert!(timeout(Duration::from_secs(2), handle).await.is_ok(), "instance did not exit under reconnect storm");
+    }
+
+    // ── Phase 8: independent mode behaviour proofs ───────────────────────
+
+    #[tokio::test]
+    async fn durable_send_failure_does_not_signal_reconnect_in_independent_mode() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::time::timeout;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        // default is Independent
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        minion.clear_streams().await; // force immediate write failure
+
+        let mut rx = CONNECTION_TX.subscribe();
+        let _ = minion.try_request(b"durable payload".to_vec(), OutboundMessageClass::DurableData).await;
+        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_err(), "durable send failure must not trigger reconnect in independent mode");
+    }
+
+    #[tokio::test]
+    async fn durable_send_failure_signals_reconnect_in_follow_mode() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::time::timeout;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        cfg.set_offline(MinionOfflineMode::Follow);
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        minion.clear_streams().await; // force immediate write failure
+
+        let mut rx = CONNECTION_TX.subscribe();
+        let _ = minion.try_request(b"durable payload".to_vec(), OutboundMessageClass::DurableData).await;
+        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_ok(), "durable send failure must trigger reconnect in follow mode");
+    }
+
+    #[tokio::test]
+    async fn session_control_send_failure_always_signals_reconnect() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::time::timeout;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        // Independent mode
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        minion.clear_streams().await; // force immediate write failure
+
+        let mut rx = CONNECTION_TX.subscribe();
+        let _ = minion.try_request(b"session ctl".to_vec(), OutboundMessageClass::SessionControl).await;
+        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_ok(), "session control delivery failure must always trigger reconnect");
+    }
+
+    #[tokio::test]
+    async fn ping_watchdog_does_not_stop_execution_in_independent_mode() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::time::timeout;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        // default is Independent
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
+        minion.set_ping_timeout(Duration::from_millis(300));
+
+        let minion = Arc::new(minion);
+        let state = Arc::new(ExitState::new());
+        let mut rx = CONNECTION_TX.subscribe(); // subscribe BEFORE starting watchdog
+        minion.as_ptr().do_ping_update(state.clone()).await.unwrap();
+
+        let res = timeout(Duration::from_secs(2), rx.recv()).await;
+        assert!(res.is_ok(), "watchdog must fire reconnect signal in independent mode");
+        assert!(!state.exit.load(std::sync::atomic::Ordering::Relaxed), "watchdog must not stop execution in independent mode");
+    }
+
+    #[tokio::test]
+    async fn ping_watchdog_stops_execution_in_follow_mode() {
+        let _guard = TEST_LOCK.lock().await;
+        use tokio::time::timeout;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        cfg.set_offline(MinionOfflineMode::Follow);
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
+        minion.set_ping_timeout(Duration::from_millis(300));
+
+        let minion = Arc::new(minion);
+        let state = Arc::new(ExitState::new());
+        minion.as_ptr().do_ping_update(state.clone()).await.unwrap();
+
+        let res = timeout(Duration::from_secs(2), async {
+            while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(res.is_ok(), "watchdog must stop execution in follow mode");
+        assert!(state.exit.load(std::sync::atomic::Ordering::Relaxed), "exit flag must be set in follow mode");
+    }
+
+    #[tokio::test]
+    async fn journal_preserves_entries_across_failed_transport_recovery() {
+        let _guard = TEST_LOCK.lock().await;
+
+        let tmp = tempfile::tempdir().unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        seed_managed_transport(&cfg, tmp.path());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+
+        // Write a journaled event
+        let test_msg =
+            MinionMessage::new("test-minion".to_string(), RequestType::Event, serde_json::json!({"eid":"e1","aid":"a1","sid":"s1","cid":"c1"}))
+                .sendable()
+                .unwrap();
+        minion.journal.append("c1", &test_msg).unwrap();
+        assert_eq!(minion.journal.stats().unwrap().pending_entries, 1);
+
+        // Drop the listener and start a fresh one that sends a diagnostic (not a real ack).
+        drop(listener);
+        let listener2 = TcpListener::bind(addr).await.unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener2.accept().await.unwrap();
+            let mut lenb = [0u8; 4];
+            tokio::io::AsyncReadExt::read_exact(&mut sock, &mut lenb).await.unwrap();
+            let mut hello = vec![0u8; u32::from_be_bytes(lenb) as usize];
+            tokio::io::AsyncReadExt::read_exact(&mut sock, &mut hello).await.unwrap();
+
+            let diag = serde_json::to_vec(&SecureFrame::BootstrapDiagnostic(libsysproto::secure::SecureBootstrapDiagnostic {
+                code: libsysproto::secure::SecureDiagnosticCode::UnsupportedVersion,
+                message: "test recovery".to_string(),
+                failure: libsysproto::secure::SecureFailureSemantics { retryable: true, disconnect: true, rate_limit: false },
+            }))
+            .unwrap();
+            tokio::io::AsyncWriteExt::write_all(&mut sock, &(diag.len() as u32).to_be_bytes()).await.unwrap();
+            tokio::io::AsyncWriteExt::write_all(&mut sock, &diag).await.unwrap();
+            tokio::io::AsyncWriteExt::flush(&mut sock).await.unwrap();
+        });
+
+        let result = minion.reconnect_transport().await;
+        assert!(result.is_err());
+
+        // Journal data survived the failed recovery
+        assert_eq!(minion.journal.stats().unwrap().pending_entries, 1);
+    }
+
+    #[tokio::test]
+    async fn proto_transport_loss_keeps_independent_instance_alive() {
+        let _guard = TEST_LOCK.lock().await;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = mk_cfg(format!("{addr}"), "127.0.0.1:1".to_string(), tmp.path());
+        let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
+
+        let server = tokio::spawn({
+            let root = tmp.path().to_path_buf();
+            let cfg = cfg.clone();
+            async move {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut master_channel = accept_secure_minion(&mut sock, &cfg, &root, &master_prk).await;
+                let ehlo = master_channel.open_bytes(&read_frame(&mut sock).await).unwrap();
+                let _: MinionMessage = serde_json::from_slice(&ehlo).unwrap();
+                drop(sock);
+            }
+        });
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let handle = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(!handle.is_finished(), "independent instance should stay alive after proto transport loss");
+
+        handle.abort();
+        let _ = handle.await;
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn proto_transport_loss_stops_follow_instance() {
+        let _guard = TEST_LOCK.lock().await;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = mk_cfg(format!("{addr}"), "127.0.0.1:1".to_string(), tmp.path());
+        cfg.set_offline(MinionOfflineMode::Follow);
+        let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
+
+        let server = tokio::spawn({
+            let root = tmp.path().to_path_buf();
+            let cfg = cfg.clone();
+            async move {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut master_channel = accept_secure_minion(&mut sock, &cfg, &root, &master_prk).await;
+                let ehlo = master_channel.open_bytes(&read_frame(&mut sock).await).unwrap();
+                let _: MinionMessage = serde_json::from_slice(&ehlo).unwrap();
+                drop(sock);
+            }
+        });
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let handle = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
+
+        let res = timeout(Duration::from_secs(5), handle).await;
+        assert!(res.is_ok(), "follow instance should exit after proto transport loss");
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn reconnect_replays_journal_and_cycle_ack_clears_backlog() {
+        let _guard = TEST_LOCK.lock().await;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg.clone(), None, dpq).await.unwrap();
+
+        let event = MinionMessage::new(
+            "test-minion".to_string(),
+            RequestType::Event,
+            serde_json::json!({"eid":"e1","aid":"a1","sid":"s1","cid":"c1","timestamp":"t1","response":{"retcode":1,"warning":null,"message":"ok","data":{}},"constraints":{},"telemetry":{}}),
+        )
+        .sendable()
+        .unwrap();
+        minion.journal.append("c1", &event).unwrap();
+        assert_eq!(minion.journal.stats().unwrap().pending_entries, 1);
+
+        let server = tokio::spawn({
+            let root = tmp.path().to_path_buf();
+            let cfg = cfg.clone();
+            async move {
+                let (sock1, _) = listener.accept().await.unwrap();
+                drop(sock1);
+
+                let (mut sock2, _) = listener.accept().await.unwrap();
+                let mut master_channel = accept_secure_minion(&mut sock2, &cfg, &root, &master_prk).await;
+                let mut saw_traits = false;
+                let saw_event = loop {
+                    let raw = read_frame(&mut sock2).await;
+                    let opened = master_channel.open_bytes(&raw).unwrap();
+                    let msg: MinionMessage = serde_json::from_slice(&opened).unwrap();
+
+                    match msg.req_type() {
+                        RequestType::Ehlo => {
+                            let mut traits = libsysproto::MasterMessage::new(RequestType::Traits, serde_json::json!(msg.sid()));
+                            traits.set_target(libsysproto::MinionTarget::new(msg.id(), msg.sid()));
+                            traits.set_retcode(libsysproto::errcodes::ProtoErrorCode::Success);
+                            let sealed = master_channel.seal_bytes(&traits.sendable().unwrap()).unwrap();
+                            write_frame(&mut sock2, &sealed).await;
+                        }
+                        RequestType::Traits => {
+                            saw_traits = true;
+                        }
+                        RequestType::Event => {
+                            let ack = libsysproto::MasterMessage::new(RequestType::CycleAck, serde_json::json!({"cycle_id":"c1"}));
+                            let sealed = master_channel.seal_bytes(&ack.sendable().unwrap()).unwrap();
+                            write_frame(&mut sock2, &sealed).await;
+                            break true;
+                        }
+                        RequestType::SensorsSyncRequest => {}
+                        other => panic!("unexpected minion message during recovery test: {other:?}"),
+                    }
+                };
+
+                assert!(saw_traits, "reconnect recovery must re-establish Traits session before replay");
+                assert!(saw_event, "reconnect recovery must replay durable journaled event");
+            }
+        });
+
+        minion.reconnect_transport().await.unwrap();
+
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if minion.journal.stats().unwrap().pending_entries == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("cycle ack never cleared replayed backlog");
+
+        server.await.unwrap();
     }
 }

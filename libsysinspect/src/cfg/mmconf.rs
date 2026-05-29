@@ -392,6 +392,31 @@ impl MinionPerformanceProfile {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MinionOfflineMode {
+    /// Minion keeps executing local work when the master is unreachable.
+    /// Result traffic is journaled and delivered later. This is the default.
+    #[default]
+    Independent,
+    /// Master visibility remains coupled to execution: loss of the master
+    /// may pause or stop normal work while the minion focuses on reconnection.
+    /// Intended for tightly controlled environments that require backwards
+    /// compatible behaviour.
+    Follow,
+}
+
+/// Controls what happens when the outgoing journal budget is exceeded
+/// during prolonged master absence.
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OfflineBacklogPolicy {
+    /// Evict the oldest un-acknowledged cycle when the budget is exceeded.
+    /// A warning is logged so operators can monitor for data loss.
+    #[default]
+    Evict,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MinionConfig {
     /// Root directory where minion keeps all data.
@@ -455,6 +480,17 @@ pub struct MinionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     master_fileserver_port: Option<u32>,
 
+    /// Offline mode determines whether the minion continues local execution
+    /// when the master is unreachable.
+    ///
+    /// - `independent`: execution keeps running, results are journaled and
+    ///   flushed later.  Transport recovery happens in the background.
+    /// - `follow`: execution is coupled to master visibility.
+    ///   Loss of the master may pause or stop normal work.
+    #[serde(rename = "offline")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline: Option<MinionOfflineMode>,
+
     /// Reconnect policies to the master
     /// Values are:
     /// - "true" (default)
@@ -490,6 +526,14 @@ pub struct MinionConfig {
     #[serde(rename = "journal.path")]
     #[serde(skip_serializing_if = "Option::is_none")]
     journal_path: Option<String>,
+
+    /// Backlog eviction policy when the outgoing journal exceeds its budget
+    /// during prolonged master absence.
+    ///
+    /// - `evict`: drop the oldest un-acknowledged cycle (default, matches pre-existing behaviour).
+    #[serde(rename = "offline.backlog.policy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline_backlog_policy: Option<OfflineBacklogPolicy>,
 
     // Standard log for daemon mode
     #[serde(rename = "log.stream")]
@@ -806,6 +850,19 @@ impl MinionConfig {
         self.master_reconnect_interval = Some(interval.to_string());
     }
 
+    /// Return the configured offline mode.
+    ///
+    /// Defaults to `Independent` so the minion survives master absence
+    /// out of the box.  Set to `Follow` for backwards-compatible behaviour.
+    pub fn offline(&self) -> MinionOfflineMode {
+        self.offline.clone().unwrap_or_default()
+    }
+
+    /// Set offline mode (exposed for tests and programmatic construction).
+    pub fn set_offline(&mut self, mode: MinionOfflineMode) {
+        self.offline = Some(mode);
+    }
+
     /// Reconnect policy
     pub fn reconnect(&self) -> bool {
         self.master_reconnect.unwrap_or(CFG_RECONNECT_DEFAULT)
@@ -849,6 +906,19 @@ impl MinionConfig {
 
     pub fn set_journal_path(&mut self, path: &str) {
         self.journal_path = Some(path.to_string());
+    }
+
+    /// Offline backlog eviction policy.
+    ///
+    /// Defaults to `Evict` — the oldest un-acked cycle is dropped when the
+    /// journal exceeds its byte budget.
+    pub fn backlog_policy(&self) -> OfflineBacklogPolicy {
+        self.offline_backlog_policy.clone().unwrap_or_default()
+    }
+
+    /// Set offline backlog policy (exposed for tests).
+    pub fn set_backlog_policy(&mut self, policy: OfflineBacklogPolicy) {
+        self.offline_backlog_policy = Some(policy);
     }
 
     /// Get temp path
