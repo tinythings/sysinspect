@@ -381,8 +381,15 @@ impl SysMinion {
         Ok(())
     }
 
-    /// Decide whether a failed outbound delivery should trigger a reconnect
-    /// teardown based on the configured offline mode and message class.
+    /// Reliability contract for outbound delivery failure:
+    ///
+    /// - `follow`: any delivery failure is treated as execution-affecting and
+    ///   tears the instance down through reconnect.
+    /// - `independent` + `SessionControl`: reconnect the transport/session path,
+    ///   because the control plane is broken.
+    /// - `independent` + `DurableData`: do not stop execution. The payload is
+    ///   already durable or replayable, so delivery failure degrades transport
+    ///   state but must not collapse local work.
     fn maybe_signal_delivery_failure(&self, class: OutboundMessageClass) {
         match (self.cfg.offline(), class) {
             (MinionOfflineMode::Follow, _) => {
@@ -437,9 +444,15 @@ impl SysMinion {
         *self.wstm.lock().await = None;
     }
 
-    /// Re-establish the full transport stack: TCP connect, secure bootstrap,
-    /// and journal replay.  Used in `independent` mode to recover transport
-    /// without tearing down the execution runtime.
+    /// Re-establish the full transport stack in `independent` mode without
+    /// destroying the execution runtime.
+    ///
+    /// Contract:
+    /// - this path only repairs transport/session state
+    /// - journal replay is NOT fired here blindly
+    /// - replay is deferred until the master resumes logical session flow by
+    ///   requesting fresh `Traits`
+    /// - therefore local execution and durable-delivery recovery stay decoupled
     pub(crate) async fn reconnect_transport(self: &Arc<Self>) -> Result<(), SysinspectError> {
         log::info!("Re-establishing transport to master {}...", self.cfg.master());
 
@@ -1226,6 +1239,13 @@ impl SysMinion {
         has_model_event && !has_model_ack
     }
 
+    /// Replay durable backlog after session recovery.
+    ///
+    /// Contract:
+    /// - replay is at-least-once; duplicates are expected and handled by master
+    ///   replay identity + dedup
+    /// - replay repairs delivery only; it must not imply local re-execution
+    /// - completed cycles are still freed only by master `CycleAck`
     async fn replay_pending(self: Arc<Self>) {
         match self.journal.pending() {
             Ok(cycles) => {
