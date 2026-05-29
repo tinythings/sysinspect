@@ -824,16 +824,16 @@ and contains the following directives:
 
     Accepted values:
 
-    - ``follow`` — execution stays coupled to master visibility. Loss of the
-      master may pause or stop normal work while the Minion focuses on
-      reconnection. This matches the pre-existing reconnect-driven behaviour
-      and is the **default**.
-
     - ``independent`` — the Minion keeps running local work even when the
       master is gone. Result traffic (events, model results and acknowledgements)
       is journaled to disk and flushed later when the link returns. Transport
       recovery happens in the background without destroying the local execution
-      runtime.
+      runtime. This is the **default**.
+
+    - ``follow`` — execution stays coupled to master visibility. Loss of the
+      master may pause or stop normal work while the Minion focuses on
+      reconnection. Intended for tightly controlled environments that require
+      backwards-compatible behaviour.
 
     Summary of the two modes:
 
@@ -864,7 +864,7 @@ and contains the following directives:
         master is unreachable. Monitor ``journal.size`` and the journal
         eviction warnings to avoid data loss during prolonged outages.
 
-    Default is ``follow`` (preserving the pre-existing reconnect-driven behaviour).
+    Default is ``independent``.
 
 ``master.reconnect``
 ####################
@@ -1090,7 +1090,7 @@ Example configuration for the Sysinspect Minion:
             master.port: 4200
 
             # Network-degraded behaviour:
-            # offline: follow|independent (default: follow)
+            # offline: independent|follow (default: independent)
 
             # Outgoing journal (defaults shown):
             # journal.path: /tmp/journal
