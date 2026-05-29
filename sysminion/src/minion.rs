@@ -996,6 +996,8 @@ impl SysMinion {
                 } else if let Err(e) = self.journal.mark_cycle_locally_complete(cycle_id) {
                     log::error!("Failed to mark cycle {} as locally complete: {}", cycle_id, e);
                 } else {
+                    // This is the durable local-completion boundary. After this point a hard
+                    // restart may replay delivery, but must not re-run the model locally.
                     log::info!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
                 }
                 self.request(msg).await
@@ -1033,6 +1035,8 @@ impl SysMinion {
                             total_entries += 1;
                         }
                     }
+                    // Legacy journal entries may predate durable ModelAck journaling. Re-emit a
+                    // fresh ModelAck so master can still drive cycle cleanup with `CycleAck`.
                     if Self::pending_cycle_needs_model_ack(entries) {
                         self.send_model_ack(cycle_id).await;
                     }
@@ -1376,6 +1380,8 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                         if !cmd.cycle().is_empty() {
                             match m.journal.is_cycle_locally_complete(cmd.cycle()) {
                                 Ok(true) => {
+                                    // DPQ recovers unfinished scheduler state after restart. Once a cycle crossed
+                                    // the durable local-completion boundary, execution must not happen again here.
                                     log::info!("Skipping already-completed local cycle {}; replay recovery will finish delivery", cmd.cycle());
                                     return Ok(());
                                 }

@@ -281,9 +281,9 @@ impl DiskPersistentQueue {
     /// Recovery on startup: move all inflight items back to pending, so they can be retried.
     /// This is needed in case the process was killed while processing some jobs, to avoid losing them.
     ///
-    /// Note: this is a simple recovery mechanism that does not guarantee exactly-once processing,
-    ///       but it is sufficient for many use cases. For more advanced scenarios, consider adding
-    ///       timestamps and retry limits to the inflight items.
+    /// Note: this does not guarantee exactly-once execution by itself. Sysminion layers its own
+    ///       durable "local execution completed" marker on top so recovered jobs can be skipped
+    ///       once execution finished locally and only delivery recovery remains.
     ///
     /// Returns an error if the recovery process fails, or Ok(()) if it succeeds.
     ///

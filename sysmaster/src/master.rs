@@ -226,6 +226,9 @@ impl SysMaster {
     }
 
     fn duplicate_replay_blocks_processing(identity: &ReplayIdentity) -> bool {
+        // `Event` and `ModelEvent` duplicates must be suppressed before side effects like
+        // telemetry emission. `ModelAck` is different: even if duplicate, it may need to
+        // trigger a fresh `CycleAck` because the minion can miss the earlier ack.
         !matches!(identity, ReplayIdentity::ModelAck { .. })
     }
 

@@ -21,9 +21,12 @@ pub struct JournalStats {
 #[derive(Clone, Debug)]
 pub struct Journal {
     db: Arc<Db>,
-    pending: Tree,   // key = cycle_id:seq, val = payload
-    seq: Tree,       // key = cycle_id, val = next_seq (u64 BE)
-    acked: Tree,     // key = cycle_id, val = "" (marker, entries already deleted)
+    pending: Tree, // key = cycle_id:seq, val = payload
+    seq: Tree,     // key = cycle_id, val = next_seq (u64 BE)
+    acked: Tree,   // key = cycle_id, val = "" (marker, entries already deleted)
+    // Local execution and network delivery are separated on purpose. Once a cycle is
+    // marked completed here, hard-restart recovery must not re-run it; only journal replay
+    // is allowed to finish delivery until master `CycleAck` clears the cycle.
     completed: Tree, // key = cycle_id, val = "" (local execution finished, delivery may still be pending)
     max_bytes: u64,
 }
