@@ -5,6 +5,7 @@ use crate::{
     cluster::VirtualMinionsCluster,
     dataserv::fls,
     registry::{
+        cmdq::{MasterCommandQueue, MasterCommandQueueStats},
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
         session::{self, SessionKeeper},
@@ -22,7 +23,7 @@ use libeventreg::{
     kvdb::{EventMinion, EventsRegistry},
 };
 use libsysinspect::{
-    cfg::mmconf::{CFG_MODELS_ROOT, MasterConfig},
+    cfg::mmconf::{CFG_MODELS_ROOT, CFG_PENDING_COMMANDS_ROOT, MasterConfig},
     console::ensure_console_keypair,
     context::ProfileConsoleRequest,
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
@@ -132,6 +133,7 @@ pub struct SysMaster {
     mkr: MinionsKeyRegistry,
     mreg: Arc<Mutex<MinionRegistry>>,
     taskreg: Arc<Mutex<TaskRegistry>>,
+    cmdq: Arc<MasterCommandQueue>,
     evtipc: Arc<DbIPCService>,
     to_drop: HashSet<String>,
     session: Arc<Mutex<session::SessionKeeper>>,
@@ -151,6 +153,7 @@ impl SysMaster {
         let mkr = MinionsKeyRegistry::new(cfg.minion_keys_root())?;
         let mreg = Arc::new(Mutex::new(MinionRegistry::new(cfg.minion_registry_root())?));
         let taskreg = Arc::new(Mutex::new(TaskRegistry::new()));
+        let cmdq = Arc::new(MasterCommandQueue::open(cfg.root_dir().join(CFG_PENDING_COMMANDS_ROOT))?);
         let evtreg = Arc::new(Mutex::new(EventsRegistry::new(cfg.telemetry_location(), cfg.history())?));
         let evtipc = Arc::new(DbIPCService::new(Arc::clone(&evtreg), cfg.telemetry_socket().to_str().unwrap_or_default())?);
         let vmcluster = VirtualMinionsCluster::new(cfg.cluster().to_owned(), Arc::clone(&mreg), Arc::clone(&SHARED_SESSION), Arc::clone(&taskreg));
@@ -168,6 +171,7 @@ impl SysMaster {
             to_drop: HashSet::default(),
             session: Arc::clone(&SHARED_SESSION),
             mreg,
+            cmdq,
             evtipc,
             taskreg,
             ptr: None,
@@ -273,6 +277,10 @@ impl SysMaster {
         log::info!("Starting master at {}", self.cfg.bind_addr().bright_yellow());
         ensure_console_keypair(&self.cfg.root_dir())?;
         std::fs::create_dir_all(self.cfg.console_keys_root()).map_err(SysinspectError::IoErr)?;
+        let cmdq = self.command_queue_stats()?;
+        if cmdq.pending_commands > 0 || cmdq.replayed_commands > 0 {
+            log::warn!("Recovered durable master outbound backlog at startup: {}", cmdq.format());
+        }
         self.backfill_cmdb().await?;
         self.vmcluster.init().await?;
         Ok(())
@@ -627,6 +635,11 @@ impl SysMaster {
     /// Get task registry
     pub fn get_task_registry(&self) -> Arc<Mutex<TaskRegistry>> {
         Arc::clone(&self.taskreg)
+    }
+
+    /// Return stats for the durable outbound master-command queue.
+    pub(crate) fn command_queue_stats(&self) -> Result<MasterCommandQueueStats, SysinspectError> {
+        self.cmdq.stats()
     }
 
     /// Clear session and transport state for one disconnected peer address.

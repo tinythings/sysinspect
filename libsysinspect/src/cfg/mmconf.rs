@@ -82,6 +82,7 @@ pub static DEFAULT_MINION_TMP_DB_DIR: &str = "db";
 pub static DEFAULT_MINION_MACHINE_ID: &str = "/etc/machine-id";
 pub static DEFAULT_MINION_MACHINE_ID_REL: &str = "machine-id";
 pub static CFG_PENDING_TASKS_ROOT: &str = "pending-tasks";
+pub static CFG_PENDING_COMMANDS_ROOT: &str = "pending-commands";
 
 pub static DEFAULT_DATASTORE_ROOT: &str = "/var/lib/sysinspect/datastore";
 
