@@ -338,6 +338,9 @@ mod tests {
         cfg.set_master_port(addr.port().into());
         cfg.set_root_dir(tmp.path().to_str().unwrap());
         cfg.set_autosync_startup(false);
+        // This test verifies legacy reconnect-driven instance teardown behavior.
+        // In `independent` mode the instance should stay alive and recover transport in place.
+        cfg.set_offline(MinionOfflineMode::Follow);
         cfg.set_reconnect_freq(0);
         cfg.set_reconnect_interval("1");
         seed_managed_transport(&cfg, tmp.path());
