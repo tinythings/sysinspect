@@ -983,7 +983,7 @@ impl SysMinion {
                         let cycle_id = msg.payload().get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?");
                         match this.journal.ack_cycle(cycle_id) {
                             Ok(n) if n > 0 => {
-                                log::info!(
+                                log::debug!(
                                     "Journal freed {} entries for cycle {}; remaining backlog: {}",
                                     n,
                                     cycle_id,
@@ -1016,12 +1016,14 @@ impl SysMinion {
                                                 let _ = this.inbound_cmds.remove(&this.inbound_command_replay_key(msg.cycle()));
                                                 log::error!("Failed to enqueue master command: {err}");
                                             } else {
-                                                log::info!("Scheduled master command: {}", msg.target().scheme());
+                                                log::debug!("Scheduled master command: {}", msg.target().scheme());
                                             }
                                         }
                                         Ok(InboundCommandClaim::Duplicate(state)) => {
-                                            log::info!("Dropped duplicate inbound master command for cycle {} in state {:?}", msg.cycle(), state);
+                                            log::debug!("Dropped duplicate inbound master command for cycle {} in state {:?}", msg.cycle(), state);
                                             if state == InboundCommandState::Completed {
+                                                // Completed duplicates must re-drive ModelAck so the master can
+                                                // clear any stale outbound backlog after replay or restart.
                                                 this.send_model_ack(msg.cycle()).await;
                                             }
                                         }
@@ -1251,7 +1253,7 @@ impl SysMinion {
                 } else {
                     // This is the durable local-completion boundary. After this point a hard
                     // restart may replay delivery, but must not re-run the model locally.
-                    log::info!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
+                    log::debug!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
                 }
                 if let Err(err) = self.inbound_cmds.set_state(&self.inbound_command_replay_key(cycle_id), InboundCommandState::Completed) {
                     log::error!("Failed to mark inbound command cycle {} as completed: {}", cycle_id, err);

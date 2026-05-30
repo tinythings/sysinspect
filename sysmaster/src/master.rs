@@ -1047,7 +1047,7 @@ impl SysMaster {
                     let label = guard.resolved_peer_label(&minion_id, &c_addr).await;
                     match guard.clear_completed_command_backlog(&minion_id, &cycle_id) {
                         Ok(removed) if removed > 0 => match guard.cmdq.stats() {
-                            Ok(stats) => log::info!(
+                            Ok(stats) => log::debug!(
                                 "Cleared {} durable queued command(s) for {} cycle {}; remaining outbound backlog: {}",
                                 removed,
                                 label,
@@ -1064,11 +1064,14 @@ impl SysMaster {
                         Ok(_) => {}
                         Err(err) => log::error!("Failed to clear durable queued command for {} cycle {}: {}", label, cycle_id, err),
                     }
+                    // Task tracking closes at the same durable boundary as outbound queue
+                    // clearance. `Event` is intermediate progress only; `ModelAck` is the
+                    // first point where the master may safely forget one per-minion command.
                     guard.taskreg.lock().await.deregister(&cycle_id, &minion_id);
                     let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
                     if let Some(tx) = guard.peer_direct_tx.get(&c_addr) {
                         match tx.try_send(OutgoingFrame::DirectMessage(Box::new(ack))) {
-                            Ok(_) => log::info!("Synced journal with minion {} for cycle {}", label, cycle_id),
+                            Ok(_) => log::debug!("Synced journal with minion {} for cycle {}", label, cycle_id),
                             Err(e) => log::warn!("Failed to send journal ack to {}: {}", label, e),
                         }
                     }
@@ -1313,6 +1316,8 @@ impl SysMaster {
 
         let mut replayed = 0usize;
         for entry in queued {
+            // Replay must flow through the same ordered writer queue as normal outbound traffic.
+            // Pre-encoding secure frames out-of-band corrupts per-session frame counters.
             match tx.send(OutgoingFrame::DirectMessage(Box::new(entry.message().clone()))).await {
                 Ok(()) => {
                     let guard = master.lock().await;
