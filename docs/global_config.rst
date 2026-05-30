@@ -879,6 +879,31 @@ and contains the following directives:
       - transport/protocol failure may stop the current minion instance
       - no execution-independence guarantee is made while the Master is absent
 
+    For ordinary model commands, the Master now also keeps a durable outbound
+    backlog per target minion. This is separate from the Minion's result
+    journal.
+
+    ``master -> minion`` durability contract for ordinary model commands:
+
+    - submission is durable before live send
+    - delivery is **at-least-once**
+    - replay occurs after the Master re-establishes the logical session with the
+      Minion and receives fresh ``Traits``
+    - replay identity is per target minion and cycle: ``mcmd|<minion>|<cycle>``
+    - duplicate command delivery is possible during replay, but duplicate local
+      execution is suppressed on the Minion
+    - the Master clears one durable outbound command only after the Minion sends
+      ``ModelAck`` for that cycle
+
+    ``master -> minion`` operational notes:
+
+    - backlog accounting is per targeted minion, not per original broadcast
+      command
+    - if only some Minions reconnect, only their share of the outbound backlog
+      can be drained
+    - internal ``cmd://cluster/*`` commands are not yet covered by this same
+      durable replay contract
+
     Default is ``independent``.
 
 ``master.reconnect``
