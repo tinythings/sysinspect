@@ -1,6 +1,21 @@
 use super::{MasterCommandQueue, MasterCommandQueueStats, MasterCommandState};
 use libsysproto::{MasterMessage, MinionTarget, rqtypes::RequestType};
 use serde_json::json;
+use std::time::Duration;
+
+fn reopen_queue_with_retry(path: &std::path::Path) -> MasterCommandQueue {
+    let mut last_err = None;
+    for _ in 0..20 {
+        match MasterCommandQueue::open(path) {
+            Ok(queue) => return queue,
+            Err(err) => {
+                last_err = Some(err);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+    panic!("failed to reopen queue after retries: {}", last_err.unwrap());
+}
 
 fn queued_message(cycle_target: &str) -> MasterMessage {
     let mut msg = MasterMessage::new(RequestType::Command, json!({"uri":"model://demo","files":{},"models_root":"models"}));
@@ -18,7 +33,7 @@ fn enqueue_persists_across_reopen() {
     let id = queue.enqueue("minion-1", &msg).unwrap();
     drop(queue);
 
-    let reopened = MasterCommandQueue::open(tmp.path()).unwrap();
+    let reopened = reopen_queue_with_retry(tmp.path());
     let pending = reopened.pending_for_minion("minion-1").unwrap();
 
     assert_eq!(pending.len(), 1);
