@@ -1,5 +1,5 @@
 use crate::{
-    MinionMessage,
+    MasterMessage, MinionMessage,
     rqtypes::{ProtoKey, RequestType},
 };
 use libcommon::SysinspectError;
@@ -8,9 +8,11 @@ use serde::Deserialize;
 const REPLAY_KIND_EVENT: &str = "evt";
 const REPLAY_KIND_MODEL_EVENT: &str = "mvt";
 const REPLAY_KIND_MODEL_ACK: &str = "mack";
+const REPLAY_KIND_MASTER_COMMAND: &str = "mcmd";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReplayIdentity {
+    MasterCommand { minion_id: String, cycle_id: String },
     Event { minion_id: String, cycle_id: String, entity_id: String, session_id: String, action_id: String },
     ModelEvent { minion_id: String, cycle_id: String },
     ModelAck { minion_id: String, cycle_id: String },
@@ -36,6 +38,7 @@ struct ReplayModelAckPayload {
 impl ReplayIdentity {
     pub fn key(&self) -> String {
         match self {
+            Self::MasterCommand { minion_id, cycle_id } => format!("{REPLAY_KIND_MASTER_COMMAND}|{minion_id}|{cycle_id}"),
             Self::Event { minion_id, cycle_id, entity_id, session_id, action_id } => {
                 format!("{REPLAY_KIND_EVENT}|{minion_id}|{cycle_id}|{entity_id}|{session_id}|{action_id}")
             }
@@ -43,6 +46,14 @@ impl ReplayIdentity {
             Self::ModelAck { minion_id, cycle_id } => format!("{REPLAY_KIND_MODEL_ACK}|{minion_id}|{cycle_id}"),
         }
     }
+}
+
+pub fn replay_identity_for_master_command(minion_id: &str, msg: &MasterMessage) -> ReplayIdentity {
+    replay_identity_for_master_command_cycle(minion_id, msg.cycle())
+}
+
+pub fn replay_identity_for_master_command_cycle(minion_id: &str, cycle_id: &str) -> ReplayIdentity {
+    ReplayIdentity::MasterCommand { minion_id: minion_id.to_string(), cycle_id: cycle_id.to_string() }
 }
 
 pub fn replay_identity_from_minion_message(msg: &MinionMessage) -> Result<Option<ReplayIdentity>, SysinspectError> {

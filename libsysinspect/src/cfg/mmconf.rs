@@ -83,6 +83,7 @@ pub static DEFAULT_MINION_MACHINE_ID: &str = "/etc/machine-id";
 pub static DEFAULT_MINION_MACHINE_ID_REL: &str = "machine-id";
 pub static CFG_PENDING_TASKS_ROOT: &str = "pending-tasks";
 pub static CFG_PENDING_COMMANDS_ROOT: &str = "pending-commands";
+pub static CFG_INBOUND_COMMANDS_ROOT: &str = "inbound-commands";
 
 pub static DEFAULT_DATASTORE_ROOT: &str = "/var/lib/sysinspect/datastore";
 
@@ -748,6 +749,11 @@ impl MinionConfig {
     /// Root directory for persisted pending tasks.
     pub fn pending_tasks_dir(&self) -> PathBuf {
         self.root_dir().join(CFG_PENDING_TASKS_ROOT)
+    }
+
+    /// Root directory for persisted inbound command dedup/acceptance state.
+    pub fn inbound_commands_dir(&self) -> PathBuf {
+        self.managed_db_dir().join(CFG_INBOUND_COMMANDS_ROOT)
     }
 
     /// Root for managed secure transport metadata on the minion.

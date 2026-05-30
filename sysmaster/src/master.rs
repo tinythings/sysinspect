@@ -5,7 +5,7 @@ use crate::{
     cluster::VirtualMinionsCluster,
     dataserv::fls,
     registry::{
-        cmdq::{MasterCommandQueue, MasterCommandQueueStats},
+        cmdq::{MasterCommandQueue, MasterCommandQueueStats, MasterCommandState},
         mkb::MinionsKeyRegistry,
         mreg::MinionRegistry,
         session::{self, SessionKeeper},
@@ -43,7 +43,7 @@ use libsysproto::{
             CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
-    replay::{ReplayIdentity, replay_identity_from_minion_message},
+    replay::{ReplayIdentity, replay_identity_for_master_command_cycle, replay_identity_from_minion_message},
     rqtypes::{ProtoKey, ProtoValue, RequestType},
     secure::SECURE_PROTOCOL_VERSION,
 };
@@ -140,12 +140,36 @@ pub struct SysMaster {
     ptr: Option<Weak<Mutex<SysMaster>>>,
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
-    peer_direct_tx: HashMap<String, mpsc::Sender<Vec<u8>>>,
+    peer_direct_tx: HashMap<String, mpsc::Sender<OutgoingFrame>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
 }
 
 impl SysMaster {
+    pub(crate) fn should_durably_queue_command(msg: &MasterMessage) -> bool {
+        msg.req_type() == &RequestType::Command && !msg.target().scheme().starts_with(SCHEME_COMMAND)
+    }
+
+    async fn queue_durable_command_targets(&mut self, msg: &MasterMessage) -> Result<usize, SysinspectError> {
+        if !Self::should_durably_queue_command(msg) {
+            return Ok(0);
+        }
+
+        let target_ids = self.mreg.lock().await.get_targeted_minions(msg.target(), true).await;
+        if target_ids.is_empty() {
+            log::warn!("Durable command queue found no concrete target minions for cycle {} scheme {}", msg.cycle(), msg.target().scheme());
+            return Ok(0);
+        }
+
+        let mut queued = 0usize;
+        for minion_id in target_ids {
+            self.cmdq.enqueue(&minion_id, msg)?;
+            queued += 1;
+        }
+        log::info!("Queued durable master command cycle {} for {} minion(s); backlog: {}", msg.cycle(), queued, self.cmdq.stats()?.format());
+        Ok(queued)
+    }
+
     pub fn new(cfg: MasterConfig) -> Result<SysMaster, SysinspectError> {
         let _ = crate::util::log_sensors_export(&cfg, true);
 
@@ -239,6 +263,10 @@ impl SysMaster {
     #[cfg(test)]
     pub(crate) fn duplicate_replay_blocks_processing_for_test(identity: &ReplayIdentity) -> bool {
         Self::duplicate_replay_blocks_processing(identity)
+    }
+
+    fn clear_completed_command_backlog(&self, minion_id: &str, cycle_id: &str) -> Result<usize, SysinspectError> {
+        self.cmdq.remove_by_replay_key(&replay_identity_for_master_command_cycle(minion_id, cycle_id).key())
     }
 
     #[cfg(test)]
@@ -990,7 +1018,7 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 let c_addr = minion_addr.clone();
                 tokio::spawn(async move {
-                    let mut guard = c_master.lock().await;
+                    let guard = c_master.lock().await;
                     let replay_identity = match replay_identity_from_minion_message(&req) {
                         Ok(Some(identity @ ReplayIdentity::ModelAck { .. })) => Some(identity),
                         Ok(_) => None,
@@ -1019,11 +1047,28 @@ impl SysMaster {
                         }
                     }
                     let label = guard.resolved_peer_label(&minion_id, &c_addr).await;
+                    match guard.clear_completed_command_backlog(&minion_id, &cycle_id) {
+                        Ok(removed) if removed > 0 => match guard.cmdq.stats() {
+                            Ok(stats) => log::info!(
+                                "Cleared {} durable queued command(s) for {} cycle {}; remaining outbound backlog: {}",
+                                removed,
+                                label,
+                                cycle_id,
+                                stats.format()
+                            ),
+                            Err(err) => log::error!(
+                                "Cleared durable queued command(s) for {} cycle {}, but failed to inspect backlog: {}",
+                                label,
+                                cycle_id,
+                                err
+                            ),
+                        },
+                        Ok(_) => {}
+                        Err(err) => log::error!("Failed to clear durable queued command for {} cycle {}: {}", label, cycle_id, err),
+                    }
                     let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
-                    if let Ok(encrypted) = guard.peer_transport.encode_message(&c_addr, &ack)
-                        && let Some(tx) = guard.peer_direct_tx.get(&c_addr)
-                    {
-                        match tx.try_send(encrypted) {
+                    if let Some(tx) = guard.peer_direct_tx.get(&c_addr) {
+                        match tx.try_send(OutgoingFrame::DirectMessage(Box::new(ack))) {
                             Ok(_) => log::info!("Synced journal with minion {} for cycle {}", label, cycle_id),
                             Err(e) => log::warn!("Failed to send journal ack to {}: {}", label, e),
                         }
@@ -1076,35 +1121,45 @@ impl SysMaster {
                 return;
             }
         };
+        let mut replay_ready = false;
         if !traits_payload.traits.is_empty() {
             let traits: HashMap<String, serde_json::Value> = traits_payload.traits.into_iter().collect();
-            let mut mreg = self.mreg.lock().await;
-            if let Err(err) =
-                mreg.refresh(&mid, traits.clone(), traits_payload.static_keys.into_iter().collect(), traits_payload.fn_keys.into_iter().collect())
             {
-                log::error!("Unable to sync traits: {err}");
-            } else {
-                if let Err(err) = mreg.refresh_cmdb_observed(&mid, &traits) {
-                    log::error!("Unable to sync CMDB traits for {}: {err}", mid);
-                }
-                let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
-                let cmdb = mreg.get_cmdb(&mid).unwrap_or_default();
-                let (fqdn, hostname, ip) = Self::preferred_host(&m, cmdb.as_ref());
-                log::info!(
-                    "Traits synced for minion {} ({})",
-                    if !fqdn.is_empty() {
-                        fqdn
-                    } else if !hostname.is_empty() {
-                        hostname
-                    } else if !ip.is_empty() {
-                        ip
-                    } else {
-                        "unknown".to_string()
+                let mut mreg = self.mreg.lock().await;
+                if let Err(err) =
+                    mreg.refresh(&mid, traits.clone(), traits_payload.static_keys.into_iter().collect(), traits_payload.fn_keys.into_iter().collect())
+                {
+                    log::error!("Unable to sync traits: {err}");
+                } else {
+                    if let Err(err) = mreg.refresh_cmdb_observed(&mid, &traits) {
+                        log::error!("Unable to sync CMDB traits for {}: {err}", mid);
                     }
-                    .bright_green(),
-                    mid.green()
-                );
+                    let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
+                    let cmdb = mreg.get_cmdb(&mid).unwrap_or_default();
+                    let (fqdn, hostname, ip) = Self::preferred_host(&m, cmdb.as_ref());
+                    log::info!(
+                        "Traits synced for minion {} ({})",
+                        if !fqdn.is_empty() {
+                            fqdn
+                        } else if !hostname.is_empty() {
+                            hostname
+                        } else if !ip.is_empty() {
+                            ip
+                        } else {
+                            "unknown".to_string()
+                        }
+                        .bright_green(),
+                        mid.green()
+                    );
+                    replay_ready = true;
+                }
             }
+        }
+        if replay_ready && let Some(master) = self.as_ptr() {
+            let minion_id = mid.clone();
+            tokio::spawn(async move {
+                Self::replay_pending_commands_task(master, minion_id).await;
+            });
         }
     }
 
@@ -1229,6 +1284,62 @@ impl SysMaster {
         .map(Some)
     }
 
+    /// Replay queued durable model commands to one minion after the logical
+    /// session is re-established through a fresh Traits sync.
+    async fn replay_pending_commands_task(master: Arc<Mutex<Self>>, minion_id: String) {
+        let (_peer_addr, tx, queued) = {
+            let guard = master.lock().await;
+            let Some(peer_addr) = guard.conn_to_mid.iter().find_map(|(addr, mid)| (mid == &minion_id).then_some(addr.clone())) else {
+                log::warn!("Cannot replay pending commands for {}; no active peer mapping", minion_id);
+                return;
+            };
+
+            let Some(tx) = guard.peer_direct_tx.get(&peer_addr).cloned() else {
+                log::warn!("Cannot replay pending commands for {}; no active direct sender", minion_id);
+                return;
+            };
+
+            let queued = match guard.cmdq.pending_for_minion(&minion_id) {
+                Ok(queued) => queued,
+                Err(err) => {
+                    log::error!("Failed to inspect pending command queue for {}: {}", minion_id, err);
+                    return;
+                }
+            };
+            if queued.is_empty() {
+                return;
+            }
+            (peer_addr, tx, queued)
+        };
+
+        let mut replayed = 0usize;
+        for entry in queued {
+            match tx.send(OutgoingFrame::DirectMessage(Box::new(entry.message().clone()))).await {
+                Ok(()) => {
+                    let guard = master.lock().await;
+                    if let Err(err) = guard.cmdq.set_state(entry.id(), MasterCommandState::Replayed) {
+                        log::error!("Failed to mark replayed command {} for {}: {}", entry.id(), minion_id, err);
+                    }
+                    replayed += 1;
+                }
+                Err(err) => {
+                    log::warn!("Failed to replay queued command {} to {} for cycle {}: {}", entry.id(), minion_id, entry.message().cycle(), err);
+                    break;
+                }
+            }
+        }
+
+        if replayed > 0 {
+            let guard = master.lock().await;
+            match guard.cmdq.stats() {
+                Ok(stats) => {
+                    log::info!("Replayed {} queued command(s) to {}; remaining durable outbound backlog: {}", replayed, minion_id, stats.format())
+                }
+                Err(err) => log::error!("Failed to inspect durable command backlog after replay for {}: {}", minion_id, err),
+            }
+        }
+    }
+
     /// Broadcast a message to all minions
     /// Broadcast a logical master message so each connected peer can encode it with its own transport state.
     pub async fn bcast_master_msg(
@@ -1239,6 +1350,13 @@ impl SysMaster {
             return;
         }
         let msg = msg.unwrap();
+
+        {
+            let mut guard = master.lock().await;
+            if let Err(err) = guard.queue_durable_command_targets(&msg).await {
+                log::error!("Failed to queue durable master command cycle {}: {}", msg.cycle(), err);
+            }
+        }
 
         if use_telemetry {
             let c_master = Arc::clone(&master);
@@ -1273,6 +1391,7 @@ impl SysMaster {
     async fn encode_outgoing_frame(&mut self, peer_addr: &str, frame: OutgoingFrame) -> Result<Option<Vec<u8>>, SysinspectError> {
         match frame {
             OutgoingFrame::Direct(msg) => Ok(Some(msg)),
+            OutgoingFrame::DirectMessage(msg) => self.peer_transport.encode_message(peer_addr, &msg).map(Some),
             OutgoingFrame::Broadcast(msg) => {
                 if !self.peer_transport.can_receive_broadcast(peer_addr) {
                     return Ok(None);
@@ -1285,14 +1404,14 @@ impl SysMaster {
     /// Write direct replies and broadcast frames to one connected peer until the socket closes.
     async fn write_peer_frames(
         master: Arc<Mutex<Self>>, mut writer: OwnedWriteHalf, peer_addr: String, mut bcast_sub: broadcast::Receiver<MasterMessage>,
-        mut direct_rx: mpsc::Receiver<Vec<u8>>, cancel_writer: tokio::sync::watch::Sender<bool>,
+        mut direct_rx: mpsc::Receiver<OutgoingFrame>, cancel_writer: tokio::sync::watch::Sender<bool>,
     ) {
         log::info!("Minion {} connected. Ready to send messages.", peer_addr.bright_green());
 
         loop {
             let frame = match tokio::select! {
                 biased;
-                Some(msg) = direct_rx.recv() => Some(OutgoingFrame::Direct(msg)),
+                Some(msg) = direct_rx.recv() => Some(msg),
                 Ok(msg) = bcast_sub.recv() => Some(OutgoingFrame::Broadcast(Box::new(msg))),
                 else => return,
             } {
@@ -1342,7 +1461,7 @@ impl SysMaster {
     /// Read framed peer traffic, decode it through the peer transport object, and forward logical messages inward.
     async fn read_peer_frames(
         master: Arc<Mutex<Self>>, reader: OwnedReadHalf, peer_addr: String, client_tx: mpsc::Sender<(Vec<u8>, String)>,
-        direct_tx: mpsc::Sender<Vec<u8>>, cancel_tx: tokio::sync::watch::Sender<bool>, cancel_rx: tokio::sync::watch::Receiver<bool>,
+        direct_tx: mpsc::Sender<OutgoingFrame>, cancel_tx: tokio::sync::watch::Sender<bool>, cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) {
         let mut reader = TokioBufReader::new(reader);
         loop {
@@ -1375,7 +1494,7 @@ impl SysMaster {
                     }
                 }
                 Ok(IncomingFrame::Reply(msg)) => {
-                    let _ = direct_tx.send(msg).await;
+                    let _ = direct_tx.send(OutgoingFrame::Direct(msg)).await;
                 }
                 Err(err) => {
                     log::error!("Failed to decode frame from {peer_addr}: {err}");
@@ -1398,7 +1517,7 @@ impl SysMaster {
         let (reader, writer) = socket.into_split();
         let c_master_writer = Arc::clone(&master);
         let c_master_reader = Arc::clone(&master);
-        let (direct_tx, direct_rx) = mpsc::channel::<Vec<u8>>(8);
+        let (direct_tx, direct_rx) = mpsc::channel::<OutgoingFrame>(32);
         {
             master.lock().await.peer_direct_tx.insert(peer_addr.clone(), direct_tx.clone());
         }

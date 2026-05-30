@@ -1,6 +1,7 @@
 use crate::{
     callbacks::{ActionResponseCallback, ModelResponseCallback},
     filedata::{MinionFiledata, SensorsFiledata},
+    inbound_cmd::{InboundCommandClaim, InboundCommandLedger, InboundCommandState},
     proto::{
         self,
         msg::{CONNECTION_TX, ExitState},
@@ -178,6 +179,7 @@ pub struct SysMinion {
     pt_counter: Mutex<PTCounter>,
     dpq: Arc<DiskPersistentQueue>,
     pub(crate) journal: Journal,
+    inbound_cmds: InboundCommandLedger,
     connected: AtomicBool,
     secure: Mutex<Option<SecureChannel>>,
 
@@ -229,21 +231,36 @@ impl SysMinion {
         log::debug!("Trying to connect at {}", cfg.master());
         ensure_minion_tree(&cfg)?;
 
-        let (rstm, wstm) = TcpStream::connect(cfg.master()).await?.into_split();
+        let (rstm, wstm) = match TcpStream::connect(cfg.master()).await {
+            Ok(stream) => {
+                log::debug!("Network bound at {}", cfg.master());
+                let (rstm, wstm) = stream.into_split();
+                (Some(rstm), Some(wstm))
+            }
+            Err(err) if cfg.offline() == MinionOfflineMode::Independent && fingerprint.is_none() => {
+                log::warn!(
+                    "Initial transport connect to {} failed in independent mode: {}; starting with transport offline while local work continues",
+                    cfg.master(),
+                    err
+                );
+                (None, None)
+            }
+            Err(err) => return Err(err.into()),
+        };
 
-        log::debug!("Network bound at {}", cfg.master());
         let instance = SysMinion {
             cfg: cfg.clone(),
             fingerprint,
             kman: MinionRSAKeyManager::new(cfg.root_dir())?,
-            rstm: Arc::new(Mutex::new(Some(rstm))),
-            wstm: Arc::new(Mutex::new(Some(wstm))),
+            rstm: Arc::new(Mutex::new(rstm)),
+            wstm: Arc::new(Mutex::new(wstm)),
             filedata: Mutex::new(MinionFiledata::new(cfg.models_dir())?),
             last_ping: Mutex::new(Instant::now()),
             ping_timeout: Duration::from_secs(10),
             pt_counter: Mutex::new(PTCounter::new()),
             dpq,
             journal: Journal::open_with_policy(cfg.journal_path(), cfg.journal_max_bytes(), cfg.backlog_policy())?,
+            inbound_cmds: InboundCommandLedger::open(cfg.inbound_commands_dir())?,
             connected: AtomicBool::new(false),
             secure: Mutex::new(None),
             minion_id: dataconv::as_str(SystemTraits::new(cfg.clone(), true).get(traits::SYS_ID)),
@@ -983,15 +1000,35 @@ impl SysMinion {
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
                                 if msg.target().scheme().starts_with(SCHEME_COMMAND) {
-                                    if matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, false)) {
+                                    if matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true)) {
                                         this.clone().call_internal_command(msg.target().scheme(), msg.target().context()).await;
                                     } else {
                                         log::debug!("Dropped internal master command for another minion");
                                     }
-                                } else if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
-                                    log::error!("Failed to enqueue master command: {err}");
                                 } else {
-                                    log::info!("Scheduled master command: {}", msg.target().scheme());
+                                    if !matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true)) {
+                                        log::debug!("Dropped master model command for another minion");
+                                        continue;
+                                    }
+                                    match this.claim_inbound_command(&msg) {
+                                        Ok(InboundCommandClaim::AcceptedNew) => {
+                                            if let Err(err) = this.as_ptr().dpq.add(WorkItem::MasterCommand(msg.to_owned())) {
+                                                let _ = this.inbound_cmds.remove(&this.inbound_command_replay_key(msg.cycle()));
+                                                log::error!("Failed to enqueue master command: {err}");
+                                            } else {
+                                                log::info!("Scheduled master command: {}", msg.target().scheme());
+                                            }
+                                        }
+                                        Ok(InboundCommandClaim::Duplicate(state)) => {
+                                            log::info!("Dropped duplicate inbound master command for cycle {} in state {:?}", msg.cycle(), state);
+                                            if state == InboundCommandState::Completed {
+                                                this.send_model_ack(msg.cycle()).await;
+                                            }
+                                        }
+                                        Err(err) => {
+                                            log::error!("Failed to claim inbound master command {}: {}", msg.cycle(), err);
+                                        }
+                                    }
                                 }
                             }
 
@@ -1216,10 +1253,36 @@ impl SysMinion {
                     // restart may replay delivery, but must not re-run the model locally.
                     log::info!("Marked cycle {} as locally complete after journaling ModelAck", cycle_id);
                 }
+                if let Err(err) = self.inbound_cmds.set_state(&self.inbound_command_replay_key(cycle_id), InboundCommandState::Completed) {
+                    log::error!("Failed to mark inbound command cycle {} as completed: {}", cycle_id, err);
+                }
                 self.request(msg, OutboundMessageClass::DurableData).await
             }
             Err(e) => log::error!("Failed to send model ack: {e}"),
         }
+    }
+
+    fn inbound_command_replay_key(&self, cycle_id: &str) -> String {
+        libsysproto::replay::replay_identity_for_master_command_cycle(self.get_minion_id(), cycle_id).key()
+    }
+
+    fn claim_inbound_command(&self, msg: &MasterMessage) -> Result<InboundCommandClaim, SysinspectError> {
+        self.inbound_cmds.claim(&self.inbound_command_replay_key(msg.cycle()), msg.cycle())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn claim_inbound_command_for_test(&self, msg: &MasterMessage) -> Result<InboundCommandClaim, SysinspectError> {
+        self.claim_inbound_command(msg)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inbound_command_state_for_test(&self, cycle_id: &str) -> Result<Option<InboundCommandState>, SysinspectError> {
+        self.inbound_cmds.state(&self.inbound_command_replay_key(cycle_id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_inbound_command_state_for_test(&self, cycle_id: &str, state: InboundCommandState) -> Result<bool, SysinspectError> {
+        self.inbound_cmds.set_state(&self.inbound_command_replay_key(cycle_id), state)
     }
 
     fn pending_cycle_needs_model_ack(entries: &[(u64, Vec<u8>)]) -> bool {
@@ -1229,6 +1292,7 @@ impl SysMinion {
         for (_, payload) in entries {
             if let Ok(Some(identity)) = replay_identity_from_minion_bytes(payload) {
                 match identity {
+                    ReplayIdentity::MasterCommand { .. } => {}
                     ReplayIdentity::ModelEvent { .. } => has_model_event = true,
                     ReplayIdentity::ModelAck { .. } => has_model_ack = true,
                     ReplayIdentity::Event { .. } => {}
@@ -1540,7 +1604,7 @@ impl SysMinion {
             log::error!("Cycle ID is empty!");
             return;
         }
-        if !matches_target(&cmd, self.get_minion_id(), &minion_traits(&self.cfg, false)) {
+        if !matches_target(&cmd, self.get_minion_id(), &minion_traits(&self.cfg, true)) {
             log::debug!("Command was dropped as it targets another minion");
             return;
         }
@@ -1553,6 +1617,9 @@ impl SysMinion {
                 if cmd.target().scheme().starts_with(SCHEME_COMMAND) {
                     self.as_ptr().call_internal_command(cmd.target().scheme(), cmd.target().context()).await;
                 } else {
+                    if let Err(err) = self.inbound_cmds.set_state(&self.inbound_command_replay_key(cmd.cycle()), InboundCommandState::Running) {
+                        log::error!("Failed to mark inbound command cycle {} as running: {}", cmd.cycle(), err);
+                    }
                     self.as_ptr().launch_sysinspect(cmd.cycle(), cmd.target().scheme(), &pld, cmd.target().context()).await;
                     log::debug!("Command dispatched");
                     log::debug!("Command payload: {pld:#?}");
@@ -1641,6 +1708,34 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         }
     }
 
+    async fn recover_transport_startup(minion: &Arc<SysMinion>, cfg: &MinionConfig) -> Result<(), SysinspectError> {
+        if !cfg.reconnect() {
+            log::warn!("Reconnect is disabled; leaving transport offline while local execution continues.");
+            return Ok(());
+        }
+
+        let mut attempts = 0u32;
+        loop {
+            attempts += 1;
+            if cfg.reconnect_freq() > 0 && attempts > cfg.reconnect_freq() {
+                log::error!(
+                    "Startup transport recovery exceeded {} attempt(s); leaving transport offline while local execution continues.",
+                    cfg.reconnect_freq()
+                );
+                return Ok(());
+            }
+
+            match minion.as_ptr().reconnect_transport().await {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    let interval = cfg.reconnect_interval();
+                    log::error!("Startup transport recovery failed: {err}; retrying in {interval} seconds...");
+                    sleep(Duration::from_secs(interval)).await;
+                }
+            }
+        }
+    }
+
     async fn stop_instance(minion: &Arc<SysMinion>, runner: tokio::task::JoinHandle<()>) -> Result<(), tokio::task::JoinError> {
         minion.as_ptr().stop_sensors().await;
         minion.as_ptr().stop_background().await;
@@ -1676,13 +1771,20 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
         };
     } else {
         if let Err(err) = minion.bootstrap_secure().await {
-            log::error!("Unable to bootstrap secure transport: {err}");
-            let _ = stop_instance(&minion, runner).await;
-            return Err(err);
+            if cfg.offline() == MinionOfflineMode::Independent {
+                log::error!("Unable to bootstrap secure transport at startup: {err}; continuing local work and recovering transport in background");
+                let _ = recover_transport_startup(&minion, &cfg).await;
+            } else {
+                log::error!("Unable to bootstrap secure transport: {err}");
+                let _ = stop_instance(&minion, runner).await;
+                return Err(err);
+            }
         }
-        minion.as_ptr().do_proto().await?;
-        minion.as_ptr().send_ehlo().await?;
-        if cfg.autosync_startup() {
+        if minion.secure.lock().await.is_some() {
+            minion.as_ptr().do_proto().await?;
+            minion.as_ptr().send_ehlo().await?;
+        }
+        if minion.secure.lock().await.is_some() && cfg.autosync_startup() {
             tokio::select! {
                 sync_res = modpak.sync() => {
                     if let Err(err) = sync_res {
@@ -1704,7 +1806,7 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
                     }
                 }
             }
-        } else {
+        } else if minion.secure.lock().await.is_some() {
             log::warn!("Module auto-sync {} is disabled. Call cluster sync to force modules sync.", "on startup".bright_yellow());
         }
     }
@@ -1717,10 +1819,11 @@ pub(crate) async fn _minion_instance(cfg: MinionConfig, fingerprint: Option<Stri
     }
 
     // Send sensors sync request
-    minion.as_ptr().send_sensors_sync().await?;
-
-    minion.as_ptr().do_ping_update(state.clone()).await?;
-    minion.as_ptr().do_stats_update().await?;
+    if minion.secure.lock().await.is_some() {
+        minion.as_ptr().send_sensors_sync().await?;
+        minion.as_ptr().do_ping_update(state.clone()).await?;
+        minion.as_ptr().do_stats_update().await?;
+    }
 
     // Keeps client running
     while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1812,32 +1915,45 @@ pub async fn minion(cfg: MinionConfig, fp: Option<String>) {
         let c_dpq = dpq.clone();
         let mut mhdl = tokio::spawn(async move { _minion_instance(c_cfg, c_fp, c_dpq).await });
 
-        tokio::select! {
-            res = &mut mhdl => {
-                match res {
-                    Ok(Ok(_)) => log::info!("Minion instance ended gracefully, reconnecting..."),
-                    Ok(Err(e)) => {
-                        log::error!("Minion encountered an error: {e:?}");
-                        if fp.is_some() {
-                            return;
-                        }
+        if cfg.offline() == MinionOfflineMode::Independent {
+            match (&mut mhdl).await {
+                Ok(Ok(_)) => log::info!("Minion instance ended gracefully, reconnecting..."),
+                Ok(Err(e)) => {
+                    log::error!("Minion encountered an error: {e:?}");
+                    if fp.is_some() {
+                        return;
                     }
-                    Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
                 }
+                Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
             }
-            sig = reconnect_rx.recv() => {
-                match sig {
-                    Ok(_) => {
-                        log::warn!("Reconnect signal received; waiting for current minion instance to stop.");
-                        let _ = mhdl.await;
+        } else {
+            tokio::select! {
+                res = &mut mhdl => {
+                    match res {
+                        Ok(Ok(_)) => log::info!("Minion instance ended gracefully, reconnecting..."),
+                        Ok(Err(e)) => {
+                            log::error!("Minion encountered an error: {e:?}");
+                            if fp.is_some() {
+                                return;
+                            }
+                        }
+                        Err(e) => log::error!("Minion task panicked or was cancelled: {e:?}"),
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!("Missed {n} reconnect notification(s) in supervisor loop; waiting for current minion instance to stop.");
-                        let _ = mhdl.await;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        log::warn!("Reconnect channel closed in supervisor loop; waiting for minion instance task.");
-                        let _ = mhdl.await;
+                }
+                sig = reconnect_rx.recv() => {
+                    match sig {
+                        Ok(_) => {
+                            log::warn!("Reconnect signal received; waiting for current minion instance to stop.");
+                            let _ = mhdl.await;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            log::warn!("Missed {n} reconnect notification(s) in supervisor loop; waiting for current minion instance to stop.");
+                            let _ = mhdl.await;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            log::warn!("Reconnect channel closed in supervisor loop; waiting for minion instance task.");
+                            let _ = mhdl.await;
+                        }
                     }
                 }
             }

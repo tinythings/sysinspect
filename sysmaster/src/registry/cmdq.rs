@@ -1,5 +1,8 @@
 use libcommon::SysinspectError;
-use libsysproto::MasterMessage;
+use libsysproto::{
+    MasterMessage,
+    replay::{replay_identity_for_master_command, replay_identity_for_master_command_cycle},
+};
 use serde::{Deserialize, Serialize};
 use sled::{Db, Tree};
 use std::{
@@ -109,14 +112,14 @@ impl MasterCommandQueue {
     }
 
     pub fn replay_key(minion_id: &str, cycle_id: &str) -> String {
-        format!("mcmd|{minion_id}|{cycle_id}")
+        replay_identity_for_master_command_cycle(minion_id, cycle_id).key()
     }
 
     pub fn enqueue(&self, minion_id: &str, message: &MasterMessage) -> Result<u64, SysinspectError> {
         let id = self.next_id()?;
         let entry = QueuedMasterCommand {
             id,
-            replay_key: Self::replay_key(minion_id, message.cycle()),
+            replay_key: replay_identity_for_master_command(minion_id, message).key(),
             minion_id: minion_id.to_string(),
             message: message.clone(),
             state: MasterCommandState::Pending,
@@ -153,6 +156,26 @@ impl MasterCommandQueue {
     pub fn remove(&self, id: u64) -> Result<bool, SysinspectError> {
         let removed = self.entries.remove(Self::u64_key(id))?.is_some();
         if removed {
+            self.db.flush()?;
+        }
+        Ok(removed)
+    }
+
+    pub fn remove_by_replay_key(&self, replay_key: &str) -> Result<usize, SysinspectError> {
+        let mut to_remove = Vec::new();
+        for item in self.entries.iter() {
+            let (k, v) = item?;
+            let entry: QueuedMasterCommand = serde_json::from_slice(&v)?;
+            if entry.replay_key == replay_key {
+                to_remove.push(k);
+            }
+        }
+
+        let removed = to_remove.len();
+        for key in to_remove {
+            self.entries.remove(key)?;
+        }
+        if removed > 0 {
             self.db.flush()?;
         }
         Ok(removed)
