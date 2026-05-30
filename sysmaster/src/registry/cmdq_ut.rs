@@ -72,3 +72,20 @@ fn remove_drops_command_from_backlog() {
     assert!(!queue.remove(id).unwrap());
     assert!(queue.pending_for_minion("minion-1").unwrap().is_empty());
 }
+
+#[test]
+fn remove_by_replay_key_clears_matching_entries() {
+    let tmp = tempfile::tempdir().unwrap();
+    let queue = MasterCommandQueue::open(tmp.path()).unwrap();
+    let first = queued_message("minion-1");
+    let second = queued_message("minion-1");
+    let key = format!("mcmd|minion-1|{}", first.cycle());
+
+    let _ = queue.enqueue("minion-1", &first).unwrap();
+    let _ = queue.enqueue("minion-1", &second).unwrap();
+
+    assert_eq!(queue.remove_by_replay_key(&key).unwrap(), 1);
+    let pending = queue.pending_for_minion("minion-1").unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].message().cycle(), second.cycle());
+}

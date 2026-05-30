@@ -1,8 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use crate::minion::{_minion_instance, MINION_SID, SysMinion};
     use crate::proto::msg::{CONNECTION_TX, ExitState};
     use crate::rsa::MinionRSAKeyManager;
+    use crate::{
+        inbound_cmd::{InboundCommandClaim, InboundCommandState},
+        minion::{_minion_instance, MINION_SID, SysMinion},
+    };
     use libcommon::SysinspectError;
     use libdpq::DiskPersistentQueue;
     use libsysinspect::{
@@ -16,9 +19,10 @@ mod tests {
     };
     use libsysproto::rqtypes::OutboundMessageClass;
     use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
-    use libsysproto::{MinionMessage, ProtoConversion, rqtypes::RequestType};
+    use libsysproto::{MasterMessage, MinionMessage, ProtoConversion, rqtypes::RequestType};
     use once_cell::sync::Lazy;
     use rsa::{RsaPrivateKey, RsaPublicKey};
+    use serde_json::json;
     use std::io::ErrorKind;
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -277,6 +281,35 @@ mod tests {
                 panic!("expected reconnect signal on EOF but timed out");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn inbound_command_claim_blocks_duplicates_across_states() {
+        let _guard = TEST_LOCK.lock().await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _peer) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = mk_cfg(format!("{}", addr), "127.0.0.1:1".to_string(), tmp.path());
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, Some("fp-test".to_string()), dpq).await.unwrap();
+
+        let cmd = MasterMessage::new(RequestType::Command, json!({"uri":"model://demo"}));
+        let cycle_id = cmd.cycle().clone();
+
+        assert_eq!(minion.claim_inbound_command_for_test(&cmd).unwrap(), InboundCommandClaim::AcceptedNew);
+        assert_eq!(minion.inbound_command_state_for_test(&cycle_id).unwrap(), Some(InboundCommandState::Accepted));
+        assert_eq!(minion.claim_inbound_command_for_test(&cmd).unwrap(), InboundCommandClaim::Duplicate(InboundCommandState::Accepted));
+
+        assert!(minion.set_inbound_command_state_for_test(&cycle_id, InboundCommandState::Running).unwrap());
+        assert_eq!(minion.claim_inbound_command_for_test(&cmd).unwrap(), InboundCommandClaim::Duplicate(InboundCommandState::Running));
+
+        assert!(minion.set_inbound_command_state_for_test(&cycle_id, InboundCommandState::Completed).unwrap());
+        assert_eq!(minion.claim_inbound_command_for_test(&cmd).unwrap(), InboundCommandClaim::Duplicate(InboundCommandState::Completed));
     }
 
     #[tokio::test]

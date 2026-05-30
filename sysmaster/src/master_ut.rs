@@ -12,7 +12,7 @@ use libsysinspect::{
 use libsysproto::secure::{
     SECURE_PROTOCOL_VERSION, SECURE_SUPPORTED_PROTOCOL_VERSIONS, SecureBootstrapHello, SecureDiagnosticCode, SecureFrame, SecureSessionBinding,
 };
-use libsysproto::{MinionMessage, replay::ReplayIdentity, rqtypes::RequestType};
+use libsysproto::{MasterMessage, MinionMessage, MinionTarget, replay::ReplayIdentity, rqtypes::RequestType};
 use rsa::RsaPublicKey;
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -282,6 +282,23 @@ fn duplicate_model_ack_still_allows_cycle_ack_resend() {
         minion_id: "minion-1".to_string(),
         cycle_id: "cycle-1".to_string(),
     }));
+}
+
+#[test]
+fn durable_master_queue_only_wraps_non_internal_commands() {
+    let mut model = MasterMessage::new(RequestType::Command, json!({"uri":"model://demo"}));
+    model.set_target(MinionTarget::new("minion-1", ""));
+
+    let mut internal = MasterMessage::new(RequestType::Command, json!({"uri":"cmd://cluster/sync"}));
+    let mut internal_target = MinionTarget::new("minion-1", "");
+    internal_target.set_scheme("cmd://cluster/sync");
+    internal.set_target(internal_target);
+
+    let traits = MasterMessage::new(RequestType::Traits, json!("sid-1"));
+
+    assert!(SysMaster::should_durably_queue_command(&model));
+    assert!(!SysMaster::should_durably_queue_command(&internal));
+    assert!(!SysMaster::should_durably_queue_command(&traits));
 }
 
 #[tokio::test]
