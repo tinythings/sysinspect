@@ -313,6 +313,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn independent_new_succeeds_with_master_absent() {
+        let _guard = TEST_LOCK.lock().await;
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip("127.0.0.1");
+        cfg.set_master_port(9);
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        cfg.set_autosync_startup(false);
+        cfg.set_offline(MinionOfflineMode::Independent);
+
+        seed_managed_transport(&cfg, tmp.path());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.expect("independent startup should not fail when master is absent");
+
+        assert!(!minion.has_secure_channel_for_test().await);
+    }
+
+    #[tokio::test]
+    async fn duplicate_completed_command_re_drives_model_ack() {
+        let _guard = TEST_LOCK.lock().await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        cfg.set_autosync_startup(false);
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg, None, dpq).await.unwrap();
+        let mut cmd = MasterMessage::new(RequestType::Command, json!({"uri":"model://demo"}));
+        cmd.set_retcode(libsysproto::errcodes::ProtoErrorCode::Success);
+        let cycle_id = cmd.cycle().clone();
+        let raw_cmd = serde_json::to_vec(&cmd).unwrap();
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            write_frame(&mut sock, &raw_cmd).await;
+            let ack = read_frame(&mut sock).await;
+            serde_json::from_slice::<serde_json::Value>(&ack).unwrap()
+        });
+
+        assert_eq!(minion.claim_inbound_command_for_test(&cmd).unwrap(), InboundCommandClaim::AcceptedNew);
+        assert!(minion.set_inbound_command_state_for_test(&cycle_id, InboundCommandState::Completed).unwrap());
+
+        minion.as_ptr().do_proto().await.unwrap();
+
+        let ack = server.await.unwrap();
+        assert_eq!(ack["r"], "mack");
+        assert_eq!(ack["d"]["cycle_id"], cycle_id);
+    }
+
+    #[tokio::test]
     async fn reconnect_does_not_leave_zombie_connection() {
         let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

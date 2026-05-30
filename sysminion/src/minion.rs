@@ -1285,6 +1285,11 @@ impl SysMinion {
         self.inbound_cmds.set_state(&self.inbound_command_replay_key(cycle_id), state)
     }
 
+    #[cfg(test)]
+    pub(crate) async fn has_secure_channel_for_test(&self) -> bool {
+        self.secure.lock().await.is_some()
+    }
+
     fn pending_cycle_needs_model_ack(entries: &[(u64, Vec<u8>)]) -> bool {
         let mut has_model_event = false;
         let mut has_model_ack = false;

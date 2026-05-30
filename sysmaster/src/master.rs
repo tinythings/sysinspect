@@ -856,9 +856,7 @@ impl SysMaster {
                 let c_master = Arc::clone(&master);
                 tokio::spawn(async move {
                     log::debug!("Event for {}: {}", req.id(), req.payload());
-                    let d = req.get_data();
                     let m = c_master.lock().await;
-                    m.taskreg.lock().await.deregister(d.cid(), req.id());
                     let mrec = m.mreg.lock().await.get(req.id()).unwrap_or_default().unwrap_or_default();
 
                     let pl = match serde_json::from_str::<HashMap<String, serde_json::Value>>(req.payload().to_string().as_str()) {
@@ -1066,6 +1064,7 @@ impl SysMaster {
                         Ok(_) => {}
                         Err(err) => log::error!("Failed to clear durable queued command for {} cycle {}: {}", label, cycle_id, err),
                     }
+                    guard.taskreg.lock().await.deregister(&cycle_id, &minion_id);
                     let ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
                     if let Some(tx) = guard.peer_direct_tx.get(&c_addr) {
                         match tx.try_send(OutgoingFrame::DirectMessage(Box::new(ack))) {
