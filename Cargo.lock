@@ -8354,6 +8354,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sled",
  "sysinfo 0.34.2",
  "tempfile",
  "tokio",

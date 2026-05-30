@@ -48,6 +48,7 @@ libc = "0.2.186"
 async-trait = "0.1.89"
 futures = "0.3.32"
 tempfile = "3.27.0"
+sled = "0.34.7"
 procdog = { git = "https://github.com/tinythings/omnitrace.git", branch = "master" }
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]

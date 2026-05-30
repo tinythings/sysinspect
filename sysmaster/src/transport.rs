@@ -48,6 +48,7 @@ pub(crate) enum IncomingFrame {
 pub(crate) enum OutgoingFrame {
     Broadcast(Box<MasterMessage>),
     Direct(Vec<u8>),
+    DirectMessage(Box<MasterMessage>),
 }
 
 /// Stateful master-side transport protocol manager for bootstrap, replay, and peer channel tracking.

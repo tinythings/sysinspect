@@ -1,6 +1,9 @@
 use crate::{
-    MinionMessage, ProtoConversion,
-    replay::{ReplayIdentity, replay_identity_from_minion_bytes, replay_identity_from_minion_message},
+    MasterMessage, MinionMessage, ProtoConversion,
+    replay::{
+        ReplayIdentity, replay_identity_for_master_command, replay_identity_for_master_command_cycle, replay_identity_from_minion_bytes,
+        replay_identity_from_minion_message,
+    },
     rqtypes::RequestType,
 };
 use serde_json::json;
@@ -64,4 +67,19 @@ fn unsupported_message_type_has_no_replay_identity() {
 
     assert!(replay_identity_from_minion_message(&msg).unwrap().is_none());
     assert!(replay_identity_from_minion_bytes(&msg.sendable().unwrap()).unwrap().is_none());
+}
+
+#[test]
+fn master_command_identity_uses_minion_and_cycle() {
+    let msg = MasterMessage::new(RequestType::Command, json!({"uri":"model://demo"}));
+
+    assert_eq!(
+        replay_identity_for_master_command("minion-1", &msg),
+        ReplayIdentity::MasterCommand { minion_id: "minion-1".to_string(), cycle_id: msg.cycle().clone() }
+    );
+    assert_eq!(
+        replay_identity_for_master_command_cycle("minion-1", msg.cycle()),
+        ReplayIdentity::MasterCommand { minion_id: "minion-1".to_string(), cycle_id: msg.cycle().clone() }
+    );
+    assert_eq!(replay_identity_for_master_command("minion-1", &msg).key(), format!("mcmd|minion-1|{}", msg.cycle()));
 }

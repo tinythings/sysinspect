@@ -1,6 +1,7 @@
 mod callbacks;
 mod clidef;
 mod filedata;
+mod inbound_cmd;
 mod minion;
 mod proto;
 mod ptcounter;
@@ -8,6 +9,9 @@ mod rsa;
 
 #[cfg(test)]
 mod filedata_ut;
+
+#[cfg(test)]
+mod inbound_cmd_ut;
 
 #[cfg(test)]
 mod minion_ut;

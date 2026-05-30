@@ -3,6 +3,7 @@ use crate::master::SHARED_SESSION;
 use super::rec::{MinionCmdbRecord, MinionCmdbStartup, MinionRecord};
 use globset::Glob;
 use libcommon::SysinspectError;
+use libsysinspect::traits;
 use libsysproto::MinionTarget;
 use serde_json::{Value, json};
 use sled::{Db, Tree};
@@ -22,6 +23,68 @@ pub struct MinionRegistry {
 }
 
 impl MinionRegistry {
+    fn record_matches_target(record: &MinionRecord, target: &MinionTarget) -> bool {
+        if !target.id().is_empty() {
+            let id_match = record.id() == target.id()
+                || record.id().starts_with(target.id())
+                || ["system.hostname", "system.hostname.fqdn", "system.hostname.ip"]
+                    .into_iter()
+                    .filter_map(|key| record.get_traits().get(key).and_then(|value| value.as_str()))
+                    .any(|label| Glob::new(target.id()).ok().is_some_and(|pattern| pattern.compile_matcher().is_match(label)));
+            if !id_match {
+                return false;
+            }
+        }
+
+        if !target.hostnames().is_empty() {
+            let labels = ["system.hostname", "system.hostname.fqdn", "system.hostname.ip"]
+                .into_iter()
+                .filter_map(|key| record.get_traits().get(key).and_then(|value| value.as_str()))
+                .collect::<Vec<_>>();
+            let hostname_match = target
+                .hostnames()
+                .into_iter()
+                .any(|pattern| Glob::new(&pattern).ok().is_some_and(|glob| labels.iter().any(|label| glob.compile_matcher().is_match(label))));
+            if !hostname_match {
+                return false;
+            }
+        }
+
+        if !target.traits_query().is_empty() {
+            let query = match traits::parse_traits_query(target.traits_query()).and_then(traits::to_typed_query) {
+                Ok(query) => query,
+                Err(err) => {
+                    log::error!("Unable to parse traits query '{}': {}", target.traits_query(), err);
+                    return false;
+                }
+            };
+
+            let mut or_matches = false;
+            for and_group in query {
+                let mut and_matches = true;
+                for term in and_group {
+                    let Some((key, expected)) = term.into_iter().next() else {
+                        continue;
+                    };
+                    if record.get_traits().get(&key) != Some(&expected) {
+                        and_matches = false;
+                        break;
+                    }
+                }
+                if and_matches {
+                    or_matches = true;
+                    break;
+                }
+            }
+
+            if !or_matches {
+                return false;
+            }
+        }
+
+        true
+    }
+
     pub fn new(pth: PathBuf) -> Result<MinionRegistry, SysinspectError> {
         if !pth.exists() {
             fs::create_dir_all(&pth)?;
@@ -316,213 +379,25 @@ impl MinionRegistry {
     /// Get targeted minion IDs from a MinionTarget
     /// If `all` is true, return all matching minions regardless of their session status.
     pub async fn get_targeted_minions(&mut self, target: &MinionTarget, all: bool) -> Vec<String> {
-        // Direct ID specified
         let session = Arc::clone(&SHARED_SESSION);
+        let mut guard = session.lock().await;
+        let mut ids = Vec::new();
 
-        if !target.id().is_empty() {
-            let mut ids = Vec::new();
-            let mut guard = session.lock().await;
-            ids.extend(
-                self.get(target.id())
-                    .ok()
-                    .flatten()
-                    .into_iter()
-                    .filter(|mrec| all || guard.alive(mrec.id()))
-                    .map(|mrec| mrec.id().to_string())
-                    .collect::<Vec<_>>(),
-            );
-            if ids.is_empty() {
-                ids.extend(
-                    self.get_by_hostname_or_ip(target.id())
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|mrec| all || guard.alive(mrec.id()))
-                        .map(|mrec| mrec.id().to_string())
-                        .collect::<Vec<_>>(),
-                );
+        for mid in self.get_registered_ids().unwrap_or_default() {
+            let Some(record) = self.get(&mid).ok().flatten() else {
+                continue;
+            };
+            if Self::record_matches_target(&record, target) && (all || guard.alive(record.id())) {
+                ids.push(record.id().to_string());
             }
-            if ids.is_empty() {
-                ids.extend(
-                    self.get_registered_ids()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|mid| mid.starts_with(target.id()))
-                        .filter_map(|mid| self.get(&mid).ok().flatten())
-                        .filter(|mrec| all || guard.alive(mrec.id()))
-                        .map(|mrec| mrec.id().to_string())
-                        .collect::<Vec<_>>(),
-                );
-            }
-            ids.sort();
-            ids.dedup();
-            return ids;
         }
 
-        // Hostnames are specified
-        if !target.hostnames().is_empty() {
-            let mut ids: Vec<String> = Vec::new();
-            for hn in target.hostnames() {
-                match self.get_by_hostname_or_ip(&hn) {
-                    Ok(mrecs) => {
-                        for mrec in mrecs {
-                            if all || session.lock().await.alive(mrec.id()) {
-                                ids.push(mrec.id().to_string());
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("Unable to get minion by hostname {}: {}", hn, err);
-                    }
-                }
-            }
-            return ids;
-        }
-
-        vec![]
+        ids.sort();
+        ids.dedup();
+        ids
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::MinionRegistry;
-    use crate::registry::rec::MinionCmdbStartup;
-    use chrono::Utc;
-    use libsysproto::MinionTarget;
-    use serde_json::json;
-    use std::collections::{BTreeSet, HashMap};
-
-    fn registry_with_one_minion() -> MinionRegistry {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
-        let mut traits = HashMap::new();
-        traits.insert("system.hostname".to_string(), json!("alien"));
-        traits.insert("system.hostname.fqdn".to_string(), json!("alien.lab"));
-        traits.insert("system.hostname.ip".to_string(), json!("192.168.2.186"));
-        registry.refresh("30006546535e428aba0a0caa6712e225", traits, BTreeSet::new(), BTreeSet::new()).unwrap();
-        registry
-    }
-
-    #[test]
-    fn get_by_hostname_or_ip_matches_plain_hostname() {
-        let mut registry = registry_with_one_minion();
-        let records = registry.get_by_hostname_or_ip("alien").unwrap();
-
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].id(), "30006546535e428aba0a0caa6712e225");
-    }
-
-    #[test]
-    fn get_by_query_matches_plain_hostname() {
-        let registry = registry_with_one_minion();
-        let records = registry.get_by_query("alien").unwrap();
-
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].id(), "30006546535e428aba0a0caa6712e225");
-    }
-
-    #[tokio::test]
-    async fn targeted_minions_resolve_plain_hostname_from_id_slot() {
-        let mut registry = registry_with_one_minion();
-        let ids = registry.get_targeted_minions(&MinionTarget::new("alien", ""), true).await;
-
-        assert_eq!(ids, vec!["30006546535e428aba0a0caa6712e225"]);
-    }
-
-    #[tokio::test]
-    async fn targeted_minions_resolve_partial_id_prefix_from_id_slot() {
-        let mut registry = registry_with_one_minion();
-        let ids = registry.get_targeted_minions(&MinionTarget::new("3000", ""), true).await;
-
-        assert_eq!(ids, vec!["30006546535e428aba0a0caa6712e225"]);
-    }
-
-    #[test]
-    fn cmdb_records_track_registered_startup_and_observed_host_data() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
-
-        registry.ensure_cmdb_registered("mid-1").unwrap();
-        let base = registry.get_cmdb("mid-1").unwrap().unwrap();
-        assert_eq!(base.mid(), "mid-1");
-        assert_eq!(base.host(), None);
-
-        registry
-            .upsert_cmdb_startup(
-                "mid-1",
-                MinionCmdbStartup::new(
-                    "bo".to_string(),
-                    "192.168.122.105".to_string(),
-                    "/home/bo/sysinspect".to_string(),
-                    "/home/bo/sysinspect/bin/sysminion".to_string(),
-                    "/home/bo/sysinspect/etc/sysinspect.conf".to_string(),
-                    "hopstart".to_string(),
-                ),
-            )
-            .unwrap();
-
-        let mut traits = HashMap::new();
-        traits.insert("system.hostname".to_string(), json!("demo"));
-        traits.insert("system.hostname.fqdn".to_string(), json!("demo.lab"));
-        traits.insert("system.hostname.ip".to_string(), json!("192.168.122.105"));
-        registry.refresh_cmdb_observed("mid-1", &traits).unwrap();
-
-        let cmdb = registry.get_cmdb("mid-1").unwrap().unwrap();
-        assert_eq!(cmdb.user(), Some("bo"));
-        assert_eq!(cmdb.host(), Some("192.168.122.105"));
-        assert_eq!(cmdb.root(), Some("/home/bo/sysinspect"));
-        assert_eq!(cmdb.bin(), Some("/home/bo/sysinspect/bin/sysminion"));
-        assert_eq!(cmdb.config(), Some("/home/bo/sysinspect/etc/sysinspect.conf"));
-        assert_eq!(cmdb.backend(), Some("hopstart"));
-        assert_eq!(cmdb.hostname(), Some("demo"));
-        assert_eq!(cmdb.fqdn(), Some("demo.lab"));
-        assert_eq!(cmdb.ip(), Some("192.168.122.105"));
-
-        registry.remove("mid-1").unwrap();
-        assert!(registry.get_cmdb("mid-1").unwrap().is_none());
-    }
-
-    #[test]
-    fn stale_cmdb_reconcile_refreshes_host_facts_but_preserves_startup_identity() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
-
-        let mut traits = HashMap::new();
-        traits.insert("system.hostname".to_string(), json!("demo"));
-        traits.insert("system.hostname.fqdn".to_string(), json!("demo.lab"));
-        traits.insert("system.hostname.ip".to_string(), json!("192.168.122.105"));
-        registry.refresh("mid-1", traits, BTreeSet::new(), BTreeSet::new()).unwrap();
-        registry.ensure_cmdb_registered("mid-1").unwrap();
-        registry
-            .upsert_cmdb_startup(
-                "mid-1",
-                MinionCmdbStartup::new(
-                    "bo".to_string(),
-                    "requested-host".to_string(),
-                    "/home/bo/sysinspect".to_string(),
-                    "/home/bo/sysinspect/bin/sysminion".to_string(),
-                    "/home/bo/sysinspect/etc/sysinspect.conf".to_string(),
-                    "hopstart".to_string(),
-                ),
-            )
-            .unwrap();
-
-        let mut stale = registry.get_cmdb("mid-1").unwrap().unwrap();
-        stale.set_updated_at(Utc::now() - chrono::Duration::days(8));
-        registry.add_cmdb("mid-1", &stale).unwrap();
-
-        assert!(registry.reconcile_cmdb("mid-1", std::time::Duration::from_secs(7 * 24 * 60 * 60)).unwrap());
-
-        let cmdb = registry.get_cmdb("mid-1").unwrap().unwrap();
-        assert_eq!(cmdb.mid(), "mid-1");
-        assert_eq!(cmdb.user(), Some("bo"));
-        assert_eq!(cmdb.host(), Some("requested-host"));
-        assert_eq!(cmdb.root(), Some("/home/bo/sysinspect"));
-        assert_eq!(cmdb.bin(), Some("/home/bo/sysinspect/bin/sysminion"));
-        assert_eq!(cmdb.config(), Some("/home/bo/sysinspect/etc/sysinspect.conf"));
-        assert_eq!(cmdb.backend(), Some("hopstart"));
-        assert_eq!(cmdb.hostname(), Some("demo"));
-        assert_eq!(cmdb.fqdn(), Some("demo.lab"));
-        assert_eq!(cmdb.ip(), Some("192.168.122.105"));
-        assert!(!cmdb.is_stale(std::time::Duration::from_secs(7 * 24 * 60 * 60)));
-    }
-}
+#[path = "mreg_ut.rs"]
+mod mreg_ut;
