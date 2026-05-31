@@ -62,15 +62,16 @@ impl SysInspectUX {
         if !self.help_popup_visible {
             return;
         }
-        Self::quit_popup(
+        Self::_popup(
             parent,
             buf,
             Some("Help"),
             "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - registered minions popup\n",
-            Alignment::Left,
             Some(Color::Green),
-            AlertResult::Quit,
-            None,
+            Alignment::Left,
+            AlertResult::Close,
+            AlertButtons::Close,
+            Some(0),
         );
     }
 
