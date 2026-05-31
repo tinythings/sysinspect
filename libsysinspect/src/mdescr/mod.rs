@@ -1,7 +1,15 @@
+pub mod browse_types;
+pub mod browser;
+pub mod catalog;
 pub mod datapatch;
 pub mod mspec;
 pub mod mspecdef;
 pub mod telemetry;
+
+#[cfg(test)]
+mod browser_ut;
+#[cfg(test)]
+mod catalog_ut;
 
 /// DSL directives
 pub static DSL_DIR_ENTITIES: &str = "entities";
