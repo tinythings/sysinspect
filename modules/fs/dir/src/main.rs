@@ -214,7 +214,6 @@ fn parse_octal(bytes: &[u8]) -> libc::mode_t {
 }
 
 fn format_mode(mode: libc::mode_t, buf: &mut [u8; 16]) -> &[u8] {
-    let mode = mode;
     let s = &mut [0u8; 5];
     s[0] = b'0';
     s[1] = b'0' + ((mode >> 6) & 7) as u8;
