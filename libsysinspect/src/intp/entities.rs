@@ -17,6 +17,11 @@ impl Claim {
 
         None
     }
+
+    /// Return the inner label keys of this claim.
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.data.keys()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
