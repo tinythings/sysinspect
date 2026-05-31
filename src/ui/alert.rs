@@ -66,7 +66,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Help"),
-            "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - online/offline minions popup\n",
+            "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - registered minions popup\n",
             Alignment::Left,
             Some(Color::Green),
             AlertResult::Quit,
@@ -158,7 +158,7 @@ impl SysInspectUX {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(OK_LABEL), Self::format_button(CANCEL_LABEL)),
             AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
-            AlertButtons::Quit => (Self::format_button(QUIT_LABEL), "".to_string()),
+            AlertButtons::Quit => (Self::format_button(CLOSE_LABEL), "".to_string()),
             AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 
