@@ -135,7 +135,7 @@ fn ensure_present(input: &[u8], out: &mut [u8; 4096]) -> usize {
     }
 
     let mode_arg = get_arg(input, b"mode");
-    let mode = if mode_arg.len() >= 3 { parse_octal(mode_arg) } else { 0o755 };
+    let mode = if mode_arg.len() >= 3 { parse_octal(mode_arg) } else { 0o755u32 as libc::mode_t };
     let uid = parse_u32(get_arg(input, b"uid"));
     let gid = parse_u32(get_arg(input, b"gid"));
     let dry_run = has_opt(input, b"dry-run");
@@ -203,17 +203,18 @@ fn ensure_absent(input: &[u8], out: &mut [u8; 4096]) -> usize {
     write_json(out, 0, b"Directory removed", b"")
 }
 
-fn parse_octal(bytes: &[u8]) -> u32 {
+fn parse_octal(bytes: &[u8]) -> libc::mode_t {
     let mut n = 0u32;
     for &b in bytes {
         if (b'0'..=b'7').contains(&b) {
             n = n * 8 + (b - b'0') as u32;
         }
     }
-    n
+    n as libc::mode_t
 }
 
-fn format_mode(mode: u32, buf: &mut [u8; 16]) -> &[u8] {
+fn format_mode(mode: libc::mode_t, buf: &mut [u8; 16]) -> &[u8] {
+    let mode = mode as u32;
     let s = &mut [0u8; 5];
     s[0] = b'0';
     s[1] = b'0' + ((mode >> 6) & 7) as u8;
