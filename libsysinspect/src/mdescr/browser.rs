@@ -29,29 +29,24 @@ impl ModelBrowser {
     /// render Tera templates, and merge the model spec tree.
     pub fn load(cfg: Arc<MinionConfig>, model_path: &Path) -> Result<Self, ModelBrowseError> {
         let model_path = model_path.canonicalize().map_err(|e| {
-            ModelBrowseError::LoadError(libcommon::SysinspectError::ModelDSLError(format!(
-                "Cannot resolve model path {}: {e}",
-                model_path.display()
-            )))
+            ModelBrowseError::LoadError(libcommon::SysinspectError::ModelDSLError(format!("Cannot resolve model path {}: {e}", model_path.display())))
         })?;
 
-        let spec = mspec::load(cfg, model_path.to_str().ok_or_else(|| {
-            ModelBrowseError::LoadError(libcommon::SysinspectError::ModelDSLError(
-                "Model path is not valid UTF-8".to_string(),
-            ))
-        })?, None, None)?;
+        let spec = mspec::load(
+            cfg,
+            model_path
+                .to_str()
+                .ok_or_else(|| ModelBrowseError::LoadError(libcommon::SysinspectError::ModelDSLError("Model path is not valid UTF-8".to_string())))?,
+            None,
+            None,
+        )?;
 
         Ok(Self { spec, model_path })
     }
 
     /// Return metadata for the loaded model.
     pub fn metadata(&self) -> BrowsedModelMetadata {
-        let id = self
-            .model_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let id = self.model_path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
 
         BrowsedModelMetadata {
             id,
@@ -85,17 +80,17 @@ impl ModelBrowser {
                 if !data.is_mapping() && !data.is_null() {
                     diagnostics.push(ModelBrowseDiagnostic {
                         level: ModelBrowseDiagnosticLevel::Warning,
-                        message: format!("Entity \"{eid}\" body is not a mapping (found {}), entity will appear with default values", value_kind_name(data)),
+                        message: format!(
+                            "Entity \"{eid}\" body is not a mapping (found {}), entity will appear with default values",
+                            value_kind_name(data)
+                        ),
                         path: Some(format!("entities.{eid}")),
                     });
                 }
 
                 match Entity::new(id, data) {
                     Ok(entity) => {
-                        let claim_state_keys: Vec<String> = entity
-                            .claims()
-                            .map(|cm| cm.keys().cloned().collect())
-                            .unwrap_or_default();
+                        let claim_state_keys: Vec<String> = entity.claims().map(|cm| cm.keys().cloned().collect()).unwrap_or_default();
 
                         let claim_labels: Vec<String> = {
                             let mut set = std::collections::BTreeSet::new();
@@ -151,32 +146,27 @@ impl ModelBrowser {
 
         let relations: Vec<BrowsedRelation> = mapping
             .iter()
-            .filter_map(|(id, data)| {
-                match Relation::new(id, data) {
-                    Ok(rel) => {
-                        let states = rel
-                            .states()
-                            .iter()
-                            .map(|(state_key, inner)| BrowsedRelationState {
-                                state: state_key.clone(),
-                                required_entities: inner
-                                    .get("requires")
-                                    .cloned()
-                                    .unwrap_or_default(),
-                            })
-                            .collect();
+            .filter_map(|(id, data)| match Relation::new(id, data) {
+                Ok(rel) => {
+                    let states = rel
+                        .states()
+                        .iter()
+                        .map(|(state_key, inner)| BrowsedRelationState {
+                            state: state_key.clone(),
+                            required_entities: inner.get("requires").cloned().unwrap_or_default(),
+                        })
+                        .collect();
 
-                        Some(BrowsedRelation { id: rel.id(), states })
-                    }
-                    Err(_) => {
-                        let rid = id.as_str().unwrap_or("?");
-                        diagnostics.push(ModelBrowseDiagnostic {
-                            level: ModelBrowseDiagnosticLevel::Warning,
-                            message: format!("Relation \"{rid}\" could not be parsed and was skipped"),
-                            path: Some(format!("relations.{rid}")),
-                        });
-                        None
-                    }
+                    Some(BrowsedRelation { id: rel.id(), states })
+                }
+                Err(_) => {
+                    let rid = id.as_str().unwrap_or("?");
+                    diagnostics.push(ModelBrowseDiagnostic {
+                        level: ModelBrowseDiagnosticLevel::Warning,
+                        message: format!("Relation \"{rid}\" could not be parsed and was skipped"),
+                        path: Some(format!("relations.{rid}")),
+                    });
+                    None
                 }
             })
             .collect();
@@ -201,14 +191,8 @@ impl ModelBrowser {
                     continue;
                 }
 
-                let relation_ids: Vec<String> = rel_ids_val
-                    .as_sequence()
-                    .map(|seq| {
-                        seq.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let relation_ids: Vec<String> =
+                    rel_ids_val.as_sequence().map(|seq| seq.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
 
                 if relation_ids.is_empty() {
                     continue;
@@ -239,11 +223,7 @@ impl ModelBrowser {
                     }
                 }
 
-                entrypoints.push(BrowsedEntrypoint::CheckbookLabel {
-                    label,
-                    relation_ids,
-                    entity_ids,
-                });
+                entrypoints.push(BrowsedEntrypoint::CheckbookLabel { label, relation_ids, entity_ids });
             }
         }
 
@@ -251,10 +231,7 @@ impl ModelBrowser {
         let (entities, entity_diags) = self.entities();
         diagnostics.extend(entity_diags);
         for entity in entities {
-            entrypoints.push(BrowsedEntrypoint::Entity {
-                id: entity.id,
-                descr: entity.descr,
-            });
+            entrypoints.push(BrowsedEntrypoint::Entity { id: entity.id, descr: entity.descr });
         }
 
         (entrypoints, diagnostics)
@@ -277,8 +254,7 @@ impl ModelBrowser {
 
         // Collect known entity IDs for bind-diagnostic checks.
         let (known_entities, _) = self.entities();
-        let known_eids: std::collections::BTreeSet<&str> =
-            known_entities.iter().map(|e| e.id.as_str()).collect();
+        let known_eids: std::collections::BTreeSet<&str> = known_entities.iter().map(|e| e.id.as_str()).collect();
 
         let actions: Vec<BrowsedAction> = mapping
             .iter()
@@ -290,10 +266,7 @@ impl ModelBrowser {
                             if !known_eids.contains(eid.as_str()) {
                                 diagnostics.push(ModelBrowseDiagnostic {
                                     level: ModelBrowseDiagnosticLevel::Warning,
-                                    message: format!(
-                                        "Action \"{}\" binds to unknown entity \"{eid}\"",
-                                        action.id()
-                                    ),
+                                    message: format!("Action \"{}\" binds to unknown entity \"{eid}\"", action.id()),
                                     path: Some(format!("actions.{}", action.id())),
                                 });
                             }
@@ -304,21 +277,11 @@ impl ModelBrowser {
                             .into_iter()
                             .map(|(state_name, mod_args)| {
                                 let opts = mod_args.opts();
-                                let args = mod_args
-                                    .args()
-                                    .into_iter()
-                                    .map(|(k, v)| (k, value_to_display(&v)))
-                                    .collect();
+                                let args = mod_args.args().into_iter().map(|(k, v)| (k, value_to_display(&v))).collect();
                                 let context_vars = mod_args.context().into_iter().collect();
-                                let conditions = mod_args
-                                    .conditions()
-                                    .into_iter()
-                                    .map(|(k, v)| (k, value_to_display(&v)))
-                                    .collect();
+                                let conditions = mod_args.conditions().into_iter().map(|(k, v)| (k, value_to_display(&v))).collect();
 
-                                BrowsedActionState {
-                                    state: state_name, opts, args, context_vars, conditions,
-                                }
+                                BrowsedActionState { state: state_name, opts, args, context_vars, conditions }
                             })
                             .collect();
 
@@ -380,18 +343,14 @@ impl ModelBrowser {
         diagnostics.extend(r_diags);
 
         // Validate relation required entities against known entities.
-        let known_eids: std::collections::BTreeSet<&str> =
-            entities.iter().map(|e| e.id.as_str()).collect();
+        let known_eids: std::collections::BTreeSet<&str> = entities.iter().map(|e| e.id.as_str()).collect();
         for rel in &relations {
             for st in &rel.states {
                 for eid in &st.required_entities {
                     if !known_eids.contains(eid.as_str()) {
                         diagnostics.push(ModelBrowseDiagnostic {
                             level: ModelBrowseDiagnosticLevel::Warning,
-                            message: format!(
-                                "Relation \"{}\" state \"{}\" requires unknown entity \"{eid}\"",
-                                rel.id, st.state,
-                            ),
+                            message: format!("Relation \"{}\" state \"{}\" requires unknown entity \"{eid}\"", rel.id, st.state,),
                             path: Some(format!("relations.{}.{}", rel.id, st.state)),
                         });
                     }
@@ -412,32 +371,16 @@ impl ModelBrowser {
         // Deduplicate: keep only the first occurrence of each (level, message, path) tuple.
         let mut seen: std::collections::BTreeSet<(String, String, String)> = std::collections::BTreeSet::new();
         diagnostics.retain(|d| {
-            let key = (
-                format!("{:?}", d.level),
-                d.message.clone(),
-                d.path.clone().unwrap_or_default(),
-            );
+            let key = (format!("{:?}", d.level), d.message.clone(), d.path.clone().unwrap_or_default());
             seen.insert(key)
         });
 
-        Ok(BrowsedModel {
-            metadata: self.metadata(),
-            entities,
-            relations,
-            entrypoints,
-            actions,
-            states,
-            diagnostics,
-        })
+        Ok(BrowsedModel { metadata: self.metadata(), entities, relations, entrypoints, actions, states, diagnostics })
     }
 
     /// Build entrypoints from already-extracted entities and relations,
     /// without re-calling `self.entities()` or `self.relations()`.
-    fn build_entrypoints(
-        &self,
-        entities: &[BrowsedEntity],
-        relations: &[BrowsedRelation],
-    ) -> (Vec<BrowsedEntrypoint>, Vec<ModelBrowseDiagnostic>) {
+    fn build_entrypoints(&self, entities: &[BrowsedEntity], relations: &[BrowsedRelation]) -> (Vec<BrowsedEntrypoint>, Vec<ModelBrowseDiagnostic>) {
         let mut entrypoints: Vec<BrowsedEntrypoint> = Vec::new();
         let mut diagnostics: Vec<ModelBrowseDiagnostic> = Vec::new();
 
@@ -451,14 +394,8 @@ impl ModelBrowser {
                     continue;
                 }
 
-                let relation_ids: Vec<String> = rel_ids_val
-                    .as_sequence()
-                    .map(|seq| {
-                        seq.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let relation_ids: Vec<String> =
+                    rel_ids_val.as_sequence().map(|seq| seq.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
 
                 if relation_ids.is_empty() {
                     continue;
@@ -489,20 +426,13 @@ impl ModelBrowser {
                     }
                 }
 
-                entrypoints.push(BrowsedEntrypoint::CheckbookLabel {
-                    label,
-                    relation_ids,
-                    entity_ids,
-                });
+                entrypoints.push(BrowsedEntrypoint::CheckbookLabel { label, relation_ids, entity_ids });
             }
         }
 
         // --- Bare entities as entrypoints ---
         for entity in entities {
-            entrypoints.push(BrowsedEntrypoint::Entity {
-                id: entity.id.clone(),
-                descr: entity.descr.clone(),
-            });
+            entrypoints.push(BrowsedEntrypoint::Entity { id: entity.id.clone(), descr: entity.descr.clone() });
         }
 
         (entrypoints, diagnostics)
@@ -532,5 +462,3 @@ fn value_kind_name(v: &serde_yaml::Value) -> &'static str {
         serde_yaml::Value::Tagged(_) => "tagged value",
     }
 }
-
-

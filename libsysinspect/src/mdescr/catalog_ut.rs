@@ -1,9 +1,6 @@
 use std::{fs, sync::Arc};
 
-use crate::{
-    cfg::mmconf::MinionConfig,
-    mdescr::catalog::ModelCatalog,
-};
+use crate::{cfg::mmconf::MinionConfig, mdescr::catalog::ModelCatalog};
 
 fn write_model(dir: &std::path::Path, body: &str) {
     fs::create_dir_all(dir).unwrap();

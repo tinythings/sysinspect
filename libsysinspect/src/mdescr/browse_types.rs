@@ -114,10 +114,7 @@ pub enum BrowsedEntrypoint {
         entity_ids: Vec<String>,
     },
     /// A bare entity that can be targeted directly.
-    Entity {
-        id: String,
-        descr: String,
-    },
+    Entity { id: String, descr: String },
 }
 
 /// A declared action extracted from the model's `actions` section.

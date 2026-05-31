@@ -1,14 +1,8 @@
-use std::{
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
 use crate::cfg::mmconf::MinionConfig;
 
-use super::{
-    browser::ModelBrowser,
-    browse_types::*,
-};
+use super::{browse_types::*, browser::ModelBrowser};
 
 /// A single model discovered by the catalog, successful or not.
 #[derive(Debug)]
@@ -45,15 +39,9 @@ impl ModelCatalog {
                     continue;
                 }
 
-                let id = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
+                let id = path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
 
-                let result = ModelBrowser::load(cfg.clone(), &path)
-                    .and_then(|browser| browser.summarize())
-                    .map_err(|e| e);
+                let result = ModelBrowser::load(cfg.clone(), &path).and_then(|browser| browser.summarize());
 
                 entries.push(ModelCatalogEntry { id, path, result });
             }

@@ -3,8 +3,8 @@ use std::{fs, sync::Arc};
 use crate::{
     cfg::mmconf::MinionConfig,
     mdescr::{
-        browser::ModelBrowser,
         browse_types::{BrowsedEntrypoint, ModelBrowseDiagnosticLevel},
+        browser::ModelBrowser,
     },
 };
 
@@ -50,10 +50,7 @@ fn broken_model_returns_load_error() {
 
 #[test]
 fn nonexistent_model_path_returns_load_error() {
-    let result = ModelBrowser::load(
-        Arc::new(MinionConfig::default()),
-        std::path::Path::new("/tmp/sysinspect-nonexistent-model-xyz"),
-    );
+    let result = ModelBrowser::load(Arc::new(MinionConfig::default()), std::path::Path::new("/tmp/sysinspect-nonexistent-model-xyz"));
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Model load error"));
@@ -990,8 +987,7 @@ fn keypair_demo_smoke_test() {
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/demos/keypair");
     assert!(p.exists(), "keypair demo directory not found at {}", p.display());
 
-    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), &p)
-        .expect("keypair demo should load");
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), &p).expect("keypair demo should load");
 
     let summary = browser.summarize().expect("keypair demo should summarize");
 
@@ -1002,8 +998,7 @@ fn keypair_demo_smoke_test() {
     assert!(!summary.entrypoints.is_empty());
 
     // Verify named states are captured (the demo uses bootstrap, regen-priv, repair-pub)
-    let regen = summary.actions.iter().find(|a| a.action_id == "keypair-regen-priv")
-        .expect("keypair-regen-priv action missing");
+    let regen = summary.actions.iter().find(|a| a.action_id == "keypair-regen-priv").expect("keypair-regen-priv action missing");
     assert!(regen.states.iter().any(|s| s.state == "regen-priv"));
 }
 
@@ -1043,7 +1038,10 @@ entities:
     assert_eq!(bad.descr, "");
 
     // A warning diagnostic was emitted for the non-mapping body.
-    let diag = summary.diagnostics.iter().find(|d| d.message.contains("bad") && d.message.contains("not a mapping"))
+    let diag = summary
+        .diagnostics
+        .iter()
+        .find(|d| d.message.contains("bad") && d.message.contains("not a mapping"))
         .expect("diagnostic for non-mapping entity body missing");
     assert_eq!(diag.level, ModelBrowseDiagnosticLevel::Warning);
 }
@@ -1075,7 +1073,10 @@ relations:
     let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load should succeed");
     let summary = browser.summarize().expect("summarize should succeed");
 
-    let diag = summary.diagnostics.iter().find(|d| d.message.contains("ghost-entity") && d.message.contains("bad-rel"))
+    let diag = summary
+        .diagnostics
+        .iter()
+        .find(|d| d.message.contains("ghost-entity") && d.message.contains("bad-rel"))
         .expect("diagnostic for unknown entity in relation missing");
     assert_eq!(diag.level, ModelBrowseDiagnosticLevel::Warning);
 }
@@ -1131,8 +1132,6 @@ actions:
 
     // There should be exactly one diagnostic for stray-action's unknown bind,
     // not multiple copies from overlapping extractions.
-    let ghost_diags: Vec<_> = summary.diagnostics.iter()
-        .filter(|d| d.message.contains("ghost-entity"))
-        .collect();
+    let ghost_diags: Vec<_> = summary.diagnostics.iter().filter(|d| d.message.contains("ghost-entity")).collect();
     assert_eq!(ghost_diags.len(), 1, "diagnostic for ghost-entity should appear exactly once, found {}", ghost_diags.len());
 }
