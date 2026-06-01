@@ -56,7 +56,7 @@ fn nonexistent_model_path_returns_load_error() {
     assert!(err.contains("Model load error"));
 }
 
-// ── Ticket 3: Entities ──────────────────────────────────────────────
+// Entities
 
 #[test]
 fn entities_from_model_with_multiple_entities_and_claims() {
@@ -196,7 +196,7 @@ entities:
     assert!(inner_labels.contains(&"data".to_string()));
 }
 
-// ── Ticket 4: Relations & Checkbook ─────────────────────────────────
+// Relations & Checkbook
 
 #[test]
 fn relations_from_model_with_checkbook_and_relations() {
@@ -358,7 +358,7 @@ relations:
     assert_eq!(verbose_st.required_entities, vec!["e2", "e3"]);
 }
 
-// ── Ticket 5: Actions & States ──────────────────────────────────────
+// Actions & States
 
 #[test]
 fn actions_with_multiple_states() {
@@ -460,7 +460,7 @@ actions:
     assert!(state_names.contains(&"regen-priv"));
 }
 
-// ── Ticket 6: Params ────────────────────────────────────────────────
+// Params
 
 #[test]
 fn action_state_params_opts_args_ctx_conds() {
@@ -600,7 +600,7 @@ actions:
     assert!(st.args.contains(&("count".to_string(), "42".to_string())));
 }
 
-// ── Ticket 7: States ────────────────────────────────────────────────
+// States
 
 #[test]
 fn states_union_includes_dollar_and_named() {
@@ -710,7 +710,7 @@ actions:
     assert_eq!(browser.states(), vec!["verbose"]);
 }
 
-// ── Ticket 8: Diagnostics ───────────────────────────────────────────
+// Diagnostics
 
 #[test]
 fn malformed_entity_produces_diagnostic_not_silent_omission() {
@@ -877,7 +877,7 @@ actions:
     assert!(diag.message.contains("stray"));
 }
 
-// ── Ticket 9: summarize() ───────────────────────────────────────────
+// summarize()
 
 #[test]
 fn summarize_returns_complete_browsed_model() {
@@ -980,7 +980,7 @@ actions:
     assert!(summary.diagnostics.is_empty());
 }
 
-// ── Ticket 12: Smoke test against real example ──────────────────────
+// Smoke test against real example
 
 #[test]
 fn keypair_demo_smoke_test() {
@@ -1002,7 +1002,7 @@ fn keypair_demo_smoke_test() {
     assert!(regen.states.iter().any(|s| s.state == "regen-priv"));
 }
 
-// ── Ticket 13: Hardening ────────────────────────────────────────────
+// Hardening
 
 #[test]
 fn malformed_entity_body_produces_warning_not_silent_default() {
