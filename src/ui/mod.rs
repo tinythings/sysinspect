@@ -33,6 +33,7 @@ use std::{
 use tokio::sync::Mutex;
 
 mod alert;
+mod dslbrowser;
 mod elements;
 mod online;
 mod statusbar;
@@ -118,6 +119,9 @@ pub struct SysInspectUX {
     pub evtipc: Option<Arc<Mutex<DbIPCClient>>>,
 
     // Config
+    /// DSL browser / call composer
+    pub dsl_browser: dslbrowser::DslBrowser,
+
     pub cfg: MasterConfig,
 
     // Buffers
@@ -170,6 +174,7 @@ impl Default for SysInspectUX {
             tag_pos: 0,
 
             evtipc: None,
+            dsl_browser: dslbrowser::DslBrowser::new(),
             cfg: MasterConfig::default(),
             cycles_buf: Vec::new(),
             minions_buf: Vec::new(),
@@ -730,6 +735,11 @@ impl SysInspectUX {
     }
 
     fn on_key(&mut self, e: event::KeyEvent) {
+        if self.dsl_browser.visible {
+            self.dsl_browser.handle_key(e.code);
+            return;
+        }
+
         if self.on_help_popup(e) {
             return;
         }
@@ -907,6 +917,10 @@ impl SysInspectUX {
             }
             KeyCode::Char('h') => {
                 self.help_popup_visible = true;
+            }
+            KeyCode::Char('c') => {
+                self.dsl_browser.visible = true;
+                self.dsl_browser.focus = dslbrowser::DslFocus::Query;
             }
             KeyCode::Char('o') => match self.get_online_minions() {
                 Ok(rows) if rows.is_empty() => {

@@ -66,7 +66,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Help"),
-            "\"p\" - purge all records\n\"q\" - quit the UI\n\"h\" - show this help\n\"o\" - registered minions popup\n",
+            "\"c\" - call composer\n\"h\" - show this help\n\"o\" - registered minions popup\n\"p\" - purge all records\n\"q\" - quit the UI\n",
             Some(Color::Green),
             Alignment::Left,
             AlertResult::Close,

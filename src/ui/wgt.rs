@@ -248,5 +248,6 @@ impl Widget for &SysInspectUX {
         self.dialog_online_minions(area, buf);
         self.dialog_trait_tag(area, buf);
         self.dialog_error(area, buf);
+        self.dialog_dsl_browser(area, buf);
     }
 }
