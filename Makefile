@@ -4,64 +4,78 @@ include Makefile.in
 
 MXRUN_BIN := mxrun
 MXRUN_ARGS ?=
+MX_ACTIVE := $(shell awk -F= '/^active=/ {print $$2}' .mxrun-env 2>/dev/null)
+C_MX  := $(if $(filter yes,$(MX_ACTIVE)),\033[1;96m,\033[1m)
+C_BLD := \033[1m
+C_YLW := \033[1;93m
+C_GRN := \033[1;92m
+C_OFF := \033[0m
 
-.PHONY: help release mxrun mxrun-init mxrun-status set-local-builds set-remote-builds build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
+.PHONY: help release mxrun mxrun-init mxrun-toggle set-local-builds set-remote-builds build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls advisory \
 	_dev _all_dev _all _build _modules_dev _modules _modules_dist_dev _test _test_core _test_modules _test_sensors _test_integration
 
 help:
 	@printf '\n$$ make [help]\n\n'
-	@printf '\033[1;92m%s\033[0m\n' "Development"
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "help" "Show this help and what each entry does."
-	@printf '    %-20s %s\n' "dev" "Compile core binaries in development mode with debug data."
-	@printf '    %-20s %s\n' "all-dev" "Compile core plus modules in development mode."
-	@printf '    %-20s %s\n' "modules-dev" "Compile modules only in development mode."
-	@printf '    %-20s %s\n' "modules-dist-dev" "Build release modules and stage distribution payloads."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh-dev" "Debug variant of Linux musl module refresh."
-	@printf '\n\033[1;92m%s\033[0m\n' "Release"
-	@printf '    %-20s %s\n' "release" "Compile core binaries in release mode."
-	@printf '    %-20s %s\n' "all" "Compile core plus modules in release mode."
-	@printf '    %-20s %s\n' "modules" "Compile modules only in release mode."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
-	@printf '\n\033[1;92m%s\033[0m\n' "Utils"
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "mxrun-status" "Show whether mxrun mode is active or local-only."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "set-local-builds" "Disable mxrun; all builds run locally."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "set-remote-builds" "Enable mxrun; builds run across the target matrix."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "mxrun-init" "Validate mxrun config and initialise targets."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "mxrun" "Show mxrun status (auto-inits local-only if no config found)."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "fix" "Run clippy --fix on the workspace."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "advisory" "Audit dependencies for known vulnerabilities."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "clean" "Remove Cargo build output."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "stats" "Show code statistics via tokei."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev-tls" "Generate local development TLS material."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "tar" "Create a vendored source tarball."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' 'MXRUN_ARGS="..."' "Pass extra CLI flags to mxrun, e.g. --mirror-results or --mirror-root /tmp/out."
-	@printf '\n\033[1;92m%s\033[0m\n' "Testing"
-	@printf '    %-20s %s\n' "test" "Run the full nextest suite for this platform."
-	@printf '    %-20s %s\n' "test-core" "Run core crate unit/bin tests only."
-	@printf '    %-20s %s\n' "test-modules" "Run module tests only."
-	@printf '    %-20s %s\n' "test-sensors" "Run sensor crate tests only."
-	@printf '    %-20s %s\n' "test-integration" "Run integration tests only."
-	@printf '\n\033[1;92m%s\033[0m\n' "Cross Builds"
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
-	@printf '\n\033[1;92m%s\033[0m\n' "Documentation"
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "man" "Build the sysinspect manpage from Markdown."
-	@printf '\n\033[1;96m%s\033[0m\n' "mxrun"
-	@printf '    %s\n' "Use 'make mxrun-status' to check current mode."
-	@printf '    %s\n' "If mxrun is active, build and test targets delegate to the target matrix."
-	@printf '    %s\n' "If mxrun is inactive, builds run locally as usual."
+	@printf '$(C_GRN)%s$(C_OFF)\n' "Development Build"
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "help" "Show this help and what each entry does."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "dev" "Compile core binaries in development mode with debug data."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "all-dev" "Compile core plus modules in development mode."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules-dev" "Compile modules only in development mode."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules-dist-dev" "Build release modules and stage distribution payloads."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules-refresh-dev" "Debug variant of Linux musl module refresh."
+	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Release Build"
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "release" "Compile core binaries in release mode."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "all" "Compile core plus modules in release mode."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules" "Compile modules only in release mode."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
+	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Cross Build"
+	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
+	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
+	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
+	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
+	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Testing"
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test" "Run the full nextest suite for this platform."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test-core" "Run core crate unit/bin tests only."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test-modules" "Run module tests only."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test-sensors" "Run sensor crate tests only."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test-integration" "Run integration tests only."
+	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Documentation"
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "man" "Build the sysinspect manpage from Markdown."
+	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Utils"
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "mxrun-toggle" "Toggle mxrun availability (enable/disable remote builds)."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "set-local-builds" "Disable mxrun; all builds run locally."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "set-remote-builds" "Enable mxrun; builds run across the target matrix."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "mxrun-init" "Validate mxrun config and initialise targets."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "mxrun" "Show mxrun status (auto-inits local-only if no config found)."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "smoke-test" "Run platform smoke tests."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "check" "Run clippy in deny-warnings mode."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "fix" "Run clippy --fix on the workspace."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "advisory" "Audit dependencies for known vulnerabilities."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "clean" "Remove Cargo build output."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "stats" "Show code statistics via tokei."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "dev-tls" "Generate local development TLS material."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' "tar" "Create a vendored source tarball."
+	@printf '    $(C_YLW)%-20s$(C_OFF) %s\n' 'MXRUN_ARGS="..."' "Pass extra CLI flags to mxrun, e.g. --mirror-results or --mirror-root /tmp/out."
+	@printf '\n$(C_MX)%s$(C_OFF)\n' "mxrun"
+	@if [ "$(MX_ACTIVE)" = "yes" ]; then \
+		printf '    %s\n' "Enabled — builds delegate to the target matrix."; \
+		printf '    %s\n' "Use 'make mxrun-toggle' to disable."; \
+	else \
+		printf '    %s\n' "Disabled — builds run locally."; \
+		printf '    %s\n' "Use 'make mxrun-toggle' to enable, or 'make mxrun-init' to initialise."; \
+	fi
 	@printf '\n'
 
 
-mxrun-status:
-	sh scripts/mxrun-status.sh
+mxrun-toggle:
+	@if [ -f .mxrun-env ] && grep -q '^active=yes' .mxrun-env 2>/dev/null; then \
+		sh scripts/mxrun-set-local.sh; \
+	else \
+		sh scripts/mxrun-set-remote.sh; \
+	fi
 
 set-local-builds:
 	sh scripts/mxrun-set-local.sh

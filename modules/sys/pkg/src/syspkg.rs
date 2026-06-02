@@ -98,7 +98,7 @@ pub fn run(rt: &ModRequest) -> ModResponse {
         let upgradable = list_upgradable();
         if upgradable.is_empty() {
             response.set_retcode(0);
-            response.set_message("All packages are up to date");
+            response.set_message(&"[dry-run] All packages are up to date".to_string());
             return response;
         }
         response.add_warning(&format!("Upgrading {} package(s): {}", upgradable.len(), upgradable.join(", ")));
