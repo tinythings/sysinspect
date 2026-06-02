@@ -126,7 +126,7 @@ SYSMINION_SPEC := $(call PKG_SPEC_FROM_TOML,sysminion/Cargo.toml)
 define install_tooling
 	@cargo nextest --version >/dev/null 2>&1 || cargo install cargo-nextest --locked; \
 	command -v tokei >/dev/null 2>&1 || cargo install tokei --locked; \
-	cargo install mxrun
+	cargo install mxrun || true
 endef
 
 define ensure_linux_apt_build_deps
