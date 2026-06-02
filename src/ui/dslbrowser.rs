@@ -3,7 +3,10 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
+    widgets::{
+        Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
+        Widget,
+    },
 };
 use ratatui_cheese::input::{Input, InputState};
 
@@ -63,11 +66,7 @@ pub struct ListBox {
 
 impl std::fmt::Debug for ListBox {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ListBox")
-            .field("items", &self.items)
-            .field("selected", &self.state.selected())
-            .field("scroll", &self.scroll.get())
-            .finish()
+        f.debug_struct("ListBox").field("items", &self.items).field("selected", &self.state.selected()).field("scroll", &self.scroll.get()).finish()
     }
 }
 
@@ -78,22 +77,26 @@ impl ListBox {
         Self { items, state: s, scroll: Cell::new(0) }
     }
 
-    fn selected(&self) -> Option<usize> { self.state.selected() }
+    fn selected(&self) -> Option<usize> {
+        self.state.selected()
+    }
 
     fn up(&mut self) {
-        if let Some(cur) = self.state.selected() {
-            if cur > 0 {
-                self.state.select(Some(cur - 1));
-                if cur - 1 < self.scroll.get() { self.scroll.set(self.scroll.get().saturating_sub(1)); }
+        if let Some(cur) = self.state.selected()
+            && cur > 0
+        {
+            self.state.select(Some(cur - 1));
+            if cur - 1 < self.scroll.get() {
+                self.scroll.set(self.scroll.get().saturating_sub(1));
             }
         }
     }
 
     fn down(&mut self) {
-        if let Some(cur) = self.state.selected() {
-            if cur + 1 < self.items.len() {
-                self.state.select(Some(cur + 1));
-            }
+        if let Some(cur) = self.state.selected()
+            && cur + 1 < self.items.len()
+        {
+            self.state.select(Some(cur + 1));
         }
     }
 }
@@ -116,23 +119,15 @@ impl DslBrowser {
         Self {
             visible: false,
             query: String::from("*"),
-            query_state: { let mut s = InputState::new(); s.insert_char('*'); s },
-            models: ListBox::new(
-                (1..=20).map(|i| format!("model-{i:02}")).collect(),
-                0,
-            ),
-            targets: ListBox::new(
-                (1..=15).map(|i| format!("target-{i:02}")).collect(),
-                0,
-            ),
-            states: ListBox::new(
-                (1..=12).map(|i| format!("state-{i:02}")).collect(),
-                0,
-            ),
-            minions: ListBox::new(
-                (1..=100).map(|i| format!("minion-{i:03}.example.net")).collect(),
-                0,
-            ),
+            query_state: {
+                let mut s = InputState::new();
+                s.insert_char('*');
+                s
+            },
+            models: ListBox::new((1..=20).map(|i| format!("model-{i:02}")).collect(), 0),
+            targets: ListBox::new((1..=15).map(|i| format!("target-{i:02}")).collect(), 0),
+            states: ListBox::new((1..=12).map(|i| format!("state-{i:02}")).collect(), 0),
+            minions: ListBox::new((1..=100).map(|i| format!("minion-{i:03}.example.net")).collect(), 0),
             context_fields: vec![
                 ContextField { key: "Opt".into(), value: String::new(), state: InputState::new() },
                 ContextField { key: "Foo".into(), value: String::new(), state: InputState::new() },
@@ -143,12 +138,24 @@ impl DslBrowser {
         }
     }
 
-    fn s_fg() -> Style { Style::default().fg(Color::White).bg(Color::DarkGray) }
-    fn s_bd() -> Style { Self::s_fg().add_modifier(Modifier::BOLD) }
-    fn s_di() -> Style { Style::default().fg(Color::Gray).bg(Color::DarkGray) }
-    fn s_hl() -> Style { Style::default().fg(Color::Black).bg(Color::LightBlue) }
-    fn s_hl_dim() -> Style { Style::default().fg(Color::Black).bg(Color::Gray) }
-    fn s_bl() -> Style { Style::default().fg(Color::Cyan).bg(Color::DarkGray).add_modifier(Modifier::BOLD) }
+    fn s_fg() -> Style {
+        Style::default().fg(Color::White).bg(Color::DarkGray)
+    }
+    fn s_bd() -> Style {
+        Self::s_fg().add_modifier(Modifier::BOLD)
+    }
+    fn s_di() -> Style {
+        Style::default().fg(Color::Gray).bg(Color::DarkGray)
+    }
+    fn s_hl() -> Style {
+        Style::default().fg(Color::Black).bg(Color::LightBlue)
+    }
+    fn s_hl_dim() -> Style {
+        Style::default().fg(Color::Black).bg(Color::Gray)
+    }
+    fn s_bl() -> Style {
+        Style::default().fg(Color::Cyan).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+    }
 
     fn border_style(focus: DslFocus, current: DslFocus) -> Style {
         if current == focus { Style::default().fg(Color::White) } else { Style::default().fg(Color::Black) }
@@ -163,13 +170,16 @@ impl DslBrowser {
     }
 
     pub fn render_content(&self, area: Rect, buf: &mut Buffer) {
-        if area.height < 12 { return; }
+        if area.height < 12 {
+            return;
+        }
 
         let top_h = 1u16;
         let list_h = area.height.saturating_sub(top_h + 4);
         let bot_h = area.height.saturating_sub(top_h + list_h);
 
-        let rows = Layout::default().direction(Direction::Vertical)
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
             .constraints([Constraint::Length(top_h), Constraint::Length(list_h), Constraint::Length(bot_h)])
             .split(area);
 
@@ -180,7 +190,8 @@ impl DslBrowser {
     }
 
     fn render_top(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
-        let chunks = Layout::default().direction(Direction::Horizontal)
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(box_w),
                 Constraint::Length(box_w),
@@ -196,7 +207,9 @@ impl DslBrowser {
         qs.set_value(self.query.clone());
         qs.set_focused(qf);
         let qc = self.query_state.cursor_pos();
-        while qs.cursor_pos() < qc { qs.move_right(); }
+        while qs.cursor_pos() < qc {
+            qs.move_right();
+        }
         let inp = Input::new("").prompt("").placeholder("*");
         StatefulWidget::render(&inp, Rect::new(chunks[0].x + 7, chunks[0].y, chunks[0].width.saturating_sub(7), 1), buf, &mut qs);
 
@@ -207,7 +220,8 @@ impl DslBrowser {
     }
 
     fn render_lists(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
-        let chunks = Layout::default().direction(Direction::Horizontal)
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(box_w),
                 Constraint::Length(box_w),
@@ -226,10 +240,7 @@ impl DslBrowser {
 
     fn render_list_box(&self, lb: &ListBox, area: &Rect, target: DslFocus, buf: &mut Buffer) {
         let is_minions = matches!(target, DslFocus::Minions);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Self::border_style(self.focus, target));
+        let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Self::border_style(self.focus, target));
         let inner = block.inner(*area);
         block.render(*area, buf);
 
@@ -238,16 +249,16 @@ impl DslBrowser {
         // Auto-scroll to keep selected visible
         if let Some(sel) = lb.state.selected() {
             let mut off = lb.scroll.get();
-            if sel < off { off = sel; }
-            else if sel >= off.saturating_add(list_h) { off = sel.saturating_sub(list_h.saturating_sub(1)); }
+            if sel < off {
+                off = sel;
+            } else if sel >= off.saturating_add(list_h) {
+                off = sel.saturating_sub(list_h.saturating_sub(1));
+            }
             lb.scroll.set(off.min(total.saturating_sub(list_h)));
         }
         let offset = lb.scroll.get().min(total.saturating_sub(list_h));
 
-        let visible: Vec<ListItem> = lb.items.iter()
-            .skip(offset).take(list_h)
-            .map(|s| ListItem::new(s.as_str()))
-            .collect();
+        let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
         let focused = self.focus == target;
         let hl = if is_minions {
             if focused { Style::default().fg(Color::Black).bg(Color::DarkGray) } else { Style::default() }
@@ -262,10 +273,8 @@ impl DslBrowser {
             if let Some(sel) = lb.state.selected() {
                 ls.select(Some(sel.saturating_sub(offset)));
             }
-        } else if !is_minions {
-            if let Some(sel) = lb.state.selected() {
-                ls.select(Some(sel.saturating_sub(offset)));
-            }
+        } else if !is_minions && let Some(sel) = lb.state.selected() {
+            ls.select(Some(sel.saturating_sub(offset)));
         }
         let list_area = Rect::new(inner.x, inner.y, inner.width.saturating_sub(2), inner.height);
         StatefulWidget::render(list, list_area, buf, &mut ls);
@@ -283,16 +292,15 @@ impl DslBrowser {
     }
 
     fn render_context_inline(&self, area: Rect, buf: &mut Buffer) {
-        let max_label_w = self.context_fields.iter()
-            .map(|f| f.key.len())
-            .max()
-            .unwrap_or(4) as u16;
+        let max_label_w = self.context_fields.iter().map(|f| f.key.len()).max().unwrap_or(4) as u16;
         let label_col_w = max_label_w + 2; // key:  plus padding
         let input_w = (area.width.saturating_sub(label_col_w)).max(15);
 
         for (i, field) in self.context_fields.iter().enumerate() {
             let y = area.y + i as u16;
-            if y >= area.bottom() { break; }
+            if y >= area.bottom() {
+                break;
+            }
             let focused = matches!(self.focus, DslFocus::ContextField(idx) if idx == i);
             let label = format!("{:>width$}: ", field.key, width = max_label_w as usize);
             buf.set_string(area.x, y, &label, Self::s_bd());
@@ -301,14 +309,17 @@ impl DslBrowser {
             is.set_value(field.value.clone());
             is.set_focused(focused);
             let fc = field.state.cursor_pos();
-            while is.cursor_pos() < fc { is.move_right(); }
+            while is.cursor_pos() < fc {
+                is.move_right();
+            }
             let ia = Rect::new(area.x + label_col_w, y, input_w, 1);
             StatefulWidget::render(&inp, ia, buf, &mut is);
         }
     }
 
     fn render_bottom(&self, area: Rect, buf: &mut Buffer) {
-        let chunks = Layout::default().direction(Direction::Vertical)
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
             .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
             .split(area);
 
@@ -317,7 +328,7 @@ impl DslBrowser {
         let m = self.models.items.get(self.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
         let e = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
         let s = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
-        buf.set_string(chunks[1].x, chunks[1].y, &format!("  Preview: model={m}  target={e}  state={s}"), Self::s_fg());
+        buf.set_string(chunks[1].x, chunks[1].y, format!("  Preview: model={m}  target={e}  state={s}"), Self::s_fg());
 
         let btn_y = chunks[3].y;
         let call_lbl = format_button("Call");
@@ -333,9 +344,18 @@ impl DslBrowser {
 
     pub fn handle_key(&mut self, code: KeyCode) -> bool {
         match code {
-            KeyCode::Esc => { self.visible = false; return true; }
-            KeyCode::Tab => { self.focus = self.focus.next(); return true; }
-            KeyCode::BackTab => { self.focus = self.focus.prev(); return true; }
+            KeyCode::Esc => {
+                self.visible = false;
+                return true;
+            }
+            KeyCode::Tab => {
+                self.focus = self.focus.next();
+                return true;
+            }
+            KeyCode::BackTab => {
+                self.focus = self.focus.prev();
+                return true;
+            }
             _ => {}
         }
 
@@ -345,10 +365,22 @@ impl DslBrowser {
                 self.query = self.query_state.value().to_string();
                 true
             }
-            DslFocus::Models => { handle_list_nav(code, &mut self.models); true }
-            DslFocus::Target => { handle_list_nav(code, &mut self.targets); true }
-            DslFocus::State => { handle_list_nav(code, &mut self.states); true }
-            DslFocus::Minions => { handle_list_nav(code, &mut self.minions); true }
+            DslFocus::Models => {
+                handle_list_nav(code, &mut self.models);
+                true
+            }
+            DslFocus::Target => {
+                handle_list_nav(code, &mut self.targets);
+                true
+            }
+            DslFocus::State => {
+                handle_list_nav(code, &mut self.states);
+                true
+            }
+            DslFocus::Minions => {
+                handle_list_nav(code, &mut self.minions);
+                true
+            }
             DslFocus::ContextField(idx) => {
                 let n = self.context_fields.len();
                 if idx < n {
@@ -422,40 +454,117 @@ fn format_button(label: &str) -> String {
 
 fn handle_query_edit(code: KeyCode, qs: &mut InputState) -> bool {
     match code {
-        KeyCode::Char(c) => { qs.insert_char(c); true }
-        KeyCode::Backspace => { qs.delete_before(); true }
-        KeyCode::Delete => { qs.delete_at(); true }
-        KeyCode::Left => { qs.move_left(); true }
-        KeyCode::Right => { qs.move_right(); true }
-        KeyCode::Home => { qs.home(); true }
-        KeyCode::End => { qs.end(); true }
+        KeyCode::Char(c) => {
+            qs.insert_char(c);
+            true
+        }
+        KeyCode::Backspace => {
+            qs.delete_before();
+            true
+        }
+        KeyCode::Delete => {
+            qs.delete_at();
+            true
+        }
+        KeyCode::Left => {
+            qs.move_left();
+            true
+        }
+        KeyCode::Right => {
+            qs.move_right();
+            true
+        }
+        KeyCode::Home => {
+            qs.home();
+            true
+        }
+        KeyCode::End => {
+            qs.end();
+            true
+        }
         _ => false,
     }
 }
 
 fn handle_list_nav(code: KeyCode, lb: &mut ListBox) -> bool {
     match code {
-        KeyCode::Up => { lb.up(); true }
-        KeyCode::Down => { lb.down(); true }
-        KeyCode::PageUp => { for _ in 0..10 { lb.up(); } true }
-        KeyCode::PageDown => { for _ in 0..10 { lb.down(); } true }
+        KeyCode::Up => {
+            lb.up();
+            true
+        }
+        KeyCode::Down => {
+            lb.down();
+            true
+        }
+        KeyCode::PageUp => {
+            for _ in 0..10 {
+                lb.up();
+            }
+            true
+        }
+        KeyCode::PageDown => {
+            for _ in 0..10 {
+                lb.down();
+            }
+            true
+        }
         _ => false,
     }
 }
 
 fn handle_ctx_edit(code: KeyCode, f: &mut ContextField, idx: usize, total: usize, focus: &mut DslFocus) -> bool {
     match code {
-        KeyCode::Up => { if idx > 0 { *focus = DslFocus::ContextField(idx - 1); } true }
-        KeyCode::Down => { if idx + 1 < total { *focus = DslFocus::ContextField(idx + 1); } true }
-        KeyCode::Tab => { *focus = if idx + 1 < total { DslFocus::ContextField(idx + 1) } else { DslFocus::Minions }; true }
-        KeyCode::BackTab => { *focus = if idx > 0 { DslFocus::ContextField(idx - 1) } else { DslFocus::State }; true }
-        KeyCode::Char(c) => { f.state.insert_char(c); f.value = f.state.value().to_string(); true }
-        KeyCode::Backspace => { f.state.delete_before(); f.value = f.state.value().to_string(); true }
-        KeyCode::Delete => { f.state.delete_at(); f.value = f.state.value().to_string(); true }
-        KeyCode::Left => { f.state.move_left(); true }
-        KeyCode::Right => { f.state.move_right(); true }
-        KeyCode::Home => { f.state.home(); true }
-        KeyCode::End => { f.state.end(); true }
+        KeyCode::Up => {
+            if idx > 0 {
+                *focus = DslFocus::ContextField(idx - 1);
+            }
+            true
+        }
+        KeyCode::Down => {
+            if idx + 1 < total {
+                *focus = DslFocus::ContextField(idx + 1);
+            }
+            true
+        }
+        KeyCode::Tab => {
+            *focus = if idx + 1 < total { DslFocus::ContextField(idx + 1) } else { DslFocus::Minions };
+            true
+        }
+        KeyCode::BackTab => {
+            *focus = if idx > 0 { DslFocus::ContextField(idx - 1) } else { DslFocus::State };
+            true
+        }
+        KeyCode::Char(c) => {
+            f.state.insert_char(c);
+            f.value = f.state.value().to_string();
+            true
+        }
+        KeyCode::Backspace => {
+            f.state.delete_before();
+            f.value = f.state.value().to_string();
+            true
+        }
+        KeyCode::Delete => {
+            f.state.delete_at();
+            f.value = f.state.value().to_string();
+            true
+        }
+        KeyCode::Left => {
+            f.state.move_left();
+            true
+        }
+        KeyCode::Right => {
+            f.state.move_right();
+            true
+        }
+        KeyCode::Home => {
+            f.state.home();
+            true
+        }
+        KeyCode::End => {
+            f.state.end();
+            true
+        }
         _ => false,
     }
 }
