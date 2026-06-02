@@ -2414,7 +2414,6 @@ dependencies = [
 [[package]]
 name = "filescream"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
@@ -3407,7 +3406,6 @@ dependencies = [
 [[package]]
 name = "iface"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
@@ -4789,7 +4787,6 @@ dependencies = [
 [[package]]
 name = "netpacket"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
@@ -4806,7 +4803,6 @@ dependencies = [
 [[package]]
 name = "nettools"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
@@ -5057,7 +5053,6 @@ dependencies = [
 [[package]]
 name = "omnitrace-core"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
@@ -5937,7 +5932,6 @@ dependencies = [
 [[package]]
 name = "procdog"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
@@ -8004,7 +7998,6 @@ dependencies = [
 [[package]]
 name = "socktray"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
@@ -10814,7 +10807,6 @@ checksum = "636f85e5ca6488e96401b61eb7de54f4e44755c988af0f52cf90230c312a1a89"
 [[package]]
 name = "xmount"
 version = "0.1.0"
-source = "git+https://github.com/tinythings/omnitrace.git?branch=master#349aeaf6e756406565ce6795b0ce3fd25730ed02"
 dependencies = [
  "async-trait",
  "bitflags 2.11.1",
