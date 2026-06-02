@@ -2,10 +2,10 @@
 
 include Makefile.in
 
-XRUN_BIN := xrun
-XRUN_ARGS ?=
+MXRUN_BIN := mxrun
+MXRUN_ARGS ?=
 
-.PHONY: help release xrun xrun-init xrun-status set-local-builds set-remote-builds build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
+.PHONY: help release mxrun mxrun-init mxrun-status set-local-builds set-remote-builds build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
 	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls advisory \
 	_dev _all_dev _all _build _modules_dev _modules _modules_dist_dev _test _test_core _test_modules _test_sensors _test_integration
@@ -26,11 +26,11 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
 	@printf '\n\033[1;92m%s\033[0m\n' "Utils"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "setup" "Install toolchain dependencies and Rust targets for this host."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "xrun-status" "Show whether xrun mode is active or local-only."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "set-local-builds" "Disable xrun; all builds run locally."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "set-remote-builds" "Enable xrun; builds run across the target matrix."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "xrun-init" "Validate xrun config and initialise targets."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' "xrun" "Check that xrun binary and config are available."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "mxrun-status" "Show whether mxrun mode is active or local-only."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "set-local-builds" "Disable mxrun; all builds run locally."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "set-remote-builds" "Enable mxrun; builds run across the target matrix."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "mxrun-init" "Validate mxrun config and initialise targets."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' "mxrun" "Show mxrun status (auto-inits local-only if no config found)."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "smoke-test" "Run platform smoke tests."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "check" "Run clippy in deny-warnings mode."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "fix" "Run clippy --fix on the workspace."
@@ -39,7 +39,7 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "stats" "Show code statistics via tokei."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "dev-tls" "Generate local development TLS material."
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "tar" "Create a vendored source tarball."
-	@printf '    \033[1;93m%-20s\033[0m %s\n' 'XRUN_ARGS="..."' "Pass extra CLI flags to xrun, e.g. --mirror-results or --mirror-root /tmp/out."
+	@printf '    \033[1;93m%-20s\033[0m %s\n' 'MXRUN_ARGS="..."' "Pass extra CLI flags to mxrun, e.g. --mirror-results or --mirror-root /tmp/out."
 	@printf '\n\033[1;92m%s\033[0m\n' "Testing"
 	@printf '    %-20s %s\n' "test" "Run the full nextest suite for this platform."
 	@printf '    %-20s %s\n' "test-core" "Run core crate unit/bin tests only."
@@ -53,32 +53,36 @@ help:
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
 	@printf '\n\033[1;92m%s\033[0m\n' "Documentation"
 	@printf '    \033[1;93m%-20s\033[0m %s\n' "man" "Build the sysinspect manpage from Markdown."
-	@printf '\n\033[1;96m%s\033[0m\n' "xrun"
-	@printf '    %s\n' "Use 'make xrun-status' to check current mode."
-	@printf '    %s\n' "If xrun is active, build and test targets delegate to the target matrix."
-	@printf '    %s\n' "If xrun is inactive, builds run locally as usual."
+	@printf '\n\033[1;96m%s\033[0m\n' "mxrun"
+	@printf '    %s\n' "Use 'make mxrun-status' to check current mode."
+	@printf '    %s\n' "If mxrun is active, build and test targets delegate to the target matrix."
+	@printf '    %s\n' "If mxrun is inactive, builds run locally as usual."
 	@printf '\n'
 
 
-xrun-status:
-	sh scripts/xrun-status.sh
+mxrun-status:
+	sh scripts/mxrun-status.sh
 
 set-local-builds:
-	sh scripts/xrun-set-local.sh
+	sh scripts/mxrun-set-local.sh
 
 set-remote-builds:
-	sh scripts/xrun-set-remote.sh
+	sh scripts/mxrun-set-remote.sh
 
 release: build
 
-xrun-init: setup
-	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
-	@if [ ! -f xrun.conf ]; then echo "No xrun.conf found in this project. Create one first." >&2; exit 1; fi
-	@XRUN_CONFIG=xrun.conf XRUN_LOCAL_MAKE='$(MAKE)' $(XRUN_BIN) init
+mxrun-init: setup
+	@command -v $(MXRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(MXRUN_BIN). Install it first." >&2; exit 1; }
+	@if [ ! -f mxrun.conf ]; then echo "local" > mxrun.conf; fi
+	@printf 'active=yes\n' > .mxrun-env
+	@MXRUN_CONFIG=mxrun.conf MXRUN_LOCAL_MAKE='$(MAKE)' $(MXRUN_BIN) init || true
 
-xrun: setup
-	@command -v $(XRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(XRUN_BIN). Install it first." >&2; exit 1; }
-	sh scripts/xrun-status.sh
+mxrun: setup
+	@command -v $(MXRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(MXRUN_BIN). Install it first." >&2; exit 1; }
+	@if [ ! -f mxrun.conf ] && [ ! -f .mxrun-env ]; then \
+		printf 'active=no\n' > .mxrun-env; \
+	fi
+	sh scripts/mxrun-status.sh
 
 setup:
 	$(call deps)
@@ -129,92 +133,92 @@ musl-x86_64:
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 
 all-dev:
-	@scripts/maybe-xrun.sh all-dev || $(MAKE) _all_dev
+	@scripts/maybe-mxrun.sh all-dev || $(MAKE) _all_dev
 
 _all_dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
-	$(call write_xrun_manifest,all-dev,)
+	$(call write_mxrun_manifest,all-dev,)
 
 all:
-	@scripts/maybe-xrun.sh all || $(MAKE) _all
+	@scripts/maybe-mxrun.sh all || $(MAKE) _all
 
 _all:
 	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
-	$(call write_xrun_manifest,all,)
+	$(call write_mxrun_manifest,all,)
 
 dev:
-	@scripts/maybe-xrun.sh dev || $(MAKE) _dev
+	@scripts/maybe-mxrun.sh dev || $(MAKE) _dev
 
 _dev:
 	cargo build -v --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,debug,)
 	$(call stage_profile_minion,debug,)
-	$(call write_xrun_manifest,dev,)
+	$(call write_mxrun_manifest,dev,)
 
 build:
-	@scripts/maybe-xrun.sh release || $(MAKE) _build
+	@scripts/maybe-mxrun.sh release || $(MAKE) _build
 
 _build:
 	cargo build --release --workspace $(CORE_EXCLUDES)
 	$(call stage_profile_modules,release,)
 	$(call stage_profile_minion,release,)
-	$(call write_xrun_manifest,release,)
+	$(call write_mxrun_manifest,release,)
 
 modules-dev:
-	@scripts/maybe-xrun.sh modules-dev || $(MAKE) _modules_dev
+	@scripts/maybe-mxrun.sh modules-dev || $(MAKE) _modules_dev
 
 _modules_dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,debug,)
-	$(call write_xrun_manifest,modules-dev,)
+	$(call write_mxrun_manifest,modules-dev,)
 
 modules:
-	@scripts/maybe-xrun.sh modules || $(MAKE) _modules
+	@scripts/maybe-mxrun.sh modules || $(MAKE) _modules
 
 _modules:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
-	$(call write_xrun_manifest,modules,)
+	$(call write_mxrun_manifest,modules,)
 
 modules-dist-dev:
-	@scripts/maybe-xrun.sh modules-dist-dev || $(MAKE) _modules_dist_dev
+	@scripts/maybe-mxrun.sh modules-dist-dev || $(MAKE) _modules_dist_dev
 
 _modules_dist_dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
 	$(call stage_profile_modules,release,)
 	$(call stage_modules_dist)
-	$(call write_xrun_manifest,modules-dist-dev,with-dist)
+	$(call write_mxrun_manifest,modules-dist-dev,with-dist)
 
 test: setup
-	@scripts/maybe-xrun.sh test || $(MAKE) _test
+	@scripts/maybe-mxrun.sh test || $(MAKE) _test
 
 _test:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
 
 test-core: setup
-	@scripts/maybe-xrun.sh test-core || $(MAKE) _test_core
+	@scripts/maybe-mxrun.sh test-core || $(MAKE) _test_core
 
 _test_core:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-modules: setup
-	@scripts/maybe-xrun.sh test-modules || $(MAKE) _test_modules
+	@scripts/maybe-mxrun.sh test-modules || $(MAKE) _test_modules
 
 _test_modules:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
 
 test-sensors: setup
-	@scripts/maybe-xrun.sh test-sensors || $(MAKE) _test_sensors
+	@scripts/maybe-mxrun.sh test-sensors || $(MAKE) _test_sensors
 
 _test_sensors:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-integration: setup
-	@scripts/maybe-xrun.sh test-integration || $(MAKE) _test_integration
+	@scripts/maybe-mxrun.sh test-integration || $(MAKE) _test_integration
 
 _test_integration:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
