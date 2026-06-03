@@ -132,6 +132,39 @@ maintainer: tester <t@t.t>
 }
 
 #[test]
+fn entities_from_list_format_produces_bare_entities_and_diagnostic() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: List Format Test
+version: "0.1"
+description: Model with list-format entities.
+maintainer: tester <t@t.t>
+
+entities:
+  - all
+  - demo-lua
+  - demo-py3
+  - demo-wasm
+"#,
+    );
+
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load should succeed");
+    let (entities, diagnostics) = browser.entities();
+
+    assert_eq!(entities.len(), 4);
+    assert_eq!(entities[0].id, "all");
+    assert_eq!(entities[0].descr, "");
+    assert_eq!(entities[1].id, "demo-lua");
+    assert_eq!(entities[2].id, "demo-py3");
+    assert_eq!(entities[3].id, "demo-wasm");
+
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("list format"));
+}
+
+#[test]
 fn entity_with_empty_descr_returns_empty_string() {
     let td = tempfile::TempDir::new().unwrap();
     write_model(
