@@ -230,6 +230,7 @@ impl SysMaster {
             .into_iter()
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
+                #[allow(clippy::type_complexity)]
                 let mut target_actions: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
 
                 for ep in &m.entrypoints {

@@ -242,6 +242,7 @@ pub struct ConsoleModelRow {
     pub states: Vec<String>,
     /// Per-entrypoint actions: (description, states available for this action).
     #[serde(default)]
+    #[allow(clippy::type_complexity)]
     pub target_actions: Vec<(String, Vec<(String, Vec<String>)>)>,
 }
 
