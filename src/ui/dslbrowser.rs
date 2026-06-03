@@ -114,6 +114,9 @@ pub struct DslBrowser {
     pub focus: DslFocus,
     pub query_to_execute: Option<String>,
     pub call_requested: bool,
+    pub desc_popup_visible: bool,
+    pub desc_popup_text: String,
+    pub desc_popup_scroll: usize,
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
@@ -142,6 +145,9 @@ impl DslBrowser {
             focus: DslFocus::Query,
             query_to_execute: None,
             call_requested: false,
+            desc_popup_visible: false,
+            desc_popup_text: String::new(),
+            desc_popup_scroll: 0,
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
@@ -491,6 +497,10 @@ impl DslBrowser {
     pub fn handle_key(&mut self, code: KeyCode) -> bool {
         match code {
             KeyCode::Esc => {
+                if self.desc_popup_visible {
+                    self.desc_popup_visible = false;
+                    return true;
+                }
                 self.visible = false;
                 return true;
             }
@@ -502,7 +512,31 @@ impl DslBrowser {
                 self.focus = self.focus.prev();
                 return true;
             }
+            KeyCode::Char('m') => {
+                if self.resolved_model().is_some() {
+                    self.desc_popup_text = self.build_full_description();
+                    self.desc_popup_scroll = 0;
+                    self.desc_popup_visible = true;
+                }
+                return true;
+            }
             _ => {}
+        }
+
+        if self.desc_popup_visible {
+            match code {
+                KeyCode::Up => {
+                    self.desc_popup_scroll = self.desc_popup_scroll.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.desc_popup_scroll = self.desc_popup_scroll.saturating_add(1);
+                }
+                KeyCode::Enter | KeyCode::Esc => {
+                    self.desc_popup_visible = false;
+                }
+                _ => {}
+            }
+            return true;
         }
 
         match self.focus {
@@ -580,6 +614,24 @@ impl DslBrowser {
         Some(format!("{model}/{target}/{state}"))
     }
 
+    fn build_full_description(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(row) = self.resolved_model() {
+            parts.push(format!("Model: {}\n{}", row.id, row.description));
+        }
+        if let Some(target_id) = self.targets.items.get(self.targets.selected().unwrap_or(0))
+            && target_id != "(select)"
+            && target_id != "(none)"
+            && target_id != "—"
+        {
+            let targets_desc = self.build_target_description();
+            if !targets_desc.is_empty() {
+                parts.push(format!("Target \"{target_id}\":\n{targets_desc}"));
+            }
+        }
+        parts.join("\n\n")
+    }
+
     pub fn take_query(&mut self) -> Option<String> {
         self.query_to_execute.take()
     }
@@ -612,6 +664,10 @@ impl SysInspectUX {
 
         self.dsl_browser.render_content(inner, buf);
 
+        if self.dsl_browser.desc_popup_visible {
+            self.render_desc_popup(popup, buf);
+        }
+
         // MS-DOS style shadows
         let buf_area = buf.area();
         let max_x = buf_area.right().saturating_sub(1);
@@ -638,6 +694,96 @@ impl SysInspectUX {
                 if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
                     cell.set_bg(Color::Black);
                     cell.set_fg(Color::DarkGray);
+                }
+            }
+        }
+    }
+    fn render_desc_popup(&self, parent: Rect, buf: &mut Buffer) {
+        let text = &self.dsl_browser.desc_popup_text;
+        if text.is_empty() {
+            return;
+        }
+        let w = (parent.width * 80 / 100).max(40).min(parent.width.saturating_sub(2));
+        let text_h = (parent.height * 60 / 100).clamp(8, 20);
+        let h = text_h.saturating_add(3);
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        let bg = Color::Gray;
+        Clear.render(canvas, buf);
+        let block = Block::default()
+            .title(" Details ")
+            .title_alignment(Alignment::Center)
+            .title_style(Style::default().fg(Color::Black).bg(bg))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Gray))
+            .style(Style::default().bg(bg));
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_h), Constraint::Length(1)]).split(inner);
+        let text_area = chunks[0];
+        let btn_area = chunks[1];
+
+        let lines: Vec<String> = text.split('\n').flat_map(|p| wrap_text(p, (text_area.width.saturating_sub(2)) as usize)).collect();
+        let total = lines.len().max(1);
+        let max_off = total.saturating_sub(text_area.height as usize);
+        let offset = self.dsl_browser.desc_popup_scroll.min(max_off);
+
+        for (i, line) in lines.iter().enumerate().skip(offset).take(text_area.height as usize) {
+            let yy = text_area.y + (i - offset) as u16;
+            if yy >= text_area.bottom() {
+                break;
+            }
+            buf.set_string(text_area.x, yy, format!("  {line}"), Style::default().fg(Color::Black).bg(bg));
+        }
+
+        if total > text_area.height as usize {
+            let sb_x = text_area.right().saturating_sub(1);
+            let mut sb_state = ScrollbarState::new(total).position(offset);
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(Some("│"))
+                .thumb_symbol("█")
+                .render(Rect::new(sb_x, text_area.y, 1, text_area.height), buf, &mut sb_state);
+        }
+
+        let close = format_button("Close");
+        let close_w = close.len() as u16;
+        let btn_x = btn_area.x + (btn_area.width.saturating_sub(close_w)) / 2;
+        Paragraph::new(close)
+            .style(Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD))
+            .render(Rect::new(btn_x, btn_area.y, close_w, 1), buf);
+
+        // MS-DOS shadow
+        let ba = buf.area();
+        let mx = ba.right().saturating_sub(1);
+        let my = ba.bottom().saturating_sub(1);
+        for idx in 0..w {
+            let sx = x.saturating_add(2).saturating_add(idx);
+            let sy = y.saturating_add(h);
+            if sx > mx || sy > my {
+                continue;
+            }
+            if let Some(c) = buf.cell_mut(Position::new(sx, sy)) {
+                c.set_bg(Color::Black);
+                c.set_fg(Color::DarkGray);
+            }
+        }
+        for off in 0..2u16 {
+            for idx in 0..h {
+                let sx = x.saturating_add(w).saturating_add(off);
+                let sy = y.saturating_add(idx).saturating_add(1);
+                if sx > mx || sy > my {
+                    continue;
+                }
+                if let Some(c) = buf.cell_mut(Position::new(sx, sy)) {
+                    c.set_bg(Color::Black);
+                    c.set_fg(Color::DarkGray);
                 }
             }
         }
