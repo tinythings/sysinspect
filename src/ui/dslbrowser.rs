@@ -30,11 +30,11 @@ impl DslFocus {
     fn tab_order() -> &'static [DslFocus] {
         &[
             DslFocus::Query,
+            DslFocus::Minions,
             DslFocus::Models,
             DslFocus::Target,
             DslFocus::State,
             DslFocus::ContextField(0),
-            DslFocus::Minions,
             DslFocus::Call,
             DslFocus::Close,
         ]
@@ -77,7 +77,7 @@ impl ListBox {
         Self { items, state: s, scroll: Cell::new(0) }
     }
 
-    fn selected(&self) -> Option<usize> {
+    pub fn selected(&self) -> Option<usize> {
         self.state.selected()
     }
 
@@ -112,6 +112,8 @@ pub struct DslBrowser {
     pub minions: ListBox,
     pub context_fields: Vec<ContextField>,
     pub focus: DslFocus,
+    pub query_to_execute: Option<String>,
+    pub call_requested: bool,
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
@@ -138,6 +140,8 @@ impl DslBrowser {
                 ContextField { key: "Etc".into(), value: String::new(), state: InputState::new() },
             ],
             focus: DslFocus::Query,
+            query_to_execute: None,
+            call_requested: false,
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
@@ -166,14 +170,14 @@ impl DslBrowser {
     }
 
     pub fn load_models(&mut self, rows: Vec<libsysinspect::console::ConsoleModelRow>, failures: Vec<String>) {
-        let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+        let mut ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         if ids.is_empty() {
-            self.models = ListBox::new(vec!["(no models found)".to_string()], 0);
-            self.model_data = vec![];
+            ids = vec!["(no models found)".to_string()];
         } else {
-            self.models = ListBox::new(ids, 0);
-            self.model_data = rows;
+            ids.insert(0, "(select)".to_string());
         }
+        self.models = ListBox::new(ids, 0);
+        self.model_data = rows;
         self.catalog_diagnostics = failures;
         self.update_targets_and_states();
         self.visible = true;
@@ -181,21 +185,25 @@ impl DslBrowser {
     }
 
     fn update_targets_and_states(&mut self) {
-        if let Some(row) = self.model_data.get(self.models.selected().unwrap_or(0)) {
-            if row.entrypoints.is_empty() {
-                self.targets = ListBox::new(vec!["(none)".to_string()], 0);
+        if let Some(row) = self.resolved_model() {
+            let mut targets = row.entrypoints.clone();
+            if targets.is_empty() {
+                targets = vec!["(none)".to_string()];
             } else {
-                self.targets = ListBox::new(row.entrypoints.clone(), 0);
+                targets.insert(0, "(select)".to_string());
             }
+            self.targets = ListBox::new(targets, 0);
             self.update_states_for_target();
+        } else {
+            self.targets = ListBox::new(vec!["—".to_string()], 0);
+            self.states = ListBox::new(vec!["$".to_string()], 0);
         }
     }
 
     fn update_states_for_target(&mut self) {
-        let model_idx = self.models.selected().unwrap_or(0);
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str());
-        if let (Some(row), Some(tid)) = (self.model_data.get(model_idx), target_id)
-            && let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == tid)
+        if let (Some(row), Some(target_id)) =
+            (self.resolved_model(), self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str()))
+            && let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == target_id)
         {
             let mut states: Vec<String> = actions.iter().flat_map(|(_, s)| s.clone()).collect();
             states.sort();
@@ -207,7 +215,7 @@ impl DslBrowser {
             }
         }
         // Fallback: global model states
-        if let Some(row) = self.model_data.get(model_idx) {
+        if let Some(row) = self.resolved_model() {
             if row.states.is_empty() {
                 self.states = ListBox::new(vec!["$".to_string()], 0);
             } else {
@@ -279,12 +287,11 @@ impl DslBrowser {
     }
 
     fn build_target_description(&self) -> String {
-        let model_idx = self.models.selected().unwrap_or(0);
         if matches!(self.focus, DslFocus::Target) || matches!(self.focus, DslFocus::State) {
             let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str());
             let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
             let state_real = if state_display == "(default)" { "$" } else { state_display };
-            if let (Some(row), Some(tid)) = (self.model_data.get(model_idx), target_id)
+            if let (Some(row), Some(tid)) = (self.resolved_model(), target_id)
                 && let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == tid)
             {
                 let descs: Vec<&str> =
@@ -297,7 +304,7 @@ impl DslBrowser {
                 }
             }
         }
-        self.model_data.get(model_idx).map(|r| r.description.clone()).unwrap_or_default()
+        self.resolved_model().map(|r| r.description.clone()).unwrap_or_default()
     }
 
     fn render_top(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
@@ -533,7 +540,17 @@ impl DslBrowser {
             }
             DslFocus::Call | DslFocus::Close => {
                 if code == KeyCode::Enter {
-                    if self.focus == DslFocus::Close {
+                    if self.focus == DslFocus::Call {
+                        let query = self.build_query();
+                        if query.is_some() {
+                            self.query_to_execute = query;
+                            self.call_requested = true;
+                            self.visible = false;
+                        } else {
+                            self.call_requested = true;
+                            self.query_to_execute = None;
+                        }
+                    } else {
                         self.visible = false;
                     }
                     return true;
@@ -541,6 +558,30 @@ impl DslBrowser {
                 false
             }
         }
+    }
+
+    fn model_data_index(&self) -> Option<usize> {
+        let sel = self.models.selected().unwrap_or(0);
+        if sel == 0 { None } else { Some(sel.saturating_sub(1)) }
+    }
+
+    fn resolved_model(&self) -> Option<&libsysinspect::console::ConsoleModelRow> {
+        self.model_data_index().and_then(|i| self.model_data.get(i))
+    }
+
+    fn build_query(&self) -> Option<String> {
+        let model = self.models.items.get(self.models.selected().unwrap_or(0))?;
+        let target = self.targets.items.get(self.targets.selected().unwrap_or(0))?;
+        if model == "(select)" || model == "(no models found)" || target == "(select)" || target == "(none)" || target == "—" {
+            return None;
+        }
+        let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
+        let state = if state_display == "(default)" { "$" } else { state_display };
+        Some(format!("{model}/{target}/{state}"))
+    }
+
+    pub fn take_query(&mut self) -> Option<String> {
+        self.query_to_execute.take()
     }
 }
 

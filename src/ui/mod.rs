@@ -232,8 +232,13 @@ impl SysInspectUX {
             {
                 self.on_key(e);
             }
-        } else if self.online_minions_visible {
-            self.refresh_online_minions();
+        } else {
+            if let Ok(cycles) = self.get_cycles() {
+                self.cycles_buf = cycles;
+            }
+            if self.online_minions_visible {
+                self.refresh_online_minions();
+            }
         }
         Ok(())
     }
@@ -735,8 +740,37 @@ impl SysInspectUX {
     }
 
     fn on_key(&mut self, e: event::KeyEvent) {
+        // Error alert is modal — always checked first
+        if self.on_error_alert(e) {
+            return;
+        }
+
         if self.dsl_browser.visible {
             self.dsl_browser.handle_key(e.code);
+            if self.dsl_browser.call_requested {
+                self.dsl_browser.call_requested = false;
+                if let Some(query) = self.dsl_browser.take_query() {
+                    let minion_query = if self.dsl_browser.query.is_empty() || self.dsl_browser.query == "*" {
+                        "*".to_string()
+                    } else {
+                        self.dsl_browser.query.clone()
+                    };
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            if let Err(err) = call_master_console(&self.cfg, &query, &minion_query, None, None, None).await {
+                                log::error!("Call failed: {err}");
+                            }
+                        })
+                    });
+                } else {
+                    let model = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+                    let _target =
+                        self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+                    let missing = if model == "(select)" || model == "(no models found)" { "Model" } else { "Target" };
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Select {missing} first!");
+                }
+            }
             return;
         }
 
