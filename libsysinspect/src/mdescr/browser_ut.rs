@@ -1168,3 +1168,79 @@ actions:
     let ghost_diags: Vec<_> = summary.diagnostics.iter().filter(|d| d.message.contains("ghost-entity")).collect();
     assert_eq!(ghost_diags.len(), 1, "diagnostic for ghost-entity should appear exactly once, found {}", ghost_diags.len());
 }
+
+#[test]
+fn context_vars_extracted_from_args_templates() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: Context Test
+version: "0.1"
+description: Model with implicit context vars in args.
+maintainer: tester <t@t.t>
+
+entities:
+  e1:
+    descr: Test
+
+actions:
+  a1:
+    description: Action with template context refs.
+    module: sys.run
+    bind: [e1]
+    state:
+      $:
+        args:
+          cmd: "context(action)"
+          extra: "context(package)"
+          search: "claim(common.path)"
+"#,
+    );
+
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let st = &actions[0].states[0];
+
+    assert!(st.context_vars.iter().any(|(k, _)| k == "action"), "action missing");
+    assert!(st.context_vars.iter().any(|(k, _)| k == "package"), "package missing");
+    // claim(common.path) should NOT produce a context var
+    assert!(!st.context_vars.iter().any(|(k, _)| k == "common"), "claim() mistaken for context()");
+}
+
+#[test]
+fn context_vars_from_action_level_context() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: ActionCtx Test
+version: "0.1"
+description: Model with action-level context.
+maintainer: tester <t@t.t>
+
+entities:
+  e1:
+    descr: Test
+
+actions:
+  a1:
+    description: Action with context.
+    module: sys.run
+    bind: [e1]
+    context:
+      action: PackageKit operation
+      package: Package name
+    state:
+      $:
+        args:
+          cmd: "context(action)"
+"#,
+    );
+
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let st = &actions[0].states[0];
+    assert!(st.context_vars.iter().any(|(k, v)| k == "action" && v == "PackageKit operation"));
+    assert!(st.context_vars.iter().any(|(k, v)| k == "package" && v == "Package name"));
+}
