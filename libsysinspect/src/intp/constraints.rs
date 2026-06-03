@@ -261,6 +261,7 @@ pub enum ConstraintKind {
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct Constraint {
     id: Option<String>,
+    #[serde(alias = "description")]
     descr: Option<String>,
     entities: Option<Vec<String>>,
 

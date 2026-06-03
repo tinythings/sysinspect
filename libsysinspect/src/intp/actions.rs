@@ -61,6 +61,7 @@ impl ModArgs {
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Action {
     id: Option<String>, // NOTE: It is not optional, just added later!
+    #[serde(alias = "descr")]
     description: Option<String>,
     module: String,
     bind: Vec<String>,

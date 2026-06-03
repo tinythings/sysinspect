@@ -67,6 +67,36 @@ impl ModelBrowser {
             return (Vec::new(), diagnostics);
         };
 
+        if let Some(seq) = section.as_sequence() {
+            diagnostics.push(ModelBrowseDiagnostic {
+                level: ModelBrowseDiagnosticLevel::Warning,
+                message: "entities section is a list format; each entry treated as a bare entity id".to_string(),
+                path: Some("entities".to_string()),
+            });
+            let entities: Vec<BrowsedEntity> = seq
+                .iter()
+                .filter_map(|v| {
+                    let eid = v.as_str().unwrap_or("?");
+                    if !v.is_string() {
+                        diagnostics.push(ModelBrowseDiagnostic {
+                            level: ModelBrowseDiagnosticLevel::Warning,
+                            message: format!("Non-string entity entry in list format: {v:?}"),
+                            path: Some("entities".to_string()),
+                        });
+                    }
+                    Some(BrowsedEntity {
+                        id: eid.to_string(),
+                        descr: String::new(),
+                        inherits: vec![],
+                        depends: vec![],
+                        claim_state_keys: vec![],
+                        claim_labels: vec![],
+                    })
+                })
+                .collect();
+            return (entities, diagnostics);
+        }
+
         let Some(mapping) = section.as_mapping() else {
             return (Vec::new(), diagnostics);
         };

@@ -26,6 +26,7 @@ impl Claim {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Entity {
+    #[serde(alias = "description")]
     descr: Option<String>,
     claims: Option<IndexMap<String, Vec<Claim>>>,
     inherits: Option<Vec<String>>,
