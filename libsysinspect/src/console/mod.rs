@@ -240,10 +240,10 @@ pub struct ConsoleModelRow {
     /// Declared state names across all actions.
     #[serde(default)]
     pub states: Vec<String>,
-    /// Per-entrypoint actions: (description, states available for this action).
+    /// Per-entrypoint actions: (description, available states, context vars).
     #[serde(default)]
     #[allow(clippy::type_complexity)]
-    pub target_actions: Vec<(String, Vec<(String, Vec<String>)>)>,
+    pub target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String)>)>)>,
 }
 
 impl ConsoleResponse {

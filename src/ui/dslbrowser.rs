@@ -55,6 +55,7 @@ impl DslFocus {
 pub struct ContextField {
     pub key: String,
     pub value: String,
+    pub desc: String,
     pub state: InputState,
 }
 
@@ -117,6 +118,7 @@ pub struct DslBrowser {
     pub desc_popup_visible: bool,
     pub desc_popup_text: String,
     pub desc_popup_scroll: usize,
+    pub context_active: bool,
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
@@ -136,18 +138,14 @@ impl DslBrowser {
             targets: ListBox::new(vec!["—".to_string()], 0),
             states: ListBox::new(vec!["$".to_string()], 0),
             minions: ListBox::new((1..=100).map(|i| format!("minion-{i:03}.example.net")).collect(), 0),
-            context_fields: vec![
-                ContextField { key: "Opt".into(), value: String::new(), state: InputState::new() },
-                ContextField { key: "Foo".into(), value: String::new(), state: InputState::new() },
-                ContextField { key: "Bar".into(), value: String::new(), state: InputState::new() },
-                ContextField { key: "Etc".into(), value: String::new(), state: InputState::new() },
-            ],
+            context_fields: Vec::new(),
             focus: DslFocus::Query,
             query_to_execute: None,
             call_requested: false,
             desc_popup_visible: false,
             desc_popup_text: String::new(),
             desc_popup_scroll: 0,
+            context_active: false,
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
@@ -185,12 +183,15 @@ impl DslBrowser {
         self.models = ListBox::new(ids, 0);
         self.model_data = rows;
         self.catalog_diagnostics = failures;
+        self.context_active = false;
+        self.context_fields = Vec::new();
         self.update_targets_and_states();
         self.visible = true;
         self.focus = DslFocus::Query;
     }
 
     fn update_targets_and_states(&mut self) {
+        self.context_active = false;
         if let Some(row) = self.resolved_model() {
             let mut targets = row.entrypoints.clone();
             if targets.is_empty() {
@@ -207,20 +208,25 @@ impl DslBrowser {
     }
 
     fn update_states_for_target(&mut self) {
-        if let (Some(row), Some(target_id)) =
-            (self.resolved_model(), self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str()))
-            && let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == target_id)
+        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).cloned();
+        let entry = self.resolved_model().and_then(|row| {
+            target_id.as_deref().and_then(|tid| row.target_actions.iter().find(|(id, _)| id == tid).map(|(_, actions)| actions.clone()))
+        });
+
+        if let Some(actions) = entry
+            && !actions.is_empty()
         {
-            let mut states: Vec<String> = actions.iter().flat_map(|(_, s)| s.clone()).collect();
+            let mut states: Vec<String> = actions.iter().flat_map(|(_, s, _)| s.clone()).collect();
             states.sort();
             states.dedup();
             if !states.is_empty() {
                 let display: Vec<String> = states.iter().map(|s| if s == "$" { "(default)".to_string() } else { s.clone() }).collect();
                 self.states = ListBox::new(display, 0);
+                self.update_context_fields(&actions);
                 return;
             }
         }
-        // Fallback: global model states
+        // Fallback
         if let Some(row) = self.resolved_model() {
             if row.states.is_empty() {
                 self.states = ListBox::new(vec!["$".to_string()], 0);
@@ -228,6 +234,23 @@ impl DslBrowser {
                 let display: Vec<String> = row.states.iter().map(|s| if s == "$" { "(default)".to_string() } else { s.clone() }).collect();
                 self.states = ListBox::new(display, 0);
             }
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn update_context_fields(&mut self, actions: &[(String, Vec<String>, Vec<(String, String)>)]) {
+        let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
+        let state_real = if state_display == "(default)" { "$" } else { state_display };
+        let mut ctx: Vec<(String, String)> =
+            actions.iter().filter(|(_, states, _)| states.iter().any(|s| s == state_real)).flat_map(|(_, _, ctx_vars)| ctx_vars.clone()).collect();
+        ctx.sort_by(|a, b| a.0.cmp(&b.0));
+        ctx.dedup_by(|a, b| a.0 == b.0);
+        if !ctx.is_empty() {
+            self.context_active = true;
+            self.context_fields =
+                ctx.into_iter().map(|(k, d)| ContextField { key: k, value: String::new(), desc: d, state: InputState::new() }).collect();
+        } else {
+            self.context_fields = Vec::new();
         }
     }
 
@@ -293,24 +316,30 @@ impl DslBrowser {
     }
 
     fn build_target_description(&self) -> String {
-        if matches!(self.focus, DslFocus::Target) || matches!(self.focus, DslFocus::State) {
-            let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str());
-            let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
-            let state_real = if state_display == "(default)" { "$" } else { state_display };
-            if let (Some(row), Some(tid)) = (self.resolved_model(), target_id)
-                && let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == tid)
-            {
-                let descs: Vec<&str> =
-                    actions.iter().filter(|(_, states)| states.iter().any(|s| s == state_real)).map(|(desc, _)| desc.as_str()).collect();
-                if !descs.is_empty() {
-                    if descs.len() == 1 {
-                        return descs[0].to_string();
-                    }
-                    return descs.iter().enumerate().map(|(i, d)| format!("{}. {}", i + 1, d)).collect::<Vec<_>>().join("\n");
-                }
-            }
+        if (matches!(self.focus, DslFocus::Target) || matches!(self.focus, DslFocus::State))
+            && let Some(desc) = self.build_target_description_unchecked()
+        {
+            return desc;
         }
         self.resolved_model().map(|r| r.description.clone()).unwrap_or_default()
+    }
+
+    fn build_target_description_unchecked(&self) -> Option<String> {
+        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str())?;
+        let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
+        let state_real = if state_display == "(default)" { "$" } else { state_display };
+        let row = self.resolved_model()?;
+        let (_, actions) = row.target_actions.iter().find(|(id, _)| id == target_id)?;
+        let descs: Vec<&str> =
+            actions.iter().filter(|(_, states, _)| states.iter().any(|s| s == state_real)).map(|(desc, _, _)| desc.as_str()).collect();
+        if descs.is_empty() {
+            return None;
+        }
+        if descs.len() == 1 {
+            Some(descs[0].to_string())
+        } else {
+            Some(descs.iter().enumerate().map(|(i, d)| format!("{}. {}", i + 1, d)).collect::<Vec<_>>().join("\n"))
+        }
     }
 
     fn render_top(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
@@ -417,6 +446,10 @@ impl DslBrowser {
     }
 
     fn render_context_inline(&self, area: Rect, buf: &mut Buffer) {
+        if !self.context_active {
+            buf.set_string(area.x, area.y, if self.resolved_model().is_some() { "No context defined" } else { " " }, Self::s_di());
+            return;
+        }
         let max_label_w = self.context_fields.iter().map(|f| f.key.len()).max().unwrap_or(4) as u16;
         let label_col_w = max_label_w + 2; // key:  plus padding
         let input_w = (area.width.saturating_sub(label_col_w)).max(15).min(area.width.saturating_sub(label_col_w));
@@ -429,7 +462,7 @@ impl DslBrowser {
             let focused = matches!(self.focus, DslFocus::ContextField(idx) if idx == i);
             let label = format!("{:>width$}: ", field.key, width = max_label_w as usize);
             write_clipped(buf, area, area.x, y, &label, Self::s_bd());
-            let inp = Input::new("").prompt("").placeholder(&field.key);
+            let inp = Input::new("").prompt("").placeholder(if field.desc.is_empty() { &field.key } else { &field.desc });
             let mut is = InputState::new();
             is.set_value(field.value.clone());
             is.set_focused(focused);
@@ -505,11 +538,19 @@ impl DslBrowser {
                 return true;
             }
             KeyCode::Tab => {
-                self.focus = self.focus.next();
+                let mut next = self.focus.next();
+                if matches!(next, DslFocus::ContextField(_)) && !self.context_active {
+                    next = DslFocus::Call;
+                }
+                self.focus = next;
                 return true;
             }
             KeyCode::BackTab => {
-                self.focus = self.focus.prev();
+                let mut prev = self.focus.prev();
+                if matches!(prev, DslFocus::ContextField(_)) && !self.context_active {
+                    prev = DslFocus::State;
+                }
+                self.focus = prev;
                 return true;
             }
             KeyCode::Char('m') => {
@@ -614,17 +655,45 @@ impl DslBrowser {
         Some(format!("{model}/{target}/{state}"))
     }
 
+    pub fn build_context_json(&self) -> Option<String> {
+        if !self.context_active {
+            return None;
+        }
+        let filled: Vec<&ContextField> = self.context_fields.iter().filter(|f| !f.value.is_empty()).collect();
+        if filled.is_empty() {
+            return None;
+        }
+        let pairs: Vec<String> = filled.iter().map(|f| format!("{}:{}", f.key, f.value)).collect();
+        Some(pairs.join(","))
+    }
+
     fn build_full_description(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
         if let Some(row) = self.resolved_model() {
             parts.push(format!("Model: {}\n{}", row.id, row.description));
         }
         let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
-        if target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty() {
-            let targets_desc = self.build_target_description();
-            if !targets_desc.is_empty() {
-                parts.push(format!("Target \"{target_id}\":\n{targets_desc}"));
-            }
+        if target_id != "(select)"
+            && target_id != "(none)"
+            && target_id != "—"
+            && !target_id.is_empty()
+            && let Some(targets_desc) = self.build_target_description_unchecked()
+        {
+            parts.push(format!("Target \"{target_id}\":\n{targets_desc}"));
+        }
+        if self.context_active {
+            let has_desc = self.context_fields.iter().any(|f| !f.desc.is_empty());
+            let ctx_text = if has_desc {
+                self.context_fields
+                    .iter()
+                    .map(|f| if f.desc.is_empty() { f.key.clone() } else { format!("{} — {}", f.key, f.desc) })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else {
+                let keys: Vec<String> = self.context_fields.iter().enumerate().map(|(i, f)| format!("{}. {}", i + 1, f.key)).collect();
+                format!("Required context keys (no descriptions available):\n{}", keys.join("\n"))
+            };
+            parts.push(format!("Context:\n{ctx_text}"));
         }
         parts.join("\n\n")
     }

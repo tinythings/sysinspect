@@ -231,32 +231,36 @@ impl SysMaster {
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
                 #[allow(clippy::type_complexity)]
-                let mut target_actions: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
+                let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String)>)>)> = Vec::new();
 
                 for ep in &m.entrypoints {
                     match ep {
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
                             entrypoints.push(label.clone());
-                            let actions: Vec<(String, Vec<String>)> = m
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String)>)> = m
                                 .actions
                                 .iter()
                                 .filter(|a| a.binds_to.iter().any(|eid| entity_ids.contains(eid)))
                                 .map(|a| {
                                     let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
-                                    (a.description.clone(), states)
+                                    let ctx_vars: Vec<(String, String)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
                                 })
                                 .collect();
                             target_actions.push((label.clone(), actions));
                         }
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
                             entrypoints.push(id.clone());
-                            let actions: Vec<(String, Vec<String>)> = m
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String)>)> = m
                                 .actions
                                 .iter()
                                 .filter(|a| a.binds_to.contains(id))
                                 .map(|a| {
                                     let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
-                                    (a.description.clone(), states)
+                                    let ctx_vars: Vec<(String, String)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
                                 })
                                 .collect();
                             target_actions.push((id.clone(), actions));

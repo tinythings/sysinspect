@@ -3,6 +3,11 @@ use std::{
     sync::Arc,
 };
 
+use regex::Regex;
+use std::sync::LazyLock;
+
+static CTX_FN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"context\((\w+)\)").unwrap());
+
 use crate::{
     cfg::mmconf::MinionConfig,
     intp::{actions::Action, entities::Entity, relations::Relation},
@@ -307,8 +312,24 @@ impl ModelBrowser {
                             .into_iter()
                             .map(|(state_name, mod_args)| {
                                 let opts = mod_args.opts();
-                                let args = mod_args.args().into_iter().map(|(k, v)| (k, value_to_display(&v))).collect();
-                                let context_vars = mod_args.context().into_iter().collect();
+                                let args: Vec<(String, String)> = mod_args.args().into_iter().map(|(k, v)| (k, value_to_display(&v))).collect();
+                                let mut context_vars: Vec<(String, String)> = action.action_context().into_iter().collect();
+                                for (k, v) in mod_args.context() {
+                                    if !context_vars.iter().any(|(ik, _)| ik == &k) {
+                                        context_vars.push((k, v));
+                                    }
+                                }
+                                // Scan arg values for implicit context references: context(xxx), {{ context.xxx }}
+                                for (_, val) in args.iter() {
+                                    let s = val.as_str();
+                                    for cap in CTX_FN_RE.captures_iter(s) {
+                                        if let Some(name) = cap.get(1)
+                                            && !context_vars.iter().any(|(k, _)| k == name.as_str())
+                                        {
+                                            context_vars.push((name.as_str().to_string(), String::new()));
+                                        }
+                                    }
+                                }
                                 let conditions = mod_args.conditions().into_iter().map(|(k, v)| (k, value_to_display(&v))).collect();
 
                                 BrowsedActionState { state: state_name, opts, args, context_vars, conditions }

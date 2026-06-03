@@ -73,6 +73,9 @@ pub struct Action {
 
     #[serde(rename = "if-false")]
     if_false: Option<Vec<String>>,
+
+    #[serde(alias = "ctx")]
+    context: Option<IndexMap<String, String>>,
 }
 
 impl Action {
@@ -124,6 +127,11 @@ impl Action {
     /// Get action's `id` field
     pub fn id(&self) -> String {
         self.id.to_owned().unwrap_or("".to_string())
+    }
+
+    /// Get action-level context variables (documentation)
+    pub fn action_context(&self) -> IndexMap<String, String> {
+        self.context.to_owned().unwrap_or_default()
     }
 
     /// Get action's `description` field

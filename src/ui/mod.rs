@@ -755,9 +755,10 @@ impl SysInspectUX {
                     } else {
                         self.dsl_browser.query.clone()
                     };
+                    let ctx = self.dsl_browser.build_context_json();
                     tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
-                            if let Err(err) = call_master_console(&self.cfg, &query, &minion_query, None, None, None).await {
+                            if let Err(err) = call_master_console(&self.cfg, &query, &minion_query, None, None, ctx.as_ref()).await {
                                 log::error!("Call failed: {err}");
                             }
                         })
