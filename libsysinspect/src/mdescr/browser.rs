@@ -75,7 +75,7 @@ impl ModelBrowser {
             });
             let entities: Vec<BrowsedEntity> = seq
                 .iter()
-                .filter_map(|v| {
+                .map(|v| {
                     let eid = v.as_str().unwrap_or("?");
                     if !v.is_string() {
                         diagnostics.push(ModelBrowseDiagnostic {
@@ -84,14 +84,14 @@ impl ModelBrowser {
                             path: Some("entities".to_string()),
                         });
                     }
-                    Some(BrowsedEntity {
+                    BrowsedEntity {
                         id: eid.to_string(),
                         descr: String::new(),
                         inherits: vec![],
                         depends: vec![],
                         claim_state_keys: vec![],
                         claim_labels: vec![],
-                    })
+                    }
                 })
                 .collect();
             return (entities, diagnostics);

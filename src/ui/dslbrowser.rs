@@ -194,16 +194,16 @@ impl DslBrowser {
     fn update_states_for_target(&mut self) {
         let model_idx = self.models.selected().unwrap_or(0);
         let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str());
-        if let (Some(row), Some(tid)) = (self.model_data.get(model_idx), target_id) {
-            if let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == tid) {
-                let mut states: Vec<String> = actions.iter().flat_map(|(_, s)| s.clone()).collect();
-                states.sort();
-                states.dedup();
-                if !states.is_empty() {
-                    let display: Vec<String> = states.iter().map(|s| if s == "$" { "(default)".to_string() } else { s.clone() }).collect();
-                    self.states = ListBox::new(display, 0);
-                    return;
-                }
+        if let (Some(row), Some(tid)) = (self.model_data.get(model_idx), target_id)
+            && let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == tid)
+        {
+            let mut states: Vec<String> = actions.iter().flat_map(|(_, s)| s.clone()).collect();
+            states.sort();
+            states.dedup();
+            if !states.is_empty() {
+                let display: Vec<String> = states.iter().map(|s| if s == "$" { "(default)".to_string() } else { s.clone() }).collect();
+                self.states = ListBox::new(display, 0);
+                return;
             }
         }
         // Fallback: global model states
@@ -284,16 +284,16 @@ impl DslBrowser {
             let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str());
             let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
             let state_real = if state_display == "(default)" { "$" } else { state_display };
-            if let (Some(row), Some(tid)) = (self.model_data.get(model_idx), target_id) {
-                if let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == tid) {
-                    let descs: Vec<&str> =
-                        actions.iter().filter(|(_, states)| states.iter().any(|s| s == state_real)).map(|(desc, _)| desc.as_str()).collect();
-                    if !descs.is_empty() {
-                        if descs.len() == 1 {
-                            return descs[0].to_string();
-                        }
-                        return descs.iter().enumerate().map(|(i, d)| format!("{}. {}", i + 1, d)).collect::<Vec<_>>().join("\n");
+            if let (Some(row), Some(tid)) = (self.model_data.get(model_idx), target_id)
+                && let Some((_, actions)) = row.target_actions.iter().find(|(id, _)| id == tid)
+            {
+                let descs: Vec<&str> =
+                    actions.iter().filter(|(_, states)| states.iter().any(|s| s == state_real)).map(|(desc, _)| desc.as_str()).collect();
+                if !descs.is_empty() {
+                    if descs.len() == 1 {
+                        return descs[0].to_string();
                     }
+                    return descs.iter().enumerate().map(|(i, d)| format!("{}. {}", i + 1, d)).collect::<Vec<_>>().join("\n");
                 }
             }
         }
