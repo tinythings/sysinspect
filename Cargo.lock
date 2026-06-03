@@ -8418,6 +8418,7 @@ dependencies = [
  "clap",
  "colored",
  "crossterm 0.28.1",
+ "glob",
  "indexmap 2.14.0",
  "jsonpath_lib",
  "libcommon",

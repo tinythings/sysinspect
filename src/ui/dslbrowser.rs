@@ -114,6 +114,7 @@ pub struct DslBrowser {
     pub focus: DslFocus,
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
+    all_minions: Vec<String>,
 }
 
 impl DslBrowser {
@@ -139,6 +140,28 @@ impl DslBrowser {
             focus: DslFocus::Query,
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
+            all_minions: Vec::new(),
+        }
+    }
+
+    pub fn set_minions(&mut self, rows: Vec<String>) {
+        self.all_minions = rows;
+        self.filter_minions();
+    }
+
+    fn filter_minions(&mut self) {
+        let q = self.query.trim();
+        let q = if q.is_empty() { "*" } else { q };
+        let filtered: Vec<String> = match glob::Pattern::new(q) {
+            Ok(pat) => self.all_minions.iter().filter(|m| pat.matches(m)).cloned().collect(),
+            Err(_) => self.all_minions.clone(),
+        };
+        if filtered.is_empty() && !self.all_minions.is_empty() {
+            self.minions = ListBox::new(vec!["(no matches)".to_string()], 0);
+        } else if filtered.is_empty() {
+            self.minions = ListBox::new(vec!["(no minions)".to_string()], 0);
+        } else {
+            self.minions = ListBox::new(filtered, 0);
         }
     }
 
@@ -479,6 +502,7 @@ impl DslBrowser {
             DslFocus::Query => {
                 handle_query_edit(code, &mut self.query_state);
                 self.query = self.query_state.value().to_string();
+                self.filter_minions();
                 true
             }
             DslFocus::Models => {

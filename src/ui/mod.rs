@@ -921,6 +921,12 @@ impl SysInspectUX {
             KeyCode::Char('c') => match self.get_models() {
                 Ok((rows, failures)) => {
                     self.dsl_browser.load_models(rows, failures);
+                    if let Ok(minions) = self.get_online_minions() {
+                        let names: Vec<String> = minions.iter().map(|r| {
+                            if !r.fqdn.is_empty() { r.fqdn.clone() } else { r.hostname.clone() }
+                        }).collect();
+                        self.dsl_browser.set_minions(names);
+                    }
                 }
                 Err(err) => {
                     self.error_alert_visible = true;
