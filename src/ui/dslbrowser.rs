@@ -619,11 +619,8 @@ impl DslBrowser {
         if let Some(row) = self.resolved_model() {
             parts.push(format!("Model: {}\n{}", row.id, row.description));
         }
-        if let Some(target_id) = self.targets.items.get(self.targets.selected().unwrap_or(0))
-            && target_id != "(select)"
-            && target_id != "(none)"
-            && target_id != "—"
-        {
+        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        if target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty() {
             let targets_desc = self.build_target_description();
             if !targets_desc.is_empty() {
                 parts.push(format!("Target \"{target_id}\":\n{targets_desc}"));
@@ -718,7 +715,7 @@ impl SysInspectUX {
             .title_style(Style::default().fg(Color::Black).bg(bg))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Gray))
+            .border_style(Style::default().fg(Color::Black))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
