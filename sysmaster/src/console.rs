@@ -214,38 +214,55 @@ impl SysMaster {
     }
 
     /// Build model-discovery rows from the master's fileserver models directory.
-    async fn models_data(&mut self) -> Result<Vec<ConsoleModelRow>, SysinspectError> {
+    async fn models_data(&mut self) -> Result<(Vec<ConsoleModelRow>, Vec<String>), SysinspectError> {
         let mut minion_cfg = MinionConfig::default();
         let root = self.cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
         minion_cfg.set_root_dir(&root);
         let catalog = ModelCatalog::scan(std::sync::Arc::new(minion_cfg));
-        Ok(catalog
+        let failures = catalog
+            .failures()
+            .into_iter()
+            .map(|e| format!("{}: {}", e.id, e.result.as_ref().err().map(|err| err.to_string()).unwrap_or_default()))
+            .collect::<Vec<_>>();
+
+        let rows = catalog
             .successes()
             .into_iter()
             .map(|m| {
-                let entrypoints: Vec<String> = m
-                    .entrypoints
-                    .iter()
-                    .map(|ep| match ep {
-                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, .. } => label.clone(),
-                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => id.clone(),
-                    })
-                    .collect();
-                let target_actions: Vec<(String, Vec<(String, Vec<String>)>)> = entrypoints
-                    .iter()
-                    .map(|ep_id| {
-                        let actions: Vec<(String, Vec<String>)> = m
-                            .actions
-                            .iter()
-                            .filter(|a| a.binds_to.contains(ep_id))
-                            .map(|a| {
-                                let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
-                                (a.description.clone(), states)
-                            })
-                            .collect();
-                        (ep_id.clone(), actions)
-                    })
-                    .collect();
+                let mut entrypoints: Vec<String> = Vec::new();
+                let mut target_actions: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
+
+                for ep in &m.entrypoints {
+                    match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
+                            entrypoints.push(label.clone());
+                            let actions: Vec<(String, Vec<String>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.iter().any(|eid| entity_ids.contains(eid)))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    (a.description.clone(), states)
+                                })
+                                .collect();
+                            target_actions.push((label.clone(), actions));
+                        }
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
+                            entrypoints.push(id.clone());
+                            let actions: Vec<(String, Vec<String>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.contains(id))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    (a.description.clone(), states)
+                                })
+                                .collect();
+                            target_actions.push((id.clone(), actions));
+                        }
+                    }
+                }
+
                 ConsoleModelRow {
                     id: m.metadata.id.clone(),
                     name: m.metadata.name.clone(),
@@ -256,7 +273,9 @@ impl SysMaster {
                     target_actions,
                 }
             })
-            .collect())
+            .collect();
+
+        Ok((rows, failures))
     }
 
     /// Build the full trait-backed info payload for exactly one selected minion.
@@ -495,7 +514,7 @@ impl SysMaster {
 
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MODELS}")) {
             return match master.lock().await.models_data().await {
-                Ok(rows) => ConsoleResponse::ok(ConsolePayload::Models { rows }),
+                Ok((rows, failures)) => ConsoleResponse::ok(ConsolePayload::Models { rows, failures }),
                 Err(err) => ConsoleResponse::err(format!("Unable to list models: {err}")),
             };
         }

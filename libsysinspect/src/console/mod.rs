@@ -142,6 +142,9 @@ pub enum ConsolePayload {
     Models {
         /// One row per discovered model.
         rows: Vec<ConsoleModelRow>,
+        /// Models that failed to load, preserved as diagnostic strings.
+        #[serde(default)]
+        failures: Vec<String>,
     },
 }
 
@@ -232,10 +235,13 @@ pub struct ConsoleModelRow {
     /// Human-readable description from the header.
     pub description: String,
     /// Entrypoint ids (checkbook labels + direct entity ids).
+    #[serde(default)]
     pub entrypoints: Vec<String>,
     /// Declared state names across all actions.
+    #[serde(default)]
     pub states: Vec<String>,
     /// Per-entrypoint actions: (description, states available for this action).
+    #[serde(default)]
     pub target_actions: Vec<(String, Vec<(String, Vec<String>)>)>,
 }
 

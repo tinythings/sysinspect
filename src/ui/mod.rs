@@ -919,8 +919,8 @@ impl SysInspectUX {
                 self.help_popup_visible = true;
             }
             KeyCode::Char('c') => match self.get_models() {
-                Ok(rows) => {
-                    self.dsl_browser.load_models(rows, vec![]);
+                Ok((rows, failures)) => {
+                    self.dsl_browser.load_models(rows, failures);
                 }
                 Err(err) => {
                     self.error_alert_visible = true;
@@ -1131,13 +1131,13 @@ impl SysInspectUX {
     }
 
     /// Query the master console for available models.
-    pub fn get_models(&self) -> Result<Vec<ConsoleModelRow>, SysinspectError> {
+    pub fn get_models(&self) -> Result<(Vec<ConsoleModelRow>, Vec<String>), SysinspectError> {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MODELS}"), "*", None, None, None).await.map(|resp| {
                     match resp.payload {
-                        ConsolePayload::Models { rows } => rows,
-                        _ => Vec::new(),
+                        ConsolePayload::Models { rows, failures } => (rows, failures),
+                        _ => (Vec::new(), Vec::new()),
                     }
                 })
             })
