@@ -88,16 +88,32 @@ impl SysInspectUX {
             .style(cancel_style)
             .render(Rect { x: btn_start + ok_w + btn_gap, y: vert[6].y, width: cancel_w, height: 1 }, buf);
 
+        let buf_area = buf.area();
+        let max_x = buf_area.right().saturating_sub(1);
+        let max_y = buf_area.bottom().saturating_sub(1);
+
         for idx in 0..width {
-            let cell = buf.cell_mut(Position::new(x + 2 + idx, y + height)).unwrap();
-            cell.set_bg(Color::Black);
-            cell.set_fg(Color::DarkGray);
+            let sx = x.saturating_add(2).saturating_add(idx);
+            let sy = y.saturating_add(height);
+            if sx > max_x || sy > max_y {
+                continue;
+            }
+            if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                cell.set_bg(Color::Black);
+                cell.set_fg(Color::DarkGray);
+            }
         }
         for offset in 0..2 {
             for idx in 0..height {
-                let cell = buf.cell_mut(Position::new(x + width + offset, y + idx + 1)).unwrap();
-                cell.set_bg(Color::Black);
-                cell.set_fg(Color::DarkGray);
+                let sx = x.saturating_add(width).saturating_add(offset);
+                let sy = y.saturating_add(idx).saturating_add(1);
+                if sx > max_x || sy > max_y {
+                    continue;
+                }
+                if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                    cell.set_bg(Color::Black);
+                    cell.set_fg(Color::DarkGray);
+                }
             }
         }
     }

@@ -43,6 +43,9 @@ pub mod commands {
 
     // Upsert startup inventory / CMDB information for one registered minion
     pub const CLUSTER_CMDB_UPSERT: &str = "cluster/cmdb/upsert";
+
+    // List available models on the master
+    pub const CLUSTER_MODELS: &str = "cluster/models";
 }
 
 ///

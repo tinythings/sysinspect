@@ -189,17 +189,33 @@ impl SysInspectUX {
         Paragraph::new(rbtn_label).style(b_active).render(button_splits[3], buf);
 
         // MS-DOS style shadows :-)
+        let buf_area = buf.area();
+        let max_x = buf_area.right().saturating_sub(1);
+        let max_y = buf_area.bottom().saturating_sub(1);
+
         for idx in 0..width {
-            let x = buf.cell_mut(Position::new(x + 2 + idx, y + height)).unwrap();
-            x.set_bg(Color::Black);
-            x.set_fg(Color::DarkGray);
+            let sx = x.saturating_add(2).saturating_add(idx);
+            let sy = y.saturating_add(height);
+            if sx > max_x || sy > max_y {
+                continue;
+            }
+            if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                cell.set_bg(Color::Black);
+                cell.set_fg(Color::DarkGray);
+            }
         }
 
         for offset in 0..2 {
             for idx in 0..height {
-                let x = buf.cell_mut(Position::new(x + width + offset, y + idx + 1)).unwrap();
-                x.set_bg(Color::Black);
-                x.set_fg(Color::DarkGray);
+                let sx = x.saturating_add(width).saturating_add(offset);
+                let sy = y.saturating_add(idx).saturating_add(1);
+                if sx > max_x || sy > max_y {
+                    continue;
+                }
+                if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                    cell.set_bg(Color::Black);
+                    cell.set_fg(Color::DarkGray);
+                }
             }
         }
     }

@@ -10,11 +10,13 @@ use super::*;
 use crate::hopstart::{HopStartTarget, HopStarter};
 use libmodpak::{SysInspectModPak, compare_versions};
 use libsysinspect::{
+    cfg::mmconf::MinionConfig,
     console::{
-        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
+        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleModelRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
         ConsoleTransportStatusRow, authorised_console_client, load_master_private_key,
     },
     context::get_context,
+    mdescr::catalog::ModelCatalog,
     traits::TraitSource,
 };
 use tokio::net::{TcpStream, tcp::OwnedReadHalf};
@@ -209,6 +211,52 @@ impl SysMaster {
                 rows
             }
         })
+    }
+
+    /// Build model-discovery rows from the master's fileserver models directory.
+    async fn models_data(&mut self) -> Result<Vec<ConsoleModelRow>, SysinspectError> {
+        let mut minion_cfg = MinionConfig::default();
+        let root = self.cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
+        minion_cfg.set_root_dir(&root);
+        let catalog = ModelCatalog::scan(std::sync::Arc::new(minion_cfg));
+        Ok(catalog
+            .successes()
+            .into_iter()
+            .map(|m| {
+                let entrypoints: Vec<String> = m
+                    .entrypoints
+                    .iter()
+                    .map(|ep| match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, .. } => label.clone(),
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => id.clone(),
+                    })
+                    .collect();
+                let target_actions: Vec<(String, Vec<(String, Vec<String>)>)> = entrypoints
+                    .iter()
+                    .map(|ep_id| {
+                        let actions: Vec<(String, Vec<String>)> = m
+                            .actions
+                            .iter()
+                            .filter(|a| a.binds_to.contains(ep_id))
+                            .map(|a| {
+                                let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                (a.description.clone(), states)
+                            })
+                            .collect();
+                        (ep_id.clone(), actions)
+                    })
+                    .collect();
+                ConsoleModelRow {
+                    id: m.metadata.id.clone(),
+                    name: m.metadata.name.clone(),
+                    version: m.metadata.version.clone(),
+                    description: m.metadata.description.clone(),
+                    entrypoints,
+                    states: m.states.clone(),
+                    target_actions,
+                }
+            })
+            .collect())
     }
 
     /// Build the full trait-backed info payload for exactly one selected minion.
@@ -442,6 +490,13 @@ impl SysMaster {
             return match master.lock().await.upsert_cmdb_console_response(&query.mid, &query.context).await {
                 Ok(response) => response,
                 Err(err) => ConsoleResponse::err(format!("Unable to upsert CMDB: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MODELS}")) {
+            return match master.lock().await.models_data().await {
+                Ok(rows) => ConsoleResponse::ok(ConsolePayload::Models { rows }),
+                Err(err) => ConsoleResponse::err(format!("Unable to list models: {err}")),
             };
         }
 

@@ -10,11 +10,11 @@ use libeventreg::{
 };
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
-    console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload},
+    console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleOnlineMinionRow, ConsolePayload},
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
-    commands::{CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_TRAITS_UPDATE},
+    commands::{CLUSTER_MINION_INFO, CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_TRAITS_UPDATE},
 };
 use ratatui::{
     DefaultTerminal, Frame,
@@ -918,10 +918,15 @@ impl SysInspectUX {
             KeyCode::Char('h') => {
                 self.help_popup_visible = true;
             }
-            KeyCode::Char('c') => {
-                self.dsl_browser.visible = true;
-                self.dsl_browser.focus = dslbrowser::DslFocus::Query;
-            }
+            KeyCode::Char('c') => match self.get_models() {
+                Ok(rows) => {
+                    self.dsl_browser.load_models(rows, vec![]);
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to load models: {err}");
+                }
+            },
             KeyCode::Char('o') => match self.get_online_minions() {
                 Ok(rows) if rows.is_empty() => {
                     self.error_alert_visible = true;
@@ -1118,6 +1123,20 @@ impl SysInspectUX {
                 call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_ONLINE_MINIONS}"), "*", None, None, None).await.map(|resp| {
                     match resp.payload {
                         ConsolePayload::OnlineMinions { rows } => rows,
+                        _ => Vec::new(),
+                    }
+                })
+            })
+        })
+    }
+
+    /// Query the master console for available models.
+    pub fn get_models(&self) -> Result<Vec<ConsoleModelRow>, SysinspectError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MODELS}"), "*", None, None, None).await.map(|resp| {
+                    match resp.payload {
+                        ConsolePayload::Models { rows } => rows,
                         _ => Vec::new(),
                     }
                 })
