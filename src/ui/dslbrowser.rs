@@ -295,9 +295,8 @@ impl DslBrowser {
 
         let desc_text = self.build_target_description();
         let wrapped = wrap_text(&desc_text, area.width.saturating_sub(4) as usize);
-        let max_vis = 3usize;
-        let trimmed = wrapped.len() > max_vis;
-        let visible: Vec<&str> = wrapped.iter().take(max_vis).map(|s| s.as_str()).collect();
+        let max_desc = 3usize;
+        let visible: Vec<&str> = wrapped.iter().take(max_desc).map(|s| s.as_str()).collect();
         let has_header = !self.catalog_diagnostics.is_empty() || visible.is_empty();
         let desc_h = (visible.len() as u16).saturating_add(if has_header { 1 } else { 0 });
 
@@ -311,7 +310,7 @@ impl DslBrowser {
         let (box_w, ctx_w) = Self::column_widths(area);
         self.render_top(rows[0], box_w, ctx_w, buf);
         self.render_lists(rows[1], box_w, ctx_w, buf);
-        self.render_description(rows[2], &visible, trimmed, buf);
+        self.render_description(rows[2], &visible, buf);
         self.render_bottom(rows[3], buf);
     }
 
@@ -475,7 +474,7 @@ impl DslBrowser {
         }
     }
 
-    fn render_description(&self, area: Rect, visible: &[&str], trimmed: bool, buf: &mut Buffer) {
+    fn render_description(&self, area: Rect, visible: &[&str], buf: &mut Buffer) {
         let mut y = area.y;
         let fail_count = self.catalog_diagnostics.len();
         let header = if fail_count > 0 {
@@ -489,28 +488,11 @@ impl DslBrowser {
             write_clipped(buf, area, area.x, y, &header, Self::s_di());
             y += 1;
         }
-        for (i, line) in visible.iter().enumerate() {
+        for line in visible {
             if y >= area.bottom() {
                 break;
             }
-            let last = i == visible.len() - 1;
-            if trimmed && last {
-                let max_w = area.width.saturating_sub(2) as usize;
-                let suffix = "… (press 'm' for more)";
-                let cutoff = max_w.saturating_sub(suffix.chars().count());
-                let display: String = line.chars().take(cutoff).collect();
-                write_clipped(buf, area, area.x, y, &format!("  {display}"), Self::s_fg());
-                write_clipped(
-                    buf,
-                    area,
-                    area.x + 2 + display.chars().count() as u16,
-                    y,
-                    suffix,
-                    Style::default().fg(Color::Cyan).bg(Color::DarkGray),
-                );
-            } else {
-                write_clipped(buf, area, area.x, y, &format!("  {line}"), Self::s_fg());
-            }
+            write_clipped(buf, area, area.x, y, &format!("  {line}"), Self::s_fg());
             y += 1;
         }
     }

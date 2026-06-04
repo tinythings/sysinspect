@@ -94,4 +94,20 @@ impl SysInspectUX {
             desc("close"),
         ]);
     }
+
+    /// Set status for query composer popup
+    pub(crate) fn status_at_query_composer(&mut self) {
+        self.status_text = Line::from(vec![
+            Span::styled(" TAB ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("switch pane, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("UP/DOWN ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("navigate, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("ENTER ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("select / expand, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("'m' ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("details, ", Style::default().fg(Color::LightCyan)),
+            Span::styled("ESC ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("close", Style::default().fg(Color::LightCyan)),
+        ]);
+    }
 }

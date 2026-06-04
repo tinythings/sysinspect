@@ -747,6 +747,9 @@ impl SysInspectUX {
 
         if self.dsl_browser.visible {
             self.dsl_browser.handle_key(e.code);
+            if !self.dsl_browser.visible {
+                self.restore_status();
+            }
             if self.dsl_browser.call_requested {
                 self.dsl_browser.call_requested = false;
                 if let Some(query) = self.dsl_browser.take_query() {
@@ -956,6 +959,7 @@ impl SysInspectUX {
             KeyCode::Char('c') => match self.get_models() {
                 Ok((rows, failures)) => {
                     self.dsl_browser.load_models(rows, failures);
+                    self.status_at_query_composer();
                     if let Ok(minions) = self.get_online_minions() {
                         let names: Vec<String> =
                             minions.iter().map(|r| if !r.fqdn.is_empty() { r.fqdn.clone() } else { r.hostname.clone() }).collect();
