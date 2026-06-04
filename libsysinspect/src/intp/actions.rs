@@ -61,6 +61,7 @@ impl ModArgs {
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Action {
     id: Option<String>, // NOTE: It is not optional, just added later!
+    #[serde(alias = "descr")]
     description: Option<String>,
     module: String,
     bind: Vec<String>,
@@ -72,6 +73,9 @@ pub struct Action {
 
     #[serde(rename = "if-false")]
     if_false: Option<Vec<String>>,
+
+    #[serde(alias = "ctx")]
+    context: Option<IndexMap<String, String>>,
 }
 
 impl Action {
@@ -125,9 +129,24 @@ impl Action {
         self.id.to_owned().unwrap_or("".to_string())
     }
 
+    /// Get action-level context variables (documentation)
+    pub fn action_context(&self) -> IndexMap<String, String> {
+        self.context.to_owned().unwrap_or_default()
+    }
+
     /// Get action's `description` field
     pub fn descr(&self) -> String {
         self.description.to_owned().unwrap_or(format!("Action {}", self.id()))
+    }
+
+    /// Get the module namespace this action invokes.
+    pub fn module(&self) -> &str {
+        &self.module
+    }
+
+    /// Get the entity IDs this action binds to.
+    pub fn bind_list(&self) -> &[String] {
+        &self.bind
     }
 
     /// Returns true if an action has a bind to an entity via its `eid` _(entity Id)_.

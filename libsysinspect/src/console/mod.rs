@@ -138,6 +138,14 @@ pub enum ConsolePayload {
         /// One row per key/value pair for one selected minion.
         rows: Vec<ConsoleMinionInfoRow>,
     },
+    /// Available models discovered by the master.
+    Models {
+        /// One row per discovered model.
+        rows: Vec<ConsoleModelRow>,
+        /// Models that failed to load, preserved as diagnostic strings.
+        #[serde(default)]
+        failures: Vec<String>,
+    },
 }
 
 /// One online-minion summary row returned by the master.
@@ -213,6 +221,29 @@ pub struct ConsoleMinionInfoRow {
     pub value: Value,
     /// Origin of this trait so the client can group and style it.
     pub source: TraitSource,
+}
+
+/// One model row returned by the master for model discovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleModelRow {
+    /// Directory-name identifier used to address the model.
+    pub id: String,
+    /// Human-readable model name from the header.
+    pub name: String,
+    /// Model version from the header.
+    pub version: String,
+    /// Human-readable description from the header.
+    pub description: String,
+    /// Entrypoint ids (checkbook labels + direct entity ids).
+    #[serde(default)]
+    pub entrypoints: Vec<String>,
+    /// Declared state names across all actions.
+    #[serde(default)]
+    pub states: Vec<String>,
+    /// Per-entrypoint actions: (description, available states, context vars).
+    #[serde(default)]
+    #[allow(clippy::type_complexity)]
+    pub target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String)>)>)>,
 }
 
 impl ConsoleResponse {

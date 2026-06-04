@@ -25,6 +25,7 @@ pub enum AlertResult {
     Default,
     Purge,
     Quit,
+    Close,
 }
 
 pub trait DbListItem {

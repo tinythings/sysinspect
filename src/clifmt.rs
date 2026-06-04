@@ -406,5 +406,6 @@ pub fn render_console_payload(payload: &ConsolePayload) -> String {
         ConsolePayload::OnlineMinions { rows } => render_online_minions(rows),
         ConsolePayload::TransportStatus { rows } => render_transport_status(rows),
         ConsolePayload::MinionInfo { rows } => render_minion_info(rows),
+        ConsolePayload::Models { .. } => String::new(),
     }
 }

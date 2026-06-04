@@ -10,11 +10,13 @@ use super::*;
 use crate::hopstart::{HopStartTarget, HopStarter};
 use libmodpak::{SysInspectModPak, compare_versions};
 use libsysinspect::{
+    cfg::mmconf::MinionConfig,
     console::{
-        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
+        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleModelRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
         ConsoleTransportStatusRow, authorised_console_client, load_master_private_key,
     },
     context::get_context,
+    mdescr::catalog::ModelCatalog,
     traits::TraitSource,
 };
 use tokio::net::{TcpStream, tcp::OwnedReadHalf};
@@ -209,6 +211,76 @@ impl SysMaster {
                 rows
             }
         })
+    }
+
+    /// Build model-discovery rows from the master's fileserver models directory.
+    async fn models_data(&mut self) -> Result<(Vec<ConsoleModelRow>, Vec<String>), SysinspectError> {
+        let mut minion_cfg = MinionConfig::default();
+        let root = self.cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
+        minion_cfg.set_root_dir(&root);
+        let catalog = ModelCatalog::scan(std::sync::Arc::new(minion_cfg));
+        let failures = catalog
+            .failures()
+            .into_iter()
+            .map(|e| format!("{}: {}", e.id, e.result.as_ref().err().map(|err| err.to_string()).unwrap_or_default()))
+            .collect::<Vec<_>>();
+
+        let rows = catalog
+            .successes()
+            .into_iter()
+            .map(|m| {
+                let mut entrypoints: Vec<String> = Vec::new();
+                #[allow(clippy::type_complexity)]
+                let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String)>)>)> = Vec::new();
+
+                for ep in &m.entrypoints {
+                    match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
+                            entrypoints.push(label.clone());
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String)>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.iter().any(|eid| entity_ids.contains(eid)))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    let ctx_vars: Vec<(String, String)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
+                                })
+                                .collect();
+                            target_actions.push((label.clone(), actions));
+                        }
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
+                            entrypoints.push(id.clone());
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String)>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.contains(id))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    let ctx_vars: Vec<(String, String)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
+                                })
+                                .collect();
+                            target_actions.push((id.clone(), actions));
+                        }
+                    }
+                }
+
+                ConsoleModelRow {
+                    id: m.metadata.id.clone(),
+                    name: m.metadata.name.clone(),
+                    version: m.metadata.version.clone(),
+                    description: m.metadata.description.clone(),
+                    entrypoints,
+                    states: m.states.clone(),
+                    target_actions,
+                }
+            })
+            .collect();
+
+        Ok((rows, failures))
     }
 
     /// Build the full trait-backed info payload for exactly one selected minion.
@@ -442,6 +514,13 @@ impl SysMaster {
             return match master.lock().await.upsert_cmdb_console_response(&query.mid, &query.context).await {
                 Ok(response) => response,
                 Err(err) => ConsoleResponse::err(format!("Unable to upsert CMDB: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MODELS}")) {
+            return match master.lock().await.models_data().await {
+                Ok((rows, failures)) => ConsoleResponse::ok(ConsolePayload::Models { rows, failures }),
+                Err(err) => ConsoleResponse::err(format!("Unable to list models: {err}")),
             };
         }
 

@@ -10,11 +10,11 @@ use libeventreg::{
 };
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
-    console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow, ConsolePayload},
+    console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleOnlineMinionRow, ConsolePayload},
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
-    commands::{CLUSTER_MINION_INFO, CLUSTER_ONLINE_MINIONS, CLUSTER_TRAITS_UPDATE},
+    commands::{CLUSTER_MINION_INFO, CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_TRAITS_UPDATE},
 };
 use ratatui::{
     DefaultTerminal, Frame,
@@ -33,6 +33,7 @@ use std::{
 use tokio::sync::Mutex;
 
 mod alert;
+mod dslbrowser;
 mod elements;
 mod online;
 mod statusbar;
@@ -118,6 +119,9 @@ pub struct SysInspectUX {
     pub evtipc: Option<Arc<Mutex<DbIPCClient>>>,
 
     // Config
+    /// DSL browser / call composer
+    pub dsl_browser: dslbrowser::DslBrowser,
+
     pub cfg: MasterConfig,
 
     // Buffers
@@ -170,6 +174,7 @@ impl Default for SysInspectUX {
             tag_pos: 0,
 
             evtipc: None,
+            dsl_browser: dslbrowser::DslBrowser::new(),
             cfg: MasterConfig::default(),
             cycles_buf: Vec::new(),
             minions_buf: Vec::new(),
@@ -227,8 +232,13 @@ impl SysInspectUX {
             {
                 self.on_key(e);
             }
-        } else if self.online_minions_visible {
-            self.refresh_online_minions();
+        } else {
+            if let Ok(cycles) = self.get_cycles() {
+                self.cycles_buf = cycles;
+            }
+            if self.online_minions_visible {
+                self.refresh_online_minions();
+            }
         }
         Ok(())
     }
@@ -730,6 +740,44 @@ impl SysInspectUX {
     }
 
     fn on_key(&mut self, e: event::KeyEvent) {
+        // Error alert is modal — always checked first
+        if self.on_error_alert(e) {
+            return;
+        }
+
+        if self.dsl_browser.visible {
+            self.dsl_browser.handle_key(e.code);
+            if !self.dsl_browser.visible {
+                self.restore_status();
+            }
+            if self.dsl_browser.call_requested {
+                self.dsl_browser.call_requested = false;
+                if let Some(query) = self.dsl_browser.take_query() {
+                    let minion_query = if self.dsl_browser.query.is_empty() || self.dsl_browser.query == "*" {
+                        "*".to_string()
+                    } else {
+                        self.dsl_browser.query.clone()
+                    };
+                    let ctx = self.dsl_browser.build_context_json();
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            if let Err(err) = call_master_console(&self.cfg, &query, &minion_query, None, None, ctx.as_ref()).await {
+                                log::error!("Call failed: {err}");
+                            }
+                        })
+                    });
+                } else {
+                    let model = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+                    let _target =
+                        self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+                    let missing = if model == "(select)" || model == "(no models found)" { "Model" } else { "Target" };
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Select {missing} first!");
+                }
+            }
+            return;
+        }
+
         if self.on_help_popup(e) {
             return;
         }
@@ -908,6 +956,21 @@ impl SysInspectUX {
             KeyCode::Char('h') => {
                 self.help_popup_visible = true;
             }
+            KeyCode::Char('c') => match self.get_models() {
+                Ok((rows, failures)) => {
+                    self.dsl_browser.load_models(rows, failures);
+                    self.status_at_query_composer();
+                    if let Ok(minions) = self.get_online_minions() {
+                        let names: Vec<String> =
+                            minions.iter().map(|r| if !r.fqdn.is_empty() { r.fqdn.clone() } else { r.hostname.clone() }).collect();
+                        self.dsl_browser.set_minions(names);
+                    }
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to load models: {err}");
+                }
+            },
             KeyCode::Char('o') => match self.get_online_minions() {
                 Ok(rows) if rows.is_empty() => {
                     self.error_alert_visible = true;
@@ -1105,6 +1168,20 @@ impl SysInspectUX {
                     match resp.payload {
                         ConsolePayload::OnlineMinions { rows } => rows,
                         _ => Vec::new(),
+                    }
+                })
+            })
+        })
+    }
+
+    /// Query the master console for available models.
+    pub fn get_models(&self) -> Result<(Vec<ConsoleModelRow>, Vec<String>), SysinspectError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MODELS}"), "*", None, None, None).await.map(|resp| {
+                    match resp.payload {
+                        ConsolePayload::Models { rows, failures } => (rows, failures),
+                        _ => (Vec::new(), Vec::new()),
                     }
                 })
             })
