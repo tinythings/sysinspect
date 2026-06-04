@@ -1,7 +1,6 @@
 # Sysinspect
 
 ![insanity_workflow](https://github.com/tinythings/sysinspect/actions/workflows/insanity_check.yml/badge.svg)
-![build_workflow](https://github.com/tinythings/sysinspect/actions/workflows/generic_workflow.yml/badge.svg)
 ![build_workflow](https://github.com/tinythings/sysinspect/actions/workflows/all_the_tests.yml/badge.svg)
 [![Docs](https://readthedocs.org/projects/sysinspect/badge/?version=latest)](https://sysinspect.readthedocs.io/en/latest/)
 [![Release](https://img.shields.io/github/v/release/tinythings/sysinspect)](https://github.com/tinythings/sysinspect/releases)
