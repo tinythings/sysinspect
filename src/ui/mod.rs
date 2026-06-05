@@ -39,6 +39,7 @@ mod online;
 mod palette;
 mod statusbar;
 mod traittag;
+mod typecolors;
 mod wgt;
 
 pub async fn run(cfg: MasterConfig) -> io::Result<()> {
@@ -221,8 +222,7 @@ impl SysInspectUX {
 
         frame.render_widget(self, main_area);
 
-        let status_paragraph =
-            Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+        let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
         frame.render_widget(status_paragraph, status_area);
     }
 

@@ -1,14 +1,16 @@
 use super::{
     SysInspectUX, UISizes,
     elements::{ActiveBox, DbListItem, EventListItem},
-    palette,
+    palette, typecolors,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
+    widgets::{
+        Block, BorderType, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget,
+    },
 };
 
 impl SysInspectUX {
@@ -17,74 +19,78 @@ impl SysInspectUX {
         let csize = self.size.get();
         self.size.set(UISizes { table_info: rect.height.saturating_sub(2) as usize, ..csize });
 
-        let title = "Action Data";
-        let block = self._get_box_block(title, ActiveBox::Info);
+        let rule_s = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
 
-        Widget::render(&block, rect, buf);
-        let inner = block.inner(rect);
-
-        // Get event
         let evt = match self.get_selected_event() {
             Some(eli) => eli,
             None => {
-                Widget::render(
-                    Table::new(vec![Row::new(vec!["N/A"]).style(Style::default().fg(palette::ERROR)).bottom_margin(0)], &[Constraint::Min(0)])
-                        .block(block)
-                        .column_spacing(1),
-                    rect,
-                    buf,
-                );
+                Widget::render(Paragraph::new("N/A").style(Style::default().fg(palette::ERROR)), rect, buf);
                 return;
             }
         };
         let info_rows = evt.get_event_table(15);
 
-        // Inner layout
-        let inner_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(info_rows.len() as u16 + 1), Constraint::Length(1), Constraint::Min(0)])
-            .split(inner);
-
-        let info_table_area = inner_layout[0];
-        let splitter_label_area = inner_layout[1];
-        let extra_table_area = inner_layout[2];
-
-        // Static table
-        Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), info_table_area, buf);
-
-        // Splitter label
-        Widget::render(Paragraph::new("Additional Information").style(Style::default().fg(palette::PROCESSING)), splitter_label_area, buf);
-
-        // Fill-in info rows from the event data. At this point it supposed to be fetched.
+        // Build dynamic rows to know if we have data
         let mut info_rows_ref = self.info_rows.borrow_mut();
         info_rows_ref.clear();
         for (k, v) in &self.event_data {
             if k.starts_with("data.") {
                 let k = k.strip_prefix("data.").unwrap_or_default().to_string();
-                info_rows_ref.push(Row::new(vec![
-                    EventListItem::yc(format!("{k}:"), 15),
-                    EventListItem::gc(v.strip_prefix('"').unwrap_or(v).strip_suffix('"').unwrap_or(v).to_string()),
-                ]));
+                info_rows_ref.push(Row::new(vec![EventListItem::yc(format!("{k}:"), 15), Cell::from(typecolors::format_typed_value(v))]));
             }
         }
+        let has_details = !info_rows_ref.is_empty();
 
-        let ex_nfo_parts = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
-            .split(extra_table_area);
-        let ex_nfo_area = ex_nfo_parts[0];
-        let ex_nfo_scroller = ex_nfo_parts[1];
+        if has_details {
+            // With details: General title, static table, Details title, dynamic data
+            let [gen_title_area, gen_table_area] = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Length(info_rows.len() as u16)])
+                .split(rect)
+                .as_ref()
+                .try_into()
+                .unwrap();
+            render_rule_line(gen_title_area, buf, "General", rule_s);
+            Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), gen_table_area, buf);
 
-        let end = (2 + self.actdt_info_offset + extra_table_area.height.saturating_sub(2) as usize).min(info_rows_ref.len());
-        let displayed = &info_rows_ref[self.actdt_info_offset..end]; // XXX: Can crash tho :-)
-        Widget::render(Table::new(displayed.to_vec(), &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), ex_nfo_area, buf);
+            let [_, det_title_area, det_content_area]: [Rect; 3] = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(0)])
+                .split(Rect::new(rect.x, gen_table_area.bottom(), rect.width, rect.bottom().saturating_sub(gen_table_area.bottom())))
+                .as_ref()
+                .try_into()
+                .unwrap();
+            render_rule_line(det_title_area, buf, "Details", rule_s);
 
-        let mut scroller_state = ScrollbarState::default().content_length(info_rows_ref.len()).position(self.actdt_info_offset);
-        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
-            ex_nfo_scroller,
-            buf,
-            &mut scroller_state,
-        );
+            let ex_nfo_parts = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
+                .split(det_content_area);
+            let ex_nfo_area = ex_nfo_parts[0];
+            let ex_nfo_scroller = ex_nfo_parts[1];
+
+            let end = (2 + self.actdt_info_offset + det_content_area.height.saturating_sub(2) as usize).min(info_rows_ref.len());
+            let displayed = &info_rows_ref[self.actdt_info_offset..end];
+            Widget::render(Table::new(displayed.to_vec(), &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), ex_nfo_area, buf);
+
+            let mut scroller_state = ScrollbarState::default().content_length(info_rows_ref.len()).position(self.actdt_info_offset);
+            Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
+                ex_nfo_scroller,
+                buf,
+                &mut scroller_state,
+            );
+        } else {
+            // No details: just General title and static table filling the area
+            let [gen_title_area, gen_table_area] = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(0)])
+                .split(rect)
+                .as_ref()
+                .try_into()
+                .unwrap();
+            render_rule_line(gen_title_area, buf, "General", rule_s);
+            Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), gen_table_area, buf);
+        }
     }
 
     /// Render list of events
@@ -177,14 +183,14 @@ impl SysInspectUX {
                     Span::styled("\u{E0B0}", Style::default().fg(palette::ACCENT)),
                 ]))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::ACCENT).bg(Color::Reset))
+                .border_style(Style::default().fg(palette::ACCENT).bg(palette::BG_2))
         } else {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!(" {title} "))
-                .title_style(Style::default().fg(palette::MUTED).bg(Color::Reset))
+                .title_style(Style::default().fg(palette::MUTED).bg(palette::BG_2))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::FAINT).bg(Color::Reset))
+                .border_style(Style::default().fg(palette::FAINT).bg(palette::BG_2))
         }
     }
 
@@ -229,11 +235,31 @@ impl SysInspectUX {
     }
 }
 
+/// Render a decorated rule line: ` Title ////////////////////////////////`
+/// with one leading space and dash fill to end of area, minus one trailing space.
+fn render_rule_line(area: Rect, buf: &mut Buffer, title: &str, style: Style) {
+    if area.width < 6 {
+        return;
+    }
+    let label = format!(" {title} ");
+    let label_w = label.len() as u16;
+    buf.set_string(area.x, area.y, &label, style);
+
+    let fill_start = area.x.saturating_add(label_w);
+    let fill_end = area.right().saturating_sub(1);
+    for x in fill_start..fill_end.min(fill_start.saturating_add(area.width)) {
+        buf.set_string(x, area.y, "/", style);
+    }
+}
+
 impl Widget for &SysInspectUX {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
+        // Fill main background
+        Block::default().style(Style::default().bg(palette::BG_2)).render(area, buf);
+
         let cycles_max = self.cycles_buf.iter().map(|c| c.get_list_line(false).width()).max().unwrap_or(10);
         let minions_max = self.li_minions.iter().map(|m| m.get_list_line(false).width()).max().unwrap_or(8);
 

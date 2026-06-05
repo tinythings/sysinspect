@@ -74,12 +74,7 @@ pub const PROCESSING_GLOW: Color = Color::Indexed(91);
 pub const PROCESSING_HEAT: Color = Color::Indexed(127);
 pub const PROCESSING_PEAK: Color = Color::Indexed(163);
 
-pub const PROCESSING_RAMP: [Color; 4] = [
-    PROCESSING_BASE,
-    PROCESSING_GLOW,
-    PROCESSING_HEAT,
-    PROCESSING_PEAK,
-];
+pub const PROCESSING_RAMP: [Color; 4] = [PROCESSING_BASE, PROCESSING_GLOW, PROCESSING_HEAT, PROCESSING_PEAK];
 
 // ---- Semantic aliases for current UI usage ----
 

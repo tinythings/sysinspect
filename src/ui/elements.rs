@@ -98,7 +98,7 @@ impl EventListItem {
 
     // Key cell
     pub fn yc(v: String, keywidth: usize) -> Cell<'static> {
-        Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(palette::PROCESSING_HEAT))
+        Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(palette::GRAY_1))
     }
 
     // Value cell
