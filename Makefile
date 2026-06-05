@@ -2,6 +2,9 @@
 
 include Makefile.in
 
+export PATH := $(HOME)/.cargo/bin:$(PATH)
+CARGO := $(shell command -v cargo 2>/dev/null || echo cargo)
+
 MXRUN_BIN := mxrun
 MXRUN_ARGS ?=
 MX_ACTIVE := $(shell awk -F= '/^active=/ {print $$2}' .mxrun-env 2>/dev/null)

@@ -23,9 +23,19 @@ add_rustup_target() {
 
 # --- dispatch to per-OS setup script ---
 case "$OS" in
-	Linux)   source scripts/setup-debian.sh ;;
+	Linux)
+		distro=$( . /etc/os-release 2>/dev/null && echo "$ID" )
+		case "$distro" in
+			debian|ubuntu) source scripts/setup-debian.sh ;;
+			fedora)        source scripts/setup-fedora.sh ;;
+			*)
+				echo "Unsupported Linux distribution: $distro" >&2
+				echo "Supported: Debian, Ubuntu, Fedora, FreeBSD" >&2
+				exit 1
+				;;
+		esac
+		;;
 	FreeBSD) source scripts/setup-freebsd.sh ;;
-
 	*)
 		echo "Unsupported setup host: $OS" >&2
 		exit 1
@@ -35,6 +45,9 @@ esac
 run_setup
 
 # --- shared steps ---
+require_cmd cargo
+command -v rustup >/dev/null 2>&1 || { echo "Missing rustup. Install it first." >&2; exit 1; }
+
 cargo nextest --version >/dev/null 2>&1 || cargo install cargo-nextest --locked
 command -v tokei >/dev/null 2>&1 || cargo install tokei --locked
 cargo install mxrun || true
