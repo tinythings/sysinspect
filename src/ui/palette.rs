@@ -100,7 +100,7 @@ pub const HIGHLIGHT: Color = Color::Indexed(134);
 pub const ON_HIGHLIGHT: Color = Color::Indexed(235);
 
 /// Borders and dividers.
-pub const BORDER: Color = Color::Indexed(240);
+pub const BORDER: Color = Color::Indexed(248);
 
 /// Error / failure / destructive.
 pub const ERROR: Color = Color::Indexed(197);

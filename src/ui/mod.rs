@@ -948,7 +948,7 @@ impl SysInspectUX {
             }
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.exit_alert_visible = true;
-                self.exit_alert_choice = AlertResult::Default;
+                self.exit_alert_choice = AlertResult::Quit;
             }
             KeyCode::Char('p') => {
                 self.purge_alert_visible = true;

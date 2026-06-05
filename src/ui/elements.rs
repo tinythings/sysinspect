@@ -169,7 +169,7 @@ impl DbListItem for EventListItem {
         self.event.clone()
     }
 
-    fn get_list_line(&self, hl: bool) -> Line<'static> {
+    fn get_list_line(&self, _hl: bool) -> Line<'static> {
         self.get_aligned_line(0)
     }
 }

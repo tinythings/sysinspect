@@ -1,9 +1,10 @@
-use super::{SysInspectUX, elements::AlertResult};
+use super::{SysInspectUX, elements::AlertResult, palette};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Position},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
 };
 
 #[derive(Default)]
@@ -30,17 +31,7 @@ impl SysInspectUX {
         if !self.error_alert_visible {
             return;
         }
-        Self::_popup(
-            parent,
-            buf,
-            Some("Error"),
-            &self.error_alert_message,
-            Some(Color::Red),
-            Alignment::Center,
-            AlertResult::Quit,
-            AlertButtons::Close,
-            Some(0),
-        );
+        Self::_popup(parent, buf, Some("Error"), &self.error_alert_message, None, Alignment::Center, AlertResult::Quit, AlertButtons::Close, Some(0));
     }
 
     pub fn dialog_purge(&self, parent: Rect, buf: &mut Buffer) {
@@ -67,7 +58,7 @@ impl SysInspectUX {
             buf,
             Some("Help"),
             "\"c\" - call composer\n\"h\" - show this help\n\"o\" - registered minions popup\n\"p\" - purge all records\n\"q\" - quit the UI\n",
-            Some(Color::Green),
+            None,
             Alignment::Left,
             AlertResult::Close,
             AlertButtons::Close,
@@ -80,7 +71,22 @@ impl SysInspectUX {
             return;
         }
 
-        Self::okcancel_popup(parent, buf, None, "Quit the UI?", Some(Color::Blue), self.exit_alert_choice.clone(), None);
+        Self::_popup_ex(
+            parent,
+            buf,
+            None,
+            "Quit the UI?",
+            Some(palette::GRAY_0),
+            Alignment::Center,
+            self.exit_alert_choice.clone(),
+            AlertButtons::OkCancel,
+            None,
+            Some(palette::BORDER),
+            Some(ratatui::widgets::BorderType::Plain),
+            Some(palette::FG),
+            Some("Yep!"),
+            Some("Nope"),
+        );
     }
 
     /// Draws a button in MS-DOS style (no shadow)
@@ -113,12 +119,17 @@ impl SysInspectUX {
         Self::_popup(parent, buf, title, text, background, Alignment::Center, choice, AlertButtons::YesNo, width);
     }
 
-    /// Draws a popup area
-    fn _popup(
+    /// Draws a popup area with custom border/text colours
+    #[allow(clippy::too_many_arguments)]
+    fn _popup_ex(
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
-        buttons: AlertButtons, width: Option<u16>,
+        buttons: AlertButtons, width: Option<u16>, border_color: Option<Color>, border_type: Option<ratatui::widgets::BorderType>,
+        text_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>,
     ) {
-        let background = background.unwrap_or(Color::Red);
+        let background = background.unwrap_or(palette::GRAY_0);
+        let border_color = border_color.unwrap_or(palette::BORDER);
+        let border_type = border_type.unwrap_or(ratatui::widgets::BorderType::Plain);
+        let text_color = text_color.unwrap_or(palette::FG);
 
         let text = format!("\n{text}");
         let text_lines = Self::get_text_lines(&text);
@@ -137,12 +148,20 @@ impl SysInspectUX {
         Clear.render(canvas, buf);
 
         let popup_block = Block::default()
-            .title(if let Some(t) = title { format!(" {t} ") } else { "".to_string() })
+            .title(if let Some(t) = title {
+                Line::from(vec![
+                    Span::styled("\u{E0B2}", Style::default().fg(border_color)),
+                    Span::styled(t.to_string(), Style::default().fg(palette::BLACK).bg(border_color)),
+                    Span::styled("\u{E0B0}", Style::default().fg(border_color)),
+                ])
+            } else {
+                Line::from("")
+            })
             .title_alignment(Alignment::Center)
-            .title_style(Style::default().fg(Color::Black).bg(Color::Gray))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Gray))
+            .border_type(border_type)
+            .border_style(Style::default().fg(border_color).bg(background))
+            .padding(Padding::horizontal(2))
             .style(Style::default().bg(background));
 
         let popup_inner = popup_block.inner(canvas);
@@ -154,7 +173,115 @@ impl SysInspectUX {
         let text_area = vertical_chunks[0];
         let button_area = vertical_chunks[1];
 
-        Paragraph::new(text).alignment(text_align).style(Style::default().fg(Color::White).bg(background)).render(text_area, buf);
+        Paragraph::new(text).alignment(text_align).style(Style::default().fg(text_color).bg(background)).render(text_area, buf);
+        let (lbtn_label, rbtn_label) = match buttons {
+            AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
+            AlertButtons::OkCancel => (Self::format_button(left_label.unwrap_or(OK_LABEL)), Self::format_button(right_label.unwrap_or(CANCEL_LABEL))),
+            AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
+            AlertButtons::Quit => (Self::format_button(CLOSE_LABEL), "".to_string()),
+            AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
+        };
+
+        let button_splits = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length((width - (lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
+                Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                Constraint::Length(3),
+                Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+            ])
+            .split(button_area);
+
+        let b_selected = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let b_unselected = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+
+        let (left_style, right_style) = if choice == AlertResult::Default { (b_unselected, b_selected) } else { (b_selected, b_unselected) };
+
+        Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
+        Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
+
+        // MS-DOS style shadows
+        let buf_area = buf.area();
+        let max_x = buf_area.right().saturating_sub(1);
+        let max_y = buf_area.bottom().saturating_sub(1);
+
+        for idx in 0..width {
+            let sx = x.saturating_add(2).saturating_add(idx);
+            let sy = y.saturating_add(height);
+            if sx > max_x || sy > max_y {
+                continue;
+            }
+            if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                cell.set_bg(palette::SHADOW_BG);
+                cell.set_fg(palette::SHADOW_FG);
+            }
+        }
+
+        for offset in 0..2 {
+            for idx in 0..height {
+                let sx = x.saturating_add(width).saturating_add(offset);
+                let sy = y.saturating_add(idx).saturating_add(1);
+                if sx > max_x || sy > max_y {
+                    continue;
+                }
+                if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                    cell.set_bg(palette::SHADOW_BG);
+                    cell.set_fg(palette::SHADOW_FG);
+                }
+            }
+        }
+    }
+
+    /// Draws a popup area
+    fn _popup(
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
+        buttons: AlertButtons, width: Option<u16>,
+    ) {
+        let background = background.unwrap_or(palette::GRAY_0);
+
+        let text = format!("\n{text}");
+        let text_lines = Self::get_text_lines(&text);
+        let height = text_lines + 3;
+
+        #[allow(clippy::unnecessary_unwrap)]
+        let mut width = if width.is_none() { (parent.width / 4).max(20) } else { width.unwrap() };
+        if width == 0 {
+            width = Self::get_max_width_lines(&text) + 2;
+        }
+
+        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
+        let canvas = Rect { x, y, width, height };
+
+        Clear.render(canvas, buf);
+
+        let popup_block = Block::default()
+            .title(if let Some(t) = title {
+                Line::from(vec![
+                    Span::styled("\u{E0B2}", Style::default().fg(palette::BORDER)),
+                    Span::styled(t.to_string(), Style::default().fg(palette::BLACK).bg(palette::BORDER)),
+                    Span::styled("\u{E0B0}", Style::default().fg(palette::BORDER)),
+                ])
+            } else {
+                Line::from("")
+            })
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Plain)
+            .border_style(Style::default().fg(palette::BORDER).bg(background))
+            .padding(Padding::horizontal(2))
+            .style(Style::default().bg(background));
+
+        let popup_inner = popup_block.inner(canvas);
+        popup_block.render(canvas, buf);
+
+        let vertical_chunks =
+            Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_lines), Constraint::Length(1)]).split(popup_inner);
+
+        let text_area = vertical_chunks[0];
+        let button_area = vertical_chunks[1];
+
+        Paragraph::new(text).alignment(text_align).style(Style::default().fg(palette::FG).bg(background)).render(text_area, buf);
         let (lbtn_label, rbtn_label) = match buttons {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(OK_LABEL), Self::format_button(CANCEL_LABEL)),
@@ -173,22 +300,15 @@ impl SysInspectUX {
             ])
             .split(button_area);
 
-        // Button styles
-        let b_passive = if choice != AlertResult::Default {
-            Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White).bg(background)
-        };
-        let b_active = if choice == AlertResult::Default {
-            Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White).bg(background)
-        };
+        let b_selected = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let b_unselected = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
 
-        Paragraph::new(lbtn_label).style(b_passive).render(button_splits[1], buf);
-        Paragraph::new(rbtn_label).style(b_active).render(button_splits[3], buf);
+        let (left_style, right_style) = if choice == AlertResult::Default { (b_unselected, b_selected) } else { (b_selected, b_unselected) };
 
-        // MS-DOS style shadows :-)
+        Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
+        Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
+
+        // MS-DOS style shadows
         let buf_area = buf.area();
         let max_x = buf_area.right().saturating_sub(1);
         let max_y = buf_area.bottom().saturating_sub(1);
@@ -200,8 +320,8 @@ impl SysInspectUX {
                 continue;
             }
             if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                cell.set_bg(Color::Black);
-                cell.set_fg(Color::DarkGray);
+                cell.set_bg(palette::SHADOW_BG);
+                cell.set_fg(palette::SHADOW_FG);
             }
         }
 
@@ -213,8 +333,8 @@ impl SysInspectUX {
                     continue;
                 }
                 if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                    cell.set_bg(Color::Black);
-                    cell.set_fg(Color::DarkGray);
+                    cell.set_bg(palette::SHADOW_BG);
+                    cell.set_fg(palette::SHADOW_FG);
                 }
             }
         }
