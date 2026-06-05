@@ -121,7 +121,7 @@ pub struct DslBrowser {
     pub desc_popup_text: String,
     pub desc_popup_scroll: usize,
     pub context_active: bool,
-    pub error_required_key: Option<String>,
+    pub error_required_key: Vec<String>,
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
@@ -149,7 +149,7 @@ impl DslBrowser {
             desc_popup_text: String::new(),
             desc_popup_scroll: 0,
             context_active: false,
-            error_required_key: None,
+            error_required_key: Vec::new(),
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
@@ -618,11 +618,12 @@ impl DslBrowser {
                     if self.focus == DslFocus::Call {
                         let query = self.build_query();
                         if query.is_some() {
-                            // Validate required context fields
-                            if let Some(missing) = self.context_fields.iter().find(|f| f.required && f.value.is_empty()) {
+                            let missing: Vec<String> =
+                                self.context_fields.iter().filter(|f| f.required && f.value.is_empty()).map(|f| f.key.clone()).collect();
+                            if !missing.is_empty() {
                                 self.call_requested = true;
                                 self.query_to_execute = None;
-                                self.error_required_key = Some(missing.key.clone());
+                                self.error_required_key = missing;
                                 return true;
                             }
                             self.query_to_execute = query;

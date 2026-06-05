@@ -31,7 +31,23 @@ impl SysInspectUX {
         if !self.error_alert_visible {
             return;
         }
-        Self::_popup(parent, buf, Some("Error"), &self.error_alert_message, None, Alignment::Center, AlertResult::Quit, AlertButtons::Close, Some(0));
+        Self::_popup_ex(
+            parent,
+            buf,
+            Some("Error"),
+            &self.error_alert_message,
+            Some(palette::POPUP_BG_1),
+            Alignment::Left,
+            AlertResult::Quit,
+            AlertButtons::Close,
+            Some(44),
+            Some(palette::ERROR_PEAK),
+            None,
+            None,
+            Some(palette::WHITE),
+            None,
+            None,
+        );
     }
 
     pub fn dialog_purge(&self, parent: Rect, buf: &mut Buffer) {
