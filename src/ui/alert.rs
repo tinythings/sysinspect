@@ -61,7 +61,7 @@ impl SysInspectUX {
         if !self.help_popup_visible {
             return;
         }
-        Self::_popup(
+        Self::_popup_ex(
             parent,
             buf,
             Some("Help"),
@@ -71,6 +71,12 @@ impl SysInspectUX {
             AlertResult::Close,
             AlertButtons::Close,
             Some(0),
+            Some(palette::SUCCESS_PEAK),
+            None,
+            None,
+            Some(palette::WHITE),
+            None,
+            None,
         );
     }
 
@@ -193,23 +199,36 @@ impl SysInspectUX {
         };
 
         let btn_w = button_area.width;
-        let button_splits = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length((btn_w.saturating_sub(lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
-                Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
-                Constraint::Length(3),
-                Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
-            ])
-            .split(button_area);
 
         let b_selected = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
         let b_unselected = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
 
-        let (left_style, right_style) = if choice == AlertResult::Default { (b_unselected, b_selected) } else { (b_selected, b_unselected) };
+        if rbtn_label.is_empty() {
+            Paragraph::new(lbtn_label.clone()).style(b_selected).render(
+                Rect {
+                    x: button_area.x + (btn_w.saturating_sub(lbtn_label.len() as u16)) / 2,
+                    y: button_area.y,
+                    width: lbtn_label.len() as u16,
+                    height: 1,
+                },
+                buf,
+            );
+        } else {
+            let button_splits = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length((btn_w.saturating_sub(lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
+                    Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                    Constraint::Length(3),
+                    Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                ])
+                .split(button_area);
 
-        Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
-        Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
+            let (left_style, right_style) = if choice == AlertResult::Default { (b_unselected, b_selected) } else { (b_selected, b_unselected) };
+
+            Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
+            Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
+        }
 
         // MS-DOS style shadows
         let buf_area = buf.area();
@@ -302,23 +321,36 @@ impl SysInspectUX {
         };
 
         let btn_w = button_area.width;
-        let button_splits = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length((btn_w.saturating_sub(lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
-                Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
-                Constraint::Length(3),
-                Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
-            ])
-            .split(button_area);
 
         let b_selected = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
         let b_unselected = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
 
-        let (left_style, right_style) = if choice == AlertResult::Default { (b_unselected, b_selected) } else { (b_selected, b_unselected) };
+        if rbtn_label.is_empty() {
+            Paragraph::new(lbtn_label.clone()).style(b_selected).render(
+                Rect {
+                    x: button_area.x + (btn_w.saturating_sub(lbtn_label.len() as u16)) / 2,
+                    y: button_area.y,
+                    width: lbtn_label.len() as u16,
+                    height: 1,
+                },
+                buf,
+            );
+        } else {
+            let button_splits = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length((btn_w.saturating_sub(lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
+                    Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                    Constraint::Length(3),
+                    Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                ])
+                .split(button_area);
 
-        Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
-        Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
+            let (left_style, right_style) = if choice == AlertResult::Default { (b_unselected, b_selected) } else { (b_selected, b_unselected) };
+
+            Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
+            Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
+        }
 
         // MS-DOS style shadows
         let buf_area = buf.area();
