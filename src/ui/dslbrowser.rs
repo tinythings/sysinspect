@@ -4,10 +4,11 @@ use crossterm::event::KeyCode;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
+    text::{Line, Span},
     widgets::{
-        Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
-        Widget,
+        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Widget,
     },
 };
 use ratatui_cheese::input::{Input, InputState};
@@ -255,26 +256,26 @@ impl DslBrowser {
     }
 
     fn s_fg() -> Style {
-        Style::default().fg(Color::White).bg(Color::DarkGray)
+        Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
     }
     fn s_bd() -> Style {
         Self::s_fg().add_modifier(Modifier::BOLD)
     }
     fn s_di() -> Style {
-        Style::default().fg(Color::Gray).bg(Color::DarkGray)
+        Style::default().fg(palette::MUTED).bg(palette::POPUP_BG_BASE)
     }
     fn s_hl() -> Style {
-        Style::default().fg(Color::Black).bg(Color::LightBlue)
+        Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
     }
     fn s_hl_dim() -> Style {
-        Style::default().fg(Color::Black).bg(Color::Gray)
+        Style::default().fg(palette::BLACK).bg(palette::SURFACE)
     }
     fn s_bl() -> Style {
-        Style::default().fg(Color::Cyan).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+        Style::default().fg(palette::PROCESSING).bg(palette::POPUP_BG_BASE).add_modifier(Modifier::BOLD)
     }
 
     fn border_style(focus: DslFocus, current: DslFocus) -> Style {
-        if current == focus { Style::default().fg(Color::White) } else { Style::default().fg(Color::Black) }
+        if current == focus { Style::default().fg(palette::ACCENT) } else { Style::default().fg(palette::FAINT) }
     }
 
     fn column_widths(area: Rect) -> (u16, u16) {
@@ -413,7 +414,7 @@ impl DslBrowser {
         let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
         let focused = self.focus == target;
         let hl = if is_minions {
-            if focused { Style::default().fg(Color::Black).bg(Color::DarkGray) } else { Style::default() }
+            if focused { Style::default().fg(palette::BLACK).bg(palette::SURFACE) } else { Style::default() }
         } else if focused {
             Self::s_hl()
         } else {
@@ -440,7 +441,7 @@ impl DslBrowser {
                 .end_symbol(None)
                 .track_symbol(Some("\u{28FF}"))
                 .thumb_symbol("█")
-                .track_style(Style::default().bg(palette::BG_3))
+                .track_style(Style::default().bg(palette::BG_2))
                 .thumb_style(Style::default().fg(palette::GRAY_1))
                 .render(Rect::new(sb_x, inner.y, 1, inner.height), buf, &mut sb_state);
         }
@@ -505,8 +506,12 @@ impl DslBrowser {
         let close_lbl = format_button("Close");
         let total_w = (call_lbl.len() + close_lbl.len() + 1) as u16;
         let start_x = area.x + area.width.saturating_sub(total_w) / 2;
-        let cs = if self.focus == DslFocus::Call { Self::s_hl() } else { Self::s_fg() };
-        let xs = if self.focus == DslFocus::Close { Self::s_hl() } else { Self::s_fg() };
+
+        let b_sel = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let b_unsel = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+
+        let cs = if self.focus == DslFocus::Call { b_sel } else { b_unsel };
+        let xs = if self.focus == DslFocus::Close { b_sel } else { b_unsel };
         Paragraph::new(call_lbl.clone()).style(cs).render(Rect::new(start_x, btn_y, call_lbl.len() as u16, 1), buf);
         Paragraph::new(close_lbl.clone()).style(xs).render(Rect::new(start_x + call_lbl.len() as u16 + 1, btn_y, close_lbl.len() as u16, 1), buf);
     }
@@ -702,13 +707,17 @@ impl SysInspectUX {
         Clear.render(popup, buf);
 
         let block = Block::default()
-            .title(" Query Composer ")
+            .title(Line::from(vec![
+                Span::styled("\u{E0B2}", Style::default().fg(palette::BORDER)),
+                Span::styled("Query Composer", Style::default().fg(palette::BLACK).bg(palette::BORDER)),
+                Span::styled("\u{E0B0}", Style::default().fg(palette::BORDER)),
+            ]))
             .title_alignment(Alignment::Center)
-            .title_style(Style::default().fg(Color::Black).bg(Color::DarkGray).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Gray))
-            .style(Style::default().bg(Color::DarkGray));
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(palette::BORDER).bg(palette::POPUP_BG_BASE))
+            .padding(Padding::horizontal(2))
+            .style(Style::default().bg(palette::POPUP_BG_BASE));
         let inner = block.inner(popup);
         block.render(popup, buf);
 
@@ -730,8 +739,8 @@ impl SysInspectUX {
                 continue;
             }
             if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                cell.set_bg(Color::Black);
-                cell.set_fg(Color::DarkGray);
+                cell.set_bg(palette::SHADOW_BG);
+                cell.set_fg(palette::SHADOW_FG);
             }
         }
         for offset in 0..2u16 {
@@ -742,8 +751,8 @@ impl SysInspectUX {
                     continue;
                 }
                 if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                    cell.set_bg(Color::Black);
-                    cell.set_fg(Color::DarkGray);
+                    cell.set_bg(palette::SHADOW_BG);
+                    cell.set_fg(palette::SHADOW_FG);
                 }
             }
         }
@@ -760,55 +769,96 @@ impl SysInspectUX {
         let y = parent.y + (parent.height.saturating_sub(h)) / 2;
         let canvas = Rect { x, y, width: w, height: h };
 
-        let bg = Color::Gray;
+        let bg = palette::POPUP_BG_1;
         Clear.render(canvas, buf);
         let block = Block::default()
-            .title(" Details ")
+            .title(Line::from(vec![
+                Span::styled("\u{E0B2}", Style::default().fg(palette::FAINT)),
+                Span::styled("Details", Style::default().fg(palette::FG).bg(palette::FAINT)),
+                Span::styled("\u{E0B0}", Style::default().fg(palette::FAINT)),
+            ]))
             .title_alignment(Alignment::Center)
-            .title_style(Style::default().fg(Color::Black).bg(bg))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Black))
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(palette::FAINT).bg(bg))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_h), Constraint::Length(1)]).split(inner);
-        let text_area = chunks[0];
+        // Build rendered lines with section headers
+        let body_style = Style::default().fg(palette::FG).bg(bg);
+
+        // Layout: scrollable content area + close button
+        let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+        let content_area = chunks[0];
         let btn_area = chunks[1];
 
-        let lines: Vec<String> = text.split('\n').flat_map(|p| wrap_text(p, (text_area.width.saturating_sub(2)) as usize)).collect();
-        let total = lines.len().max(1);
-        let max_off = total.saturating_sub(text_area.height as usize);
+        let rule_s = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
+        let rule_f = Style::default().fg(palette::PROCESSING_BASE);
+
+        // Compute total lines for scrollbar
+        let mut total_lines = 0usize;
+        for line in text.split('\n') {
+            if line.starts_with("Model: ") || line.starts_with("Target \"") || line.starts_with("Context:") || line.is_empty() {
+                total_lines += 1;
+            } else {
+                let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
+                let indent = if is_list { "      " } else { "    " };
+                total_lines += wrap_text(&format!("{indent}{line}"), (content_area.width.saturating_sub(3)) as usize).len().max(1);
+            }
+        }
+        let max_off = total_lines.saturating_sub(content_area.height as usize);
         let offset = self.dsl_browser.desc_popup_scroll.min(max_off);
 
-        for (i, line) in lines.iter().enumerate().skip(offset).take(text_area.height as usize) {
-            let yy = text_area.y + (i - offset) as u16;
-            if yy >= text_area.bottom() {
+        let mut yy = content_area.y;
+        for line in text.split('\n').skip(offset) {
+            if yy >= content_area.bottom() {
                 break;
             }
-            buf.set_string(text_area.x, yy, format!("  {line}"), Style::default().fg(Color::Black).bg(bg));
+            if let Some(title) = line.strip_prefix("Model: ") {
+                super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
+                yy += 1;
+            } else if line.starts_with("Target \"") {
+                if let Some(colon) = line.find(':') {
+                    let title = &line[..colon];
+                    super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
+                    yy += 1;
+                }
+            } else if line.starts_with("Context:") {
+                super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, "Context", rule_s, rule_f);
+                yy += 1;
+            } else if line.is_empty() {
+                yy += 1;
+            } else {
+                let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
+                let indent = if is_list { "      " } else { "    " };
+                for wrapped in wrap_text(&format!("{indent}{line}"), (content_area.width.saturating_sub(3)) as usize) {
+                    if yy >= content_area.bottom() {
+                        break;
+                    }
+                    buf.set_string(content_area.x, yy, &wrapped, body_style);
+                    yy += 1;
+                }
+            }
         }
 
-        if total > text_area.height as usize {
-            let sb_x = text_area.right().saturating_sub(1);
-            let mut sb_state = ScrollbarState::new(total).position(offset);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some("\u{28FF}"))
-                .thumb_symbol("█")
-                .track_style(Style::default().bg(palette::BG_3))
-                .thumb_style(Style::default().fg(palette::GRAY_1))
-                .render(Rect::new(sb_x, text_area.y, 1, text_area.height), buf, &mut sb_state);
-        }
+        let sb_x = content_area.right().saturating_sub(1);
+        let mut sb_state = ScrollbarState::new(total_lines).position(offset);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("\u{28FF}"))
+            .thumb_symbol("█")
+            .track_style(Style::default().bg(palette::BG_2))
+            .thumb_style(Style::default().fg(palette::GRAY_1))
+            .render(Rect::new(sb_x, content_area.y, 1, content_area.height), buf, &mut sb_state);
 
         let close = format_button("Close");
         let close_w = close.len() as u16;
         let btn_x = btn_area.x + (btn_area.width.saturating_sub(close_w)) / 2;
         Paragraph::new(close)
-            .style(Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD))
             .render(Rect::new(btn_x, btn_area.y, close_w, 1), buf);
 
         // MS-DOS shadow
@@ -822,8 +872,8 @@ impl SysInspectUX {
                 continue;
             }
             if let Some(c) = buf.cell_mut(Position::new(sx, sy)) {
-                c.set_bg(Color::Black);
-                c.set_fg(Color::DarkGray);
+                c.set_bg(palette::SHADOW_BG);
+                c.set_fg(palette::SHADOW_FG);
             }
         }
         for off in 0..2u16 {
@@ -834,8 +884,8 @@ impl SysInspectUX {
                     continue;
                 }
                 if let Some(c) = buf.cell_mut(Position::new(sx, sy)) {
-                    c.set_bg(Color::Black);
-                    c.set_fg(Color::DarkGray);
+                    c.set_bg(palette::SHADOW_BG);
+                    c.set_fg(palette::SHADOW_FG);
                 }
             }
         }
@@ -972,17 +1022,22 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     }
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
-        let mut current = String::new();
-        for word in paragraph.split_whitespace() {
-            if current.is_empty() {
-                current = word.to_string();
-            } else if current.len() + 1 + word.len() <= max_width {
-                current.push(' ');
-                current.push_str(word);
-            } else {
-                lines.push(current);
-                current = word.to_string();
+        let trimmed = paragraph.trim();
+        if trimmed.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let lead = &paragraph[..paragraph.len() - paragraph.trim_start().len()];
+        let mut current = lead.to_string();
+        for word in trimmed.split_whitespace() {
+            if current.len() + 1 + word.len() > max_width {
+                lines.push(std::mem::take(&mut current));
+                current = lead.to_string();
             }
+            if !current.is_empty() && current != lead {
+                current.push(' ');
+            }
+            current.push_str(word);
         }
         if !current.is_empty() {
             lines.push(current);

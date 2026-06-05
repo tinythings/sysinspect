@@ -90,7 +90,7 @@ impl SysInspectUX {
             buf,
             None,
             "Quit the UI?",
-            Some(palette::GRAY_0),
+            Some(palette::POPUP_BG_BASE),
             Alignment::Center,
             self.exit_alert_choice.clone(),
             AlertButtons::OkCancel,
@@ -141,7 +141,7 @@ impl SysInspectUX {
         buttons: AlertButtons, width: Option<u16>, border_color: Option<Color>, border_type: Option<ratatui::widgets::BorderType>,
         text_color: Option<Color>, title_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>,
     ) {
-        let background = background.unwrap_or(palette::GRAY_0);
+        let background = background.unwrap_or(palette::POPUP_BG_BASE);
         let border_color = border_color.unwrap_or(palette::BORDER);
         let border_type = border_type.unwrap_or(ratatui::widgets::BorderType::Plain);
         let text_color = text_color.unwrap_or(palette::FG);
@@ -267,7 +267,7 @@ impl SysInspectUX {
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
         buttons: AlertButtons, width: Option<u16>,
     ) {
-        let background = background.unwrap_or(palette::GRAY_0);
+        let background = background.unwrap_or(palette::POPUP_BG_BASE);
 
         let text = format!("\n{text}");
         let text_lines = Self::get_text_lines(&text);

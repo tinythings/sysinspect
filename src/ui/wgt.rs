@@ -251,7 +251,7 @@ impl SysInspectUX {
 
 /// Render a decorated rule line: ` Title ////////////////////////////////`
 /// with one leading space and dash fill to end of area, minus one trailing space.
-fn render_rule_line(area: Rect, buf: &mut Buffer, title: &str, title_style: Style, fill_style: Style) {
+pub(crate) fn render_rule_line(area: Rect, buf: &mut Buffer, title: &str, title_style: Style, fill_style: Style) {
     if area.width < 6 {
         return;
     }

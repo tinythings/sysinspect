@@ -120,6 +120,12 @@ pub const PRIMARY: Color = Color::Indexed(200);
 /// Secondary accent (processing purple).
 pub const SECONDARY: Color = Color::Indexed(98);
 
+/// Popup/dialog base background.
+pub const POPUP_BG_BASE: Color = GRAY_0;
+
+/// Popup/dialog alternate (lighter) background.
+pub const POPUP_BG_1: Color = BG_1;
+
 // ---- MS‑DOS shadow colours (shared across all dialogs) ----
 
 pub const SHADOW_BG: Color = Color::Black;
