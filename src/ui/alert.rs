@@ -38,13 +38,21 @@ impl SysInspectUX {
         if !self.purge_alert_visible {
             return;
         }
-        Self::yesno_popup(
+        Self::_popup_ex(
             parent,
             buf,
             Some("Delete everything?"),
             "Are you sure you want\nto delete everything?\n\nThis operation is irreversible.",
             None,
+            Alignment::Center,
             self.purge_alert_choice.clone(),
+            AlertButtons::YesNo,
+            None,
+            Some(palette::ERROR_PEAK),
+            None,
+            None,
+            Some(palette::WHITE),
+            None,
             None,
         );
     }
@@ -84,6 +92,7 @@ impl SysInspectUX {
             Some(palette::BORDER),
             Some(ratatui::widgets::BorderType::Plain),
             Some(palette::FG),
+            None,
             Some("Yep!"),
             Some("Nope"),
         );
@@ -124,12 +133,13 @@ impl SysInspectUX {
     fn _popup_ex(
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
         buttons: AlertButtons, width: Option<u16>, border_color: Option<Color>, border_type: Option<ratatui::widgets::BorderType>,
-        text_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>,
+        text_color: Option<Color>, title_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>,
     ) {
         let background = background.unwrap_or(palette::GRAY_0);
         let border_color = border_color.unwrap_or(palette::BORDER);
         let border_type = border_type.unwrap_or(ratatui::widgets::BorderType::Plain);
         let text_color = text_color.unwrap_or(palette::FG);
+        let title_color = title_color.unwrap_or(palette::BLACK);
 
         let text = format!("\n{text}");
         let text_lines = Self::get_text_lines(&text);
@@ -151,7 +161,7 @@ impl SysInspectUX {
             .title(if let Some(t) = title {
                 Line::from(vec![
                     Span::styled("\u{E0B2}", Style::default().fg(border_color)),
-                    Span::styled(t.to_string(), Style::default().fg(palette::BLACK).bg(border_color)),
+                    Span::styled(t.to_string(), Style::default().fg(title_color).bg(border_color)),
                     Span::styled("\u{E0B0}", Style::default().fg(border_color)),
                 ])
             } else {
@@ -182,10 +192,11 @@ impl SysInspectUX {
             AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 
+        let btn_w = button_area.width;
         let button_splits = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length((width - (lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
+                Constraint::Length((btn_w.saturating_sub(lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
                 Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
                 Constraint::Length(3),
                 Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
@@ -290,10 +301,11 @@ impl SysInspectUX {
             AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 
+        let btn_w = button_area.width;
         let button_splits = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length((width - (lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
+                Constraint::Length((btn_w.saturating_sub(lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
                 Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
                 Constraint::Length(3),
                 Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
