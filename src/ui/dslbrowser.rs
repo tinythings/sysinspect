@@ -57,6 +57,7 @@ pub struct ContextField {
     pub key: String,
     pub value: String,
     pub desc: String,
+    pub required: bool,
     pub state: InputState,
 }
 
@@ -120,6 +121,7 @@ pub struct DslBrowser {
     pub desc_popup_text: String,
     pub desc_popup_scroll: usize,
     pub context_active: bool,
+    pub error_required_key: Option<String>,
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
@@ -147,6 +149,7 @@ impl DslBrowser {
             desc_popup_text: String::new(),
             desc_popup_scroll: 0,
             context_active: false,
+            error_required_key: None,
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
@@ -228,6 +231,8 @@ impl DslBrowser {
             }
         }
         // Fallback
+        self.context_active = false;
+        self.context_fields = Vec::new();
         if let Some(row) = self.resolved_model() {
             if row.states.is_empty() {
                 self.states = ListBox::new(vec!["$".to_string()], 0);
@@ -239,18 +244,21 @@ impl DslBrowser {
     }
 
     #[allow(clippy::type_complexity)]
-    fn update_context_fields(&mut self, actions: &[(String, Vec<String>, Vec<(String, String)>)]) {
+    fn update_context_fields(&mut self, actions: &[(String, Vec<String>, Vec<(String, String, bool)>)]) {
         let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
         let state_real = if state_display == "(default)" { "$" } else { state_display };
-        let mut ctx: Vec<(String, String)> =
+        let mut ctx: Vec<(String, String, bool)> =
             actions.iter().filter(|(_, states, _)| states.iter().any(|s| s == state_real)).flat_map(|(_, _, ctx_vars)| ctx_vars.clone()).collect();
         ctx.sort_by(|a, b| a.0.cmp(&b.0));
         ctx.dedup_by(|a, b| a.0 == b.0);
         if !ctx.is_empty() {
             self.context_active = true;
-            self.context_fields =
-                ctx.into_iter().map(|(k, d)| ContextField { key: k, value: String::new(), desc: d, state: InputState::new() }).collect();
+            self.context_fields = ctx
+                .into_iter()
+                .map(|(k, d, r)| ContextField { key: k, value: String::new(), desc: d, required: r, state: InputState::new() })
+                .collect();
         } else {
+            self.context_active = false;
             self.context_fields = Vec::new();
         }
     }
@@ -268,10 +276,10 @@ impl DslBrowser {
         Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
     }
     fn s_hl_dim() -> Style {
-        Style::default().fg(palette::BLACK).bg(palette::SURFACE)
+        Style::default().fg(palette::HIGHLIGHT)
     }
     fn s_bl() -> Style {
-        Style::default().fg(palette::PROCESSING).bg(palette::POPUP_BG_BASE).add_modifier(Modifier::BOLD)
+        Style::default().fg(palette::PROCESSING).bg(palette::POPUP_BG_BASE)
     }
 
     fn border_style(focus: DslFocus, current: DslFocus) -> Style {
@@ -296,10 +304,10 @@ impl DslBrowser {
 
         let desc_text = self.build_target_description();
         let wrapped = wrap_text(&desc_text, area.width.saturating_sub(4) as usize);
-        let max_desc = 3usize;
+        let max_desc = 4usize;
         let visible: Vec<&str> = wrapped.iter().take(max_desc).map(|s| s.as_str()).collect();
-        let has_header = !self.catalog_diagnostics.is_empty() || visible.is_empty();
-        let desc_h = (visible.len() as u16).saturating_add(if has_header { 1 } else { 0 });
+        let has_more_desc = wrapped.len() > max_desc;
+        let desc_h = 5u16; // rule + up to 4 lines of text
 
         let list_h = area.height.saturating_sub(top_h).saturating_sub(desc_h).saturating_sub(btn_h);
 
@@ -311,7 +319,7 @@ impl DslBrowser {
         let (box_w, ctx_w) = Self::column_widths(area);
         self.render_top(rows[0], box_w, ctx_w, buf);
         self.render_lists(rows[1], box_w, ctx_w, buf);
-        self.render_description(rows[2], &visible, buf);
+        self.render_description(rows[2], &visible, has_more_desc, buf);
         self.render_bottom(rows[3], buf);
     }
 
@@ -354,7 +362,7 @@ impl DslBrowser {
             ])
             .split(area);
 
-        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_bd());
+        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_bl());
         let qf = self.focus == DslFocus::Query;
         let mut qs = InputState::new();
         qs.set_value(self.query.clone());
@@ -413,7 +421,10 @@ impl DslBrowser {
 
         let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
         let focused = self.focus == target;
-        let hl = if is_minions {
+        let is_placeholder = lb.items.get(lb.state.selected().unwrap_or(0)).is_some_and(|s| s == "(select)");
+        let hl = if is_placeholder && !focused {
+            Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
+        } else if is_minions {
             if focused { Style::default().fg(palette::BLACK).bg(palette::SURFACE) } else { Style::default() }
         } else if focused {
             Self::s_hl()
@@ -449,7 +460,7 @@ impl DslBrowser {
 
     fn render_context_inline(&self, area: Rect, buf: &mut Buffer) {
         if !self.context_active {
-            buf.set_string(area.x, area.y, if self.resolved_model().is_some() { "No context defined" } else { " " }, Self::s_di());
+            buf.set_string(area.x + 1, area.y + 1, if self.resolved_model().is_some() { "No context defined" } else { " " }, Self::s_di());
             return;
         }
         let max_label_w = self.context_fields.iter().map(|f| f.key.len()).max().unwrap_or(4) as u16;
@@ -457,13 +468,14 @@ impl DslBrowser {
         let input_w = (area.width.saturating_sub(label_col_w)).max(15).min(area.width.saturating_sub(label_col_w));
 
         for (i, field) in self.context_fields.iter().enumerate() {
-            let y = area.y + i as u16;
+            let y = area.y + 1 + i as u16;
             if y >= area.bottom() {
                 break;
             }
             let focused = matches!(self.focus, DslFocus::ContextField(idx) if idx == i);
-            let label = format!("{:>width$}: ", field.key, width = max_label_w as usize);
-            write_clipped(buf, area, area.x, y, &label, Self::s_bd());
+            let req = if field.required { "*" } else { " " };
+            let label = format!("{req}{:>width$}: ", field.key, width = max_label_w as usize);
+            write_clipped(buf, area, area.x + 1, y, &label, Self::s_bd());
             let inp = Input::new("").prompt("").placeholder(if field.desc.is_empty() { &field.key } else { &field.desc });
             let mut is = InputState::new();
             is.set_value(field.value.clone());
@@ -472,24 +484,23 @@ impl DslBrowser {
             while is.cursor_pos() < fc {
                 is.move_right();
             }
-            let ia = Rect::new(area.x + label_col_w, y, input_w, 1);
+            let ia = Rect::new(area.x + 1 + label_col_w, y, input_w, 1);
             StatefulWidget::render(&inp, ia, buf, &mut is);
         }
     }
 
-    fn render_description(&self, area: Rect, visible: &[&str], buf: &mut Buffer) {
-        let mut y = area.y;
+    fn render_description(&self, area: Rect, visible: &[&str], has_more: bool, buf: &mut Buffer) {
+        // Dash rule separator
+        render_dash_rule(area, buf, has_more);
+        let mut y = area.y + 1;
         let fail_count = self.catalog_diagnostics.len();
-        let header = if fail_count > 0 {
-            format!(" {} failed model(s) ", fail_count)
-        } else if visible.is_empty() {
-            " (no description) ".to_string()
-        } else {
-            String::new()
-        };
-        if !header.is_empty() {
-            write_clipped(buf, area, area.x, y, &header, Self::s_di());
+        if fail_count > 0 {
+            write_clipped(buf, area, area.x, y, &format!(" {} failed model(s) ", fail_count), Self::s_di());
             y += 1;
+        }
+        if visible.is_empty() && fail_count == 0 {
+            write_clipped(buf, area, area.x, y, " (no description)", Self::s_di());
+            return;
         }
         for line in visible {
             if y >= area.bottom() {
@@ -542,7 +553,7 @@ impl DslBrowser {
                 self.focus = prev;
                 return true;
             }
-            KeyCode::Char('m') => {
+            KeyCode::Char('d') => {
                 if self.resolved_model().is_some() {
                     self.desc_popup_text = self.build_full_description();
                     self.desc_popup_scroll = 0;
@@ -607,6 +618,13 @@ impl DslBrowser {
                     if self.focus == DslFocus::Call {
                         let query = self.build_query();
                         if query.is_some() {
+                            // Validate required context fields
+                            if let Some(missing) = self.context_fields.iter().find(|f| f.required && f.value.is_empty()) {
+                                self.call_requested = true;
+                                self.query_to_execute = None;
+                                self.error_required_key = Some(missing.key.clone());
+                                return true;
+                            }
                             self.query_to_execute = query;
                             self.call_requested = true;
                             self.visible = false;
@@ -671,18 +689,17 @@ impl DslBrowser {
             parts.push(format!("Target \"{target_id}\":\n{targets_desc}"));
         }
         if self.context_active {
-            let has_desc = self.context_fields.iter().any(|f| !f.desc.is_empty());
-            let ctx_text = if has_desc {
-                self.context_fields
-                    .iter()
-                    .map(|f| if f.desc.is_empty() { f.key.clone() } else { format!("{} — {}", f.key, f.desc) })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            } else {
-                let keys: Vec<String> = self.context_fields.iter().enumerate().map(|(i, f)| format!("{}. {}", i + 1, f.key)).collect();
-                format!("Required context keys (no descriptions available):\n{}", keys.join("\n"))
-            };
-            parts.push(format!("Context:\n{ctx_text}"));
+            let max_key = self.context_fields.iter().map(|f| f.key.len()).max().unwrap_or(4);
+            let ctx_lines: Vec<String> = self
+                .context_fields
+                .iter()
+                .map(|f| {
+                    let req = if f.required { "required" } else { "optional" };
+                    let key_padded = format!("{:>width$}", f.key, width = max_key);
+                    if f.desc.is_empty() { format!("{key_padded}  {req}  Unknown field") } else { format!("{key_padded}  {req}  {}", f.desc) }
+                })
+                .collect();
+            parts.push(format!("Context:\n{}", ctx_lines.join("\n")));
         }
         parts.join("\n\n")
     }
@@ -811,24 +828,47 @@ impl SysInspectUX {
         let offset = self.dsl_browser.desc_popup_scroll.min(max_off);
 
         let mut yy = content_area.y;
+        let mut in_context = false;
         for line in text.split('\n').skip(offset) {
             if yy >= content_area.bottom() {
                 break;
             }
             if let Some(title) = line.strip_prefix("Model: ") {
+                in_context = false;
                 super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
                 yy += 1;
             } else if line.starts_with("Target \"") {
+                in_context = false;
                 if let Some(colon) = line.find(':') {
                     let title = &line[..colon];
                     super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
                     yy += 1;
                 }
             } else if line.starts_with("Context:") {
+                in_context = true;
                 super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, "Context", rule_s, rule_f);
                 yy += 1;
             } else if line.is_empty() {
                 yy += 1;
+            } else if in_context && (line.contains("  required") || line.contains("  optional")) {
+                let indent = "    ";
+                let tag = if line.contains("  required") { "required" } else { "optional" };
+                let tag_pos = line.find(&format!("  {tag}")).unwrap_or(line.len());
+                let key = &line[..tag_pos];
+                let rest = &line[tag_pos + 2 + tag.len()..];
+                let tag_color = if tag == "required" { palette::WARNING_PEAK } else { palette::MUTED };
+                let desc = rest.trim_start();
+                if yy < content_area.bottom() {
+                    buf.set_string(content_area.x, yy, format!("{indent}{key}"), Style::default().fg(palette::ACCENT));
+                    let after_key = (indent.len() + key.len()) as u16;
+                    buf.set_string(content_area.x + after_key, yy, format!("  {tag}"), Style::default().fg(tag_color));
+                    if !desc.is_empty() {
+                        let after_tag = after_key + 2 + tag.len() as u16;
+                        let dstyle = if desc == "Unknown field" { Style::default().fg(palette::FAINT) } else { body_style };
+                        buf.set_string(content_area.x + after_tag, yy, format!("  {desc}"), dstyle);
+                    }
+                    yy += 1;
+                }
             } else {
                 let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
                 let indent = if is_list { "      " } else { "    " };
@@ -890,6 +930,19 @@ impl SysInspectUX {
             }
         }
     }
+}
+
+fn render_dash_rule(area: Rect, buf: &mut Buffer, has_more: bool) {
+    let w = area.width as usize;
+    if w < 6 {
+        return;
+    }
+    let suffix = if has_more { " ('d' for more)" } else { "" };
+    let label = format!(" Description{suffix} ");
+    let fill_w = w.saturating_sub(label.len()) / 2;
+    let fill = "\u{2500}".repeat(fill_w);
+    let line = format!("{fill}{label}{fill}");
+    buf.set_string(area.x, area.y, &line, Style::default().fg(palette::PROCESSING));
 }
 
 fn format_button(label: &str) -> String {

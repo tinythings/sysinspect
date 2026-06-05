@@ -57,10 +57,9 @@ impl ModelInfo {
             let mut states = Vec::<(String, BTreeMap<String, String>)>::new();
             for action in si.actions_by_entities(vec![e.id().to_string()], None)?.into_iter() {
                 states.extend(
-                    action
-                        .states(Some("*".to_string()))
-                        .into_iter()
-                        .map(|(state, ma)| (state, ma.context().iter().map(|(k, v)| (k.clone(), v.clone())).collect::<BTreeMap<String, String>>())),
+                    action.states(Some("*".to_string())).into_iter().map(|(state, ma)| {
+                        (state, ma.context().iter().map(|(k, v, _)| (k.clone(), v.clone())).collect::<BTreeMap<String, String>>())
+                    }),
                 );
             }
 

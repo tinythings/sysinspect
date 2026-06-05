@@ -179,6 +179,25 @@ Below is the description of configuration sections:
               foo: Some value that will be used to run the module
               bar: Some other flag or value for the same reason
 
+        Each value may also be a two-element sequence ``[required, description]`` where
+        ``required`` is a boolean and ``description`` is the human-readable text:
+
+        .. code-block:: yaml+jinja
+
+            context:
+              hostname: "Target hostname to probe"
+              port: [false, Optional TCP port override]
+              timeout: [true, Connection timeout in seconds]
+
+        When only a string is given (the ``hostname`` example above), it is equivalent
+        to ``[true, "..."]`` — the key is **required** by default.  Mark a key optional
+        with ``[false, "..."]``.  Keys discovered implicitly from ``context(xxx)``
+        references in action arguments are always required and carry no description.
+
+        Required keys are marked with a ``*`` prefix in the TUI query‑composer and
+        the ``Call`` button will reject incomplete input until every required key has
+        a value.
+
             # And then usage of context variables in args:
             args:
               {% if context.foo is defined %}

@@ -21,7 +21,7 @@ pub struct ModArgs {
     arguments: Option<IndexMap<String, Value>>,
 
     #[serde(alias = "ctx")]
-    context: Option<IndexMap<String, String>>, // Context variables definition for Jinja templates. Used only for model documentation.
+    context: Option<IndexMap<String, Value>>, // Context variables definition for Jinja templates. Used only for model documentation.
 
     #[serde(alias = "conds")]
     conditions: Option<IndexMap<String, Value>>, // Conditions to be met for this state
@@ -47,9 +47,12 @@ impl ModArgs {
         out
     }
 
-    /// Get context variables
-    pub fn context(&self) -> IndexMap<String, String> {
-        self.context.to_owned().unwrap_or_default()
+    /// Get context variables as (key, description, required) tuples.
+    ///
+    /// Parses each value: `String` → `(key, s, true)` (required, backward-compat),
+    /// `[bool, Value]` → `(key, desc_or_empty, bool)`.
+    pub fn context(&self) -> Vec<(String, String, bool)> {
+        parse_ctx_map(&self.context)
     }
 
     /// Get conditions
@@ -75,7 +78,29 @@ pub struct Action {
     if_false: Option<Vec<String>>,
 
     #[serde(alias = "ctx")]
-    context: Option<IndexMap<String, String>>,
+    context: Option<IndexMap<String, Value>>,
+}
+
+/// Parse a `ctx:` map's values, returning (key, description, required) tuples.
+///
+/// - `Value::String(s)`     → `(key, s, true)`    – backward-compat (required)
+/// - `Value::Sequence(seq)` → `(key, desc, required)` – `[bool, Value]` format
+/// - `Value::Null` or other → `(key, "", true)`   – required, no description
+pub(crate) fn parse_ctx_map(raw: &Option<IndexMap<String, Value>>) -> Vec<(String, String, bool)> {
+    let Some(map) = raw else {
+        return Vec::new();
+    };
+    map.iter()
+        .map(|(k, v)| match v {
+            Value::String(s) => (k.clone(), s.clone(), true),
+            Value::Sequence(seq) => {
+                let required = seq.first().and_then(|v| v.as_bool()).unwrap_or(true);
+                let desc = seq.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                (k.clone(), desc, required)
+            }
+            _ => (k.clone(), String::new(), true),
+        })
+        .collect()
 }
 
 impl Action {
@@ -129,9 +154,9 @@ impl Action {
         self.id.to_owned().unwrap_or("".to_string())
     }
 
-    /// Get action-level context variables (documentation)
-    pub fn action_context(&self) -> IndexMap<String, String> {
-        self.context.to_owned().unwrap_or_default()
+    /// Get action-level context variables as (key, description, required) tuples.
+    pub fn action_context(&self) -> Vec<(String, String, bool)> {
+        parse_ctx_map(&self.context)
     }
 
     /// Get action's `description` field

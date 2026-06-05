@@ -771,9 +771,14 @@ impl SysInspectUX {
                     let model = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
                     let _target =
                         self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
-                    let missing = if model == "(select)" || model == "(no models found)" { "Model" } else { "Target" };
-                    self.error_alert_visible = true;
-                    self.error_alert_message = format!("Select {missing} first!");
+                    if let Some(key) = self.dsl_browser.error_required_key.take() {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Required context key missing: {key}");
+                    } else {
+                        let missing = if model == "(select)" || model == "(no models found)" { "Model" } else { "Target" };
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Select {missing} first!");
+                    }
                 }
             }
             return;

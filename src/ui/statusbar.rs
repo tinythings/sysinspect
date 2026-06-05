@@ -98,7 +98,7 @@ impl SysInspectUX {
             Span::styled("navigate,  ", Style::default().fg(palette::FAINT)),
             Span::styled("ENTER ", Style::default().fg(palette::FG)),
             Span::styled("select / expand,  ", Style::default().fg(palette::FAINT)),
-            Span::styled("'m' ", Style::default().fg(palette::FG)),
+            Span::styled("'d' ", Style::default().fg(palette::FG)),
             Span::styled("details,  ", Style::default().fg(palette::FAINT)),
             Span::styled("ESC ", Style::default().fg(palette::FG)),
             Span::styled("close", Style::default().fg(palette::FAINT)),

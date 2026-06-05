@@ -133,6 +133,6 @@ pub struct BrowsedActionState {
     pub state: String,
     pub opts: Vec<String>,
     pub args: Vec<(String, String)>,
-    pub context_vars: Vec<(String, String)>,
+    pub context_vars: Vec<(String, String, bool)>,
     pub conditions: Vec<(String, String)>,
 }
