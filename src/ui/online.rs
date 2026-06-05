@@ -1,4 +1,4 @@
-use super::SysInspectUX;
+use super::{SysInspectUX, palette};
 use indexmap::IndexMap;
 use libsysinspect::{
     console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow},
@@ -371,6 +371,13 @@ impl SysInspectUX {
         Widget::render(Table::new(displayed, cols).column_spacing(2).style(Style::default().bg(bg)), area, buf);
         let scroller_area = Rect { x: area.right().saturating_sub(1), y: area.y, width: 1, height: area.height };
         let mut scroller = ScrollbarState::default().content_length(rows.len()).position(selected);
-        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(scroller_area, buf, &mut scroller);
+        Scrollbar::default()
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("\u{28FF}"))
+            .thumb_symbol("█")
+            .track_style(Style::default().bg(palette::BG_3))
+            .thumb_style(Style::default().fg(palette::GRAY_1))
+            .render(scroller_area, buf, &mut scroller);
     }
 }

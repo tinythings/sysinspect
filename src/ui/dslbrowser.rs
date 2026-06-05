@@ -12,7 +12,7 @@ use ratatui::{
 };
 use ratatui_cheese::input::{Input, InputState};
 
-use super::SysInspectUX;
+use super::{SysInspectUX, palette};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DslFocus {
@@ -438,8 +438,10 @@ impl DslBrowser {
                 .orientation(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
-                .track_symbol(Some("│"))
+                .track_symbol(Some("\u{28FF}"))
                 .thumb_symbol("█")
+                .track_style(Style::default().bg(palette::BG_3))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
                 .render(Rect::new(sb_x, inner.y, 1, inner.height), buf, &mut sb_state);
         }
     }
@@ -795,8 +797,10 @@ impl SysInspectUX {
                 .orientation(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
-                .track_symbol(Some("│"))
+                .track_symbol(Some("\u{28FF}"))
                 .thumb_symbol("█")
+                .track_style(Style::default().bg(palette::BG_3))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
                 .render(Rect::new(sb_x, text_area.y, 1, text_area.height), buf, &mut sb_state);
         }
 

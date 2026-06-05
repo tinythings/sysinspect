@@ -19,18 +19,22 @@ impl SysInspectUX {
         let csize = self.size.get();
         self.size.set(UISizes { table_info: rect.height.saturating_sub(2) as usize, ..csize });
 
-        let rule_s = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
+        let block = self._get_box_block("Action Data", ActiveBox::Info);
+        Widget::render(&block, rect, buf);
+        let inner = block.inner(rect);
+
+        let rule_fill = Style::default().fg(palette::PROCESSING_BASE);
+        let rule_title = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
 
         let evt = match self.get_selected_event() {
             Some(eli) => eli,
             None => {
-                Widget::render(Paragraph::new("N/A").style(Style::default().fg(palette::ERROR)), rect, buf);
+                Widget::render(Paragraph::new("N/A").style(Style::default().fg(palette::ERROR)), inner, buf);
                 return;
             }
         };
         let info_rows = evt.get_event_table(15);
 
-        // Build dynamic rows to know if we have data
         let mut info_rows_ref = self.info_rows.borrow_mut();
         info_rows_ref.clear();
         for (k, v) in &self.event_data {
@@ -42,30 +46,27 @@ impl SysInspectUX {
         let has_details = !info_rows_ref.is_empty();
 
         if has_details {
-            // With details: General title, static table, Details title, dynamic data
             let [gen_title_area, gen_table_area] = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(1), Constraint::Length(info_rows.len() as u16)])
-                .split(rect)
+                .split(inner)
                 .as_ref()
                 .try_into()
                 .unwrap();
-            render_rule_line(gen_title_area, buf, "General", rule_s);
+            render_rule_line(gen_title_area, buf, "General", rule_title, rule_fill);
             Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), gen_table_area, buf);
 
             let [_, det_title_area, det_content_area]: [Rect; 3] = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(0)])
-                .split(Rect::new(rect.x, gen_table_area.bottom(), rect.width, rect.bottom().saturating_sub(gen_table_area.bottom())))
+                .split(Rect::new(inner.x, gen_table_area.bottom(), inner.width, inner.bottom().saturating_sub(gen_table_area.bottom())))
                 .as_ref()
                 .try_into()
                 .unwrap();
-            render_rule_line(det_title_area, buf, "Details", rule_s);
+            render_rule_line(det_title_area, buf, "Details", rule_title, rule_fill);
 
-            let ex_nfo_parts = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
-                .split(det_content_area);
+            let ex_nfo_parts =
+                Layout::default().direction(Direction::Horizontal).constraints([Constraint::Min(0), Constraint::Length(1)]).split(det_content_area);
             let ex_nfo_area = ex_nfo_parts[0];
             let ex_nfo_scroller = ex_nfo_parts[1];
 
@@ -74,21 +75,25 @@ impl SysInspectUX {
             Widget::render(Table::new(displayed.to_vec(), &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), ex_nfo_area, buf);
 
             let mut scroller_state = ScrollbarState::default().content_length(info_rows_ref.len()).position(self.actdt_info_offset);
-            Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
-                ex_nfo_scroller,
-                buf,
-                &mut scroller_state,
-            );
+            Scrollbar::default()
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(Some("\u{28FF}"))
+                .thumb_symbol("█")
+                .track_style(Style::default().bg(palette::BG_2))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
+                .track_style(Style::default().bg(palette::BG_2))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
+                .render(ex_nfo_scroller, buf, &mut scroller_state);
         } else {
-            // No details: just General title and static table filling the area
             let [gen_title_area, gen_table_area] = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(1), Constraint::Min(0)])
-                .split(rect)
+                .split(inner)
                 .as_ref()
                 .try_into()
                 .unwrap();
-            render_rule_line(gen_title_area, buf, "General", rule_s);
+            render_rule_line(gen_title_area, buf, "General", rule_title, rule_fill);
             Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), gen_table_area, buf);
         }
     }
@@ -118,11 +123,14 @@ impl SysInspectUX {
         let mut events_scroll_state = ScrollbarState::default()
             .content_length(self.li_events.len())
             .position(if self.active_box == ActiveBox::Events { self.selected_event } else { 0 });
-        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
-            events_inner,
-            buf,
-            &mut events_scroll_state,
-        );
+        Scrollbar::default()
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("\u{28FF}"))
+            .thumb_symbol("█")
+            .track_style(Style::default().bg(palette::BG_2))
+            .thumb_style(Style::default().fg(palette::GRAY_1))
+            .render(events_inner, buf, &mut events_scroll_state);
     }
 
     /// Render events block in the middle of the main screen
@@ -164,11 +172,14 @@ impl SysInspectUX {
         let mut minions_scroll_state = ScrollbarState::default()
             .content_length(self.li_minions.len())
             .position(if self.active_box == ActiveBox::Minions { self.selected_minion } else { 0 });
-        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
-            minions_inner,
-            buf,
-            &mut minions_scroll_state,
-        );
+        Scrollbar::default()
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("\u{28FF}"))
+            .thumb_symbol("█")
+            .track_style(Style::default().bg(palette::BG_2))
+            .thumb_style(Style::default().fg(palette::GRAY_1))
+            .render(minions_inner, buf, &mut minions_scroll_state);
     }
 
     /// Prepares an active block with the border and title
@@ -214,11 +225,14 @@ impl SysInspectUX {
         StatefulWidget::render(self._wrap_list_items(items, ActiveBox::Cycles), cycles_inner, buf, &mut list_state);
 
         let mut scroll_state = ScrollbarState::default().content_length(cycles.len()).position(self.selected_cycle);
-        Scrollbar::default().begin_symbol(None).end_symbol(None).track_symbol(Some("░")).thumb_symbol("█").render(
-            cycles_inner,
-            buf,
-            &mut scroll_state,
-        );
+        Scrollbar::default()
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("\u{28FF}"))
+            .thumb_symbol("█")
+            .track_style(Style::default().bg(palette::BG_2))
+            .thumb_style(Style::default().fg(palette::GRAY_1))
+            .render(cycles_inner, buf, &mut scroll_state);
     }
 
     fn _get_list_items<T: DbListItem>(&self, items: &[T], hl: ActiveBox) -> Vec<ListItem<'static>> {
@@ -237,18 +251,18 @@ impl SysInspectUX {
 
 /// Render a decorated rule line: ` Title ////////////////////////////////`
 /// with one leading space and dash fill to end of area, minus one trailing space.
-fn render_rule_line(area: Rect, buf: &mut Buffer, title: &str, style: Style) {
+fn render_rule_line(area: Rect, buf: &mut Buffer, title: &str, title_style: Style, fill_style: Style) {
     if area.width < 6 {
         return;
     }
     let label = format!(" {title} ");
     let label_w = label.len() as u16;
-    buf.set_string(area.x, area.y, &label, style);
+    buf.set_string(area.x, area.y, &label, title_style);
 
     let fill_start = area.x.saturating_add(label_w);
     let fill_end = area.right().saturating_sub(1);
     for x in fill_start..fill_end.min(fill_start.saturating_add(area.width)) {
-        buf.set_string(x, area.y, "/", style);
+        buf.set_string(x, area.y, "/", fill_style);
     }
 }
 

@@ -1002,6 +1002,7 @@ impl SysInspectUX {
             KeyCode::Tab if self.active_box == ActiveBox::Events => {
                 self.status_at_action_data();
                 self.active_box = ActiveBox::Info;
+                self.event_data = self.get_selected_event().unwrap().event().flatten();
             }
 
             _ => {}

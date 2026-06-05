@@ -5,6 +5,18 @@ use ratatui::{
 
 use super::palette;
 
+/// Strips one matching pair of `"`, `'`, or backticks from both ends.
+pub fn unquote(s: &str) -> &str {
+    let s = s.trim();
+    if s.len() < 2 {
+        return s;
+    }
+    let bytes = s.as_bytes();
+    let first = bytes[0];
+    let last = bytes[s.len() - 1];
+    if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') || (first == b'`' && last == b'`') { &s[1..s.len() - 1] } else { s }
+}
+
 /// Ingests a string value, detects its type, and returns a coloured `Span`.
 ///
 /// - `"true"`  → `✓`  in `SUCCESS`
@@ -18,7 +30,7 @@ pub fn format_typed_value(raw: &str) -> Span<'static> {
         return Span::raw(raw.to_string());
     }
 
-    let unquoted = trimmed.trim_matches('"');
+    let unquoted = unquote(trimmed);
 
     if unquoted.eq_ignore_ascii_case("true") {
         Span::styled("\u{2714}", Style::default().fg(palette::SUCCESS))
@@ -27,7 +39,7 @@ pub fn format_typed_value(raw: &str) -> Span<'static> {
     } else if is_numeric(unquoted) {
         Span::styled(unquoted.to_string(), Style::default().fg(palette::WARNING_GLOW).add_modifier(Modifier::BOLD))
     } else {
-        Span::raw(raw.to_string())
+        Span::raw(unquoted.to_string())
     }
 }
 
