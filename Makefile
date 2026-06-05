@@ -99,8 +99,7 @@ mxrun: setup
 	sh scripts/mxrun-status.sh
 
 setup:
-	$(call deps)
-	$(call setup_targets)
+	@sh scripts/setup.sh || true
 
 clean:
 	cargo clean
