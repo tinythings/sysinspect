@@ -68,12 +68,11 @@ impl DbListItem for CycleListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let ttl_fg = if hl { palette::ACCENT } else { palette::SUCCESS_GLOW };
-        let ts_fg = if hl { palette::SECONDARY } else { palette::PROCESSING_GLOW };
+        let _ = hl;
         Line::from(vec![
-            Span::styled(self.event().get_ts_mask(None), Style::default().fg(ts_fg)),
+            Span::styled(self.event().get_ts_mask(None), Style::default().fg(palette::GRAY_1)),
             Span::raw(" "),
-            Span::styled(self.event().query().to_string(), Style::default().fg(ttl_fg)),
+            Span::styled(self.event().query().to_string(), Style::default().fg(palette::FG)),
         ])
     }
 }
@@ -116,6 +115,27 @@ impl EventListItem {
         Cell::from(v).style(Style::default().fg(palette::ERROR).add_modifier(Modifier::BOLD))
     }
 
+    pub fn get_aligned_line(&self, left_pad: usize) -> Line<'static> {
+        let arrow = " \u{27A4}  ";
+        let t = self.title().replace(" with ", arrow);
+        if let Some(pos) = t.find(arrow) {
+            let left = right_pad(&t[..pos], left_pad);
+            let after = &t[pos + arrow.len()..];
+            Line::from(vec![
+                Span::styled(left, Style::default().fg(palette::FG)),
+                Span::styled(arrow, Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD)),
+                Span::styled(after.to_string(), Style::default().fg(palette::FG)),
+            ])
+        } else {
+            Line::from(vec![Span::styled(t, Style::default().fg(palette::FG))])
+        }
+    }
+
+    pub fn left_width(&self) -> usize {
+        let arrow = " \u{27A4}  ";
+        self.title().replace(" with ", arrow).find(arrow).unwrap_or(0)
+    }
+
     /// Get events data table
     pub fn get_event_table(&self, keywidth: usize) -> Vec<Row<'_>> {
         vec![
@@ -150,8 +170,7 @@ impl DbListItem for EventListItem {
     }
 
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let fg = if hl { palette::FG } else { palette::MUTED };
-        Line::from(vec![Span::styled(self.title(), Style::default().fg(fg))])
+        self.get_aligned_line(0)
     }
 }
 
@@ -193,14 +212,22 @@ impl DbListItem for MinionListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let ttl_fg = if hl { palette::ACCENT } else { palette::SUCCESS_GLOW };
-        let ts_fg = if hl { palette::SECONDARY } else { palette::PROCESSING_GLOW };
+        let _ = hl;
         let HostInfo { ipaddr, hostname } = self.hostname();
-        Line::from(vec![Span::styled(ipaddr, Style::default().fg(ts_fg)), Span::raw(" "), Span::styled(hostname, Style::default().fg(ttl_fg))])
+        Line::from(vec![
+            Span::styled(ipaddr, Style::default().fg(palette::GRAY_1)),
+            Span::raw(" "),
+            Span::styled(hostname, Style::default().fg(palette::FG)),
+        ])
     }
 
     fn title(&self) -> String {
         let HostInfo { ipaddr, hostname } = self.hostname();
         format!("{ipaddr} ({hostname})")
     }
+}
+
+fn right_pad(s: &str, width: usize) -> String {
+    let len = s.chars().count();
+    if len >= width { s.to_string() } else { format!("{}{}", s, " ".repeat(width - len)) }
 }

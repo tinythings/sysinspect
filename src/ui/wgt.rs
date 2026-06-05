@@ -82,8 +82,6 @@ impl SysInspectUX {
                 .thumb_symbol("█")
                 .track_style(Style::default().bg(palette::BG_2))
                 .thumb_style(Style::default().fg(palette::GRAY_1))
-                .track_style(Style::default().bg(palette::BG_2))
-                .thumb_style(Style::default().fg(palette::GRAY_1))
                 .render(ex_nfo_scroller, buf, &mut scroller_state);
         } else {
             let [gen_title_area, gen_table_area] = Layout::default()
@@ -113,12 +111,14 @@ impl SysInspectUX {
             events_state.select(Some(self.selected_event));
         }
 
-        StatefulWidget::render(
-            self._wrap_list_items(self._get_list_items(&self.li_events, ActiveBox::Events), ActiveBox::Events),
-            events_inner,
-            buf,
-            &mut events_state,
-        );
+        let left_w = self.li_events.iter().map(|e| e.left_width()).max().unwrap_or(0);
+        let items: Vec<ListItem> = self.li_events.iter().map(|e| ListItem::new(e.get_aligned_line(left_w))).collect();
+        let hl_style = if self.active_box == ActiveBox::Events {
+            Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(palette::MUTED).bg(palette::SURFACE)
+        };
+        StatefulWidget::render(List::new(items).highlight_style(hl_style), events_inner, buf, &mut events_state);
 
         let mut events_scroll_state = ScrollbarState::default()
             .content_length(self.li_events.len())
