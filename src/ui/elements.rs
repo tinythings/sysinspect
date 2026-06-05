@@ -4,10 +4,12 @@ use libsysinspect::{
     util::dataconv::{as_int, as_str},
 };
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Row},
 };
+
+use super::palette;
 
 /// Active box selector
 #[derive(Debug, PartialEq, Eq, Default)]
@@ -66,8 +68,8 @@ impl DbListItem for CycleListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let ttl_fg = if hl { Color::Cyan } else { Color::LightCyan };
-        let ts_fg = if hl { Color::Blue } else { Color::LightBlue };
+        let ttl_fg = if hl { palette::ACCENT } else { palette::SUCCESS_GLOW };
+        let ts_fg = if hl { palette::SECONDARY } else { palette::PROCESSING_GLOW };
         Line::from(vec![
             Span::styled(self.event().get_ts_mask(None), Style::default().fg(ts_fg)),
             Span::raw(" "),
@@ -94,24 +96,24 @@ impl EventListItem {
         if len >= width { s.to_string() } else { format!("{s:>width$}") }
     }
 
-    // Yellow cell
+    // Key cell
     pub fn yc(v: String, keywidth: usize) -> Cell<'static> {
-        Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(Color::LightYellow))
+        Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(palette::PROCESSING_HEAT))
     }
 
-    // Grey cell
+    // Value cell
     pub fn gc(v: String) -> Cell<'static> {
-        Cell::from(v).style(Style::default().fg(Color::Gray))
+        Cell::from(v).style(Style::default().fg(palette::FG))
     }
 
-    // Green cell
+    // Success cell
     pub fn grc(v: String) -> Cell<'static> {
-        Cell::from(v).style(Style::default().fg(Color::LightGreen))
+        Cell::from(v).style(Style::default().fg(palette::SUCCESS))
     }
 
-    // Red cell
+    // Error cell
     pub fn rc(v: String) -> Cell<'static> {
-        Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
+        Cell::from(v).style(Style::default().fg(palette::ERROR).add_modifier(Modifier::BOLD))
     }
 
     /// Get events data table
@@ -148,7 +150,7 @@ impl DbListItem for EventListItem {
     }
 
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let fg = if hl { Color::White } else { Color::Gray };
+        let fg = if hl { palette::FG } else { palette::MUTED };
         Line::from(vec![Span::styled(self.title(), Style::default().fg(fg))])
     }
 }
@@ -191,8 +193,8 @@ impl DbListItem for MinionListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let ttl_fg = if hl { Color::Cyan } else { Color::LightCyan };
-        let ts_fg = if hl { Color::Blue } else { Color::LightBlue };
+        let ttl_fg = if hl { palette::ACCENT } else { palette::SUCCESS_GLOW };
+        let ts_fg = if hl { palette::SECONDARY } else { palette::PROCESSING_GLOW };
         let HostInfo { ipaddr, hostname } = self.hostname();
         Line::from(vec![Span::styled(ipaddr, Style::default().fg(ts_fg)), Span::raw(" "), Span::styled(hostname, Style::default().fg(ttl_fg))])
     }

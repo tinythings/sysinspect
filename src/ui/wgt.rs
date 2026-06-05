@@ -1,11 +1,13 @@
 use super::{
     SysInspectUX, UISizes,
     elements::{ActiveBox, DbListItem, EventListItem},
+    palette,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
 };
 
@@ -26,7 +28,7 @@ impl SysInspectUX {
             Some(eli) => eli,
             None => {
                 Widget::render(
-                    Table::new(vec![Row::new(vec!["N/A"]).style(Style::default().fg(Color::LightRed)).bottom_margin(0)], &[Constraint::Min(0)])
+                    Table::new(vec![Row::new(vec!["N/A"]).style(Style::default().fg(palette::ERROR)).bottom_margin(0)], &[Constraint::Min(0)])
                         .block(block)
                         .column_spacing(1),
                     rect,
@@ -51,7 +53,7 @@ impl SysInspectUX {
         Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), info_table_area, buf);
 
         // Splitter label
-        Widget::render(Paragraph::new("Additional Information").style(Style::default().fg(Color::Yellow)), splitter_label_area, buf);
+        Widget::render(Paragraph::new("Additional Information").style(Style::default().fg(palette::PROCESSING)), splitter_label_area, buf);
 
         // Fill-in info rows from the event data. At this point it supposed to be fetched.
         let mut info_rows_ref = self.info_rows.borrow_mut();
@@ -121,7 +123,7 @@ impl SysInspectUX {
     fn _render_right_pane(&self, rect: Rect, buf: &mut Buffer) {
         let [model_events, event_data]: [Rect; 2] = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(15), Constraint::Min(10)])
+            .constraints([Constraint::Ratio(1, 4), Constraint::Min(0)])
             .split(rect)
             .as_ref()
             .try_into()
@@ -166,19 +168,23 @@ impl SysInspectUX {
     /// Prepares an active block with the border and title
     fn _get_box_block(&self, title: &str, hl: ActiveBox) -> Block<'_> {
         if self.active_box == hl {
+            let t = title.to_string();
             Block::default()
                 .borders(Borders::ALL)
-                .title(format!(" {title} "))
-                .title_style(Style::default().fg(Color::Black).bg(Color::LightGreen).add_modifier(Modifier::BOLD))
+                .title(Line::from(vec![
+                    Span::styled("\u{E0B2}", Style::default().fg(palette::ACCENT)),
+                    Span::styled(t, Style::default().fg(palette::BLACK).bg(palette::ACCENT).add_modifier(Modifier::BOLD)),
+                    Span::styled("\u{E0B0}", Style::default().fg(palette::ACCENT)),
+                ]))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::LightGreen).bg(Color::Reset))
+                .border_style(Style::default().fg(palette::ACCENT).bg(Color::Reset))
         } else {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!(" {title} "))
-                .title_style(Style::default().fg(Color::Gray).bg(Color::Reset))
+                .title_style(Style::default().fg(palette::MUTED).bg(Color::Reset))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Gray).bg(Color::Reset))
+                .border_style(Style::default().fg(palette::FAINT).bg(Color::Reset))
         }
     }
 
@@ -215,9 +221,9 @@ impl SysInspectUX {
 
     fn _wrap_list_items<'a>(&self, items: Vec<ListItem<'a>>, hl: ActiveBox) -> List<'a> {
         let hl_style = if self.active_box == hl {
-            Style::default().fg(Color::White).bg(Color::Green).add_modifier(Modifier::BOLD)
+            Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::Gray).bg(Color::DarkGray)
+            Style::default().fg(palette::MUTED).bg(palette::SURFACE)
         };
         List::new(items).highlight_style(hl_style)
     }
@@ -228,9 +234,15 @@ impl Widget for &SysInspectUX {
     where
         Self: Sized,
     {
+        let cycles_max = self.cycles_buf.iter().map(|c| c.get_list_line(false).width()).max().unwrap_or(10);
+        let minions_max = self.li_minions.iter().map(|m| m.get_list_line(false).width()).max().unwrap_or(8);
+
+        let content_w = cycles_max.max(minions_max).min(30);
+        let col_w = (content_w as u16 + 5).max(20);
+
         let [cycles_a, minions_a, events_a]: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(30), Constraint::Percentage(30), Constraint::Min(0)])
+            .constraints([Constraint::Length(col_w), Constraint::Length(col_w), Constraint::Min(0)])
             .split(area)
             .as_ref()
             .try_into()

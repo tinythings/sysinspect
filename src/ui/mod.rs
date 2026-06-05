@@ -19,7 +19,7 @@ use libsysproto::query::{
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    style::Style,
     text::Line,
     widgets::{Paragraph, Row},
 };
@@ -36,6 +36,7 @@ mod alert;
 mod dslbrowser;
 mod elements;
 mod online;
+mod palette;
 mod statusbar;
 mod traittag;
 mod wgt;
@@ -221,7 +222,7 @@ impl SysInspectUX {
         frame.render_widget(self, main_area);
 
         let status_paragraph =
-            Paragraph::new(self.status_text.clone()).style(Style::default().fg(Color::Yellow).bg(Color::Blue).add_modifier(Modifier::BOLD));
+            Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
         frame.render_widget(status_paragraph, status_area);
     }
 
