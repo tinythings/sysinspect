@@ -4,15 +4,19 @@ use crossterm::event::KeyCode;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
+    text::{Line, Span},
     widgets::{
-        Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
-        Widget,
+        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Widget,
     },
 };
 use ratatui_cheese::input::{Input, InputState};
 
-use super::SysInspectUX;
+use super::{
+    SysInspectUX, palette,
+    title::{self, TitleSegment, TitleStyle},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DslFocus {
@@ -56,6 +60,7 @@ pub struct ContextField {
     pub key: String,
     pub value: String,
     pub desc: String,
+    pub required: bool,
     pub state: InputState,
 }
 
@@ -119,6 +124,7 @@ pub struct DslBrowser {
     pub desc_popup_text: String,
     pub desc_popup_scroll: usize,
     pub context_active: bool,
+    pub error_required_key: Vec<String>,
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
@@ -146,6 +152,7 @@ impl DslBrowser {
             desc_popup_text: String::new(),
             desc_popup_scroll: 0,
             context_active: false,
+            error_required_key: Vec::new(),
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
@@ -227,6 +234,8 @@ impl DslBrowser {
             }
         }
         // Fallback
+        self.context_active = false;
+        self.context_fields = Vec::new();
         if let Some(row) = self.resolved_model() {
             if row.states.is_empty() {
                 self.states = ListBox::new(vec!["$".to_string()], 0);
@@ -238,43 +247,46 @@ impl DslBrowser {
     }
 
     #[allow(clippy::type_complexity)]
-    fn update_context_fields(&mut self, actions: &[(String, Vec<String>, Vec<(String, String)>)]) {
+    fn update_context_fields(&mut self, actions: &[(String, Vec<String>, Vec<(String, String, bool)>)]) {
         let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
         let state_real = if state_display == "(default)" { "$" } else { state_display };
-        let mut ctx: Vec<(String, String)> =
+        let mut ctx: Vec<(String, String, bool)> =
             actions.iter().filter(|(_, states, _)| states.iter().any(|s| s == state_real)).flat_map(|(_, _, ctx_vars)| ctx_vars.clone()).collect();
         ctx.sort_by(|a, b| a.0.cmp(&b.0));
         ctx.dedup_by(|a, b| a.0 == b.0);
         if !ctx.is_empty() {
             self.context_active = true;
-            self.context_fields =
-                ctx.into_iter().map(|(k, d)| ContextField { key: k, value: String::new(), desc: d, state: InputState::new() }).collect();
+            self.context_fields = ctx
+                .into_iter()
+                .map(|(k, d, r)| ContextField { key: k, value: String::new(), desc: d, required: r, state: InputState::new() })
+                .collect();
         } else {
+            self.context_active = false;
             self.context_fields = Vec::new();
         }
     }
 
     fn s_fg() -> Style {
-        Style::default().fg(Color::White).bg(Color::DarkGray)
+        Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
     }
     fn s_bd() -> Style {
         Self::s_fg().add_modifier(Modifier::BOLD)
     }
     fn s_di() -> Style {
-        Style::default().fg(Color::Gray).bg(Color::DarkGray)
+        Style::default().fg(palette::MUTED).bg(palette::POPUP_BG_BASE)
     }
     fn s_hl() -> Style {
-        Style::default().fg(Color::Black).bg(Color::LightBlue)
+        Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
     }
     fn s_hl_dim() -> Style {
-        Style::default().fg(Color::Black).bg(Color::Gray)
+        Style::default().fg(palette::HIGHLIGHT)
     }
     fn s_bl() -> Style {
-        Style::default().fg(Color::Cyan).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+        Style::default().fg(palette::PROCESSING).bg(palette::POPUP_BG_BASE)
     }
 
     fn border_style(focus: DslFocus, current: DslFocus) -> Style {
-        if current == focus { Style::default().fg(Color::White) } else { Style::default().fg(Color::Black) }
+        if current == focus { Style::default().fg(palette::ACCENT) } else { Style::default().fg(palette::FAINT) }
     }
 
     fn column_widths(area: Rect) -> (u16, u16) {
@@ -295,10 +307,10 @@ impl DslBrowser {
 
         let desc_text = self.build_target_description();
         let wrapped = wrap_text(&desc_text, area.width.saturating_sub(4) as usize);
-        let max_desc = 3usize;
+        let max_desc = 4usize;
         let visible: Vec<&str> = wrapped.iter().take(max_desc).map(|s| s.as_str()).collect();
-        let has_header = !self.catalog_diagnostics.is_empty() || visible.is_empty();
-        let desc_h = (visible.len() as u16).saturating_add(if has_header { 1 } else { 0 });
+        let has_more_desc = wrapped.len() > max_desc;
+        let desc_h = 5u16; // rule + up to 4 lines of text
 
         let list_h = area.height.saturating_sub(top_h).saturating_sub(desc_h).saturating_sub(btn_h);
 
@@ -310,7 +322,7 @@ impl DslBrowser {
         let (box_w, ctx_w) = Self::column_widths(area);
         self.render_top(rows[0], box_w, ctx_w, buf);
         self.render_lists(rows[1], box_w, ctx_w, buf);
-        self.render_description(rows[2], &visible, buf);
+        self.render_description(rows[2], &visible, has_more_desc, buf);
         self.render_bottom(rows[3], buf);
     }
 
@@ -353,7 +365,7 @@ impl DslBrowser {
             ])
             .split(area);
 
-        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_bd());
+        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_bl());
         let qf = self.focus == DslFocus::Query;
         let mut qs = InputState::new();
         qs.set_value(self.query.clone());
@@ -412,8 +424,11 @@ impl DslBrowser {
 
         let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
         let focused = self.focus == target;
-        let hl = if is_minions {
-            if focused { Style::default().fg(Color::Black).bg(Color::DarkGray) } else { Style::default() }
+        let is_placeholder = lb.items.get(lb.state.selected().unwrap_or(0)).is_some_and(|s| s == "(select)");
+        let hl = if is_placeholder && !focused {
+            Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
+        } else if is_minions {
+            if focused { Style::default().fg(palette::SECONDARY) } else { Style::default() }
         } else if focused {
             Self::s_hl()
         } else {
@@ -438,15 +453,17 @@ impl DslBrowser {
                 .orientation(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
-                .track_symbol(Some("│"))
+                .track_symbol(Some("\u{28FF}"))
                 .thumb_symbol("█")
+                .track_style(Style::default().bg(palette::BG_2))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
                 .render(Rect::new(sb_x, inner.y, 1, inner.height), buf, &mut sb_state);
         }
     }
 
     fn render_context_inline(&self, area: Rect, buf: &mut Buffer) {
         if !self.context_active {
-            buf.set_string(area.x, area.y, if self.resolved_model().is_some() { "No context defined" } else { " " }, Self::s_di());
+            buf.set_string(area.x + 1, area.y + 1, if self.resolved_model().is_some() { "No context defined" } else { " " }, Self::s_di());
             return;
         }
         let max_label_w = self.context_fields.iter().map(|f| f.key.len()).max().unwrap_or(4) as u16;
@@ -454,13 +471,14 @@ impl DslBrowser {
         let input_w = (area.width.saturating_sub(label_col_w)).max(15).min(area.width.saturating_sub(label_col_w));
 
         for (i, field) in self.context_fields.iter().enumerate() {
-            let y = area.y + i as u16;
+            let y = area.y + 1 + i as u16;
             if y >= area.bottom() {
                 break;
             }
             let focused = matches!(self.focus, DslFocus::ContextField(idx) if idx == i);
-            let label = format!("{:>width$}: ", field.key, width = max_label_w as usize);
-            write_clipped(buf, area, area.x, y, &label, Self::s_bd());
+            let req = if field.required { "*" } else { " " };
+            let label = format!("{req}{:>width$}: ", field.key, width = max_label_w as usize);
+            write_clipped(buf, area, area.x + 1, y, &label, Self::s_bd());
             let inp = Input::new("").prompt("").placeholder(if field.desc.is_empty() { &field.key } else { &field.desc });
             let mut is = InputState::new();
             is.set_value(field.value.clone());
@@ -469,24 +487,23 @@ impl DslBrowser {
             while is.cursor_pos() < fc {
                 is.move_right();
             }
-            let ia = Rect::new(area.x + label_col_w, y, input_w, 1);
+            let ia = Rect::new(area.x + 1 + label_col_w, y, input_w, 1);
             StatefulWidget::render(&inp, ia, buf, &mut is);
         }
     }
 
-    fn render_description(&self, area: Rect, visible: &[&str], buf: &mut Buffer) {
-        let mut y = area.y;
+    fn render_description(&self, area: Rect, visible: &[&str], has_more: bool, buf: &mut Buffer) {
+        // Dash rule separator
+        render_dash_rule(area, buf, has_more);
+        let mut y = area.y + 1;
         let fail_count = self.catalog_diagnostics.len();
-        let header = if fail_count > 0 {
-            format!(" {} failed model(s) ", fail_count)
-        } else if visible.is_empty() {
-            " (no description) ".to_string()
-        } else {
-            String::new()
-        };
-        if !header.is_empty() {
-            write_clipped(buf, area, area.x, y, &header, Self::s_di());
+        if fail_count > 0 {
+            write_clipped(buf, area, area.x, y, &format!(" {} failed model(s) ", fail_count), Self::s_di());
             y += 1;
+        }
+        if visible.is_empty() && fail_count == 0 {
+            write_clipped(buf, area, area.x, y, " (no description)", Self::s_di());
+            return;
         }
         for line in visible {
             if y >= area.bottom() {
@@ -503,8 +520,12 @@ impl DslBrowser {
         let close_lbl = format_button("Close");
         let total_w = (call_lbl.len() + close_lbl.len() + 1) as u16;
         let start_x = area.x + area.width.saturating_sub(total_w) / 2;
-        let cs = if self.focus == DslFocus::Call { Self::s_hl() } else { Self::s_fg() };
-        let xs = if self.focus == DslFocus::Close { Self::s_hl() } else { Self::s_fg() };
+
+        let b_sel = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let b_unsel = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+
+        let cs = if self.focus == DslFocus::Call { b_sel } else { b_unsel };
+        let xs = if self.focus == DslFocus::Close { b_sel } else { b_unsel };
         Paragraph::new(call_lbl.clone()).style(cs).render(Rect::new(start_x, btn_y, call_lbl.len() as u16, 1), buf);
         Paragraph::new(close_lbl.clone()).style(xs).render(Rect::new(start_x + call_lbl.len() as u16 + 1, btn_y, close_lbl.len() as u16, 1), buf);
     }
@@ -535,7 +556,7 @@ impl DslBrowser {
                 self.focus = prev;
                 return true;
             }
-            KeyCode::Char('m') => {
+            KeyCode::Char('d') => {
                 if self.resolved_model().is_some() {
                     self.desc_popup_text = self.build_full_description();
                     self.desc_popup_scroll = 0;
@@ -600,6 +621,14 @@ impl DslBrowser {
                     if self.focus == DslFocus::Call {
                         let query = self.build_query();
                         if query.is_some() {
+                            let missing: Vec<String> =
+                                self.context_fields.iter().filter(|f| f.required && f.value.is_empty()).map(|f| f.key.clone()).collect();
+                            if !missing.is_empty() {
+                                self.call_requested = true;
+                                self.query_to_execute = None;
+                                self.error_required_key = missing;
+                                return true;
+                            }
                             self.query_to_execute = query;
                             self.call_requested = true;
                             self.visible = false;
@@ -664,18 +693,17 @@ impl DslBrowser {
             parts.push(format!("Target \"{target_id}\":\n{targets_desc}"));
         }
         if self.context_active {
-            let has_desc = self.context_fields.iter().any(|f| !f.desc.is_empty());
-            let ctx_text = if has_desc {
-                self.context_fields
-                    .iter()
-                    .map(|f| if f.desc.is_empty() { f.key.clone() } else { format!("{} — {}", f.key, f.desc) })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            } else {
-                let keys: Vec<String> = self.context_fields.iter().enumerate().map(|(i, f)| format!("{}. {}", i + 1, f.key)).collect();
-                format!("Required context keys (no descriptions available):\n{}", keys.join("\n"))
-            };
-            parts.push(format!("Context:\n{ctx_text}"));
+            let max_key = self.context_fields.iter().map(|f| f.key.len()).max().unwrap_or(4);
+            let ctx_lines: Vec<String> = self
+                .context_fields
+                .iter()
+                .map(|f| {
+                    let req = if f.required { "required" } else { "optional" };
+                    let key_padded = format!("{:>width$}", f.key, width = max_key);
+                    if f.desc.is_empty() { format!("{key_padded}  {req}  Unknown field") } else { format!("{key_padded}  {req}  {}", f.desc) }
+                })
+                .collect();
+            parts.push(format!("Context:\n{}", ctx_lines.join("\n")));
         }
         parts.join("\n\n")
     }
@@ -700,13 +728,17 @@ impl SysInspectUX {
         Clear.render(popup, buf);
 
         let block = Block::default()
-            .title(" Query Composer ")
+            .title(Line::from(vec![
+                Span::styled("\u{E0B2}", Style::default().fg(palette::BORDER)),
+                Span::styled("Query Composer", Style::default().fg(palette::BLACK).bg(palette::BORDER)),
+                Span::styled("\u{E0B0}", Style::default().fg(palette::BORDER)),
+            ]))
             .title_alignment(Alignment::Center)
-            .title_style(Style::default().fg(Color::Black).bg(Color::DarkGray).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Gray))
-            .style(Style::default().bg(Color::DarkGray));
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(palette::BORDER).bg(palette::POPUP_BG_BASE))
+            .padding(Padding::horizontal(2))
+            .style(Style::default().bg(palette::POPUP_BG_BASE));
         let inner = block.inner(popup);
         block.render(popup, buf);
 
@@ -728,8 +760,8 @@ impl SysInspectUX {
                 continue;
             }
             if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                cell.set_bg(Color::Black);
-                cell.set_fg(Color::DarkGray);
+                cell.set_bg(palette::SHADOW_BG);
+                cell.set_fg(palette::SHADOW_FG);
             }
         }
         for offset in 0..2u16 {
@@ -740,8 +772,8 @@ impl SysInspectUX {
                     continue;
                 }
                 if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                    cell.set_bg(Color::Black);
-                    cell.set_fg(Color::DarkGray);
+                    cell.set_bg(palette::SHADOW_BG);
+                    cell.set_fg(palette::SHADOW_FG);
                 }
             }
         }
@@ -758,53 +790,128 @@ impl SysInspectUX {
         let y = parent.y + (parent.height.saturating_sub(h)) / 2;
         let canvas = Rect { x, y, width: w, height: h };
 
-        let bg = Color::Gray;
+        let bg = palette::POPUP_BG_1;
         Clear.render(canvas, buf);
+
+        let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
+        let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let has_target = target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty();
+
         let block = Block::default()
-            .title(" Details ")
-            .title_alignment(Alignment::Center)
-            .title_style(Style::default().fg(Color::Black).bg(bg))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Black))
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW).bg(bg))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_h), Constraint::Length(1)]).split(inner);
-        let text_area = chunks[0];
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let mut segments = vec![
+            TitleSegment { text: " Details on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
+            TitleSegment { text: format!(" {model_name} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK },
+        ];
+        if has_target {
+            segments.push(TitleSegment { text: format!(" {target_id} "), bg: palette::PROCESSING_PEAK, fg: palette::SUCCESS_PEAK });
+        }
+        title::overlay_gradient_title(buf, canvas, &title_style, segments.as_slice());
+
+        // Build rendered lines with section headers
+        let body_style = Style::default().fg(palette::FG).bg(bg);
+
+        // Layout: scrollable content area + close button
+        let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+        let content_area = chunks[0];
         let btn_area = chunks[1];
 
-        let lines: Vec<String> = text.split('\n').flat_map(|p| wrap_text(p, (text_area.width.saturating_sub(2)) as usize)).collect();
-        let total = lines.len().max(1);
-        let max_off = total.saturating_sub(text_area.height as usize);
+        let rule_s = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
+        let rule_f = Style::default().fg(palette::PROCESSING_BASE);
+
+        // Compute total lines for scrollbar
+        let mut total_lines = 0usize;
+        for line in text.split('\n') {
+            if line.starts_with("Model: ") || line.starts_with("Target \"") || line.starts_with("Context:") || line.is_empty() {
+                total_lines += 1;
+            } else {
+                let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
+                let indent = if is_list { "      " } else { "    " };
+                total_lines += wrap_text(&format!("{indent}{line}"), (content_area.width.saturating_sub(3)) as usize).len().max(1);
+            }
+        }
+        let max_off = total_lines.saturating_sub(content_area.height as usize);
         let offset = self.dsl_browser.desc_popup_scroll.min(max_off);
 
-        for (i, line) in lines.iter().enumerate().skip(offset).take(text_area.height as usize) {
-            let yy = text_area.y + (i - offset) as u16;
-            if yy >= text_area.bottom() {
+        let mut yy = content_area.y;
+        let mut in_context = false;
+        for line in text.split('\n').skip(offset) {
+            if yy >= content_area.bottom() {
                 break;
             }
-            buf.set_string(text_area.x, yy, format!("  {line}"), Style::default().fg(Color::Black).bg(bg));
+            if let Some(title) = line.strip_prefix("Model: ") {
+                in_context = false;
+                super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
+                yy += 1;
+            } else if line.starts_with("Target \"") {
+                in_context = false;
+                if let Some(colon) = line.find(':') {
+                    let title = &line[..colon];
+                    super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
+                    yy += 1;
+                }
+            } else if line.starts_with("Context:") {
+                in_context = true;
+                super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, "Context", rule_s, rule_f);
+                yy += 1;
+            } else if line.is_empty() {
+                yy += 1;
+            } else if in_context && (line.contains("  required") || line.contains("  optional")) {
+                let indent = "    ";
+                let tag = if line.contains("  required") { "required" } else { "optional" };
+                let tag_pos = line.find(&format!("  {tag}")).unwrap_or(line.len());
+                let key = &line[..tag_pos];
+                let rest = &line[tag_pos + 2 + tag.len()..];
+                let tag_color = if tag == "required" { palette::WARNING_PEAK } else { palette::MUTED };
+                let desc = rest.trim_start();
+                if yy < content_area.bottom() {
+                    buf.set_string(content_area.x, yy, format!("{indent}{key}"), Style::default().fg(palette::ACCENT));
+                    let after_key = (indent.len() + key.len()) as u16;
+                    buf.set_string(content_area.x + after_key, yy, format!("  {tag}"), Style::default().fg(tag_color));
+                    if !desc.is_empty() {
+                        let after_tag = after_key + 2 + tag.len() as u16;
+                        let dstyle = if desc == "Unknown field" { Style::default().fg(palette::FAINT) } else { body_style };
+                        buf.set_string(content_area.x + after_tag, yy, format!("  {desc}"), dstyle);
+                    }
+                    yy += 1;
+                }
+            } else {
+                let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
+                let indent = if is_list { "      " } else { "    " };
+                for wrapped in wrap_text(&format!("{indent}{line}"), (content_area.width.saturating_sub(3)) as usize) {
+                    if yy >= content_area.bottom() {
+                        break;
+                    }
+                    buf.set_string(content_area.x, yy, &wrapped, body_style);
+                    yy += 1;
+                }
+            }
         }
 
-        if total > text_area.height as usize {
-            let sb_x = text_area.right().saturating_sub(1);
-            let mut sb_state = ScrollbarState::new(total).position(offset);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some("│"))
-                .thumb_symbol("█")
-                .render(Rect::new(sb_x, text_area.y, 1, text_area.height), buf, &mut sb_state);
-        }
+        let sb_x = content_area.right().saturating_sub(1);
+        let mut sb_state = ScrollbarState::new(total_lines).position(offset);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("\u{28FF}"))
+            .thumb_symbol("█")
+            .track_style(Style::default().bg(palette::BG_2))
+            .thumb_style(Style::default().fg(palette::GRAY_1))
+            .render(Rect::new(sb_x, content_area.y, 1, content_area.height), buf, &mut sb_state);
 
         let close = format_button("Close");
         let close_w = close.len() as u16;
         let btn_x = btn_area.x + (btn_area.width.saturating_sub(close_w)) / 2;
         Paragraph::new(close)
-            .style(Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD))
             .render(Rect::new(btn_x, btn_area.y, close_w, 1), buf);
 
         // MS-DOS shadow
@@ -818,8 +925,8 @@ impl SysInspectUX {
                 continue;
             }
             if let Some(c) = buf.cell_mut(Position::new(sx, sy)) {
-                c.set_bg(Color::Black);
-                c.set_fg(Color::DarkGray);
+                c.set_bg(palette::SHADOW_BG);
+                c.set_fg(palette::SHADOW_FG);
             }
         }
         for off in 0..2u16 {
@@ -830,12 +937,25 @@ impl SysInspectUX {
                     continue;
                 }
                 if let Some(c) = buf.cell_mut(Position::new(sx, sy)) {
-                    c.set_bg(Color::Black);
-                    c.set_fg(Color::DarkGray);
+                    c.set_bg(palette::SHADOW_BG);
+                    c.set_fg(palette::SHADOW_FG);
                 }
             }
         }
     }
+}
+
+fn render_dash_rule(area: Rect, buf: &mut Buffer, has_more: bool) {
+    let w = area.width as usize;
+    if w < 6 {
+        return;
+    }
+    let suffix = if has_more { " ('d' for more)" } else { "" };
+    let label = format!(" Description{suffix} ");
+    let fill_w = w.saturating_sub(label.len()) / 2;
+    let fill = "\u{2500}".repeat(fill_w);
+    let line = format!("{fill}{label}{fill}");
+    buf.set_string(area.x, area.y, &line, Style::default().fg(palette::PROCESSING));
 }
 
 fn format_button(label: &str) -> String {
@@ -968,17 +1088,22 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     }
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
-        let mut current = String::new();
-        for word in paragraph.split_whitespace() {
-            if current.is_empty() {
-                current = word.to_string();
-            } else if current.len() + 1 + word.len() <= max_width {
-                current.push(' ');
-                current.push_str(word);
-            } else {
-                lines.push(current);
-                current = word.to_string();
+        let trimmed = paragraph.trim();
+        if trimmed.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let lead = &paragraph[..paragraph.len() - paragraph.trim_start().len()];
+        let mut current = lead.to_string();
+        for word in trimmed.split_whitespace() {
+            if current.len() + 1 + word.len() > max_width {
+                lines.push(std::mem::take(&mut current));
+                current = lead.to_string();
             }
+            if !current.is_empty() && current != lead {
+                current.push(' ');
+            }
+            current.push_str(word);
         }
         if !current.is_empty() {
             lines.push(current);

@@ -547,8 +547,8 @@ actions:
     assert!(st.args.contains(&("search".to_string(), "/sbin/init".to_string())));
     assert!(st.args.contains(&("started".to_string(), "true".to_string())));
     assert_eq!(st.context_vars.len(), 2);
-    assert!(st.context_vars.contains(&("search".to_string(), "Process search mask".to_string())));
-    assert!(st.context_vars.contains(&("timeout".to_string(), "Max wait in seconds".to_string())));
+    assert!(st.context_vars.contains(&("search".to_string(), "Process search mask".to_string(), true)));
+    assert!(st.context_vars.contains(&("timeout".to_string(), "Max wait in seconds".to_string(), true)));
     assert_eq!(st.conditions.len(), 2);
     assert!(st.conditions.contains(&("uid".to_string(), "65432".to_string())));
     assert!(st.conditions.contains(&("working-dir".to_string(), "/tmp".to_string())));
@@ -1202,10 +1202,9 @@ actions:
     let (actions, _) = browser.actions();
     let st = &actions[0].states[0];
 
-    assert!(st.context_vars.iter().any(|(k, _)| k == "action"), "action missing");
-    assert!(st.context_vars.iter().any(|(k, _)| k == "package"), "package missing");
-    // claim(common.path) should NOT produce a context var
-    assert!(!st.context_vars.iter().any(|(k, _)| k == "common"), "claim() mistaken for context()");
+    assert!(st.context_vars.iter().any(|(k, _, _)| k == "action"), "action missing");
+    assert!(st.context_vars.iter().any(|(k, _, _)| k == "package"), "package missing");
+    assert!(!st.context_vars.iter().any(|(k, _, _)| k == "common"), "claim() mistaken for context()");
 }
 
 #[test]
@@ -1241,6 +1240,215 @@ actions:
     let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
     let (actions, _) = browser.actions();
     let st = &actions[0].states[0];
-    assert!(st.context_vars.iter().any(|(k, v)| k == "action" && v == "PackageKit operation"));
-    assert!(st.context_vars.iter().any(|(k, v)| k == "package" && v == "Package name"));
+    assert!(st.context_vars.iter().any(|(k, v, _)| k == "action" && v == "PackageKit operation"));
+    assert!(st.context_vars.iter().any(|(k, v, _)| k == "package" && v == "Package name"));
+}
+
+// ---------------------------------------------------------------------------
+// Context variable required / optional tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ctx_string_is_required_by_default() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: CtxDefaultReq
+version: "0.1"
+description: Plain string → required.
+maintainer: tester <t@t.t>
+entities:
+  e1:
+    descr: Test
+actions:
+  a1:
+    description: Action with ctx.
+    module: sys.run
+    bind: [e1]
+    context:
+      mykey: My description
+    state:
+      $:
+        args:
+          cmd: echo
+"#,
+    );
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let ctx = &actions[0].states[0].context_vars;
+    let (_, _, required) = ctx.iter().find(|(k, _, _)| k == "mykey").expect("mykey should exist");
+    assert!(required, "plain string should be required by default");
+}
+
+#[test]
+fn ctx_tuple_false_is_optional() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: CtxOptional
+version: "0.1"
+description: false tuple means optional.
+maintainer: tester <t@t.t>
+entities:
+  e1:
+    descr: Test
+actions:
+  a1:
+    description: Action with optional ctx.
+    module: sys.run
+    bind: [e1]
+    context:
+      mykey: [false, Optional key description]
+    state:
+      $:
+        args:
+          cmd: echo
+"#,
+    );
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let ctx = &actions[0].states[0].context_vars;
+    let (_, desc, required) = ctx.iter().find(|(k, _, _)| k == "mykey").expect("mykey should exist");
+    assert!(!required, "[false, ...] should be optional");
+    assert_eq!(desc, "Optional key description");
+}
+
+#[test]
+fn ctx_tuple_true_is_required() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: CtxRequired
+version: "0.1"
+description: true tuple means required.
+maintainer: tester <t@t.t>
+entities:
+  e1:
+    descr: Test
+actions:
+  a1:
+    description: Action with required ctx.
+    module: sys.run
+    bind: [e1]
+    context:
+      mykey: [true, Required key description]
+    state:
+      $:
+        args:
+          cmd: echo
+"#,
+    );
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let ctx = &actions[0].states[0].context_vars;
+    let (_, desc, required) = ctx.iter().find(|(k, _, _)| k == "mykey").expect("mykey should exist");
+    assert!(required, "[true, ...] should be required");
+    assert_eq!(desc, "Required key description");
+}
+
+#[test]
+fn ctx_tuple_true_null_desc_is_required_empty_desc() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: CtxNullDesc
+version: "0.1"
+description: true with null desc means no description.
+maintainer: tester <t@t.t>
+entities:
+  e1:
+    descr: Test
+actions:
+  a1:
+    description: Action with null-desc ctx.
+    module: sys.run
+    bind: [e1]
+    context:
+      mykey:
+      - true
+    state:
+      $:
+        args:
+          cmd: echo
+"#,
+    );
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let ctx = &actions[0].states[0].context_vars;
+    let (_, desc, required) = ctx.iter().find(|(k, _, _)| k == "mykey").expect("mykey should exist");
+    assert!(required, "[true] alone should be required");
+    assert!(desc.is_empty(), "description should be empty for null");
+}
+
+#[test]
+fn implicit_context_refs_are_required() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: ImplicitCtx
+version: "0.1"
+description: context(xxx) → required implicitly.
+maintainer: tester <t@t.t>
+entities:
+  e1:
+    descr: Test
+actions:
+  a1:
+    description: Implicit ctx from args.
+    module: sys.run
+    bind: [e1]
+    state:
+      $:
+        args:
+          cmd: context(hostname)
+"#,
+    );
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let ctx = &actions[0].states[0].context_vars;
+    let (_, desc, required) = ctx.iter().find(|(k, _, _)| k == "hostname").expect("hostname should be discovered");
+    assert!(required, "implicit context(xxx) should be required");
+    assert!(desc.is_empty(), "implicit context should have no description");
+}
+
+#[test]
+fn explicit_overrides_implicit_dedup() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: OverrideImplicit
+version: "0.1"
+description: Explicit ctx overrides implicit, uses explicit description and required flag.
+maintainer: tester <t@t.t>
+entities:
+  e1:
+    descr: Test
+actions:
+  a1:
+    description: Mixed explicit+implicit.
+    module: sys.run
+    bind: [e1]
+    context:
+      hostname: [false, Optional host override]
+    state:
+      $:
+        args:
+          cmd: context(hostname)
+"#,
+    );
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let (actions, _) = browser.actions();
+    let ctx = &actions[0].states[0].context_vars;
+    // Should appear only once
+    let mut found = ctx.iter().filter(|(k, _, _)| k == "hostname");
+    let first = found.next().expect("should exist");
+    assert!(found.next().is_none(), "should not be duplicated");
+    assert_eq!(first.1, "Optional host override");
+    assert!(!first.2, "explicit [false, ...] should be optional");
 }

@@ -4,10 +4,12 @@ use libsysinspect::{
     util::dataconv::{as_int, as_str},
 };
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Row},
 };
+
+use super::palette;
 
 /// Active box selector
 #[derive(Debug, PartialEq, Eq, Default)]
@@ -66,12 +68,11 @@ impl DbListItem for CycleListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let ttl_fg = if hl { Color::Cyan } else { Color::LightCyan };
-        let ts_fg = if hl { Color::Blue } else { Color::LightBlue };
+        let _ = hl;
         Line::from(vec![
-            Span::styled(self.event().get_ts_mask(None), Style::default().fg(ts_fg)),
+            Span::styled(self.event().get_ts_mask(None), Style::default().fg(palette::GRAY_1)),
             Span::raw(" "),
-            Span::styled(self.event().query().to_string(), Style::default().fg(ttl_fg)),
+            Span::styled(self.event().query().to_string(), Style::default().fg(palette::FG)),
         ])
     }
 }
@@ -94,24 +95,45 @@ impl EventListItem {
         if len >= width { s.to_string() } else { format!("{s:>width$}") }
     }
 
-    // Yellow cell
+    // Key cell
     pub fn yc(v: String, keywidth: usize) -> Cell<'static> {
-        Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(Color::LightYellow))
+        Cell::from(Self::right_align(&v, keywidth)).style(Style::default().fg(palette::GRAY_1))
     }
 
-    // Grey cell
+    // Value cell
     pub fn gc(v: String) -> Cell<'static> {
-        Cell::from(v).style(Style::default().fg(Color::Gray))
+        Cell::from(v).style(Style::default().fg(palette::FG))
     }
 
-    // Green cell
+    // Success cell
     pub fn grc(v: String) -> Cell<'static> {
-        Cell::from(v).style(Style::default().fg(Color::LightGreen))
+        Cell::from(v).style(Style::default().fg(palette::SUCCESS))
     }
 
-    // Red cell
+    // Error cell
     pub fn rc(v: String) -> Cell<'static> {
-        Cell::from(v).style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
+        Cell::from(v).style(Style::default().fg(palette::ERROR).add_modifier(Modifier::BOLD))
+    }
+
+    pub fn get_aligned_line(&self, left_pad: usize) -> Line<'static> {
+        let arrow = " \u{27A4}  ";
+        let t = self.title().replace(" with ", arrow);
+        if let Some(pos) = t.find(arrow) {
+            let left = right_pad(&t[..pos], left_pad);
+            let after = &t[pos + arrow.len()..];
+            Line::from(vec![
+                Span::styled(left, Style::default().fg(palette::FG)),
+                Span::styled(arrow, Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD)),
+                Span::styled(after.to_string(), Style::default().fg(palette::FG)),
+            ])
+        } else {
+            Line::from(vec![Span::styled(t, Style::default().fg(palette::FG))])
+        }
+    }
+
+    pub fn left_width(&self) -> usize {
+        let arrow = " \u{27A4}  ";
+        self.title().replace(" with ", arrow).find(arrow).unwrap_or(0)
     }
 
     /// Get events data table
@@ -147,9 +169,8 @@ impl DbListItem for EventListItem {
         self.event.clone()
     }
 
-    fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let fg = if hl { Color::White } else { Color::Gray };
-        Line::from(vec![Span::styled(self.title(), Style::default().fg(fg))])
+    fn get_list_line(&self, _hl: bool) -> Line<'static> {
+        self.get_aligned_line(0)
     }
 }
 
@@ -191,14 +212,22 @@ impl DbListItem for MinionListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let ttl_fg = if hl { Color::Cyan } else { Color::LightCyan };
-        let ts_fg = if hl { Color::Blue } else { Color::LightBlue };
+        let _ = hl;
         let HostInfo { ipaddr, hostname } = self.hostname();
-        Line::from(vec![Span::styled(ipaddr, Style::default().fg(ts_fg)), Span::raw(" "), Span::styled(hostname, Style::default().fg(ttl_fg))])
+        Line::from(vec![
+            Span::styled(ipaddr, Style::default().fg(palette::GRAY_1)),
+            Span::raw(" "),
+            Span::styled(hostname, Style::default().fg(palette::FG)),
+        ])
     }
 
     fn title(&self) -> String {
         let HostInfo { ipaddr, hostname } = self.hostname();
         format!("{ipaddr} ({hostname})")
     }
+}
+
+fn right_pad(s: &str, width: usize) -> String {
+    let len = s.chars().count();
+    if len >= width { s.to_string() } else { format!("{}{}", s, " ".repeat(width - len)) }
 }

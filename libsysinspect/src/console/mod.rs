@@ -243,7 +243,7 @@ pub struct ConsoleModelRow {
     /// Per-entrypoint actions: (description, available states, context vars).
     #[serde(default)]
     #[allow(clippy::type_complexity)]
-    pub target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String)>)>)>,
+    pub target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)>,
 }
 
 impl ConsoleResponse {

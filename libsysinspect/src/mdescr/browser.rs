@@ -313,20 +313,20 @@ impl ModelBrowser {
                             .map(|(state_name, mod_args)| {
                                 let opts = mod_args.opts();
                                 let args: Vec<(String, String)> = mod_args.args().into_iter().map(|(k, v)| (k, value_to_display(&v))).collect();
-                                let mut context_vars: Vec<(String, String)> = action.action_context().into_iter().collect();
-                                for (k, v) in mod_args.context() {
-                                    if !context_vars.iter().any(|(ik, _)| ik == &k) {
-                                        context_vars.push((k, v));
+                                let mut context_vars: Vec<(String, String, bool)> = action.action_context();
+                                for (k, v, r) in mod_args.context() {
+                                    if !context_vars.iter().any(|(ik, _, _)| ik == &k) {
+                                        context_vars.push((k, v, r));
                                     }
                                 }
-                                // Scan arg values for implicit context references: context(xxx), {{ context.xxx }}
+                                // Scan arg values for implicit context references: context(xxx)
                                 for (_, val) in args.iter() {
                                     let s = val.as_str();
                                     for cap in CTX_FN_RE.captures_iter(s) {
                                         if let Some(name) = cap.get(1)
-                                            && !context_vars.iter().any(|(k, _)| k == name.as_str())
+                                            && !context_vars.iter().any(|(k, _, _)| k == name.as_str())
                                         {
-                                            context_vars.push((name.as_str().to_string(), String::new()));
+                                            context_vars.push((name.as_str().to_string(), String::new(), true));
                                         }
                                     }
                                 }
