@@ -5,10 +5,11 @@ use libsysinspect::{
     traits::TraitSource,
 };
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Position},
+    layout::{Alignment, Constraint, Direction, Layout},
     prelude::{Buffer, Rect},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
 };
 use ratatui_cheese::tree::{Tree, TreeGroup, TreeItem, TreeState, TreeStyles};
 use serde_json::Value;
@@ -44,31 +45,24 @@ impl SysInspectUX {
         }
 
         let rows = &self.online_minions_rows;
-        let width = (parent.width * 3 / 4).max(60);
-        let height = (parent.height * 3 / 4).max(15);
-        let bg = Color::Green;
-
-        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
-        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
-        let canvas = Rect { x, y, width, height };
-
-        Clear.render(canvas, buf);
 
         let filtered: Vec<&ConsoleOnlineMinionRow> = rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect();
         let title = if self.online_minions_show_alive { "Online Minions" } else { "Offline Minions" };
-        let title_style =
-            if self.online_minions_focus == 3 { Style::default().fg(Color::Black).bg(bg) } else { Style::default().fg(Color::Black).bg(Color::Gray) };
+        let t = format!(" {title} ({}) ", filtered.len());
         let block = Block::default()
-            .title(format!(" {} ({}) ", title, filtered.len()))
-            .title_alignment(Alignment::Center)
-            .title_style(title_style)
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Gray))
-            .style(Style::default().bg(bg));
+            .title(Line::from(vec![
+                Span::styled("\u{E0B2}", Style::default().fg(palette::ACCENT)),
+                Span::styled(t, Style::default().fg(palette::BLACK).bg(palette::ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled("\u{E0B0}", Style::default().fg(palette::ACCENT)),
+            ]))
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::ACCENT).bg(palette::BG_2))
+            .style(Style::default().bg(palette::BG_2));
 
-        let inner = block.inner(canvas);
-        block.render(canvas, buf);
+        let inner = block.inner(parent);
+        Clear.render(parent, buf);
+        block.render(parent, buf);
 
         let close_label = Self::format_button(CLOSE_LABEL);
         let toggle_label = Self::format_button(if self.online_minions_show_alive { OFFLINE_LABEL } else { ONLINE_LABEL });
@@ -88,7 +82,7 @@ impl SysInspectUX {
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(v_pad), Constraint::Length(1), Constraint::Min(0)])
                 .split(main_area);
-            Paragraph::new(label).alignment(Alignment::Center).style(Style::default().fg(Color::White).bg(bg)).render(centered[1], buf);
+            Paragraph::new(label).alignment(Alignment::Center).style(Style::default().fg(palette::FG).bg(palette::BG_2)).render(centered[1], buf);
         } else {
             let ip_data: Vec<String> = filtered.iter().map(|r| Self::_fmt_ip(&r.ip)).collect();
             let host_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::online_host(r), max_w as usize)).collect();
@@ -122,7 +116,7 @@ impl SysInspectUX {
                 let info_area = horiz[1];
                 let cols = base_w.into_iter().map(Constraint::Length).collect::<Vec<_>>();
 
-                Self::_render_table(self, &filtered, table_area, buf, bg, &cols, &ip_data, &host_data, &ver_data, &id_data);
+                Self::_render_table(self, &filtered, table_area, buf, &cols, &ip_data, &host_data, &ver_data, &id_data);
                 Self::_render_minion_info_panel(self, info_area, buf);
             } else {
                 let os_w = os_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
@@ -132,7 +126,7 @@ impl SysInspectUX {
                 let mut cols: Vec<Constraint> = base_w.into_iter().map(Constraint::Length).collect();
                 cols.push(Constraint::Min(1));
                 let all_data: [&[String]; 7] = [&ip_data, &host_data, &ver_data, &id_data, &os_data, &osv_data, &ker_data];
-                Self::_render_table_wide(self, &filtered, main_area, buf, bg, &cols, &all_data);
+                Self::_render_table_wide(self, &filtered, main_area, buf, &cols, &all_data);
             }
         }
 
@@ -140,8 +134,8 @@ impl SysInspectUX {
         let toggle_w = toggle_label.len() as u16;
         let total_btn_width = close_w + btn_gap + toggle_w;
         let btn_start_x = btn_area.x + (btn_area.width.saturating_sub(total_btn_width)) / 2;
-        let active_style = Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD);
-        let passive_style = Style::default().fg(Color::White).bg(bg);
+        let active_style = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
+        let passive_style = Style::default().fg(palette::FG).bg(palette::BG_2);
 
         let (close_style, toggle_style) = if self.online_minions_focus == 0 {
             (active_style, passive_style)
@@ -155,67 +149,37 @@ impl SysInspectUX {
         Paragraph::new(toggle_label)
             .style(toggle_style)
             .render(Rect { x: btn_start_x + close_w + btn_gap, y: btn_area.y, width: toggle_w, height: 1 }, buf);
-
-        let buf_area = buf.area();
-        let max_x = buf_area.right().saturating_sub(1);
-        let max_y = buf_area.bottom().saturating_sub(1);
-
-        for idx in 0..width {
-            let sx = x.saturating_add(2).saturating_add(idx);
-            let sy = y.saturating_add(height);
-            if sx > max_x || sy > max_y {
-                continue;
-            }
-            if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                cell.set_bg(Color::Black);
-                cell.set_fg(Color::DarkGray);
-            }
-        }
-        for offset in 0..2 {
-            for idx in 0..height {
-                let sx = x.saturating_add(width).saturating_add(offset);
-                let sy = y.saturating_add(idx).saturating_add(1);
-                if sx > max_x || sy > max_y {
-                    continue;
-                }
-                if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
-                    cell.set_bg(Color::Black);
-                    cell.set_fg(Color::DarkGray);
-                }
-            }
-        }
     }
 
     fn _render_minion_info_panel(&self, area: Rect, buf: &mut Buffer) {
-        let info_bg = Color::Blue;
         let is_active = self.online_minions_focus == 3;
-        let border_fg = if is_active { Color::White } else { Color::LightCyan };
+        let border_fg = if is_active { palette::ACCENT } else { palette::FAINT };
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_fg))
-            .style(Style::default().bg(info_bg));
+            .style(Style::default().bg(palette::BG_3));
 
         let inner = block.inner(area);
         block.render(area, buf);
 
         if self.online_minions_info_rows.is_empty() {
-            Paragraph::new("No minion selected").style(Style::default().fg(Color::Black).bg(info_bg)).render(inner, buf);
+            Paragraph::new("No minion selected").style(Style::default().fg(palette::MUTED).bg(palette::BG_3)).render(inner, buf);
             return;
         }
 
         let groups = Self::build_info_tree(&self.online_minions_info_rows);
         let n_groups = groups.len();
         let styles = TreeStyles {
-            parent: Style::default().fg(Color::LightCyan).bg(info_bg).add_modifier(Modifier::BOLD),
-            child: Style::default().fg(Color::White).bg(info_bg).add_modifier(Modifier::BOLD),
-            selected: Style::default().fg(Color::Black).bg(Color::LightCyan),
-            chevron: Style::default().fg(Color::LightCyan).bg(info_bg),
-            chevron_active: Style::default().fg(Color::LightCyan).bg(info_bg),
-            chevron_dim: Style::default().fg(Color::LightCyan).bg(info_bg),
-            count: Style::default().fg(Color::White).bg(info_bg),
-            icon: Style::default().fg(Color::LightYellow).bg(info_bg),
+            parent: Style::default().fg(palette::ACCENT).bg(palette::BG_3).add_modifier(Modifier::BOLD),
+            child: Style::default().fg(palette::FG).bg(palette::BG_3).add_modifier(Modifier::BOLD),
+            selected: Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT),
+            chevron: Style::default().fg(palette::MUTED).bg(palette::BG_3),
+            chevron_active: Style::default().fg(palette::MUTED).bg(palette::BG_3),
+            chevron_dim: Style::default().fg(palette::MUTED).bg(palette::BG_3),
+            count: Style::default().fg(palette::GRAY_1).bg(palette::BG_3),
+            icon: Style::default().fg(palette::WARNING).bg(palette::BG_3),
         };
         let tree = Tree::default().groups(groups).styles(styles).chevron_collapsed("▶ ").chevron_expanded("▼ ");
 
@@ -313,15 +277,15 @@ impl SysInspectUX {
 
     #[allow(clippy::too_many_arguments)]
     fn _render_table(
-        &self, filtered: &[&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, bg: Color, cols: &[Constraint], ip_data: &[String],
-        host_data: &[String], ver_data: &[String], id_data: &[String],
+        &self, filtered: &[&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, cols: &[Constraint], ip_data: &[String], host_data: &[String],
+        ver_data: &[String], id_data: &[String],
     ) {
         let sel_style = if self.online_minions_focus == 2 {
-            Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
         } else {
-            Style::default().fg(Color::Black).bg(Color::Gray)
+            Style::default().fg(palette::MUTED).bg(palette::BG_2)
         };
-        let norm_style = Style::default().fg(Color::White).bg(bg);
+        let norm_style = Style::default().fg(palette::FG).bg(palette::BG_2);
         let rows: Vec<Row> = filtered
             .iter()
             .enumerate()
@@ -330,18 +294,16 @@ impl SysInspectUX {
                 Row::new(vec![ip_data[idx].as_str(), host_data[idx].as_str(), ver_data[idx].as_str(), id_data[idx].as_str()]).style(sty)
             })
             .collect();
-        Self::_render_scrollable_table(area, buf, bg, cols, &rows, self.online_minions_selected);
+        Self::_render_scrollable_table(area, buf, cols, &rows, self.online_minions_selected);
     }
 
-    fn _render_table_wide(
-        &self, filtered: &[&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, bg: Color, cols: &[Constraint], data: &[&[String]; 7],
-    ) {
+    fn _render_table_wide(&self, filtered: &[&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, cols: &[Constraint], data: &[&[String]; 7]) {
         let sel_style = if self.online_minions_focus == 2 {
-            Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
         } else {
-            Style::default().fg(Color::Black).bg(Color::Gray)
+            Style::default().fg(palette::MUTED).bg(palette::BG_2)
         };
-        let norm_style = Style::default().fg(Color::White).bg(bg);
+        let norm_style = Style::default().fg(palette::FG).bg(palette::BG_2);
         let rows: Vec<Row> = filtered
             .iter()
             .enumerate()
@@ -360,15 +322,15 @@ impl SysInspectUX {
                 .style(sty)
             })
             .collect();
-        Self::_render_scrollable_table(area, buf, bg, cols, &rows, self.online_minions_selected);
+        Self::_render_scrollable_table(area, buf, cols, &rows, self.online_minions_selected);
     }
 
-    fn _render_scrollable_table(area: Rect, buf: &mut Buffer, bg: Color, cols: &[Constraint], rows: &[Row], selected: usize) {
+    fn _render_scrollable_table(area: Rect, buf: &mut Buffer, cols: &[Constraint], rows: &[Row], selected: usize) {
         let vis_rows = area.height as usize;
         let start = if selected < vis_rows { 0 } else { (selected + 1).saturating_sub(vis_rows) };
         let end = (start + vis_rows).min(rows.len());
         let displayed: Vec<Row> = if start < rows.len() { rows[start..end].to_vec() } else { vec![] };
-        Widget::render(Table::new(displayed, cols).column_spacing(2).style(Style::default().bg(bg)), area, buf);
+        Widget::render(Table::new(displayed, cols).column_spacing(2), area, buf);
         let scroller_area = Rect { x: area.right().saturating_sub(1), y: area.y, width: 1, height: area.height };
         let mut scroller = ScrollbarState::default().content_length(rows.len()).position(selected);
         Scrollbar::default()
