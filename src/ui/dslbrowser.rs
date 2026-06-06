@@ -13,7 +13,10 @@ use ratatui::{
 };
 use ratatui_cheese::input::{Input, InputState};
 
-use super::{SysInspectUX, palette};
+use super::{
+    SysInspectUX, palette,
+    title::{self, TitleSegment, TitleStyle},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DslFocus {
@@ -789,19 +792,28 @@ impl SysInspectUX {
 
         let bg = palette::POPUP_BG_1;
         Clear.render(canvas, buf);
+
+        let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
+        let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let has_target = target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty();
+
         let block = Block::default()
-            .title(Line::from(vec![
-                Span::styled("\u{E0B2}", Style::default().fg(palette::FAINT)),
-                Span::styled("Details", Style::default().fg(palette::FG).bg(palette::FAINT)),
-                Span::styled("\u{E0B0}", Style::default().fg(palette::FAINT)),
-            ]))
-            .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::FAINT).bg(bg))
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW).bg(bg))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let mut segments = vec![
+            TitleSegment { text: " Details on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
+            TitleSegment { text: format!(" {model_name} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK },
+        ];
+        if has_target {
+            segments.push(TitleSegment { text: format!(" {target_id} "), bg: palette::PROCESSING_PEAK, fg: palette::SUCCESS_PEAK });
+        }
+        title::overlay_gradient_title(buf, canvas, &title_style, segments.as_slice());
 
         // Build rendered lines with section headers
         let body_style = Style::default().fg(palette::FG).bg(bg);

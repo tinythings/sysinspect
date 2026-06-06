@@ -419,6 +419,9 @@ impl SysInspectUX {
                 }
                 KeyCode::Tab => {
                     let groups = self.info_tree_groups_filtered();
+                    if groups.is_empty() {
+                        return true;
+                    }
                     self.online_minions_info_filter_focus = false;
                     Self::ensure_info_tree_state_mut(&mut self.online_minions_tree_state, &groups);
                 }

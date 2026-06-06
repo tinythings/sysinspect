@@ -1,14 +1,16 @@
-use super::{SysInspectUX, palette};
+use super::{
+    SysInspectUX, palette,
+    title::{self, TitleSegment, TitleStyle},
+};
 use libsysinspect::console::ConsoleMinionInfoRow;
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Position},
+    layout::{Constraint, Direction, Layout, Position},
     prelude::{Buffer, Rect},
     style::{Modifier, Style},
-    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Scrollbar, ScrollbarState, StatefulWidget, Widget},
 };
 use ratatui_cheese::{
-    input::{Input, InputState},
+    input::{Input, InputState, InputStyles},
     tree::{Tree, TreeState, TreeStyles},
 };
 
@@ -52,14 +54,7 @@ impl SysInspectUX {
                     .unwrap_or_else(|| "unknown".to_string())
             });
 
-        let t = format!(" Minion Info: {name} ");
         let block = Block::default()
-            .title(Line::from(vec![
-                Span::styled("\u{E0B2}", Style::default().fg(palette::BORDER)),
-                Span::styled(t, Style::default().fg(palette::BLACK).bg(palette::BORDER).add_modifier(Modifier::BOLD)),
-                Span::styled("\u{E0B0}", Style::default().fg(palette::BORDER)),
-            ]))
-            .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
             .border_style(Style::default().fg(palette::BORDER).bg(palette::POPUP_BG_BASE))
@@ -67,6 +62,17 @@ impl SysInspectUX {
 
         let inner = block.inner(canvas);
         block.render(canvas, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::BORDER);
+        title::overlay_gradient_title(
+            buf,
+            canvas,
+            &title_style,
+            &[
+                TitleSegment { text: " Minion Traits: ".into(), bg: palette::BORDER, fg: palette::BLACK },
+                TitleSegment { text: format!(" {name} "), bg: palette::FG, fg: palette::BG_1 },
+            ],
+        );
 
         if self.online_minions_info_rows.is_empty() || inner.height < 4 {
             return;
@@ -93,10 +99,16 @@ impl SysInspectUX {
         let groups = Self::build_info_tree(&filtered_rows);
         let n_groups = groups.len();
         let total_items = n_groups + filtered_rows.len();
+        let filter_focused = self.online_minions_info_filter_focus;
+        let treesel = if filter_focused {
+            Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
+        } else {
+            Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
+        };
         let styles = TreeStyles {
             parent: Style::default().fg(palette::ACCENT).bg(palette::POPUP_BG_BASE).add_modifier(Modifier::BOLD),
             child: Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE).add_modifier(Modifier::BOLD),
-            selected: Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT),
+            selected: treesel,
             chevron: Style::default().fg(palette::MUTED).bg(palette::POPUP_BG_BASE),
             chevron_active: Style::default().fg(palette::MUTED).bg(palette::POPUP_BG_BASE),
             chevron_dim: Style::default().fg(palette::MUTED).bg(palette::POPUP_BG_BASE),
@@ -163,14 +175,19 @@ impl SysInspectUX {
     }
 
     fn _render_info_filter(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
-        let label_style =
-            if focused { Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD) } else { Style::default().fg(palette::MUTED) };
-        buf.set_string(area.x, area.y, "Filter: ", label_style);
+        buf.set_string(area.x, area.y, "Filter: ", Style::default().fg(palette::FG));
 
         let input_x = area.x + 8u16;
         let input_w = area.width.saturating_sub(8);
         if input_w == 0 {
             return;
+        }
+
+        let field_bg = if focused { palette::HIGHLIGHT } else { palette::GRAY_1 };
+        for cx in input_x..input_x + input_w {
+            if let Some(cell) = buf.cell_mut(Position::new(cx, area.y)) {
+                cell.set_bg(field_bg);
+            }
         }
 
         let mut is = InputState::new();
@@ -180,7 +197,8 @@ impl SysInspectUX {
         while is.cursor_pos() < fc {
             is.move_right();
         }
-        let inp = Input::new("").prompt("").placeholder("search values...");
+        let styles = InputStyles { text: Style::default().fg(palette::BG_1), ..Default::default() };
+        let inp = Input::new("").prompt("").placeholder("search values...").styles(styles);
         StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
 }
