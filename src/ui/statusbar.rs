@@ -88,6 +88,27 @@ impl SysInspectUX {
         ]);
     }
 
+    pub(crate) fn status_at_minion_info(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text = Line::from(vec![
+            key("\u{2191}\u{2193} "),
+            desc("navigate,  "),
+            key("Enter "),
+            desc("collapse/expand,  "),
+            key("\u{2190}\u{2192} "),
+            desc("fold,  "),
+            key("PgUp/PgDn "),
+            desc("skip,  "),
+            key("Tab "),
+            desc("filter,  "),
+            key("+/- "),
+            desc("expand/collapse all,  "),
+            key("ESC "),
+            desc("back"),
+        ]);
+    }
+
     pub(crate) fn status_at_query_composer(&mut self) {
         self.status_text = Line::from(vec![
             Span::styled(" TAB ", Style::default().fg(palette::FG)),

@@ -1,12 +1,16 @@
 use super::{SysInspectUX, palette};
+use libsysinspect::console::ConsoleMinionInfoRow;
 use ratatui::{
-    layout::{Alignment, Position},
+    layout::{Alignment, Constraint, Direction, Layout, Position},
     prelude::{Buffer, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Scrollbar, ScrollbarState, StatefulWidget, Widget},
 };
-use ratatui_cheese::tree::{Tree, TreeState, TreeStyles};
+use ratatui_cheese::{
+    input::{Input, InputState},
+    tree::{Tree, TreeState, TreeStyles},
+};
 
 impl SysInspectUX {
     pub fn dialog_online_minion_info(&self, parent: Rect, buf: &mut Buffer) {
@@ -14,9 +18,13 @@ impl SysInspectUX {
             return;
         }
 
-        let w = parent.width.saturating_sub(8).max(40);
-        let h = parent.height.saturating_sub(6).max(12);
-        let x = parent.x + 4;
+        let max_key = self.online_minions_info_rows.iter().map(|r| r.key.len()).max().unwrap_or(4);
+        let max_val = self.online_minions_info_rows.iter().map(|r| Self::_info_value_str(&r.value).len()).max().unwrap_or(0);
+        let line_w = (max_key + 4 + max_val + 2).max(10);
+        let content_w = (line_w + 6) as u16;
+        let w = content_w.min(parent.width.saturating_sub(8)).max(40);
+        let h = parent.height.saturating_sub(6).max(13);
+        let x = if self.online_minions_focus == 1 { parent.x + parent.width.saturating_sub(w + 4) } else { parent.x + 4 };
         let y = parent.y + 3;
         let canvas = Rect { x, y, width: w, height: h };
 
@@ -30,11 +38,13 @@ impl SysInspectUX {
                 self.online_minions_rows
                     .iter()
                     .find(|r| {
-                        let filtered_online = self.online_minions_rows.iter().filter(|r| r.alive).collect::<Vec<_>>();
-                        let filtered_offline = self.online_minions_rows.iter().filter(|r| !r.alive).collect::<Vec<_>>();
+                        let online: Vec<&libsysinspect::console::ConsoleOnlineMinionRow> =
+                            self.online_minions_rows.iter().filter(|r| r.alive).collect();
+                        let offline: Vec<&libsysinspect::console::ConsoleOnlineMinionRow> =
+                            self.online_minions_rows.iter().filter(|r| !r.alive).collect();
                         match self.online_minions_focus {
-                            1 => filtered_online.get(self.online_minions_online_selected).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
-                            2 => filtered_offline.get(self.online_minions_offline_selected).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
+                            1 => online.get(self.online_minions_online_selected).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
+                            2 => offline.get(self.online_minions_offline_selected).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
                             _ => false,
                         }
                     })
@@ -58,13 +68,31 @@ impl SysInspectUX {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        if self.online_minions_info_rows.is_empty() {
+        if self.online_minions_info_rows.is_empty() || inner.height < 4 {
             return;
         }
 
-        let groups = Self::build_info_tree(&self.online_minions_info_rows);
+        let [filter_area, tree_area] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+
+        Self::_render_info_filter(filter_area, buf, self.online_minions_info_filter_focus, &self.online_minions_info_filter);
+
+        let f = self.online_minions_info_filter.value().to_lowercase();
+        let filtered_rows: Vec<ConsoleMinionInfoRow> = self
+            .online_minions_info_rows
+            .iter()
+            .filter(|r| f.is_empty() || Self::_info_value_str(&r.value).to_lowercase().contains(&f))
+            .cloned()
+            .collect();
+
+        let groups = Self::build_info_tree(&filtered_rows);
         let n_groups = groups.len();
-        let total_items = n_groups + self.online_minions_info_rows.len();
+        let total_items = n_groups + filtered_rows.len();
         let styles = TreeStyles {
             parent: Style::default().fg(palette::ACCENT).bg(palette::POPUP_BG_BASE).add_modifier(Modifier::BOLD),
             child: Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE).add_modifier(Modifier::BOLD),
@@ -77,17 +105,21 @@ impl SysInspectUX {
         };
         let tree = Tree::default().groups(groups).styles(styles).chevron_collapsed("▶ ").chevron_expanded("▼ ");
 
-        let tree_area = Rect::new(inner.x, inner.y, inner.width.saturating_sub(1), inner.height);
+        let tree_inner = Rect::new(tree_area.x, tree_area.y, tree_area.width.saturating_sub(1), tree_area.height);
 
         if let Some(ref ts) = self.online_minions_tree_state {
             let mut state = ts.clone();
-            StatefulWidget::render(&tree, tree_area, buf, &mut state);
+            let (g, _) = state.selected();
+            if g >= n_groups {
+                state = TreeState::all_expanded(n_groups);
+            }
+            StatefulWidget::render(&tree, tree_inner, buf, &mut state);
         } else {
             let mut state = TreeState::all_expanded(n_groups);
-            StatefulWidget::render(&tree, tree_area, buf, &mut state);
+            StatefulWidget::render(&tree, tree_inner, buf, &mut state);
         }
 
-        let scroller_area = Rect::new(inner.right().saturating_sub(1), inner.y, 1, inner.height);
+        let scroller_area = Rect::new(tree_area.right().saturating_sub(1), tree_area.y, 1, tree_area.height);
         let mut scroller = ScrollbarState::default()
             .content_length(total_items)
             .position(self.online_minions_tree_state.as_ref().map(|ts| ts.selected().0).unwrap_or(0));
@@ -128,5 +160,27 @@ impl SysInspectUX {
                 }
             }
         }
+    }
+
+    fn _render_info_filter(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
+        let label_style =
+            if focused { Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD) } else { Style::default().fg(palette::MUTED) };
+        buf.set_string(area.x, area.y, "Filter: ", label_style);
+
+        let input_x = area.x + 8u16;
+        let input_w = area.width.saturating_sub(8);
+        if input_w == 0 {
+            return;
+        }
+
+        let mut is = InputState::new();
+        is.set_value(filter_state.value().to_string());
+        is.set_focused(focused);
+        let fc = filter_state.cursor_pos();
+        while is.cursor_pos() < fc {
+            is.move_right();
+        }
+        let inp = Input::new("").prompt("").placeholder("search values...");
+        StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
 }

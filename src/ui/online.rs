@@ -258,7 +258,7 @@ impl SysInspectUX {
             .collect()
     }
 
-    fn _info_value_str(value: &Value) -> String {
+    pub(crate) fn _info_value_str(value: &Value) -> String {
         match value {
             Value::Null => "null".to_string(),
             Value::Bool(f) => if *f { "yes" } else { "no" }.to_string(),
