@@ -425,7 +425,7 @@ impl DslBrowser {
         let hl = if is_placeholder && !focused {
             Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
         } else if is_minions {
-            if focused { Style::default().fg(palette::BLACK).bg(palette::SURFACE) } else { Style::default() }
+            if focused { Style::default().fg(palette::SECONDARY) } else { Style::default() }
         } else if focused {
             Self::s_hl()
         } else {
