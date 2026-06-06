@@ -71,16 +71,14 @@ impl SysInspectUX {
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
         self.status_text = Line::from(vec![
-            key("TAB "),
-            desc("cycle focus,  "),
-            key("SHIFT+TAB "),
-            desc("reverse,  "),
+            key("\u{2190}\u{2192} "),
+            desc("switch pane,  "),
             key("\u{2191}\u{2193} "),
             desc("navigate,  "),
-            key("\u{2190}\u{2192} "),
-            desc("tree fold,  "),
             key("Enter "),
-            desc("select/toggle,  "),
+            desc("minion info,  "),
+            key("Tab "),
+            desc("cycle focus,  "),
             key("PgUp/PgDn "),
             desc("skip rows,  "),
             key("'t' "),

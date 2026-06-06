@@ -36,6 +36,7 @@ mod alert;
 mod dslbrowser;
 mod elements;
 mod online;
+mod online_info;
 mod palette;
 mod statusbar;
 mod traittag;
@@ -102,8 +103,9 @@ pub struct SysInspectUX {
     // Online minions popup
     pub online_minions_visible: bool,
     pub online_minions_rows: Vec<ConsoleOnlineMinionRow>,
-    pub online_minions_selected: usize,
-    pub online_minions_show_alive: bool,
+    pub online_minions_online_selected: usize,
+    pub online_minions_offline_selected: usize,
+    pub online_minions_filter_input: ratatui_cheese::input::InputState,
     pub online_minions_focus: usize,
     pub online_minions_info_visible: bool,
     pub online_minions_info_rows: Vec<ConsoleMinionInfoRow>,
@@ -161,9 +163,10 @@ impl Default for SysInspectUX {
 
             online_minions_visible: false,
             online_minions_rows: Vec::new(),
-            online_minions_selected: 0,
-            online_minions_show_alive: true,
-            online_minions_focus: 2,
+            online_minions_online_selected: 0,
+            online_minions_offline_selected: 0,
+            online_minions_filter_input: ratatui_cheese::input::InputState::new(),
+            online_minions_focus: 1,
             online_minions_info_visible: false,
             online_minions_info_rows: Vec::new(),
             online_minions_tree_state: None,
@@ -391,13 +394,100 @@ impl SysInspectUX {
         if !self.online_minions_visible {
             return false;
         }
+
+        if self.online_minions_info_visible {
+            return self.on_online_minion_info_popup(e);
+        }
+
+        match self.online_minions_focus {
+            0 => self.on_online_minions_filter(e),
+            _ => self.on_online_minions_panes(e),
+        };
+        true
+    }
+
+    fn on_online_minion_info_popup(&mut self, e: event::KeyEvent) -> bool {
+        match e.code {
+            KeyCode::Esc => {
+                self.online_minions_info_visible = false;
+            }
+            KeyCode::Up => {
+                if let Some(ref mut ts) = self.online_minions_tree_state {
+                    let groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
+                    ts.select_prev(&groups);
+                }
+            }
+            KeyCode::Down => {
+                if let Some(ref mut ts) = self.online_minions_tree_state {
+                    let groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
+                    ts.select_next(&groups);
+                }
+            }
+            KeyCode::Left => {
+                if let Some(ref mut ts) = self.online_minions_tree_state {
+                    let (group, _) = ts.selected();
+                    ts.collapse(group);
+                }
+            }
+            KeyCode::Right => {
+                if let Some(ref mut ts) = self.online_minions_tree_state {
+                    let (group, _) = ts.selected();
+                    ts.expand(group);
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn on_online_minions_filter(&mut self, e: event::KeyEvent) {
+        match e.code {
+            KeyCode::Esc => {
+                self.online_minions_visible = false;
+                self.restore_status();
+            }
+            KeyCode::Tab => {
+                self.online_minions_focus = 1;
+            }
+            KeyCode::BackTab => {
+                self.online_minions_focus = 2;
+            }
+            KeyCode::Up | KeyCode::Down | KeyCode::Enter => {
+                self.online_minions_focus = 1;
+            }
+            KeyCode::Backspace => {
+                self.online_minions_filter_input.delete_before();
+            }
+            KeyCode::Delete => {
+                self.online_minions_filter_input.delete_at();
+            }
+            KeyCode::Left => {
+                self.online_minions_filter_input.move_left();
+            }
+            KeyCode::Right => {
+                self.online_minions_filter_input.move_right();
+            }
+            KeyCode::Home => {
+                self.online_minions_filter_input.home();
+            }
+            KeyCode::End => {
+                self.online_minions_filter_input.end();
+            }
+            KeyCode::Char(c) => {
+                self.online_minions_filter_input.insert_char(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn on_online_minions_panes(&mut self, e: event::KeyEvent) {
         if e.code == KeyCode::Char('t') {
-            if !self.online_minions_show_alive {
+            if self.online_minions_focus != 1 {
                 self.error_alert_visible = true;
                 self.error_alert_message = "Offline minions cannot be tagged live. Do it manually.".to_string();
             } else {
-                let filtered = self.filtered_minions();
-                if filtered.is_empty() || filtered.len() <= self.online_minions_selected {
+                let filtered = self.filtered_online_minions();
+                if filtered.is_empty() || filtered.len() <= self.online_minions_online_selected {
                     self.error_alert_visible = true;
                     self.error_alert_message = "No online minion selected.".to_string();
                 } else {
@@ -408,109 +498,99 @@ impl SysInspectUX {
                     self.tag_visible = true;
                 }
             }
-            return true;
+            return;
         }
         match e.code {
-            KeyCode::Tab => {
-                self.online_minions_focus = (self.online_minions_focus + 1) % 4;
-            }
-            KeyCode::BackTab => {
-                self.online_minions_focus = (self.online_minions_focus + 3) % 4;
-            }
-            KeyCode::Enter | KeyCode::Char('i') if self.online_minions_focus == 2 => {
-                self.online_minions_info_visible = !self.online_minions_info_visible;
-                self.online_minions_info_rows = Vec::new();
-                self.online_minions_tree_state = None;
-                if self.online_minions_info_visible {
-                    self.online_minions_info_modified = false;
-                    self.load_selected_minion_info();
-                }
-            }
-            KeyCode::Enter | KeyCode::Char(' ') => match self.online_minions_focus {
-                0 => {
-                    self.online_minions_visible = false;
-                    self.restore_status();
-                }
-                1 => {
-                    self.online_minions_show_alive = !self.online_minions_show_alive;
-                    self.online_minions_selected = 0;
-                    self.online_minions_info_modified = false;
-                    self.load_selected_minion_info();
-                }
-                3 => {
-                    if let Some(ref mut ts) = self.online_minions_tree_state {
-                        ts.toggle_selected();
-                    }
-                }
-                _ => {}
-            },
             KeyCode::Esc => {
                 self.online_minions_visible = false;
                 self.restore_status();
             }
+            KeyCode::Tab => {
+                self.online_minions_focus = (self.online_minions_focus + 1) % 3;
+            }
+            KeyCode::BackTab => {
+                self.online_minions_focus = (self.online_minions_focus + 2) % 3;
+            }
+            KeyCode::Left => {
+                self.online_minions_focus = 1;
+            }
+            KeyCode::Right => {
+                self.online_minions_focus = 2;
+            }
             KeyCode::Up => match self.online_minions_focus {
-                2 => {
-                    self.online_minions_selected = self.online_minions_selected.saturating_sub(1);
+                1 => {
+                    self.online_minions_online_selected = self.online_minions_online_selected.saturating_sub(1);
                     self.online_minions_info_modified = false;
-                    self.load_selected_minion_info();
                 }
-                3 => {
-                    if let Some(ref mut ts) = self.online_minions_tree_state {
-                        let groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
-                        ts.select_prev(&groups);
-                    }
+                2 => {
+                    self.online_minions_offline_selected = self.online_minions_offline_selected.saturating_sub(1);
+                    self.online_minions_info_modified = false;
                 }
                 _ => {}
             },
             KeyCode::Down => match self.online_minions_focus {
-                2 => {
-                    let filtered = self.filtered_minions();
-                    self.online_minions_selected = (self.online_minions_selected + 1).min(filtered.len().saturating_sub(1));
+                1 => {
+                    let filtered = self.filtered_online_minions();
+                    self.online_minions_online_selected = (self.online_minions_online_selected + 1).min(filtered.len().saturating_sub(1));
                     self.online_minions_info_modified = false;
-                    self.load_selected_minion_info();
                 }
-                3 => {
-                    if let Some(ref mut ts) = self.online_minions_tree_state {
-                        let groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
-                        ts.select_next(&groups);
-                    }
+                2 => {
+                    let filtered = self.filtered_offline_minions();
+                    self.online_minions_offline_selected = (self.online_minions_offline_selected + 1).min(filtered.len().saturating_sub(1));
+                    self.online_minions_info_modified = false;
                 }
                 _ => {}
             },
-            KeyCode::Right => {
-                if self.online_minions_focus == 3
-                    && let Some(ref mut ts) = self.online_minions_tree_state
-                {
-                    let (group, _) = ts.selected();
-                    ts.expand(group);
-                }
-            }
-            KeyCode::Left => {
-                if self.online_minions_focus == 3
-                    && let Some(ref mut ts) = self.online_minions_tree_state
-                {
-                    let (group, _) = ts.selected();
-                    ts.collapse(group);
-                }
-            }
-            KeyCode::PageUp if self.online_minions_focus == 2 => {
-                self.online_minions_selected = self.online_minions_selected.saturating_sub(10);
+            KeyCode::Enter => {
+                self.online_minions_info_visible = true;
+                self.online_minions_info_rows = Vec::new();
+                self.online_minions_tree_state = None;
                 self.online_minions_info_modified = false;
                 self.load_selected_minion_info();
             }
-            KeyCode::PageDown if self.online_minions_focus == 2 => {
-                let filtered = self.filtered_minions();
-                self.online_minions_selected = (self.online_minions_selected + 10).min(filtered.len().saturating_sub(1));
-                self.online_minions_info_modified = false;
-                self.load_selected_minion_info();
+            KeyCode::PageUp => match self.online_minions_focus {
+                1 => {
+                    self.online_minions_online_selected = self.online_minions_online_selected.saturating_sub(10);
+                    self.online_minions_info_modified = false;
+                }
+                2 => {
+                    self.online_minions_offline_selected = self.online_minions_offline_selected.saturating_sub(10);
+                    self.online_minions_info_modified = false;
+                }
+                _ => {}
+            },
+            KeyCode::PageDown => match self.online_minions_focus {
+                1 => {
+                    let filtered = self.filtered_online_minions();
+                    self.online_minions_online_selected = (self.online_minions_online_selected + 10).min(filtered.len().saturating_sub(1));
+                    self.online_minions_info_modified = false;
+                }
+                2 => {
+                    let filtered = self.filtered_offline_minions();
+                    self.online_minions_offline_selected = (self.online_minions_offline_selected + 10).min(filtered.len().saturating_sub(1));
+                    self.online_minions_info_modified = false;
+                }
+                _ => {}
+            },
+            KeyCode::Backspace | KeyCode::Delete | KeyCode::Home | KeyCode::End => {
+                self.online_minions_focus = 0;
+            }
+            KeyCode::Char(c) => {
+                self.online_minions_filter_input.insert_char(c);
+                self.online_minions_focus = 0;
             }
             _ => {}
         }
-        true
     }
 
-    fn filtered_minions(&self) -> Vec<&ConsoleOnlineMinionRow> {
-        self.online_minions_rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect()
+    fn filtered_online_minions(&self) -> Vec<&ConsoleOnlineMinionRow> {
+        let f = self.online_minions_filter_input.value().to_lowercase();
+        self.online_minions_rows.iter().filter(|r| r.alive && (f.is_empty() || SysInspectUX::online_host(r).to_lowercase().contains(&f))).collect()
+    }
+
+    fn filtered_offline_minions(&self) -> Vec<&ConsoleOnlineMinionRow> {
+        let f = self.online_minions_filter_input.value().to_lowercase();
+        self.online_minions_rows.iter().filter(|r| !r.alive && (f.is_empty() || SysInspectUX::online_host(r).to_lowercase().contains(&f))).collect()
     }
 
     fn restore_status(&mut self) {
@@ -524,17 +604,23 @@ impl SysInspectUX {
 
     fn refresh_online_minions(&mut self) {
         if let Ok(rows) = self.get_online_minions() {
-            let old_mid = self.filtered_minions().get(self.online_minions_selected).map(|r| r.minion_id.clone());
+            let old_online_mid = self.filtered_online_minions().get(self.online_minions_online_selected).map(|r| r.minion_id.clone());
+            let old_offline_mid = self.filtered_offline_minions().get(self.online_minions_offline_selected).map(|r| r.minion_id.clone());
             self.online_minions_rows = rows;
-            if let Some(mid) = old_mid {
-                let filtered = self.filtered_minions();
+            if let Some(mid) = old_online_mid {
+                let filtered = self.filtered_online_minions();
                 if let Some(pos) = filtered.iter().position(|r| r.minion_id == mid) {
-                    self.online_minions_selected = pos;
+                    self.online_minions_online_selected = pos;
                 } else {
-                    self.online_minions_selected = 0;
-                    self.online_minions_tree_state = None;
-                    self.online_minions_info_modified = false;
-                    self.load_selected_minion_info();
+                    self.online_minions_online_selected = 0;
+                }
+            }
+            if let Some(mid) = old_offline_mid {
+                let filtered = self.filtered_offline_minions();
+                if let Some(pos) = filtered.iter().position(|r| r.minion_id == mid) {
+                    self.online_minions_offline_selected = pos;
+                } else {
+                    self.online_minions_offline_selected = 0;
                 }
             }
         }
@@ -544,8 +630,12 @@ impl SysInspectUX {
         if self.online_minions_info_modified {
             return;
         }
-        let filtered: Vec<&ConsoleOnlineMinionRow> = self.online_minions_rows.iter().filter(|r| r.alive == self.online_minions_show_alive).collect();
-        if let Some(row) = filtered.get(self.online_minions_selected) {
+        let row = match self.online_minions_focus {
+            1 => self.filtered_online_minions().get(self.online_minions_online_selected).cloned(),
+            2 => self.filtered_offline_minions().get(self.online_minions_offline_selected).cloned(),
+            _ => None,
+        };
+        if let Some(row) = row {
             let expanded: Vec<String> = if let Some(ref ts) = self.online_minions_tree_state {
                 let old_groups = SysInspectUX::build_info_tree(&self.online_minions_info_rows);
                 old_groups.iter().enumerate().filter(|(i, _)| ts.is_expanded(*i)).map(|(_, g)| g.header().text().to_string()).collect()
@@ -669,8 +759,8 @@ impl SysInspectUX {
     }
 
     fn set_trait_tag(&mut self) {
-        let filtered = self.filtered_minions();
-        let mid = match filtered.get(self.online_minions_selected) {
+        let filtered = self.filtered_online_minions();
+        let mid = match filtered.get(self.online_minions_online_selected) {
             Some(r) => r.minion_id.clone(),
             None => return,
         };
@@ -985,14 +1075,16 @@ impl SysInspectUX {
                     self.error_alert_message = "No minions registered yet".to_string();
                 }
                 Ok(rows) => {
-                    let has_online = rows.iter().any(|r| r.alive);
                     self.online_minions_rows = rows;
-                    self.online_minions_show_alive = has_online;
                     self.online_minions_visible = true;
-                    self.online_minions_focus = 2;
-                    self.online_minions_selected = 0;
+                    self.online_minions_focus = 1;
+                    self.online_minions_online_selected = 0;
+                    self.online_minions_offline_selected = 0;
+                    self.online_minions_filter_input = ratatui_cheese::input::InputState::new();
+                    self.online_minions_info_visible = false;
+                    self.online_minions_info_rows = Vec::new();
                     self.online_minions_tree_state = None;
-                    self.load_selected_minion_info();
+                    self.online_minions_info_modified = false;
                     self.status_at_online_minions();
                 }
                 Err(err) => {
