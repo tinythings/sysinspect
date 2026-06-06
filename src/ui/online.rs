@@ -1,4 +1,7 @@
-use super::{SysInspectUX, palette};
+use super::{
+    SysInspectUX, palette,
+    title::{self, TitleSegment, TitleStyle},
+};
 use indexmap::IndexMap;
 use libsysinspect::{
     console::{ConsoleMinionInfoRow, ConsoleOnlineMinionRow},
@@ -56,15 +59,8 @@ impl SysInspectUX {
 
         let n_online = online_filtered.len();
         let n_offline = offline_filtered.len();
-        let t = format!("({n_online} online, {n_offline} offline)");
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(Line::from(vec![
-                Span::styled("\u{E0B2}", Style::default().fg(palette::PROCESSING_BASE)),
-                Span::styled(" Minions ", Style::default().fg(palette::FG).bg(palette::PROCESSING_BASE)),
-                Span::styled(t, Style::default().fg(palette::PROCESSING).bg(palette::PROCESSING_BASE)),
-                Span::styled("\u{E0B0}", Style::default().fg(palette::PROCESSING_BASE)),
-            ]))
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::PROCESSING_BASE).bg(palette::BG_2))
             .style(Style::default().bg(palette::BG_2));
@@ -72,6 +68,19 @@ impl SysInspectUX {
         let inner = block.inner(parent);
         Clear.render(parent, buf);
         block.render(parent, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_BASE);
+        title::overlay_gradient_title(
+            buf,
+            parent,
+            &title_style,
+            &[
+                TitleSegment { text: " Minions ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG },
+                TitleSegment { text: format!(" {n_online} online "), bg: palette::PROCESSING_GLOW, fg: palette::SUCCESS },
+                TitleSegment { text: format!(" {n_offline} offline "), bg: palette::PROCESSING_HEAT, fg: palette::WARNING },
+                TitleSegment { text: format!(" {} total ", n_online + n_offline), bg: palette::PROCESSING_PEAK, fg: palette::FG },
+            ],
+        );
 
         if inner.height < 4 {
             return;

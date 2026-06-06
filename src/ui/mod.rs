@@ -39,6 +39,7 @@ mod online;
 mod online_info;
 mod palette;
 mod statusbar;
+mod title;
 mod traittag;
 mod typecolors;
 mod wgt;
