@@ -36,7 +36,7 @@ impl SysInspectUX {
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::BORDER).bg(palette::POPUP_BG_BASE))
+            .border_style(Style::default().fg(palette::BORDER))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
 
         let inner = block.inner(canvas);

@@ -40,7 +40,9 @@ impl SysInspectUX {
             .unwrap_or_else(|| "unknown".to_string());
 
         let max_item_w = MENU_ITEMS.iter().map(|s| s.len()).max().unwrap_or(10);
-        let inner_w = (max_item_w + 2) as u16;
+        let title_segments = [" Actions on ".chars().count(), format!(" {host} ").chars().count()];
+        let title_w = 1usize + title_segments.iter().sum::<usize>() + (title_segments.len().saturating_sub(1)) + 1usize;
+        let inner_w = max_item_w.max(title_w) as u16;
         let w = (inner_w + 2).min(parent.width.saturating_sub(8)).max(20);
         let inner_h = (MENU_ITEMS.len() + 2) as u16;
         let h = (inner_h + 2).min(parent.height.saturating_sub(6)).max(5);
@@ -48,13 +50,13 @@ impl SysInspectUX {
         let y = parent.y + (parent.height.saturating_sub(h)) / 2;
         let canvas = Rect { x, y, width: w, height: h };
 
-        let bg = palette::POPUP_BG_1;
+        let bg = palette::POPUP_BG_BASE;
         Clear.render(canvas, buf);
 
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::PROCESSING_GLOW).bg(bg))
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);

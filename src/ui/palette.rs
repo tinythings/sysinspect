@@ -42,8 +42,8 @@ pub const GRAY_2: Color = Color::Indexed(249);
 
 // ---- Error: cold neon red ----
 
-pub const ERROR_BASE: Color = Color::Indexed(52);
-pub const ERROR_GLOW: Color = Color::Indexed(88);
+pub const ERROR_BASE: Color = Color::Indexed(53);
+pub const ERROR_GLOW: Color = Color::Indexed(89);
 pub const ERROR_HEAT: Color = Color::Indexed(125);
 pub const ERROR_PEAK: Color = Color::Indexed(161);
 
@@ -51,10 +51,10 @@ pub const ERROR_RAMP: [Color; 4] = [ERROR_BASE, ERROR_GLOW, ERROR_HEAT, ERROR_PE
 
 // ---- Warning: dry electric orange ----
 
-pub const WARNING_BASE: Color = Color::Indexed(58);
-pub const WARNING_GLOW: Color = Color::Indexed(94);
-pub const WARNING_HEAT: Color = Color::Indexed(130);
-pub const WARNING_PEAK: Color = Color::Indexed(166);
+pub const WARNING_BASE: Color = Color::Indexed(94);
+pub const WARNING_GLOW: Color = Color::Indexed(130);
+pub const WARNING_HEAT: Color = Color::Indexed(166);
+pub const WARNING_PEAK: Color = Color::Indexed(172);
 
 pub const WARNING_RAMP: [Color; 4] = [WARNING_BASE, WARNING_GLOW, WARNING_HEAT, WARNING_PEAK];
 
@@ -62,19 +62,25 @@ pub const WARNING_RAMP: [Color; 4] = [WARNING_BASE, WARNING_GLOW, WARNING_HEAT, 
 
 pub const SUCCESS_BASE: Color = Color::Indexed(23);
 pub const SUCCESS_GLOW: Color = Color::Indexed(29);
-pub const SUCCESS_HEAT: Color = Color::Indexed(35);
-pub const SUCCESS_PEAK: Color = Color::Indexed(42);
+pub const SUCCESS_HEAT: Color = Color::Indexed(36);
+pub const SUCCESS_PEAK: Color = Color::Indexed(44);
 
 pub const SUCCESS_RAMP: [Color; 4] = [SUCCESS_BASE, SUCCESS_GLOW, SUCCESS_HEAT, SUCCESS_PEAK];
 
 // ---- Processing: neon purple/pink ----
 
-pub const PROCESSING_BASE: Color = Color::Indexed(54);
-pub const PROCESSING_GLOW: Color = Color::Indexed(91);
-pub const PROCESSING_HEAT: Color = Color::Indexed(127);
-pub const PROCESSING_PEAK: Color = Color::Indexed(163);
+pub const PROCESSING_BASE: Color = Color::Indexed(55);
+pub const PROCESSING_GLOW: Color = Color::Indexed(92);
+pub const PROCESSING_HEAT: Color = Color::Indexed(129);
+pub const PROCESSING_PEAK: Color = Color::Indexed(165);
 
 pub const PROCESSING_RAMP: [Color; 4] = [PROCESSING_BASE, PROCESSING_GLOW, PROCESSING_HEAT, PROCESSING_PEAK];
+
+pub const PROCESSING_BASE_DIMMED: Color = Color::Indexed(53);
+pub const PROCESSING_GLOW_DIMMED: Color = Color::Indexed(54);
+pub const PROCESSING_HEAT_DIMMED: Color = Color::Indexed(55);
+pub const PROCESSING_PEAK_DIMMED: Color = Color::Indexed(56);
+pub const PROCESSING_DIMMED: Color = Color::Indexed(57);
 
 // ---- Semantic aliases for current UI usage ----
 
@@ -94,34 +100,34 @@ pub const FAINT: Color = Color::Indexed(238);
 pub const ACCENT: Color = Color::Indexed(36);
 
 /// Bold background highlight (selected rows, active states).
-pub const HIGHLIGHT: Color = Color::Indexed(134);
+pub const HIGHLIGHT: Color = Color::Indexed(133);
 
 /// Text colour on top of highlight background.
 pub const ON_HIGHLIGHT: Color = Color::Indexed(235);
 
 /// Borders and dividers.
-pub const BORDER: Color = Color::Indexed(248);
+pub const BORDER: Color = Color::Indexed(240);
 
 /// Error / failure / destructive.
-pub const ERROR: Color = Color::Indexed(197);
+pub const ERROR: Color = Color::Indexed(198);
 
 /// Warning / caution.
-pub const WARNING: Color = Color::Indexed(172);
+pub const WARNING: Color = Color::Indexed(178);
 
 /// Success / confirmation / positive.
-pub const SUCCESS: Color = Color::Indexed(41);
+pub const SUCCESS: Color = Color::Indexed(49);
 
 /// Work in progress / active processing.
-pub const PROCESSING: Color = Color::Indexed(169);
+pub const PROCESSING: Color = Color::Indexed(171);
 
 /// Primary accent (hot processing pink).
 pub const PRIMARY: Color = Color::Indexed(200);
 
 /// Secondary accent (processing purple).
-pub const SECONDARY: Color = Color::Indexed(98);
+pub const SECONDARY: Color = Color::Indexed(97);
 
 /// Popup/dialog base background.
-pub const POPUP_BG_BASE: Color = GRAY_0;
+pub const POPUP_BG_BASE: Color = SURFACE;
 
 /// Popup/dialog alternate (lighter) background.
 pub const POPUP_BG_1: Color = BG_1;

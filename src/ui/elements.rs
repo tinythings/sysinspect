@@ -12,7 +12,7 @@ use ratatui::{
 use super::palette;
 
 /// Active box selector
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum ActiveBox {
     #[default]
     Cycles,

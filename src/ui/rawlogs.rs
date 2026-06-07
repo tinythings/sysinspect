@@ -22,14 +22,14 @@ impl SysInspectUX {
         let x = parent.x + (parent.width.saturating_sub(width)) / 2;
         let y = parent.y + (parent.height.saturating_sub(height)) / 2;
         let canvas = Rect { x, y, width, height };
-        let bg = palette::POPUP_BG_1;
+        let bg = palette::BG_2;
 
         Clear.render(canvas, buf);
         let border = if self.minion_logs_online { palette::PROCESSING_GLOW } else { palette::GRAY_0 };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(border).bg(bg))
+            .border_style(Style::default().fg(border))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
@@ -185,7 +185,7 @@ fn colorize_log_line(line: &str) -> Line<'_> {
     let level_style = match level_trimmed {
         "ERROR" => Style::default().fg(palette::ERROR_PEAK).add_modifier(Modifier::BOLD),
         "WARN" | "WARNING" => Style::default().fg(palette::WARNING_PEAK).add_modifier(Modifier::BOLD),
-        "INFO" => Style::default().fg(palette::SUCCESS_PEAK).add_modifier(Modifier::BOLD),
+        "INFO" => Style::default().fg(palette::SUCCESS).add_modifier(Modifier::BOLD),
         "DEBUG" => Style::default().fg(palette::PROCESSING_PEAK).add_modifier(Modifier::BOLD),
         "TRACE" => Style::default().fg(palette::PROCESSING_HEAT),
         _ => Style::default().fg(palette::FG),

@@ -59,26 +59,44 @@ impl SysInspectUX {
 
         let n_online = online_filtered.len();
         let n_offline = offline_filtered.len();
+
+        let overshadowed = self.minion_logs_visible || self.minion_traits_visible || self.minions_menu_visible;
+        let border = if overshadowed { palette::PROCESSING_BASE_DIMMED } else { palette::PROCESSING_BASE };
+        let (bg_base, bg_glow, bg_heat, bg_peak, fg_dim) = if overshadowed {
+            (
+                palette::PROCESSING_BASE_DIMMED,
+                palette::PROCESSING_GLOW_DIMMED,
+                palette::PROCESSING_HEAT_DIMMED,
+                palette::PROCESSING_PEAK_DIMMED,
+                palette::MUTED,
+            )
+        } else {
+            (palette::PROCESSING_BASE, palette::PROCESSING_GLOW, palette::PROCESSING_HEAT, palette::PROCESSING_PEAK, palette::FG)
+        };
+        let focus_enabled = !overshadowed;
+
+        let popup_bg = palette::BG_1;
+
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(palette::PROCESSING_BASE).bg(palette::BG_2))
-            .style(Style::default().bg(palette::BG_2));
+            .border_style(Style::default().fg(border))
+            .style(Style::default().bg(popup_bg));
 
         let inner = block.inner(parent);
         Clear.render(parent, buf);
         block.render(parent, buf);
 
-        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_BASE);
+        let title_style = TitleStyle::cyberpunk(border);
         title::overlay_gradient_title(
             buf,
             parent,
             &title_style,
             &[
-                TitleSegment { text: " Minions ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG },
-                TitleSegment { text: format!(" {n_online} online "), bg: palette::PROCESSING_GLOW, fg: palette::SUCCESS },
-                TitleSegment { text: format!(" {n_offline} offline "), bg: palette::PROCESSING_HEAT, fg: palette::WARNING },
-                TitleSegment { text: format!(" {} total ", n_online + n_offline), bg: palette::PROCESSING_PEAK, fg: palette::FG },
+                TitleSegment { text: " Minions ".into(), bg: bg_base, fg: fg_dim },
+                TitleSegment { text: format!(" {n_online} online "), bg: bg_glow, fg: palette::SUCCESS },
+                TitleSegment { text: format!(" {n_offline} offline "), bg: bg_heat, fg: palette::WARNING },
+                TitleSegment { text: format!(" {} total ", n_online + n_offline), bg: bg_peak, fg: fg_dim },
             ],
         );
 
@@ -94,7 +112,7 @@ impl SysInspectUX {
             .try_into()
             .unwrap();
 
-        Self::_render_filter(filter_area, buf, self.minions_focus == 0, &self.minions_filter_input);
+        Self::_render_filter(filter_area, buf, focus_enabled && self.minions_focus == 0, &self.minions_filter_input);
 
         let [online_pane, offline_pane]: [Rect; 2] = Layout::default()
             .direction(Direction::Horizontal)
@@ -109,8 +127,8 @@ impl SysInspectUX {
         let online_selected = self.minions_online_sel.min(online_filtered.len().saturating_sub(1));
         let offline_selected = self.minions_offline_sel.min(offline_filtered.len().saturating_sub(1));
 
-        Self::_render_pane(self, "Online", &online_filtered, online_pane, buf, self.minions_focus == 1, online_selected, max_w);
-        Self::_render_pane(self, "Offline", &offline_filtered, offline_pane, buf, self.minions_focus == 2, offline_selected, max_w);
+        Self::_render_pane(self, "Online", &online_filtered, online_pane, buf, focus_enabled && self.minions_focus == 1, online_selected, max_w);
+        Self::_render_pane(self, "Offline", &offline_filtered, offline_pane, buf, focus_enabled && self.minions_focus == 2, offline_selected, max_w);
     }
 
     fn _render_filter(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
@@ -139,6 +157,7 @@ impl SysInspectUX {
     fn _render_pane(
         &self, title: &str, filtered: &[&&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, active: bool, selected: usize, max_w: u16,
     ) {
+        let popup_bg = palette::BG_1;
         let t = format!(" {title} ({}) ", filtered.len());
         let block = if active {
             Block::default()
@@ -149,14 +168,14 @@ impl SysInspectUX {
                     Span::styled("\u{E0B0}", Style::default().fg(palette::ACCENT)),
                 ]))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::ACCENT).bg(palette::BG_2))
+                .border_style(Style::default().fg(palette::ACCENT))
         } else {
             Block::default()
                 .borders(Borders::ALL)
                 .title(t)
-                .title_style(Style::default().fg(palette::MUTED).bg(palette::BG_2))
+                .title_style(Style::default().fg(palette::MUTED))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::FAINT).bg(palette::BG_2))
+                .border_style(Style::default().fg(palette::FAINT))
         };
 
         let inner = block.inner(area);
@@ -169,7 +188,7 @@ impl SysInspectUX {
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(v_pad), Constraint::Length(1), Constraint::Min(0)])
                 .split(inner);
-            Paragraph::new(label).alignment(Alignment::Center).style(Style::default().fg(palette::MUTED).bg(palette::BG_2)).render(centered[1], buf);
+            Paragraph::new(label).alignment(Alignment::Center).style(Style::default().fg(palette::MUTED).bg(popup_bg)).render(centered[1], buf);
             return;
         }
 
@@ -201,7 +220,7 @@ impl SysInspectUX {
         cols.push(Constraint::Min(1));
 
         let sel_style = if active { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::SECONDARY) };
-        let norm_style = Style::default().fg(palette::FG).bg(palette::BG_2);
+        let norm_style = Style::default().fg(palette::FG).bg(popup_bg);
         let rows: Vec<Row> = filtered
             .iter()
             .enumerate()

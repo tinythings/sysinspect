@@ -93,7 +93,7 @@ impl SysInspectUX {
             Some(palette::SUCCESS_PEAK),
             None,
             None,
-            Some(palette::WHITE),
+            Some(palette::BG_1),
             None,
             None,
         );
@@ -114,7 +114,7 @@ impl SysInspectUX {
             self.exit_alert_choice.clone(),
             AlertButtons::OkCancel,
             Some(36),
-            Some(palette::BORDER),
+            Some(palette::PROCESSING_PEAK),
             Some(ratatui::widgets::BorderType::Plain),
             Some(palette::FG),
             None,
@@ -195,7 +195,7 @@ impl SysInspectUX {
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_type(border_type)
-            .border_style(Style::default().fg(border_color).bg(background))
+            .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(2))
             .style(Style::default().bg(background));
 
@@ -317,7 +317,7 @@ impl SysInspectUX {
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Plain)
-            .border_style(Style::default().fg(palette::BORDER).bg(background))
+            .border_style(Style::default().fg(palette::BORDER))
             .padding(Padding::horizontal(2))
             .style(Style::default().bg(background));
 

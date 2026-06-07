@@ -55,20 +55,20 @@ impl SysInspectUX {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::BORDER).bg(palette::POPUP_BG_BASE))
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
 
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let title_style = TitleStyle::cyberpunk(palette::BORDER);
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         title::overlay_gradient_title(
             buf,
             canvas,
             &title_style,
             &[
-                TitleSegment { text: " Minion Traits: ".into(), bg: palette::BORDER, fg: palette::BLACK },
-                TitleSegment { text: format!(" {name} "), bg: palette::FG, fg: palette::BG_1 },
+                TitleSegment { text: " Minion Traits: ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
+                TitleSegment { text: format!(" {name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG },
             ],
         );
 

@@ -84,6 +84,8 @@ pub struct SysInspectUX {
     pub li_events: Vec<EventListItem>,
     pub event_data: IndexMap<String, String>,
     pub active_box: ActiveBox,
+    saved_active_box: Option<ActiveBox>,
+    main_focus_suspended: bool,
 
     pub status_text: Line<'static>,
 
@@ -171,6 +173,8 @@ impl Default for SysInspectUX {
             li_events: Vec::new(),
             event_data: IndexMap::new(),
             active_box: ActiveBox::default(),
+            saved_active_box: None,
+            main_focus_suspended: false,
             status_text: Line::from(vec![]),
 
             // Alerts
@@ -248,6 +252,7 @@ impl SysInspectUX {
         self.cycles_buf = self.get_cycles().unwrap();
 
         while !self.exit {
+            self.sync_main_focus_for_overlays();
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
         }
@@ -269,6 +274,7 @@ impl SysInspectUX {
     }
 
     fn on_events(&mut self) -> io::Result<()> {
+        self.sync_main_focus_for_overlays();
         if event::poll(Duration::from_secs(1))? {
             if let Event::Key(e) = event::read()?
                 && e.kind == KeyEventKind::Press
@@ -294,6 +300,9 @@ impl SysInspectUX {
 
     /// Cycle active pan to the right (used on RIGHT or ENTER key)
     fn shift_next(&mut self) {
+        if self.main_focus_suspended {
+            return;
+        }
         match self.active_box {
             ActiveBox::Cycles => {
                 if self.li_minions.is_empty() {
@@ -320,6 +329,9 @@ impl SysInspectUX {
 
     /// Cycle active pan to the left (used on LEFT or ESC key)
     fn shift_prev(&mut self) {
+        if self.main_focus_suspended {
+            return;
+        }
         match self.active_box {
             ActiveBox::Cycles => {
                 if self.li_minions.is_empty() {
@@ -815,6 +827,34 @@ impl SysInspectUX {
             ActiveBox::Events => self.status_at_action_results(),
             ActiveBox::Info => self.status_at_action_data(),
         }
+    }
+
+    fn any_overlay_visible(&self) -> bool {
+        self.purge_alert_visible
+            || self.error_alert_visible
+            || self.exit_alert_visible
+            || self.help_popup_visible
+            || self.minions_visible
+            || self.minion_traits_visible
+            || self.minion_logs_visible
+            || self.minions_menu_visible
+            || self.tag_visible
+            || self.dsl_browser.visible
+    }
+
+    fn sync_main_focus_for_overlays(&mut self) {
+        let overlay_visible = self.any_overlay_visible();
+        if overlay_visible && !self.main_focus_suspended {
+            self.saved_active_box = Some(self.active_box);
+            self.main_focus_suspended = true;
+        } else if !overlay_visible && self.main_focus_suspended {
+            self.active_box = self.saved_active_box.take().unwrap_or_default();
+            self.main_focus_suspended = false;
+        }
+    }
+
+    pub(crate) fn main_box_active(&self, hl: ActiveBox) -> bool {
+        !self.main_focus_suspended && self.active_box == hl
     }
 
     fn refresh_minions(&mut self) {
