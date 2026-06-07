@@ -300,6 +300,7 @@ impl Widget for &SysInspectUX {
         self.dialog_minions(area, buf);
         self.minion_actions_menu(area, buf);
         self.minion_traits(area, buf);
+        self.dialog_minion_logs(area, buf);
         self.dialog_trait_tag(area, buf);
         self.dialog_dsl_browser(area, buf);
         self.dialog_error(area, buf);

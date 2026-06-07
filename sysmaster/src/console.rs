@@ -12,14 +12,16 @@ use libmodpak::{SysInspectModPak, compare_versions};
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
-        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleModelRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
-        ConsoleTransportStatusRow, authorised_console_client, load_master_private_key,
+        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleModelRow, ConsoleOnlineMinionRow,
+        ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client,
+        load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
     traits::TraitSource,
 };
 use tokio::net::{TcpStream, tcp::OwnedReadHalf};
+use tokio::sync::oneshot;
 use tokio::time;
 
 /// Maximum single-line console request size accepted from the local TCP console.
@@ -33,6 +35,7 @@ const MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
 /// This prevents a local client from holding a console socket open forever
 /// without completing a request.
 const CONSOLE_READ_TIMEOUT: StdDuration = StdDuration::from_secs(5);
+const CONSOLE_MINION_REPLY_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 
 /// Result returned by console helpers that both answer the caller and stage
 /// follow-up cluster messages that still need to be broadcast.
@@ -55,6 +58,38 @@ struct CmdbStartupConsoleRequest {
     bin: String,
     path: String,
     backend: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MinionLogsConsoleRequest {
+    stream: Option<String>,
+    lines: Option<usize>,
+}
+
+impl MinionLogsConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Ok(Self { stream: Some("stdout".to_string()), lines: Some(200) });
+        }
+
+        serde_json::from_str(context)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion logs request context: {err}")))
+    }
+
+    fn stream(&self) -> &str {
+        match self.stream.as_deref().unwrap_or("stdout") {
+            "stderr" => "stderr",
+            _ => "stdout",
+        }
+    }
+
+    fn lines(&self) -> usize {
+        self.lines.unwrap_or(200).clamp(1, 2000)
+    }
+
+    fn to_minion_request(&self) -> ConsoleMinionLogRequest {
+        ConsoleMinionLogRequest { stream: self.stream().to_string(), lines: self.lines() }
+    }
 }
 
 impl CmdbStartupConsoleRequest {
@@ -327,6 +362,97 @@ impl SysMaster {
         Ok(rows)
     }
 
+    async fn selected_console_minion(&mut self, query: &str, traits: &str, mid: &str) -> Result<(String, bool), SysinspectError> {
+        let targets = self.selected_minions(query, traits, mid).await?;
+        if targets.is_empty() {
+            return Err(SysinspectError::InvalidQuery("Minion logs require one matching minion, but none were found".to_string()));
+        }
+        if targets.len() > 1 {
+            return Err(SysinspectError::InvalidQuery(format!(
+                "Minion logs require exactly one matching minion, but {} were selected",
+                targets.len()
+            )));
+        }
+
+        let minion = targets.into_iter().next().expect("validated exactly one selected minion");
+        let minion_id = minion.id().to_string();
+        let alive = self.session.lock().await.alive(&minion_id);
+        Ok((minion_id, alive))
+    }
+
+    async fn await_minion_console_reply(
+        master: Arc<Mutex<Self>>, minion_id: &str, msg: MasterMessage,
+    ) -> Result<MinionCommandReply, SysinspectError> {
+        let cycle_id = msg.cycle().clone();
+        let (direct_tx, reply_rx) = {
+            let mut guard = master.lock().await;
+            let peer_addr = guard
+                .conn_to_mid
+                .iter()
+                .find_map(|(addr, mid)| (mid == minion_id).then_some(addr.clone()))
+                .ok_or_else(|| SysinspectError::InvalidQuery(format!("Minion {minion_id} is not currently online")))?;
+            let direct_tx = guard
+                .peer_direct_tx
+                .get(&peer_addr)
+                .cloned()
+                .ok_or_else(|| SysinspectError::ProtoError(format!("No active direct transport channel exists for {minion_id}")))?;
+            let (reply_tx, reply_rx) = oneshot::channel();
+            guard.pending_console_replies.insert(cycle_id.clone(), reply_tx);
+            (direct_tx, reply_rx)
+        };
+
+        if let Err(err) = direct_tx.send(OutgoingFrame::DirectMessage(Box::new(msg))).await {
+            master.lock().await.pending_console_replies.remove(&cycle_id);
+            return Err(SysinspectError::ProtoError(format!("Failed to send direct console request to {minion_id}: {err}")));
+        }
+
+        match time::timeout(CONSOLE_MINION_REPLY_TIMEOUT, reply_rx).await {
+            Ok(Ok(reply)) => Ok(reply),
+            Ok(Err(_)) => Err(SysinspectError::ProtoError(format!("Minion {minion_id} dropped the console reply channel"))),
+            Err(_) => {
+                master.lock().await.pending_console_replies.remove(&cycle_id);
+                Err(SysinspectError::ProtoError(format!(
+                    "Timed out waiting {}s for minion {minion_id} log reply",
+                    CONSOLE_MINION_REPLY_TIMEOUT.as_secs()
+                )))
+            }
+        }
+    }
+
+    async fn minion_log_snapshot(
+        master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str, request: &MinionLogsConsoleRequest,
+    ) -> Result<ConsoleMinionLogSnapshot, SysinspectError> {
+        let (minion_id, alive, msg) = {
+            let mut guard = master.lock().await;
+            let (minion_id, alive) = guard.selected_console_minion(query, traits, mid).await?;
+            if !alive {
+                return Err(SysinspectError::InvalidQuery(format!(
+                    "Minion {minion_id} is offline; raw logfile snapshots are currently available only for online minions"
+                )));
+            }
+            let context = serde_json::to_string(&request.to_minion_request())
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion log request: {err}")))?;
+            let msg = guard
+                .msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_LOGS}"), "", "", &minion_id, &context)
+                .await
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct direct minion log request for {minion_id}")))?;
+            (minion_id, alive, msg)
+        };
+
+        let reply = Self::await_minion_console_reply(master, &minion_id, msg).await?;
+        if !reply.ok {
+            return Err(SysinspectError::ProtoError(if reply.error.is_empty() {
+                format!("Minion {minion_id} returned an unspecified log snapshot error")
+            } else {
+                reply.error
+            }));
+        }
+        let snapshot = serde_json::from_value::<ConsoleMinionLogSnapshot>(reply.payload)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion log snapshot: {err}")))?;
+        let _ = alive;
+        Ok(snapshot)
+    }
+
     /// Remove a minion from registry and key storage and prepare the matching console reply.
     ///
     /// When a command message can still be constructed for the target minion it
@@ -463,6 +589,16 @@ impl SysMaster {
             return match master.lock().await.minion_info_rows(&query.query, &query.traits, &query.mid).await {
                 Ok(rows) => ConsoleResponse::ok(ConsolePayload::MinionInfo { rows }),
                 Err(err) => ConsoleResponse::err(format!("Unable to get minion info: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_LOGS}")) {
+            return match MinionLogsConsoleRequest::from_context(&query.context) {
+                Ok(request) => match Self::minion_log_snapshot(Arc::clone(&master), &query.query, &query.traits, &query.mid, &request).await {
+                    Ok(snapshot) => ConsoleResponse::ok(ConsolePayload::MinionLogs { snapshot }),
+                    Err(err) => ConsoleResponse::err(format!("Unable to get minion logs: {err}")),
+                },
+                Err(err) => ConsoleResponse::err(format!("Failed to parse minion logs request: {err}")),
             };
         }
 

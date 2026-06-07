@@ -31,16 +31,19 @@ impl SysInspectUX {
         if !self.error_alert_visible {
             return;
         }
+        let max_w = ((parent.width * 3 / 4).max(50)) as usize;
+        let wrapped_lines = wrap_text(&self.error_alert_message, max_w);
+        let text = if wrapped_lines.is_empty() { "".to_string() } else { wrapped_lines.join("\n") };
         Self::_popup_ex(
             parent,
             buf,
             Some("Error"),
-            &self.error_alert_message,
+            &text,
             Some(palette::POPUP_BG_1),
             Alignment::Left,
             AlertResult::Quit,
             AlertButtons::Close,
-            Some(44),
+            Some(0),
             Some(palette::ERROR_PEAK),
             None,
             None,
@@ -399,4 +402,35 @@ impl SysInspectUX {
             }
         }
     }
+}
+
+/// Wrap text to a maximum width, preserving leading whitespace per paragraph.
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    if text.is_empty() || max_width < 4 {
+        return vec![];
+    }
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        let trimmed = paragraph.trim();
+        if trimmed.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let lead = &paragraph[..paragraph.len() - paragraph.trim_start().len()];
+        let mut current = lead.to_string();
+        for word in trimmed.split_whitespace() {
+            if current.len() + 1 + word.len() > max_width {
+                lines.push(std::mem::take(&mut current));
+                current = lead.to_string();
+            }
+            if !current.is_empty() && current != lead {
+                current.push(' ');
+            }
+            current.push_str(word);
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+    }
+    lines
 }

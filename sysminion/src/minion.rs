@@ -26,6 +26,7 @@ use libsysinspect::{
         get_minion_config,
         mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, MinionOfflineMode, SysInspectConfig},
     },
+    console::{ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, MinionCommandReply},
     context,
     inspector::SysInspectRunner,
     intp::{
@@ -56,7 +57,9 @@ use libsysproto::{
     payload::{ModStatePayload, PayloadType, RegistrationReply},
     query::{
         MinionQuery, SCHEME_COMMAND,
-        commands::{CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE},
+        commands::{
+            CLUSTER_MINION_LOGS, CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+        },
     },
     replay::{ReplayIdentity, replay_identity_from_minion_bytes},
     rqtypes::{OutboundMessageClass, ProtoValue, RequestType},
@@ -67,9 +70,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_yaml::Value as YamlValue;
 use std::{
+    collections::VecDeque,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
+    sync::RwLock,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
     vec,
@@ -84,6 +89,39 @@ use tokio::{
 use uuid::Uuid;
 
 const RUNNER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+const LOG_RING_CAPACITY: usize = 2000;
+
+/// In-memory ring buffers for stdout/stderr log capture.
+/// Used as fallback when log files don't exist on disk.
+pub struct LogRingBuffers {
+    stdout: RwLock<VecDeque<String>>,
+    stderr: RwLock<VecDeque<String>>,
+    capacity: usize,
+}
+
+impl LogRingBuffers {
+    pub fn new(capacity: usize) -> Self {
+        Self { stdout: RwLock::new(VecDeque::with_capacity(capacity)), stderr: RwLock::new(VecDeque::with_capacity(capacity)), capacity }
+    }
+
+    pub fn push(&self, stream: &str, line: String) {
+        let buf = if stream == "stderr" { &self.stderr } else { &self.stdout };
+        let mut guard = buf.write().unwrap();
+        if guard.len() >= self.capacity {
+            guard.pop_front();
+        }
+        guard.push_back(line);
+    }
+
+    pub fn snapshot(&self, stream: &str, count: usize) -> Vec<String> {
+        let buf = if stream == "stderr" { &self.stderr } else { &self.stdout };
+        let guard = buf.read().unwrap();
+        let start = guard.len().saturating_sub(count);
+        guard.iter().skip(start).cloned().collect()
+    }
+}
+
+pub static LOG_RING: Lazy<RwLock<LogRingBuffers>> = Lazy::new(|| RwLock::new(LogRingBuffers::new(LOG_RING_CAPACITY)));
 
 #[derive(Debug, Clone, Copy, Default)]
 struct BacklogSnapshot {
@@ -1001,7 +1039,7 @@ impl SysMinion {
                             ProtoErrorCode::Success => {
                                 if msg.target().scheme().starts_with(SCHEME_COMMAND) {
                                     if matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true)) {
-                                        this.clone().call_internal_command(msg.target().scheme(), msg.target().context()).await;
+                                        this.clone().call_internal_command(msg.cycle(), msg.target().scheme(), msg.target().context()).await;
                                     } else {
                                         log::debug!("Dropped internal master command for another minion");
                                     }
@@ -1262,6 +1300,87 @@ impl SysMinion {
             }
             Err(e) => log::error!("Failed to send model ack: {e}"),
         }
+    }
+
+    async fn send_command_reply(self: &Arc<Self>, cycle_id: &str, payload: Result<serde_json::Value, SysinspectError>) {
+        let reply = match payload {
+            Ok(payload) => MinionCommandReply { cycle_id: cycle_id.to_string(), ok: true, error: String::new(), payload },
+            Err(err) => MinionCommandReply { cycle_id: cycle_id.to_string(), ok: false, error: err.to_string(), payload: serde_json::Value::Null },
+        };
+        let msg = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Response, json!(reply));
+        match msg.sendable() {
+            Ok(data) => self.request(data, OutboundMessageClass::SessionControl).await,
+            Err(err) => log::error!("Failed to encode command reply for cycle {}: {}", cycle_id, err),
+        }
+    }
+
+    fn read_log_snapshot(&self, request: &ConsoleMinionLogRequest) -> Result<ConsoleMinionLogSnapshot, SysinspectError> {
+        let keep = request.lines.max(1);
+        let stdout_path = self.cfg.logfile_std();
+        let stderr_path = self.cfg.logfile_err();
+
+        let stdout_file = Self::read_log_lines(&stdout_path)?;
+        let stderr_file = Self::read_log_lines(&stderr_path)?;
+
+        let (source_kind, path, mut lines) = if stdout_file.is_some() || stderr_file.is_some() {
+            let mut merged = Vec::new();
+            if let Some(lines) = stdout_file {
+                merged.extend(lines);
+            }
+            if let Some(lines) = stderr_file {
+                merged.extend(lines);
+            }
+            ("file".to_string(), format!("{} + {}", stdout_path.display(), stderr_path.display()), merged)
+        } else {
+            let ring = LOG_RING.read().unwrap();
+            let mut merged = ring.snapshot("stdout", keep.saturating_mul(2));
+            merged.extend(ring.snapshot("stderr", keep.saturating_mul(2)));
+            ("in memory".to_string(), "runtime ring".to_string(), merged)
+        };
+
+        lines.retain(|line| Self::keep_operator_log_line(line));
+        lines.sort_by_cached_key(|line| Self::log_timestamp_key(line));
+        let start = lines.len().saturating_sub(keep);
+
+        Ok(ConsoleMinionLogSnapshot {
+            minion_id: self.get_minion_id().to_string(),
+            source_kind,
+            path,
+            lines: lines[start..].to_vec(),
+            truncated: start > 0,
+        })
+    }
+
+    fn read_log_lines(path: &Path) -> Result<Option<Vec<String>>, SysinspectError> {
+        match fs::read(path) {
+            Ok(data) => {
+                let text = String::from_utf8_lossy(&data);
+                Ok(Some(text.lines().map(|line| libsysinspect::logger::strip_ansi_codes(line).into_owned()).collect()))
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(SysinspectError::IoErr(std::io::Error::new(err.kind(), format!("{}: {}", path.display(), err)))),
+        }
+    }
+
+    fn keep_operator_log_line(line: &str) -> bool {
+        if let Some((_, rest)) = line.split_once(" - ")
+            && let Some((level, _)) = rest.split_once(':')
+        {
+            return matches!(level.trim(), "INFO" | "WARN" | "WARNING" | "ERROR");
+        }
+        true
+    }
+
+    fn log_timestamp_key(line: &str) -> (String, String) {
+        if let Some(end) = line.find(']')
+            && line.starts_with('[')
+        {
+            let ts = &line[1..end];
+            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(ts, "%d/%m/%Y %H:%M:%S") {
+                return (dt.format("%Y%m%d%H%M%S").to_string(), line.to_string());
+            }
+        }
+        (String::new(), line.to_string())
     }
 
     fn inbound_command_replay_key(&self, cycle_id: &str) -> String {
@@ -1530,7 +1649,7 @@ impl SysMinion {
     }
 
     /// Calls internal command
-    async fn call_internal_command(self: Arc<Self>, cmd: &str, context: &str) {
+    async fn call_internal_command(self: Arc<Self>, cycle_id: &str, cmd: &str, context: &str) {
         let cmd = cmd.strip_prefix(SCHEME_COMMAND).unwrap_or_default();
         match cmd {
             CLUSTER_SHUTDOWN => {
@@ -1598,6 +1717,17 @@ impl SysMinion {
                 },
                 Err(err) => log::error!("Failed to parse traits update payload: {err}"),
             },
+            CLUSTER_MINION_LOGS => {
+                let payload = serde_json::from_str::<ConsoleMinionLogRequest>(context)
+                    .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion log request: {err}")))
+                    .and_then(|request| {
+                        self.read_log_snapshot(&request).and_then(|snapshot| {
+                            serde_json::to_value(snapshot)
+                                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion log snapshot: {err}")))
+                        })
+                    });
+                self.as_ptr().send_command_reply(cycle_id, payload).await;
+            }
             _ => {
                 log::warn!("Unknown command: {cmd}");
             }
@@ -1622,7 +1752,7 @@ impl SysMinion {
         match PayloadType::try_from(cmd.payload().clone()) {
             Ok(PayloadType::ModelOrStatement(pld)) => {
                 if cmd.target().scheme().starts_with(SCHEME_COMMAND) {
-                    self.as_ptr().call_internal_command(cmd.target().scheme(), cmd.target().context()).await;
+                    self.as_ptr().call_internal_command(cmd.cycle(), cmd.target().scheme(), cmd.target().context()).await;
                 } else {
                     if let Err(err) = self.inbound_cmds.set_state(&self.inbound_command_replay_key(cmd.cycle()), InboundCommandState::Running) {
                         log::error!("Failed to mark inbound command cycle {} as running: {}", cmd.cycle(), err);

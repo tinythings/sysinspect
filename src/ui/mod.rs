@@ -14,7 +14,7 @@ use libsysinspect::{
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
-    commands::{CLUSTER_MINION_INFO, CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_TRAITS_UPDATE},
+    commands::{CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_TRAITS_UPDATE},
 };
 use ratatui::{
     DefaultTerminal, Frame,
@@ -38,6 +38,7 @@ mod elements;
 mod macts;
 mod online;
 mod palette;
+mod rawlogs;
 mod statusbar;
 mod title;
 mod traitsview;
@@ -116,6 +117,16 @@ pub struct SysInspectUX {
     pub minion_traits_filter: ratatui_cheese::input::InputState,
     pub minion_traits_filter_focus: bool,
 
+    // Raw minion logs popup
+    pub minion_logs_visible: bool,
+    pub minion_logs_lines: Vec<String>,
+    pub minion_logs_scroll: usize,
+    pub minion_logs_path: String,
+    pub minion_logs_host: String,
+    pub minion_logs_source_kind: String,
+    pub minion_logs_filter: ratatui_cheese::input::InputState,
+    pub minion_logs_filter_focus: bool,
+
     // Online minions action menu
     pub minions_menu_visible: bool,
     pub minions_menu_sel: usize,
@@ -181,6 +192,15 @@ impl Default for SysInspectUX {
             minion_traits_modified: false,
             minion_traits_filter: ratatui_cheese::input::InputState::new(),
             minion_traits_filter_focus: false,
+
+            minion_logs_visible: false,
+            minion_logs_lines: Vec::new(),
+            minion_logs_scroll: 0,
+            minion_logs_path: String::new(),
+            minion_logs_host: String::new(),
+            minion_logs_source_kind: String::new(),
+            minion_logs_filter: ratatui_cheese::input::InputState::new(),
+            minion_logs_filter_focus: false,
 
             minions_menu_visible: false,
             minions_menu_sel: 0,
@@ -408,6 +428,10 @@ impl SysInspectUX {
             return false;
         }
 
+        if self.minion_logs_visible {
+            return self.on_minion_logs_popup(e);
+        }
+
         if self.minion_traits_visible {
             return self.on_minion_traits_popup(e);
         }
@@ -583,6 +607,17 @@ impl SysInspectUX {
                     self.minion_traits_filter_focus = false;
                     self.status_at_minion_traits();
                     self.load_selected_minion_info();
+                } else if self.minions_menu_sel == 1 {
+                    self.minion_logs_visible = true;
+                    self.minion_logs_filter = ratatui_cheese::input::InputState::new();
+                    self.minion_logs_filter_focus = false;
+                    self.status_at_minion_logs();
+                    if let Err(err) = self.load_selected_minion_logs() {
+                        self.minion_logs_visible = false;
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err.to_string();
+                        self.status_at_minions_browser();
+                    }
                 }
             }
             _ => {}
@@ -828,6 +863,122 @@ impl SysInspectUX {
                 }
             }
         }
+    }
+
+    fn selected_popup_minion(&self) -> Option<ConsoleOnlineMinionRow> {
+        match self.minions_focus {
+            1 => self.filtered_online().get(self.minions_online_sel).map(|row| (*row).clone()),
+            2 => self.filtered_offline().get(self.minions_offline_sel).map(|row| (*row).clone()),
+            _ => None,
+        }
+    }
+
+    fn load_selected_minion_logs(&mut self) -> Result<(), SysinspectError> {
+        let row = self.selected_popup_minion().ok_or_else(|| SysinspectError::InvalidQuery("No minion is currently selected".to_string()))?;
+        let context = serde_json::json!({"stream": "merged", "lines": 200usize}).to_string();
+        let host = Self::online_host(&row);
+        let mid = row.minion_id.clone();
+        let (source_kind, path, lines) = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_LOGS}"), "*", None, Some(&mid), Some(&context)).await
+            })
+        })
+        .and_then(|resp| match resp.payload {
+            ConsolePayload::MinionLogs { snapshot } => Ok((snapshot.source_kind, snapshot.path, snapshot.lines)),
+            _ => Err(SysinspectError::ProtoError("Unexpected console payload for minion logs".to_string())),
+        })?;
+        self.minion_logs_host = host;
+        self.minion_logs_source_kind = source_kind;
+        self.minion_logs_path = path;
+        self.minion_logs_lines = lines;
+        self.minion_logs_scroll = usize::MAX;
+        Ok(())
+    }
+
+    fn on_minion_logs_popup(&mut self, e: event::KeyEvent) -> bool {
+        if !self.minion_logs_visible {
+            return false;
+        }
+        if self.minion_logs_filter_focus {
+            match e.code {
+                KeyCode::Esc => {
+                    self.minion_logs_filter_focus = false;
+                }
+                KeyCode::Tab => {
+                    self.minion_logs_filter_focus = false;
+                }
+                KeyCode::Backspace => {
+                    self.minion_logs_filter.delete_before();
+                }
+                KeyCode::Delete => {
+                    self.minion_logs_filter.delete_at();
+                }
+                KeyCode::Left => {
+                    self.minion_logs_filter.move_left();
+                }
+                KeyCode::Right => {
+                    self.minion_logs_filter.move_right();
+                }
+                KeyCode::Home => {
+                    self.minion_logs_filter.home();
+                }
+                KeyCode::End => {
+                    self.minion_logs_filter.end();
+                }
+                KeyCode::Char(c) => {
+                    self.minion_logs_filter.insert_char(c);
+                }
+                _ => {}
+            }
+            return true;
+        }
+        match e.code {
+            KeyCode::Esc => {
+                self.minion_logs_visible = false;
+                self.status_at_minions_browser();
+            }
+            KeyCode::Tab => {
+                self.minion_logs_filter_focus = true;
+            }
+            KeyCode::Up => {
+                if self.minion_logs_scroll == usize::MAX {
+                    self.minion_logs_scroll = self.minion_logs_lines.len().saturating_sub(1);
+                }
+                self.minion_logs_scroll = self.minion_logs_scroll.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                if self.minion_logs_scroll == usize::MAX {
+                    return true;
+                }
+                self.minion_logs_scroll = (self.minion_logs_scroll + 1).min(self.minion_logs_lines.len().saturating_sub(1));
+                if self.minion_logs_scroll >= self.minion_logs_lines.len().saturating_sub(1) {
+                    self.minion_logs_scroll = usize::MAX;
+                }
+            }
+            KeyCode::PageUp => {
+                if self.minion_logs_scroll == usize::MAX {
+                    self.minion_logs_scroll = self.minion_logs_lines.len().saturating_sub(1);
+                }
+                self.minion_logs_scroll = self.minion_logs_scroll.saturating_sub(10);
+            }
+            KeyCode::PageDown => {
+                if self.minion_logs_scroll == usize::MAX {
+                    return true;
+                }
+                self.minion_logs_scroll = (self.minion_logs_scroll + 10).min(self.minion_logs_lines.len().saturating_sub(1));
+                if self.minion_logs_scroll >= self.minion_logs_lines.len().saturating_sub(1) {
+                    self.minion_logs_scroll = usize::MAX;
+                }
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                if let Err(err) = self.load_selected_minion_logs() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err.to_string();
+                }
+            }
+            _ => {}
+        }
+        true
     }
 
     fn on_tag_popup(&mut self, e: event::KeyEvent) -> bool {

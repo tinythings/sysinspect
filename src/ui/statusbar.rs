@@ -116,6 +116,23 @@ impl SysInspectUX {
         ]);
     }
 
+    pub(crate) fn status_at_minion_logs(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text = Line::from(vec![
+            key("\u{2191}\u{2193} "),
+            desc("scroll,  "),
+            key("PgUp/PgDn "),
+            desc("skip,  "),
+            key("Tab "),
+            desc("filter,  "),
+            key("R "),
+            desc("refresh,  "),
+            key("Esc "),
+            desc("back"),
+        ]);
+    }
+
     pub(crate) fn status_at_query_composer(&mut self) {
         self.status_text = Line::from(vec![
             Span::styled(" Tab ", Style::default().fg(palette::FG)),
