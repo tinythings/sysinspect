@@ -28,7 +28,7 @@ use std::{
     cell::{Cell, RefCell},
     io::{self, Error},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
 
@@ -126,6 +126,9 @@ pub struct SysInspectUX {
     pub minion_logs_source_kind: String,
     pub minion_logs_filter: ratatui_cheese::input::InputState,
     pub minion_logs_filter_focus: bool,
+    pub minion_logs_polling: bool,
+    pub minion_logs_online: bool,
+    pub minion_logs_last_fetch: Instant,
 
     // Online minions action menu
     pub minions_menu_visible: bool,
@@ -201,6 +204,9 @@ impl Default for SysInspectUX {
             minion_logs_source_kind: String::new(),
             minion_logs_filter: ratatui_cheese::input::InputState::new(),
             minion_logs_filter_focus: false,
+            minion_logs_polling: true,
+            minion_logs_online: true,
+            minion_logs_last_fetch: Instant::now(),
 
             minions_menu_visible: false,
             minions_menu_sel: 0,
@@ -275,6 +281,12 @@ impl SysInspectUX {
             }
             if self.minions_visible {
                 self.refresh_minions();
+            }
+            if self.minion_logs_visible && self.minion_logs_polling && self.minion_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
+                match self.load_selected_minion_logs() {
+                    Ok(()) => self.minion_logs_online = true,
+                    Err(_) => self.minion_logs_online = false,
+                }
             }
         }
         Ok(())
@@ -892,6 +904,8 @@ impl SysInspectUX {
         self.minion_logs_path = path;
         self.minion_logs_lines = lines;
         self.minion_logs_scroll = usize::MAX;
+        self.minion_logs_online = true;
+        self.minion_logs_last_fetch = Instant::now();
         Ok(())
     }
 
@@ -975,6 +989,13 @@ impl SysInspectUX {
                     self.error_alert_visible = true;
                     self.error_alert_message = err.to_string();
                 }
+            }
+            KeyCode::Char('/') => {
+                self.minion_logs_filter_focus = true;
+            }
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                self.minion_logs_polling = !self.minion_logs_polling;
+                self.status_at_minion_logs();
             }
             _ => {}
         }

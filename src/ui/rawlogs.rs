@@ -25,25 +25,30 @@ impl SysInspectUX {
         let bg = palette::POPUP_BG_1;
 
         Clear.render(canvas, buf);
+        let border = if self.minion_logs_online { palette::PROCESSING_GLOW } else { palette::GRAY_0 };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::PROCESSING_GLOW).bg(bg))
+            .border_style(Style::default().fg(border).bg(bg))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[
-                TitleSegment { text: " Logs ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-                TitleSegment { text: format!(" {} ", self.minion_logs_host), bg: palette::PROCESSING_HEAT, fg: palette::FG },
-                TitleSegment { text: format!(" {} ", self.minion_logs_source_kind), bg: palette::PROCESSING_PEAK, fg: palette::FG },
-            ],
-        );
+        let title_style = TitleStyle::cyberpunk(border);
+        let (logs_bg, logs_fg) = if self.minion_logs_online { (palette::PROCESSING_GLOW, palette::FG) } else { (palette::GRAY_0, palette::FG) };
+        let (host_bg, host_fg) =
+            if self.minion_logs_online { (palette::PROCESSING_HEAT, palette::SUCCESS) } else { (palette::GRAY_1, palette::ERROR) };
+        let (kind_bg, kind_fg) = if self.minion_logs_online { (palette::PROCESSING_PEAK, palette::FG) } else { (palette::GRAY_2, palette::FG) };
+        let (poll_bg, poll_fg) = if self.minion_logs_online { (palette::PROCESSING, palette::BG_1) } else { (palette::FG, palette::BG_1) };
+        let mut segments = vec![
+            TitleSegment { text: " Logs ".into(), bg: logs_bg, fg: logs_fg },
+            TitleSegment { text: format!(" {} ", self.minion_logs_host), bg: host_bg, fg: host_fg },
+            TitleSegment { text: format!(" {} ", self.minion_logs_source_kind), bg: kind_bg, fg: kind_fg },
+        ];
+        if self.minion_logs_polling {
+            segments.push(TitleSegment { text: " \u{27F3} ".into(), bg: poll_bg, fg: poll_fg });
+        }
+        title::overlay_gradient_title(buf, canvas, &title_style, &segments);
 
         if inner.height < 5 {
             return;
@@ -73,7 +78,13 @@ impl SysInspectUX {
 
         let text_h = text_area.height as usize;
         let start = if self.minion_logs_scroll == usize::MAX {
-            filtered_lines.len().saturating_sub(text_h)
+            let mut remaining = text_h;
+            let mut idx = filtered_lines.len();
+            while idx > 0 && remaining > 0 {
+                idx -= 1;
+                remaining = remaining.saturating_sub(1 + filtered_lines[idx].matches('\n').count());
+            }
+            idx
         } else {
             self.minion_logs_scroll.min(filtered_lines.len().saturating_sub(1))
         };
@@ -82,12 +93,13 @@ impl SysInspectUX {
             let msg = if self.minion_logs_lines.is_empty() { "(no log lines)" } else { "(no matches)" };
             Widget::render(Paragraph::new(msg).style(Style::default().fg(palette::FG).bg(bg)), text_area, buf);
         } else {
-            let visible: Vec<Line> = filtered_lines[start..end].iter().map(|s| colorize_log_line(s)).collect();
+            let visible: Vec<Line> = filtered_lines[start..end].iter().flat_map(|s| render_log_line(s)).collect();
             Widget::render(Paragraph::new(visible).style(Style::default().bg(bg)), text_area, buf);
         }
 
+        let total_visible: usize = filtered_lines.iter().map(|s| 1 + s.matches('\n').count()).sum();
         let scroll_area = Rect { x: content_area.right().saturating_sub(1), y: content_area.y, width: 1, height: content_area.height };
-        let mut scroll = ScrollbarState::default().content_length(filtered_lines.len().max(1)).position(start);
+        let mut scroll = ScrollbarState::default().content_length(total_visible.max(1)).position(start);
         Scrollbar::default()
             .begin_symbol(None)
             .end_symbol(None)
@@ -163,7 +175,7 @@ fn colorize_log_line(line: &str) -> Line<'_> {
     };
     let Some((level, msg)) = rest.split_once(':') else {
         return Line::from(vec![
-            Span::styled(ts.to_string(), Style::default().fg(palette::GRAY_1)),
+            Span::styled(ts.to_string(), Style::default().fg(palette::SECONDARY)),
             Span::styled(" - ", Style::default().fg(palette::FAINT)),
             Span::styled(rest.to_string(), Style::default().fg(palette::FG)),
         ]);
@@ -180,7 +192,7 @@ fn colorize_log_line(line: &str) -> Line<'_> {
     };
 
     let mut spans = vec![
-        Span::styled(ts.to_string(), Style::default().fg(palette::PROCESSING_BASE)),
+        Span::styled(ts.to_string(), Style::default().fg(palette::SECONDARY)),
         Span::styled(" - ", Style::default().fg(palette::FAINT)),
         Span::styled(level_trimmed.to_string(), level_style),
         Span::styled(": ", Style::default().fg(palette::FAINT)),
@@ -200,4 +212,14 @@ fn colorize_log_line(line: &str) -> Line<'_> {
 
     spans.push(Span::styled(msg.to_string(), Style::default().fg(palette::FG)));
     Line::from(spans)
+}
+
+fn render_log_line(line: &str) -> Vec<Line<'_>> {
+    let mut lines_iter = line.split('\n');
+    let first = lines_iter.next().unwrap_or("");
+    let mut out = vec![colorize_log_line(first)];
+    for cont in lines_iter {
+        out.push(Line::styled(cont, Style::default().fg(palette::MUTED)));
+    }
+    out
 }

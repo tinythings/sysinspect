@@ -75,7 +75,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
     sync::RwLock,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     time::{Duration, Instant},
     vec,
 };
@@ -91,33 +91,43 @@ use uuid::Uuid;
 const RUNNER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 const LOG_RING_CAPACITY: usize = 2000;
 
-/// In-memory ring buffers for stdout/stderr log capture.
+/// In-memory unified ring buffer for log capture.
+/// Both stdout and stderr streams are merged in insertion order
+/// with an atomic monotonic sequence number.
 /// Used as fallback when log files don't exist on disk.
 pub struct LogRingBuffers {
-    stdout: RwLock<VecDeque<String>>,
-    stderr: RwLock<VecDeque<String>>,
+    entries: RwLock<VecDeque<(u64, String)>>,
+    next_seq: AtomicU64,
     capacity: usize,
 }
 
 impl LogRingBuffers {
     pub fn new(capacity: usize) -> Self {
-        Self { stdout: RwLock::new(VecDeque::with_capacity(capacity)), stderr: RwLock::new(VecDeque::with_capacity(capacity)), capacity }
+        Self { entries: RwLock::new(VecDeque::with_capacity(capacity)), next_seq: AtomicU64::new(1), capacity }
     }
 
-    pub fn push(&self, stream: &str, line: String) {
-        let buf = if stream == "stderr" { &self.stderr } else { &self.stdout };
-        let mut guard = buf.write().unwrap();
+    /// Push a log line. Attaches an atomic monotonic sequence number.
+    pub fn push(&self, line: String) {
+        let seq = self.next_seq.fetch_add(1, Ordering::SeqCst);
+        let mut guard = self.entries.write().unwrap();
         if guard.len() >= self.capacity {
             guard.pop_front();
         }
-        guard.push_back(line);
+        guard.push_back((seq, line));
     }
 
-    pub fn snapshot(&self, stream: &str, count: usize) -> Vec<String> {
-        let buf = if stream == "stderr" { &self.stderr } else { &self.stdout };
-        let guard = buf.read().unwrap();
+    /// Return the last `count` lines in insertion order.
+    pub fn snapshot(&self, count: usize) -> Vec<String> {
+        let guard = self.entries.read().unwrap();
         let start = guard.len().saturating_sub(count);
-        guard.iter().skip(start).cloned().collect()
+        guard.iter().skip(start).map(|(_, line)| line.clone()).collect()
+    }
+
+    /// Return the last `count` (seq, line) pairs in insertion order.
+    pub fn snapshot_with_seq(&self, count: usize) -> Vec<(u64, String)> {
+        let guard = self.entries.read().unwrap();
+        let start = guard.len().saturating_sub(count);
+        guard.iter().skip(start).map(|(seq, line)| (*seq, line.clone())).collect()
     }
 }
 
@@ -1322,7 +1332,7 @@ impl SysMinion {
         let stdout_file = Self::read_log_lines(&stdout_path)?;
         let stderr_file = Self::read_log_lines(&stderr_path)?;
 
-        let (source_kind, path, mut lines) = if stdout_file.is_some() || stderr_file.is_some() {
+        let (source_kind, path, lines) = if stdout_file.is_some() || stderr_file.is_some() {
             let mut merged = Vec::new();
             if let Some(lines) = stdout_file {
                 merged.extend(lines);
@@ -1330,16 +1340,25 @@ impl SysMinion {
             if let Some(lines) = stderr_file {
                 merged.extend(lines);
             }
+            merged.retain(|line| Self::keep_operator_log_line(line));
+            merged.sort_by_cached_key(|line| Self::log_timestamp_key(line));
             ("file".to_string(), format!("{} + {}", stdout_path.display(), stderr_path.display()), merged)
         } else {
             let ring = LOG_RING.read().unwrap();
-            let mut merged = ring.snapshot("stdout", keep.saturating_mul(2));
-            merged.extend(ring.snapshot("stderr", keep.saturating_mul(2)));
+            let entries = ring.snapshot_with_seq(keep);
+            let mut pairs: Vec<(String, u64, String)> = entries
+                .into_iter()
+                .map(|(seq, line)| {
+                    let ts_key = Self::log_timestamp_str(&line);
+                    (ts_key, seq, line)
+                })
+                .collect();
+            pairs.retain(|(_, _, line)| Self::keep_operator_log_line(line));
+            pairs.sort_by(|(ta, sa, _), (tb, sb, _)| ta.cmp(tb).then(sa.cmp(sb)));
+            let merged = pairs.into_iter().map(|(_, _, line)| line).collect();
             ("in memory".to_string(), "runtime ring".to_string(), merged)
         };
 
-        lines.retain(|line| Self::keep_operator_log_line(line));
-        lines.sort_by_cached_key(|line| Self::log_timestamp_key(line));
         let start = lines.len().saturating_sub(keep);
 
         Ok(ConsoleMinionLogSnapshot {
@@ -1369,6 +1388,10 @@ impl SysMinion {
             return matches!(level.trim(), "INFO" | "WARN" | "WARNING" | "ERROR");
         }
         true
+    }
+
+    fn log_timestamp_str(line: &str) -> String {
+        Self::log_timestamp_key(line).0
     }
 
     fn log_timestamp_key(line: &str) -> (String, String) {

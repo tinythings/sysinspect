@@ -90,7 +90,9 @@ impl log::Log for RingBufferLogger {
         } else {
             println!("{}", if no_color { &clean } else { &raw });
         }
-        LOG_RING.read().unwrap().push(stream, clean);
+        if msg.level() <= log::Level::Info {
+            LOG_RING.write().unwrap().push(clean);
+        }
     }
 
     fn flush(&self) {}
