@@ -297,8 +297,9 @@ impl Widget for &SysInspectUX {
         self.dialog_purge(area, buf);
         self.dialog_exit(area, buf);
         self.dialog_help(area, buf);
-        self.dialog_online_minions(area, buf);
-        self.dialog_online_minion_info(area, buf);
+        self.dialog_minions(area, buf);
+        self.minion_actions_menu(area, buf);
+        self.minion_traits(area, buf);
         self.dialog_trait_tag(area, buf);
         self.dialog_dsl_browser(area, buf);
         self.dialog_error(area, buf);

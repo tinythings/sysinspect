@@ -41,16 +41,16 @@ impl SysInspectUX {
         "unknown".to_string()
     }
 
-    pub fn dialog_online_minions(&self, parent: Rect, buf: &mut Buffer) {
-        if !self.online_minions_visible {
+    pub fn dialog_minions(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.minions_visible {
             return;
         }
 
-        let filter_str = self.online_minions_filter_input.value();
+        let filter_str = self.minions_filter_input.value();
         let fl = filter_str.to_lowercase();
 
-        let online: Vec<&ConsoleOnlineMinionRow> = self.online_minions_rows.iter().filter(|r| r.alive).collect();
-        let offline: Vec<&ConsoleOnlineMinionRow> = self.online_minions_rows.iter().filter(|r| !r.alive).collect();
+        let online: Vec<&ConsoleOnlineMinionRow> = self.minions_rows.iter().filter(|r| r.alive).collect();
+        let offline: Vec<&ConsoleOnlineMinionRow> = self.minions_rows.iter().filter(|r| !r.alive).collect();
 
         let online_filtered: Vec<&&ConsoleOnlineMinionRow> =
             online.iter().filter(|r| fl.is_empty() || Self::online_host(r).to_lowercase().contains(&fl)).collect();
@@ -94,7 +94,7 @@ impl SysInspectUX {
             .try_into()
             .unwrap();
 
-        Self::_render_filter(filter_area, buf, self.online_minions_focus == 0, &self.online_minions_filter_input);
+        Self::_render_filter(filter_area, buf, self.minions_focus == 0, &self.minions_filter_input);
 
         let [online_pane, offline_pane]: [Rect; 2] = Layout::default()
             .direction(Direction::Horizontal)
@@ -106,11 +106,11 @@ impl SysInspectUX {
 
         let max_w = 10u16;
 
-        let online_selected = self.online_minions_online_selected.min(online_filtered.len().saturating_sub(1));
-        let offline_selected = self.online_minions_offline_selected.min(offline_filtered.len().saturating_sub(1));
+        let online_selected = self.minions_online_sel.min(online_filtered.len().saturating_sub(1));
+        let offline_selected = self.minions_offline_sel.min(offline_filtered.len().saturating_sub(1));
 
-        Self::_render_pane(self, "Online", &online_filtered, online_pane, buf, self.online_minions_focus == 1, online_selected, max_w);
-        Self::_render_pane(self, "Offline", &offline_filtered, offline_pane, buf, self.online_minions_focus == 2, offline_selected, max_w);
+        Self::_render_pane(self, "Online", &online_filtered, online_pane, buf, self.minions_focus == 1, online_selected, max_w);
+        Self::_render_pane(self, "Offline", &offline_filtered, offline_pane, buf, self.minions_focus == 2, offline_selected, max_w);
     }
 
     fn _render_filter(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {

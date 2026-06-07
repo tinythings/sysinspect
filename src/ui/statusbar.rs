@@ -67,7 +67,14 @@ impl SysInspectUX {
         ]);
     }
 
-    pub(crate) fn status_at_online_minions(&mut self) {
+    pub(crate) fn status_at_minion_menu(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text =
+            Line::from(vec![key("\u{2191}\u{2193} "), desc("navigate,  "), key("Enter "), desc("select,  "), key("Esc "), desc("close")]);
+    }
+
+    pub(crate) fn status_at_minions_browser(&mut self) {
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
         self.status_text = Line::from(vec![
@@ -88,7 +95,7 @@ impl SysInspectUX {
         ]);
     }
 
-    pub(crate) fn status_at_minion_info(&mut self) {
+    pub(crate) fn status_at_minion_traits(&mut self) {
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
         self.status_text = Line::from(vec![

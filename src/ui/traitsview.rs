@@ -15,38 +15,36 @@ use ratatui_cheese::{
 };
 
 impl SysInspectUX {
-    pub fn dialog_online_minion_info(&self, parent: Rect, buf: &mut Buffer) {
-        if !self.online_minions_visible || !self.online_minions_info_visible {
+    pub fn minion_traits(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.minions_visible || !self.minion_traits_visible {
             return;
         }
 
-        let max_key = self.online_minions_info_rows.iter().map(|r| r.key.len()).max().unwrap_or(4);
-        let max_val = self.online_minions_info_rows.iter().map(|r| Self::_info_value_str(&r.value).len()).max().unwrap_or(0);
+        let max_key = self.minion_traits_rows.iter().map(|r| r.key.len()).max().unwrap_or(4);
+        let max_val = self.minion_traits_rows.iter().map(|r| Self::_info_value_str(&r.value).len()).max().unwrap_or(0);
         let line_w = (max_key + 4 + max_val + 2).max(10);
         let content_w = (line_w + 6) as u16;
         let w = content_w.min(parent.width.saturating_sub(8)).max(40);
         let h = parent.height.saturating_sub(6).max(13);
-        let x = if self.online_minions_focus == 1 { parent.x + parent.width.saturating_sub(w + 4) } else { parent.x + 4 };
+        let x = if self.minions_focus == 1 { parent.x + parent.width.saturating_sub(w + 4) } else { parent.x + 4 };
         let y = parent.y + 3;
         let canvas = Rect { x, y, width: w, height: h };
 
         Clear.render(canvas, buf);
 
         let name = self
-            .online_minions_info_rows
+            .minion_traits_rows
             .first()
             .and_then(|r| if r.key == "hostname" { r.value.as_str().map(|s| s.to_string()) } else { None })
             .unwrap_or_else(|| {
-                self.online_minions_rows
+                self.minions_rows
                     .iter()
                     .find(|r| {
-                        let online: Vec<&libsysinspect::console::ConsoleOnlineMinionRow> =
-                            self.online_minions_rows.iter().filter(|r| r.alive).collect();
-                        let offline: Vec<&libsysinspect::console::ConsoleOnlineMinionRow> =
-                            self.online_minions_rows.iter().filter(|r| !r.alive).collect();
-                        match self.online_minions_focus {
-                            1 => online.get(self.online_minions_online_selected).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
-                            2 => offline.get(self.online_minions_offline_selected).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
+                        let online: Vec<&libsysinspect::console::ConsoleOnlineMinionRow> = self.minions_rows.iter().filter(|r| r.alive).collect();
+                        let offline: Vec<&libsysinspect::console::ConsoleOnlineMinionRow> = self.minions_rows.iter().filter(|r| !r.alive).collect();
+                        match self.minions_focus {
+                            1 => online.get(self.minions_online_sel).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
+                            2 => offline.get(self.minions_offline_sel).map(|m| m.minion_id == r.minion_id).unwrap_or(false),
                             _ => false,
                         }
                     })
@@ -74,7 +72,7 @@ impl SysInspectUX {
             ],
         );
 
-        if self.online_minions_info_rows.is_empty() || inner.height < 4 {
+        if self.minion_traits_rows.is_empty() || inner.height < 4 {
             return;
         }
 
@@ -86,20 +84,16 @@ impl SysInspectUX {
             .try_into()
             .unwrap();
 
-        Self::_render_info_filter(filter_area, buf, self.online_minions_info_filter_focus, &self.online_minions_info_filter);
+        Self::_render_info_filter(filter_area, buf, self.minion_traits_filter_focus, &self.minion_traits_filter);
 
-        let f = self.online_minions_info_filter.value().to_lowercase();
-        let filtered_rows: Vec<ConsoleMinionInfoRow> = self
-            .online_minions_info_rows
-            .iter()
-            .filter(|r| f.is_empty() || Self::_info_value_str(&r.value).to_lowercase().contains(&f))
-            .cloned()
-            .collect();
+        let f = self.minion_traits_filter.value().to_lowercase();
+        let filtered_rows: Vec<ConsoleMinionInfoRow> =
+            self.minion_traits_rows.iter().filter(|r| f.is_empty() || Self::_info_value_str(&r.value).to_lowercase().contains(&f)).cloned().collect();
 
         let groups = Self::build_info_tree(&filtered_rows);
         let n_groups = groups.len();
         let total_items = n_groups + filtered_rows.len();
-        let filter_focused = self.online_minions_info_filter_focus;
+        let filter_focused = self.minion_traits_filter_focus;
         let treesel = if filter_focused {
             Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
         } else {
@@ -119,7 +113,7 @@ impl SysInspectUX {
 
         let tree_inner = Rect::new(tree_area.x, tree_area.y, tree_area.width.saturating_sub(1), tree_area.height);
 
-        if let Some(ref ts) = self.online_minions_tree_state {
+        if let Some(ref ts) = self.minion_traits_tree_state {
             let mut state = ts.clone();
             let (g, _) = state.selected();
             if g >= n_groups {
@@ -134,7 +128,7 @@ impl SysInspectUX {
         let scroller_area = Rect::new(tree_area.right().saturating_sub(1), tree_area.y, 1, tree_area.height);
         let mut scroller = ScrollbarState::default()
             .content_length(total_items)
-            .position(self.online_minions_tree_state.as_ref().map(|ts| ts.selected().0).unwrap_or(0));
+            .position(self.minion_traits_tree_state.as_ref().map(|ts| ts.selected().0).unwrap_or(0));
         Scrollbar::default()
             .begin_symbol(None)
             .end_symbol(None)
