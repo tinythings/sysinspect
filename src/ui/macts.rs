@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 /// Available actions in the minion context menu.
-pub(crate) const MENU_ITEMS: &[&str] = &["Traits Information", "View Raw Logs"];
+pub(crate) const MENU_ITEMS: &[&str] = &["System logs", "Defined traits"];
 
 impl SysInspectUX {
     /// Render the minion actions context menu popup.

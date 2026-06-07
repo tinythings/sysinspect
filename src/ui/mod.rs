@@ -623,15 +623,6 @@ impl SysInspectUX {
             KeyCode::Enter => {
                 self.minions_menu_visible = false;
                 if self.minions_menu_sel == 0 {
-                    self.minion_traits_visible = true;
-                    self.minion_traits_rows = Vec::new();
-                    self.minion_traits_tree_state = None;
-                    self.minion_traits_modified = false;
-                    self.minion_traits_filter = ratatui_cheese::input::InputState::new();
-                    self.minion_traits_filter_focus = false;
-                    self.status_at_minion_traits();
-                    self.load_selected_minion_info();
-                } else if self.minions_menu_sel == 1 {
                     self.minion_logs_visible = true;
                     self.minion_logs_filter = ratatui_cheese::input::InputState::new();
                     self.minion_logs_filter_focus = false;
@@ -642,6 +633,15 @@ impl SysInspectUX {
                         self.error_alert_message = err.to_string();
                         self.status_at_minions_browser();
                     }
+                } else if self.minions_menu_sel == 1 {
+                    self.minion_traits_visible = true;
+                    self.minion_traits_rows = Vec::new();
+                    self.minion_traits_tree_state = None;
+                    self.minion_traits_modified = false;
+                    self.minion_traits_filter = ratatui_cheese::input::InputState::new();
+                    self.minion_traits_filter_focus = false;
+                    self.status_at_minion_traits();
+                    self.load_selected_minion_info();
                 }
             }
             _ => {}
@@ -901,8 +901,9 @@ impl SysInspectUX {
                 Ok(rows) => {
                     let new_groups = SysInspectUX::build_info_tree(&rows);
                     let mut ts = TreeState::new(new_groups.len());
+                    let expand_all = expanded.is_empty();
                     for (i, g) in new_groups.iter().enumerate() {
-                        if expanded.contains(&g.header().text().to_string()) {
+                        if expand_all || expanded.contains(&g.header().text().to_string()) {
                             ts.expand(i);
                         }
                     }
