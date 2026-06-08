@@ -47,12 +47,7 @@ impl SysInspectUX {
             .map(Self::online_host)
             .unwrap_or_else(|| "unknown".to_string());
 
-        let max_label_w = MENU_SECTIONS
-            .iter()
-            .flat_map(|s| s.items.iter())
-            .map(|(label, _)| UnicodeWidthStr::width(*label))
-            .max()
-            .unwrap_or(10);
+        let max_label_w = MENU_SECTIONS.iter().flat_map(|s| s.items.iter()).map(|(label, _)| UnicodeWidthStr::width(*label)).max().unwrap_or(10);
         let max_item_w = max_label_w + 34;
 
         let mut title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
@@ -60,11 +55,7 @@ impl SysInspectUX {
         let mut segments = vec![TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG }];
         if is_cluster {
             segments.push(TitleSegment { text: " Cluster ".into(), bg: palette::PROCESSING_PEAK, fg: palette::FG });
-            segments.push(TitleSegment {
-                text: " ⚡⚡⚡ ".into(),
-                bg: palette::ERROR_PEAK,
-                fg: palette::WARNING_PEAK,
-            });
+            segments.push(TitleSegment { text: " ⚡⚡⚡ ".into(), bg: palette::ERROR_PEAK, fg: palette::WARNING_PEAK });
             title_style.gradient_target = Some(palette::ERROR_BASE);
         } else {
             segments.push(TitleSegment { text: format!(" {host} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK });

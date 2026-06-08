@@ -759,13 +759,7 @@ impl SysInspectUX {
                 palette::PROCESSING_DIMMED,
             )
         } else {
-            (
-                palette::FG,
-                palette::PROCESSING_GLOW,
-                palette::PROCESSING_HEAT,
-                palette::PROCESSING_PEAK,
-                palette::PROCESSING,
-            )
+            (palette::FG, palette::PROCESSING_GLOW, palette::PROCESSING_HEAT, palette::PROCESSING_PEAK, palette::PROCESSING)
         };
 
         let mut title_segments = vec![TitleSegment { text: " Query Composer ".into(), bg: glow_bg, fg: title_fg }];
@@ -935,33 +929,47 @@ impl SysInspectUX {
                 in_context = false;
                 let prefix_end = line.find(':').unwrap_or(line.len());
                 let title_line = &line[..prefix_end];
-                if let Some(quote_open) = title_line.find('"') {
-                    if let Some(quote_close) = title_line[quote_open + 1..].find('"') {
-                        let before = &title_line[..=quote_open];
-                        let target_name = &title_line[quote_open + 1..quote_open + 1 + quote_close];
-                        let after = "\" ";
-                        let cx = content_area.x;
-                        buf.set_string(cx, yy, before, Style::default().fg(glamour_text_fg));
-                        let name_x = cx + before.len() as u16;
-                        buf.set_string(name_x, yy, target_name, Style::default().fg(palette::PRIMARY));
-                        let fill_x = name_x + target_name.len() as u16;
-                        buf.set_string(fill_x, yy, after, Style::default().fg(glamour_text_fg));
-                        gradient_rule(
-                            Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
-                            buf,
-                            fill_x + after.len() as u16,
-                            glamour_grad_start,
-                            glamour_grad_end,
-                        );
-                        yy += 1;
-                        continue;
-                    }
+                if let Some(quote_open) = title_line.find('"')
+                    && let Some(quote_close) = title_line[quote_open + 1..].find('"')
+                {
+                    let before = &title_line[..=quote_open];
+                    let target_name = &title_line[quote_open + 1..quote_open + 1 + quote_close];
+                    let after = "\" ";
+                    let cx = content_area.x;
+                    buf.set_string(cx, yy, before, Style::default().fg(glamour_text_fg));
+                    let name_x = cx + before.len() as u16;
+                    buf.set_string(name_x, yy, target_name, Style::default().fg(palette::PRIMARY));
+                    let fill_x = name_x + target_name.len() as u16;
+                    buf.set_string(fill_x, yy, after, Style::default().fg(glamour_text_fg));
+                    gradient_rule(
+                        Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
+                        buf,
+                        fill_x + after.len() as u16,
+                        glamour_grad_start,
+                        glamour_grad_end,
+                    );
+                    yy += 1;
+                    continue;
                 }
-                dashed_title(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title_line, glamour_text_fg, glamour_grad_start, glamour_grad_end);
+                dashed_title(
+                    Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
+                    buf,
+                    title_line,
+                    glamour_text_fg,
+                    glamour_grad_start,
+                    glamour_grad_end,
+                );
                 yy += 1;
             } else if line.starts_with("Context:") {
                 in_context = true;
-                dashed_title(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, "Context", glamour_text_fg, glamour_grad_start, glamour_grad_end);
+                dashed_title(
+                    Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
+                    buf,
+                    "Context",
+                    glamour_text_fg,
+                    glamour_grad_start,
+                    glamour_grad_end,
+                );
                 yy += 1;
             } else if line.is_empty() {
                 yy += 1;
