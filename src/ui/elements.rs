@@ -28,6 +28,7 @@ pub enum AlertResult {
     Purge,
     Quit,
     Close,
+    ClusterConfirm,
 }
 
 pub trait DbListItem {

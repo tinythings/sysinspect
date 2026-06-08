@@ -23,15 +23,6 @@ impl SysInspectUX {
         let max_key = self.minion_traits_rows.iter().map(|r| r.key.len()).max().unwrap_or(4);
         let max_val = self.minion_traits_rows.iter().map(|r| Self::_info_value_str(&r.value).len()).max().unwrap_or(0);
         let line_w = (max_key + 4 + max_val + 2).max(10);
-        let content_w = (line_w + 6) as u16;
-        let w = content_w.min(parent.width.saturating_sub(8)).max(40);
-        let h = parent.height.saturating_sub(6).max(13);
-        let x = if self.minions_focus == 1 { parent.x + parent.width.saturating_sub(w + 4) } else { parent.x + 4 };
-        let y = parent.y + 3;
-        let canvas = Rect { x, y, width: w, height: h };
-
-        Clear.render(canvas, buf);
-
         let name = self
             .minion_traits_rows
             .first()
@@ -52,25 +43,30 @@ impl SysInspectUX {
                     .unwrap_or_else(|| "unknown".to_string())
             });
 
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let title_segments = [
+            TitleSegment { text: " Minion Traits: ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
+            TitleSegment { text: format!(" {name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG },
+        ];
+        let content_w = title::ensure_inner_width((line_w + 6) as u16, &title_style, &title_segments);
+        let w = content_w.min(parent.width.saturating_sub(8)).max(40);
+        let h = parent.height.saturating_sub(6).max(13);
+        let x = if self.minions_focus == 1 { parent.x + parent.width.saturating_sub(w + 4) } else { parent.x + 4 };
+        let y = parent.y + 3;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        Clear.render(canvas, buf);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::PROCESSING_GLOW))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
 
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[
-                TitleSegment { text: " Minion Traits: ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-                TitleSegment { text: format!(" {name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG },
-            ],
-        );
+        title::overlay_gradient_title(buf, canvas, &title_style, &title_segments);
 
         if self.minion_traits_rows.is_empty() || inner.height < 4 {
             return;

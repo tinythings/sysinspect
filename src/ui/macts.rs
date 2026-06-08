@@ -6,19 +6,28 @@ use ratatui::{
     layout::Position,
     prelude::{Buffer, Rect},
     style::Style,
-    widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget},
+    widgets::{Block, BorderType, Borders, Clear, Widget},
 };
+use ratatui_glamour::color::blend_2d;
+use ratatui_glamour::rule::dashed_title;
+use unicode_width::UnicodeWidthStr;
 
-/// Available actions in the minion context menu.
-pub(crate) const MENU_ITEMS: &[&str] = &["System logs", "Defined traits"];
+struct MenuSection {
+    title: &'static str,
+    items: &'static [(&'static str, char)],
+}
+
+const MENU_SECTIONS: &[MenuSection] = &[
+    MenuSection { title: "Tools", items: &[("System logs", 'L'), ("Defined traits", 'T')] },
+    MenuSection { title: "Minion Operations", items: &[("Remote start", 'S'), ("Shutdown minion", 'D'), ("Force re-connect", 'F')] },
+    MenuSection { title: "Cluster Operations", items: &[("Shutdown everything", 'X'), ("Reconnect all minions", 'A')] },
+];
+
+pub(crate) fn total_menu_items() -> usize {
+    MENU_SECTIONS.iter().map(|s| s.items.len()).sum()
+}
 
 impl SysInspectUX {
-    /// Render the minion actions context menu popup.
-    ///
-    /// Displays a list of available actions for the selected minion.
-    /// The menu auto-sizes to the longest item and supports keyboard
-    /// navigation with arrow keys, selection with Enter, and closing
-    /// with Esc.
     pub fn minion_actions_menu(&self, parent: Rect, buf: &mut Buffer) {
         if !self.minions_menu_visible {
             return;
@@ -39,51 +48,96 @@ impl SysInspectUX {
             .map(Self::online_host)
             .unwrap_or_else(|| "unknown".to_string());
 
-        let max_item_w = MENU_ITEMS.iter().map(|s| s.len()).max().unwrap_or(10);
-        let title_segments = [" Actions on ".chars().count(), format!(" {host} ").chars().count()];
-        let title_w = 1usize + title_segments.iter().sum::<usize>() + (title_segments.len().saturating_sub(1)) + 1usize;
-        let inner_w = max_item_w.max(title_w) as u16;
+        let max_label_w = MENU_SECTIONS.iter().flat_map(|s| s.items.iter()).map(|(label, _)| UnicodeWidthStr::width(*label)).max().unwrap_or(10);
+        let max_item_w = max_label_w + 34;
+
+        let mut title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let is_cluster = self.minions_menu_sel >= 5;
+        let mut segments = vec![TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG }];
+        if is_cluster {
+            segments.push(TitleSegment { text: " Cluster ".into(), bg: palette::PROCESSING_PEAK, fg: palette::FG });
+            segments.push(TitleSegment { text: " ⚡⚡⚡ ".into(), bg: palette::ERROR_PEAK, fg: palette::WARNING_PEAK });
+            title_style.gradient_target = Some(palette::ERROR_BASE);
+        } else {
+            segments.push(TitleSegment { text: format!(" {host} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK });
+        }
+        let inner_w = title::ensure_inner_width(max_item_w as u16, &title_style, &segments);
+
+        let section_headers = MENU_SECTIONS.len() as u16;
+        let item_rows = total_menu_items() as u16;
+        let inner_h = section_headers + item_rows + 2;
+
         let w = (inner_w + 2).min(parent.width.saturating_sub(8)).max(20);
-        let inner_h = (MENU_ITEMS.len() + 2) as u16;
         let h = (inner_h + 2).min(parent.height.saturating_sub(6)).max(5);
         let x = parent.x + (parent.width.saturating_sub(w)) / 2;
         let y = parent.y + (parent.height.saturating_sub(h)) / 2;
         let canvas = Rect { x, y, width: w, height: h };
 
-        let bg = palette::POPUP_BG_BASE;
         Clear.render(canvas, buf);
+
+        let grad_colors =
+            blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[ratatui::style::Color]);
+        for row in 0..canvas.height {
+            for col in 0..canvas.width {
+                let idx = row as usize * canvas.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                    cell.set_bg(grad_colors[idx]);
+                }
+            }
+        }
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::PROCESSING_GLOW))
-            .style(Style::default().bg(bg));
+            .style(Style::default());
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[
-                TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-                TitleSegment { text: format!(" {host} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK },
-            ],
-        );
+        title::overlay_gradient_title(buf, canvas, &title_style, &segments);
 
-        for (i, item) in MENU_ITEMS.iter().enumerate() {
-            let row_y = inner.y + 1 + i as u16;
+        let hint_style = Style::default().fg(palette::PRIMARY);
+
+        let mut row_y = inner.y;
+        let mut flat_idx: usize = 0;
+
+        for (si, section) in MENU_SECTIONS.iter().enumerate() {
             if row_y >= inner.bottom() {
                 break;
             }
-            let style = if i == self.minions_menu_sel {
-                Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
-            } else {
-                Style::default().fg(palette::FG).bg(bg)
-            };
-            let text = format!(" {:<width$} ", item, width = max_item_w);
-            Paragraph::new(text).style(style).render(Rect { x: inner.x, y: row_y, width: inner.width, height: 1 }, buf);
+            if si > 0 && row_y < inner.bottom() {
+                row_y += 1;
+            }
+            dashed_title(
+                Rect { x: inner.x, y: row_y, width: inner.width, height: 1 },
+                buf,
+                section.title,
+                palette::PROCESSING,
+                palette::PRIMARY,
+                palette::PROCESSING_DIMMED,
+            );
+            row_y += 1;
+
+            for &(label, key) in section.items {
+                if row_y >= inner.bottom() {
+                    break;
+                }
+                let selected = flat_idx == self.minions_menu_sel;
+                let item_style = if selected { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::FG) };
+
+                let hint = format!("^{key}");
+                let padding = (inner.width as usize).saturating_sub(label.len() + 1 + hint.len()).saturating_sub(2); // one space on each side
+                let line = format!(" {label}{}{hint} ", " ".repeat(padding));
+                buf.set_string(inner.x, row_y, &line, item_style);
+
+                // Re-paint just the key hint with its own style on top
+                let hint_x = inner.x + (inner.width.saturating_sub(hint.len() as u16 + 2));
+                let hint_sel_style = if selected { Style::default().fg(palette::BG_0).bg(palette::HIGHLIGHT) } else { hint_style };
+                buf.set_string(hint_x, row_y, &hint, hint_sel_style);
+
+                row_y += 1;
+                flat_idx += 1;
+            }
         }
 
         let buf_area = buf.area();

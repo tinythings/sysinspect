@@ -61,7 +61,8 @@ use libsysproto::{
     query::{
         MinionQuery, SCHEME_COMMAND,
         commands::{
-            CLUSTER_MINION_LOGS, CLUSTER_REBOOT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+            CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_REBOOT, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION,
+            CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
         },
     },
     replay::{ReplayIdentity, replay_identity_from_minion_bytes},
@@ -1767,8 +1768,25 @@ impl SysMinion {
                 self.as_ptr().send_bye().await;
                 std::process::exit(0);
             }
+            CLUSTER_MINION_SHUTDOWN => {
+                log::info!("Requesting per-minion shutdown from the console");
+                self.as_ptr().send_command_reply(cycle_id, Ok(json!({"status": "shutting_down"}))).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                self.as_ptr().send_bye().await;
+                std::process::exit(0);
+            }
+            CLUSTER_MINION_RECONNECT => {
+                log::info!("Requesting forced reconnect from the console");
+                self.as_ptr().send_command_reply(cycle_id, Ok(json!({"status": "reconnecting"}))).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                let _ = CONNECTION_TX.send(());
+            }
             CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
+            }
+            CLUSTER_RECONNECT => {
+                log::info!("Requesting cluster-wide reconnect from the master");
+                let _ = CONNECTION_TX.send(());
             }
             CLUSTER_ROTATE => match self.clone().apply_rotation_command(context).await {
                 Ok(_) => {

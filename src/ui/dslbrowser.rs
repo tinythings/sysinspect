@@ -11,6 +11,8 @@ use ratatui::{
     },
 };
 use ratatui_cheese::input::{Input, InputState};
+use ratatui_glamour::color::blend_2d;
+use ratatui_glamour::rule::{dashed_title, gradient_rule};
 
 use super::{
     SysInspectUX, palette,
@@ -747,26 +749,41 @@ impl SysInspectUX {
         let has_target = !target_id.is_empty() && target_id != "(select)" && target_id != "(none)" && target_id != "—";
         let has_state = !state_display.is_empty() && state_display != "(select)" && state_display != "(default)" && state_display != "$";
 
-        let mut title_segments = vec![TitleSegment { text: " Query Composer ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG }];
+        let overshadowed = self.dsl_browser.desc_popup_visible;
+
+        let (title_fg, glow_bg, heat_bg, peak_bg, proc_bg) = if overshadowed {
+            (
+                palette::MUTED,
+                palette::PROCESSING_GLOW_DIMMED,
+                palette::PROCESSING_HEAT_DIMMED,
+                palette::PROCESSING_PEAK_DIMMED,
+                palette::PROCESSING_DIMMED,
+            )
+        } else {
+            (palette::FG, palette::PROCESSING_GLOW, palette::PROCESSING_HEAT, palette::PROCESSING_PEAK, palette::PROCESSING)
+        };
+
+        let mut title_segments = vec![TitleSegment { text: " Query Composer ".into(), bg: glow_bg, fg: title_fg }];
         if has_model {
-            title_segments.push(TitleSegment { text: format!(" {model_name} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK });
+            title_segments.push(TitleSegment { text: format!(" {model_name} "), bg: heat_bg, fg: palette::SUCCESS_PEAK });
         }
         if has_target {
-            title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: palette::PROCESSING_PEAK, fg: palette::BG_2 });
+            title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: peak_bg, fg: palette::BG_2 });
         }
         if has_state {
-            title_segments.push(TitleSegment { text: format!(" {state_display} "), bg: palette::PROCESSING, fg: palette::BG_3 });
+            title_segments.push(TitleSegment { text: format!(" {state_display} "), bg: proc_bg, fg: palette::BG_3 });
         }
 
+        let border_color = glow_bg;
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(2))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
         let inner = block.inner(popup);
         block.render(popup, buf);
-        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let title_style = TitleStyle::cyberpunk(border_color);
         title::overlay_gradient_title(buf, popup, &title_style, &title_segments);
 
         self.dsl_browser.render_content(inner, buf);
@@ -820,15 +837,25 @@ impl SysInspectUX {
         let bg = palette::POPUP_BG_1;
         Clear.render(canvas, buf);
 
+        let grad_colors = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_2] as &[ratatui::style::Color]);
+        for row in 0..canvas.height {
+            for col in 0..canvas.width {
+                let idx = row as usize * canvas.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                    cell.set_bg(grad_colors[idx]);
+                }
+            }
+        }
+
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
         let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let has_target = target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty();
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::PROCESSING_GLOW))
-            .style(Style::default().bg(bg));
+            .style(Style::default());
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
@@ -843,25 +870,45 @@ impl SysInspectUX {
         title::overlay_gradient_title(buf, canvas, &title_style, segments.as_slice());
 
         // Build rendered lines with section headers
-        let body_style = Style::default().fg(palette::FG).bg(bg);
+        let body_style = Style::default().fg(palette::FG);
 
         // Layout: scrollable content area + close button
         let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Min(1), Constraint::Length(1)]).split(inner);
         let content_area = chunks[0];
         let btn_area = chunks[1];
 
-        let rule_s = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
-        let rule_f = Style::default().fg(palette::PROCESSING_BASE);
+        let text_w = content_area.width.saturating_sub(1);
+
+        let glamour_text_fg = palette::PROCESSING;
+        let glamour_grad_start = palette::PRIMARY;
+        let glamour_grad_end = palette::PROCESSING_DIMMED;
 
         // Compute total lines for scrollbar
         let mut total_lines = 0usize;
+        let desc_max_w = text_w.saturating_sub(3) as usize;
         for line in text.split('\n') {
             if line.starts_with("Model: ") || line.starts_with("Target \"") || line.starts_with("Context:") || line.is_empty() {
                 total_lines += 1;
+            } else if line.contains("  required") || line.contains("  optional") {
+                let tag = if line.contains("  required") { "required" } else { "optional" };
+                let tag_pos = line.find(&format!("  {tag}")).unwrap_or(line.len());
+                let key = &line[..tag_pos];
+                let indent = "    ";
+                let after_key = (indent.len() + key.len()) as u16;
+                let desc_col = after_key + 2 + tag.len() as u16 + 2;
+                let desc_width = text_w.saturating_sub(desc_col).max(10) as usize;
+                let rest = &line[tag_pos + 2 + tag.len()..];
+                let desc = rest.trim_start();
+                if desc.is_empty() {
+                    total_lines += 1;
+                } else {
+                    let wrapped = wrap_text(desc, desc_width);
+                    total_lines += wrapped.len().max(1);
+                }
             } else {
                 let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
                 let indent = if is_list { "      " } else { "    " };
-                total_lines += wrap_text(&format!("{indent}{line}"), (content_area.width.saturating_sub(3)) as usize).len().max(1);
+                total_lines += wrap_text(&format!("{indent}{line}"), desc_max_w).len().max(1);
             }
         }
         let max_off = total_lines.saturating_sub(content_area.height as usize);
@@ -873,20 +920,69 @@ impl SysInspectUX {
             if yy >= content_area.bottom() {
                 break;
             }
-            if let Some(title) = line.strip_prefix("Model: ") {
+            if let Some(model_name) = line.strip_prefix("Model: ") {
                 in_context = false;
-                super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
+                let prefix = " Model \"";
+                let suffix = "\" ";
+                let cx = content_area.x;
+                buf.set_string(cx, yy, prefix, Style::default().fg(glamour_text_fg));
+                let name_x = cx + prefix.len() as u16;
+                buf.set_string(name_x, yy, model_name, Style::default().fg(palette::PRIMARY));
+                let fill_x = name_x + model_name.len() as u16;
+                buf.set_string(fill_x, yy, suffix, Style::default().fg(glamour_text_fg));
+                gradient_rule(
+                    Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
+                    buf,
+                    fill_x + suffix.len() as u16,
+                    glamour_grad_start,
+                    glamour_grad_end,
+                );
                 yy += 1;
             } else if line.starts_with("Target \"") {
                 in_context = false;
-                if let Some(colon) = line.find(':') {
-                    let title = &line[..colon];
-                    super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, title, rule_s, rule_f);
+                let prefix_end = line.find(':').unwrap_or(line.len());
+                let title_line = &line[..prefix_end];
+                if let Some(quote_open) = title_line.find('"')
+                    && let Some(quote_close) = title_line[quote_open + 1..].find('"')
+                {
+                    let before = format!(" {}", &title_line[..=quote_open]);
+                    let target_name = &title_line[quote_open + 1..quote_open + 1 + quote_close];
+                    let after = "\" ";
+                    let cx = content_area.x;
+                    buf.set_string(cx, yy, &before, Style::default().fg(glamour_text_fg));
+                    let name_x = cx + before.len() as u16;
+                    buf.set_string(name_x, yy, target_name, Style::default().fg(palette::PRIMARY));
+                    let fill_x = name_x + target_name.len() as u16;
+                    buf.set_string(fill_x, yy, after, Style::default().fg(glamour_text_fg));
+                    gradient_rule(
+                        Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
+                        buf,
+                        fill_x + after.len() as u16,
+                        glamour_grad_start,
+                        glamour_grad_end,
+                    );
                     yy += 1;
+                    continue;
                 }
+                dashed_title(
+                    Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
+                    buf,
+                    title_line,
+                    glamour_text_fg,
+                    glamour_grad_start,
+                    glamour_grad_end,
+                );
+                yy += 1;
             } else if line.starts_with("Context:") {
                 in_context = true;
-                super::wgt::render_rule_line(Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 }, buf, "Context", rule_s, rule_f);
+                dashed_title(
+                    Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
+                    buf,
+                    "Context",
+                    glamour_text_fg,
+                    glamour_grad_start,
+                    glamour_grad_end,
+                );
                 yy += 1;
             } else if line.is_empty() {
                 yy += 1;
@@ -899,20 +995,35 @@ impl SysInspectUX {
                 let tag_color = if tag == "required" { palette::WARNING_PEAK } else { palette::MUTED };
                 let desc = rest.trim_start();
                 if yy < content_area.bottom() {
-                    buf.set_string(content_area.x, yy, format!("{indent}{key}"), Style::default().fg(palette::ACCENT));
                     let after_key = (indent.len() + key.len()) as u16;
-                    buf.set_string(content_area.x + after_key, yy, format!("  {tag}"), Style::default().fg(tag_color));
-                    if !desc.is_empty() {
-                        let after_tag = after_key + 2 + tag.len() as u16;
-                        let dstyle = if desc == "Unknown field" { Style::default().fg(palette::FAINT) } else { body_style };
-                        buf.set_string(content_area.x + after_tag, yy, format!("  {desc}"), dstyle);
+                    let desc_col = content_area.x + after_key + 2 + tag.len() as u16 + 2;
+                    let desc_width = content_area.right().saturating_sub(1).saturating_sub(desc_col).max(10) as usize;
+                    let dstyle = if desc == "Unknown field" { Style::default().fg(palette::FAINT) } else { body_style };
+
+                    if desc.is_empty() {
+                        buf.set_string(content_area.x, yy, format!("{indent}{key}"), Style::default().fg(palette::ACCENT));
+                        buf.set_string(content_area.x + after_key, yy, format!("  {tag}"), Style::default().fg(tag_color));
+                        yy += 1;
+                    } else {
+                        let wrapped = wrap_text(desc, desc_width);
+                        let first_line = format!("{indent}{key}  {tag}  {}", wrapped[0]);
+                        buf.set_string(content_area.x, yy, &first_line, body_style);
+                        buf.set_string(content_area.x, yy, format!("{indent}{key}"), Style::default().fg(palette::ACCENT));
+                        buf.set_string(content_area.x + after_key, yy, format!("  {tag}"), Style::default().fg(tag_color));
+                        yy += 1;
+                        for cont in &wrapped[1..] {
+                            if yy >= content_area.bottom() {
+                                break;
+                            }
+                            buf.set_string(desc_col, yy, cont, dstyle);
+                            yy += 1;
+                        }
                     }
-                    yy += 1;
                 }
             } else {
                 let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
                 let indent = if is_list { "      " } else { "    " };
-                for wrapped in wrap_text(&format!("{indent}{line}"), (content_area.width.saturating_sub(3)) as usize) {
+                for wrapped in wrap_text(&format!("{indent}{line}"), (text_w.saturating_sub(3)) as usize) {
                     if yy >= content_area.bottom() {
                         break;
                     }
