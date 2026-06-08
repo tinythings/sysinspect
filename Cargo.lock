@@ -6569,6 +6569,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ratatui-glamour"
+version = "0.1.0"
+dependencies = [
+ "ratatui",
+]
+
+[[package]]
 name = "ratatui-macros"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8432,6 +8439,7 @@ dependencies = [
  "rand 0.9.4",
  "ratatui",
  "ratatui-cheese",
+ "ratatui-glamour",
  "serde_json",
  "sysinfo 0.33.1",
  "tokio",

@@ -1,5 +1,5 @@
 use crate::{MEM_LOGGER, call_master_console, ui::elements::DbListItem};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -14,7 +14,10 @@ use libsysinspect::{
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
-    commands::{CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_TRAITS_UPDATE},
+    commands::{
+        CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS,
+        CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+    },
 };
 use ratatui::{
     DefaultTerminal, Frame,
@@ -137,6 +140,11 @@ pub struct SysInspectUX {
     pub minions_menu_visible: bool,
     pub minions_menu_sel: usize,
 
+    // Cluster-wide operation confirmation
+    pub cluster_confirm_visible: bool,
+    pub cluster_confirm_choice: AlertResult,
+    pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all
+
     // Tag popup
     pub tag_visible: bool,
     pub tag_key_buf: String,
@@ -216,6 +224,10 @@ impl Default for SysInspectUX {
 
             minions_menu_visible: false,
             minions_menu_sel: 0,
+
+            cluster_confirm_visible: false,
+            cluster_confirm_choice: AlertResult::default(),
+            pending_cluster_action: 0,
 
             tag_visible: false,
             tag_key_buf: String::new(),
@@ -466,6 +478,10 @@ impl SysInspectUX {
             return self.on_minions_menu(e);
         }
 
+        if !self.minion_logs_visible && !self.minion_traits_visible && self.dispatch_minion_shortcut(&e) {
+            return true;
+        }
+
         match self.minions_focus {
             0 => self.on_minions_filter(e),
             _ => self.on_minions_panes(e),
@@ -607,7 +623,7 @@ impl SysInspectUX {
     }
 
     fn minions_menu_len() -> usize {
-        macts::MENU_ITEMS.len()
+        macts::total_menu_items()
     }
 
     fn on_minions_menu(&mut self, e: event::KeyEvent) -> bool {
@@ -625,28 +641,30 @@ impl SysInspectUX {
             KeyCode::Enter => {
                 self.minions_menu_visible = false;
                 if self.minions_menu_sel == 0 {
-                    self.minion_logs_visible = true;
-                    self.minion_logs_filter = ratatui_cheese::input::InputState::new();
-                    self.minion_logs_filter_focus = false;
-                    self.status_at_minion_logs();
-                    if let Err(err) = self.load_selected_minion_logs() {
-                        self.minion_logs_visible = false;
-                        self.error_alert_visible = true;
-                        self.error_alert_message = err.to_string();
-                        self.status_at_minions_browser();
-                    }
+                    self.open_logs_popup();
                 } else if self.minions_menu_sel == 1 {
-                    self.minion_traits_visible = true;
-                    self.minion_traits_rows = Vec::new();
-                    self.minion_traits_tree_state = None;
-                    self.minion_traits_modified = false;
-                    self.minion_traits_filter = ratatui_cheese::input::InputState::new();
-                    self.minion_traits_filter_focus = false;
-                    self.status_at_minion_traits();
-                    self.load_selected_minion_info();
+                    self.open_traits_popup();
+                } else if self.minions_menu_sel == 2 {
+                    self.do_minion_start();
+                } else if self.minions_menu_sel == 3 {
+                    self.do_minion_shutdown();
+                } else if self.minions_menu_sel == 4 {
+                    self.do_minion_reconnect();
+                } else if self.minions_menu_sel == 5 {
+                    self.cluster_confirm_visible = true;
+                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                    self.pending_cluster_action = 1;
+                } else if self.minions_menu_sel == 6 {
+                    self.cluster_confirm_visible = true;
+                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                    self.pending_cluster_action = 2;
                 }
             }
-            _ => {}
+            _ => {
+                if self.dispatch_minion_shortcut(&e) {
+                    self.minions_menu_visible = false;
+                }
+            }
         }
         true
     }
@@ -926,6 +944,202 @@ impl SysInspectUX {
             2 => self.filtered_offline().get(self.minions_offline_sel).map(|row| (*row).clone()),
             _ => None,
         }
+    }
+
+    fn console_error_alert(&mut self, op: &str, host: &str, err: SysinspectError) {
+        self.error_alert_visible = true;
+        self.error_alert_message = format!("{op} {host}: {err}");
+        self.status_at_minions_browser();
+    }
+
+    fn do_minion_start(&mut self) {
+        let row = match self.selected_popup_minion() {
+            Some(row) => row,
+            None => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No minion selected".to_string();
+                self.status_at_minions_browser();
+                return;
+            }
+        };
+        let host = Self::online_host(&row);
+        let mid = row.minion_id.clone();
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_HOPSTART}"), "*", None, Some(&mid), None).await
+            })
+        }) {
+            Ok(_) => self.status_at_minions_browser(),
+            Err(err) => self.console_error_alert("Start", &host, err),
+        }
+    }
+
+    fn do_minion_shutdown(&mut self) {
+        let row = match self.selected_popup_minion() {
+            Some(row) => row,
+            None => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No minion selected".to_string();
+                self.status_at_minions_browser();
+                return;
+            }
+        };
+        let host = Self::online_host(&row);
+        let mid = row.minion_id.clone();
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_SHUTDOWN}"), "*", None, Some(&mid), None).await
+            })
+        }) {
+            Ok(_) => self.status_at_minions_browser(),
+            Err(err) => self.console_error_alert("Shutdown", &host, err),
+        }
+    }
+
+    fn do_minion_reconnect(&mut self) {
+        let row = match self.selected_popup_minion() {
+            Some(row) => row,
+            None => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No minion selected".to_string();
+                self.status_at_minions_browser();
+                return;
+            }
+        };
+        let host = Self::online_host(&row);
+        let mid = row.minion_id.clone();
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_RECONNECT}"), "*", None, Some(&mid), None).await
+            })
+        }) {
+            Ok(_) => self.status_at_minions_browser(),
+            Err(err) => self.console_error_alert("Reconnect", &host, err),
+        }
+    }
+
+    fn dispatch_minion_shortcut(&mut self, e: &event::KeyEvent) -> bool {
+        match e.code {
+            KeyCode::Char('l') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_logs_popup();
+                true
+            }
+            KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_traits_popup();
+                true
+            }
+            KeyCode::Char('s') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.do_minion_start();
+                true
+            }
+            KeyCode::Char('d') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.do_minion_shutdown();
+                true
+            }
+            KeyCode::Char('f') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.do_minion_reconnect();
+                true
+            }
+            KeyCode::Char('x') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.cluster_confirm_visible = true;
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                self.pending_cluster_action = 1;
+                true
+            }
+            KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.cluster_confirm_visible = true;
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                self.pending_cluster_action = 2;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn on_cluster_confirm(&mut self, e: event::KeyEvent) -> bool {
+        if !self.cluster_confirm_visible {
+            return false;
+        }
+        match e.code {
+            KeyCode::Tab => {
+                if self.cluster_confirm_choice == AlertResult::Default {
+                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                } else {
+                    self.cluster_confirm_choice = AlertResult::Default;
+                }
+            }
+            KeyCode::Enter => {
+                self.cluster_confirm_visible = false;
+                if self.cluster_confirm_choice == AlertResult::ClusterConfirm {
+                    match self.pending_cluster_action {
+                        1 => self.do_cluster_shutdown(),
+                        2 => self.do_cluster_reconnect(),
+                        _ => {}
+                    }
+                }
+                self.pending_cluster_action = 0;
+                self.status_at_minions_browser();
+            }
+            KeyCode::Esc => {
+                self.cluster_confirm_visible = false;
+                self.pending_cluster_action = 0;
+                self.status_at_minions_browser();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn do_cluster_shutdown(&mut self) {
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SHUTDOWN}"), "*", None, None, None).await })
+        }) {
+            Ok(_) => self.status_at_minions_browser(),
+            Err(err) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cluster shutdown failed: {err}");
+                self.status_at_minions_browser();
+            }
+        }
+    }
+
+    fn do_cluster_reconnect(&mut self) {
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_RECONNECT}"), "*", None, None, None).await })
+        }) {
+            Ok(_) => self.status_at_minions_browser(),
+            Err(err) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cluster reconnect failed: {err}");
+                self.status_at_minions_browser();
+            }
+        }
+    }
+
+    fn open_logs_popup(&mut self) {
+        self.minion_logs_visible = true;
+        self.minion_logs_filter = ratatui_cheese::input::InputState::new();
+        self.minion_logs_filter_focus = false;
+        self.status_at_minion_logs();
+        if let Err(err) = self.load_selected_minion_logs() {
+            self.minion_logs_visible = false;
+            self.error_alert_visible = true;
+            self.error_alert_message = err.to_string();
+            self.status_at_minions_browser();
+        }
+    }
+
+    fn open_traits_popup(&mut self) {
+        self.minion_traits_visible = true;
+        self.minion_traits_rows = Vec::new();
+        self.minion_traits_tree_state = None;
+        self.minion_traits_modified = false;
+        self.minion_traits_filter = ratatui_cheese::input::InputState::new();
+        self.minion_traits_filter_focus = false;
+        self.status_at_minion_traits();
+        self.load_selected_minion_info();
     }
 
     fn load_selected_minion_logs(&mut self) -> Result<(), SysinspectError> {
@@ -1274,6 +1488,10 @@ impl SysInspectUX {
             return;
         }
 
+        if self.on_cluster_confirm(e) {
+            return;
+        }
+
         if self.on_error_alert(e) {
             return;
         }
@@ -1455,7 +1673,7 @@ impl SysInspectUX {
                     self.error_alert_message = format!("Failed to load models: {err}");
                 }
             },
-            KeyCode::Char('o') => match self.fetch_minions() {
+            KeyCode::Char('o') if !e.modifiers.contains(KeyModifiers::CONTROL) => match self.fetch_minions() {
                 Ok(rows) if rows.is_empty() => {
                     self.error_alert_visible = true;
                     self.error_alert_message = "No minions registered yet".to_string();

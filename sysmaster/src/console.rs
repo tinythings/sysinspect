@@ -542,6 +542,97 @@ impl SysMaster {
         }))
     }
 
+    async fn minion_hopstart(master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str) -> Result<ConsoleResponse, SysinspectError> {
+        let (minion_id, alive) = {
+            let mut guard = master.lock().await;
+            guard.selected_console_minion(query, traits, mid).await?
+        };
+
+        if alive {
+            return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} is already online")));
+        }
+
+        let target = {
+            let guard = master.lock().await;
+            let cmdb = guard
+                .mreg
+                .lock()
+                .await
+                .get_cmdb(&minion_id)
+                .map_err(|err| SysinspectError::InvalidQuery(format!("Failed to look up minion {minion_id}: {err}")))?
+                .ok_or_else(|| SysinspectError::InvalidQuery(format!("Minion {minion_id} does not have CMDB hopstart data")))?;
+
+            if cmdb.backend() != Some("hopstart") {
+                return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} backend is not hopstart")));
+            }
+
+            let (host, root, user, bin, config) = match (cmdb.host(), cmdb.root(), cmdb.user(), cmdb.bin(), cmdb.config()) {
+                (Some(host), Some(root), Some(user), Some(bin), Some(config)) => (host, root, user, bin, config),
+                _ => {
+                    return Err(SysinspectError::InvalidQuery(format!("Incomplete CMDB startup inventory for {minion_id}")));
+                }
+            };
+
+            HopStartTarget::new(host.to_string(), root.to_string(), user.to_string(), bin.to_string(), config.to_string())
+        };
+
+        HopStarter::new(master.lock().await.cfg.hopstart()).issue(vec![target]).await;
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_start".to_string(), target: minion_id, count: 1, items: vec![] }))
+    }
+
+    async fn minion_shutdown(master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str) -> Result<ConsoleResponse, SysinspectError> {
+        let (minion_id, _alive, msg) = {
+            let mut guard = master.lock().await;
+            let (minion_id, alive) = guard.selected_console_minion(query, traits, mid).await?;
+            if !alive {
+                return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} is offline")));
+            }
+            let msg = guard
+                .msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_SHUTDOWN}"), "", "", &minion_id, "")
+                .await
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct shutdown request for {minion_id}")))?;
+            (minion_id, alive, msg)
+        };
+
+        let reply = Self::await_minion_console_reply(master, &minion_id, msg).await?;
+        if !reply.ok {
+            return Err(SysinspectError::ProtoError(if reply.error.is_empty() {
+                format!("Minion {minion_id} shutdown failed")
+            } else {
+                reply.error
+            }));
+        }
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_shutdown".to_string(), target: minion_id, count: 1, items: vec![] }))
+    }
+
+    async fn minion_reconnect(master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str) -> Result<ConsoleResponse, SysinspectError> {
+        let (minion_id, _alive, msg) = {
+            let mut guard = master.lock().await;
+            let (minion_id, alive) = guard.selected_console_minion(query, traits, mid).await?;
+            if !alive {
+                return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} is offline")));
+            }
+            let msg = guard
+                .msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_RECONNECT}"), "", "", &minion_id, "")
+                .await
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct reconnect request for {minion_id}")))?;
+            (minion_id, alive, msg)
+        };
+
+        let reply = Self::await_minion_console_reply(master, &minion_id, msg).await?;
+        if !reply.ok {
+            return Err(SysinspectError::ProtoError(if reply.error.is_empty() {
+                format!("Minion {minion_id} reconnect failed")
+            } else {
+                reply.error
+            }));
+        }
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_reconnect".to_string(), target: minion_id, count: 1, items: vec![] }))
+    }
+
     /// Register the concrete minion ids targeted by one outbound console message.
     ///
     /// This keeps task tracking aligned with console-initiated broadcasts so the
@@ -629,6 +720,27 @@ impl SysMaster {
 
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}")) {
             return match master.lock().await.hopstart_console_response(&query.query, "", &query.mid).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(err.to_string()),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_HOPSTART}")) {
+            return match Self::minion_hopstart(Arc::clone(&master), &query.query, &query.traits, &query.mid).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(err.to_string()),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_SHUTDOWN}")) {
+            return match Self::minion_shutdown(Arc::clone(&master), &query.query, &query.traits, &query.mid).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(err.to_string()),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_RECONNECT}")) {
+            return match Self::minion_reconnect(Arc::clone(&master), &query.query, &query.traits, &query.mid).await {
                 Ok(response) => response,
                 Err(err) => ConsoleResponse::err(err.to_string()),
             };

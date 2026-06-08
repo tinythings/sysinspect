@@ -123,6 +123,34 @@ impl SysInspectUX {
         );
     }
 
+    pub fn dialog_cluster_confirm(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.cluster_confirm_visible {
+            return;
+        }
+        let text = match self.pending_cluster_action {
+            1 => "Shut down every online minion\nin the entire cluster?",
+            2 => "Force every online minion to drop\nand re-establish its connection?",
+            _ => return,
+        };
+        Self::_popup_ex(
+            parent,
+            buf,
+            Some("Cluster Operation"),
+            text,
+            None,
+            Alignment::Center,
+            self.cluster_confirm_choice.clone(),
+            AlertButtons::YesNo,
+            Some(50),
+            Some(palette::PROCESSING_PEAK),
+            None,
+            None,
+            Some(palette::WHITE),
+            None,
+            None,
+        );
+    }
+
     /// Draws a button in MS-DOS style (no shadow)
     pub(crate) fn format_button(label: &str) -> String {
         let trimmed: String = if label.chars().count() > 10 { label.chars().take(10).collect() } else { label.to_string() };

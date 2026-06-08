@@ -49,6 +49,18 @@ pub mod commands {
 
     // List available models on the master
     pub const CLUSTER_MODELS: &str = "cluster/models";
+
+    // SSH-start one offline hopstart-backed minion
+    pub const CLUSTER_MINION_HOPSTART: &str = "cluster/minion/hopstart";
+
+    // Shut down one specific minion
+    pub const CLUSTER_MINION_SHUTDOWN: &str = "cluster/minion/shutdown";
+
+    // Force one minion to drop and re-establish its transport connection
+    pub const CLUSTER_MINION_RECONNECT: &str = "cluster/minion/reconnect";
+
+    // Force all online minions to reconnect (cluster-wide broadcast)
+    pub const CLUSTER_RECONNECT: &str = "cluster/reconnect";
 }
 
 ///
