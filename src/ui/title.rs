@@ -3,6 +3,7 @@ use ratatui::{
     layout::{Position, Rect},
     style::Color,
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub struct TitleSegment {
     pub text: String,
@@ -60,7 +61,7 @@ pub fn overlay_gradient_title(buf: &mut Buffer, block_rect: Rect, style: &TitleS
     // Left cap: colored glyph only, background stays whatever the block already painted.
     if cx < x_end {
         cell_set_symbol_fg(buf, cx, row_y, style.left_cap, segments[0].bg);
-        cx += 1;
+        cx += symbol_width(style.left_cap);
     }
 
     // Segments with proper powerline-style separators.
@@ -69,16 +70,17 @@ pub fn overlay_gradient_title(buf: &mut Buffer, block_rect: Rect, style: &TitleS
         if i > 0 && cx < x_end {
             let prev_bg = segments[i - 1].bg;
             cell_set_symbol_style(buf, cx, row_y, style.join_glyph, prev_bg, seg.bg);
-            cx += 1;
+            cx += symbol_width(style.join_glyph);
         }
 
         // Segment text
-        for ch in seg.text.chars() {
-            if cx >= x_end {
-                break;
+        if cx < x_end {
+            let available = x_end.saturating_sub(cx) as usize;
+            let text = truncate_to_width(&seg.text, available);
+            if !text.is_empty() {
+                cell_set_string_style(buf, cx, row_y, &text, seg.fg, seg.bg);
+                cx += UnicodeWidthStr::width(text.as_str()) as u16;
             }
-            cell_set_symbol_style(buf, cx, row_y, ch.to_string().as_str(), seg.fg, seg.bg);
-            cx += 1;
         }
 
         if cx >= x_end {
@@ -90,7 +92,7 @@ pub fn overlay_gradient_title(buf: &mut Buffer, block_rect: Rect, style: &TitleS
     let last_bg = segments.last().unwrap().bg;
     if cx < x_end {
         cell_set_symbol_fg(buf, cx, row_y, style.join_glyph, last_bg);
-        cx += 1;
+        cx += symbol_width(style.join_glyph);
     }
 
     // Gradient fill: return from the last segment color to the first/left border
@@ -118,6 +120,26 @@ pub fn overlay_gradient_title(buf: &mut Buffer, block_rect: Rect, style: &TitleS
         };
         cell_set_symbol_fg(buf, x, row_y, style.gradient_glyph, grad);
     }
+}
+
+pub fn overlay_title_width(style: &TitleStyle, segments: &[TitleSegment]) -> u16 {
+    if segments.is_empty() {
+        return 0;
+    }
+
+    let mut width = symbol_width(style.left_cap) + symbol_width(style.join_glyph);
+    for (idx, seg) in segments.iter().enumerate() {
+        if idx > 0 {
+            width += symbol_width(style.join_glyph);
+        }
+        width += UnicodeWidthStr::width(seg.text.as_str()) as u16;
+    }
+
+    width
+}
+
+pub fn ensure_inner_width(content_width: u16, style: &TitleStyle, segments: &[TitleSegment]) -> u16 {
+    content_width.max(overlay_title_width(style, segments))
 }
 
 /// Interpolate between indexed colors in RGB space, then quantize back to the
@@ -192,6 +214,28 @@ fn nearest_indexed(target: (u8, u8, u8)) -> u8 {
     best_index
 }
 
+fn symbol_width(symbol: &str) -> u16 {
+    UnicodeWidthStr::width(symbol) as u16
+}
+
+fn truncate_to_width(text: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out
+}
+
 fn cell_set_symbol_fg(buf: &mut Buffer, x: u16, y: u16, symbol: &str, fg: Color) {
     if let Some(cell) = buf.cell_mut(Position::new(x, y)) {
         cell.set_symbol(symbol);
@@ -205,4 +249,8 @@ fn cell_set_symbol_style(buf: &mut Buffer, x: u16, y: u16, symbol: &str, fg: Col
         cell.set_fg(fg);
         cell.set_bg(bg);
     }
+}
+
+fn cell_set_string_style(buf: &mut Buffer, x: u16, y: u16, text: &str, fg: Color, bg: Color) {
+    buf.set_string(x, y, text, ratatui::style::Style::default().fg(fg).bg(bg));
 }

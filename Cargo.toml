@@ -30,8 +30,9 @@ serde_json = "1.0.150"
 jsonpath_lib = "0.3.0"
 openssl = { version = "0.10.80", features = ["vendored"] }
 ratatui-cheese = "0.7.0"
-ratatui-glamour = { path = "./ratatui-glamour" }
+ratatui-glamour = { git = "https://github.com/tinythings/ratatui-glamour.git" }
 glob = "0.3.3"
+unicode-width = "0.2.2"
 
 [workspace]
 resolver = "2"
@@ -69,7 +70,6 @@ members = [
     "libsensors",
     "libmenotify",
     "libdatastore",
-    "ratatui-glamour",
     "modules/cfg/resource"]
 
 [profile.dev]

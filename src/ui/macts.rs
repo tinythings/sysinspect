@@ -9,6 +9,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Widget},
 };
 use ratatui_glamour::rule::dashed_title;
+use unicode_width::UnicodeWidthStr;
 
 struct MenuSection {
     title: &'static str,
@@ -46,12 +47,29 @@ impl SysInspectUX {
             .map(Self::online_host)
             .unwrap_or_else(|| "unknown".to_string());
 
-        let max_label_w = MENU_SECTIONS.iter().flat_map(|s| s.items.iter()).map(|(label, _)| label.len()).max().unwrap_or(10);
+        let max_label_w = MENU_SECTIONS
+            .iter()
+            .flat_map(|s| s.items.iter())
+            .map(|(label, _)| UnicodeWidthStr::width(*label))
+            .max()
+            .unwrap_or(10);
         let max_item_w = max_label_w + 34;
 
-        let title_segments = [" Actions on ".chars().count(), format!(" {host} ").chars().count()];
-        let title_w = 1usize + title_segments.iter().sum::<usize>() + (title_segments.len().saturating_sub(1)) + 1usize;
-        let inner_w = max_item_w.max(title_w) as u16;
+        let mut title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let is_cluster = self.minions_menu_sel >= 5;
+        let mut segments = vec![TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG }];
+        if is_cluster {
+            segments.push(TitleSegment { text: " Cluster ".into(), bg: palette::PROCESSING_PEAK, fg: palette::FG });
+            segments.push(TitleSegment {
+                text: " ⚡⚡⚡ ".into(),
+                bg: palette::ERROR_PEAK,
+                fg: palette::WARNING_PEAK,
+            });
+            title_style.gradient_target = Some(palette::ERROR_BASE);
+        } else {
+            segments.push(TitleSegment { text: format!(" {host} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK });
+        }
+        let inner_w = title::ensure_inner_width(max_item_w as u16, &title_style, &segments);
 
         let section_headers = MENU_SECTIONS.len() as u16;
         let item_rows = total_menu_items() as u16;
@@ -74,16 +92,7 @@ impl SysInspectUX {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[
-                TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-                TitleSegment { text: format!(" {host} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK },
-            ],
-        );
+        title::overlay_gradient_title(buf, canvas, &title_style, &segments);
 
         let hint_style = Style::default().fg(palette::PRIMARY);
 

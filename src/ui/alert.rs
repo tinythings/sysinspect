@@ -433,7 +433,7 @@ impl SysInspectUX {
 }
 
 /// Wrap text to a maximum width, preserving leading whitespace per paragraph.
-fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+pub(crate) fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     if text.is_empty() || max_width < 4 {
         return vec![];
     }

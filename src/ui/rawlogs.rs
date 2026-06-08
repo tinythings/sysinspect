@@ -17,24 +17,9 @@ impl SysInspectUX {
             return;
         }
 
-        let width = parent.width.saturating_sub(6).clamp(60, 140);
-        let height = parent.height.saturating_sub(4).clamp(10, parent.height.saturating_sub(2));
-        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
-        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
-        let canvas = Rect { x, y, width, height };
-        let bg = palette::BG_2;
-
-        Clear.render(canvas, buf);
         let border = if self.minion_logs_online { palette::PROCESSING_GLOW } else { palette::GRAY_0 };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(border))
-            .style(Style::default().bg(bg));
-        let inner = block.inner(canvas);
-        block.render(canvas, buf);
-
         let title_style = TitleStyle::cyberpunk(border);
+        let bg = palette::BG_2;
         let (logs_bg, logs_fg) = if self.minion_logs_online { (palette::PROCESSING_GLOW, palette::FG) } else { (palette::GRAY_0, palette::FG) };
         let (host_bg, host_fg) =
             if self.minion_logs_online { (palette::PROCESSING_HEAT, palette::SUCCESS) } else { (palette::GRAY_1, palette::ERROR) };
@@ -48,6 +33,22 @@ impl SysInspectUX {
         if self.minion_logs_polling {
             segments.push(TitleSegment { text: " \u{27F3} ".into(), bg: poll_bg, fg: poll_fg });
         }
+        let min_width = title::ensure_inner_width(60, &title_style, &segments).saturating_add(2);
+        let width = parent.width.saturating_sub(6).clamp(min_width, 140);
+        let height = parent.height.saturating_sub(4).clamp(10, parent.height.saturating_sub(2));
+        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
+        let canvas = Rect { x, y, width, height };
+
+        Clear.render(canvas, buf);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(border))
+            .style(Style::default().bg(bg));
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
         title::overlay_gradient_title(buf, canvas, &title_style, &segments);
 
         if inner.height < 5 {
