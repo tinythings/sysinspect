@@ -287,6 +287,7 @@ impl SysMinion {
             ConstraintResponse::new("Model execution failed".to_string()),
         );
         failure.set_cid(cycle_id.to_string());
+        failure.set_query(scheme.to_string());
         failure
     }
 
@@ -1735,8 +1736,8 @@ impl SysMinion {
             sr.set_traits(minion_traits(&self.cfg, false));
             sr.set_context(context::get_context(context));
 
-            sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id)));
-            sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
+            sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id, scheme)));
+            sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id, scheme)));
 
             match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
                 Ok(Ok(())) => {

@@ -918,7 +918,11 @@ impl SysMaster {
                     let sid = match m
                         .evtipc
                         .open_session(
-                            util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned()),
+                            pl.get("query").and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()).map(|v| v.to_string()).unwrap_or_else(|| {
+                                let entity = util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned());
+                                let state = util::dataconv::as_str(pl.get(&ProtoKey::SessionId.to_string()).cloned());
+                                if state.is_empty() || state == "$" { entity } else { format!("{entity}/{state}") }
+                            }),
                             util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()),
                             util::dataconv::as_str(pl.get(&ProtoKey::Timestamp.to_string()).cloned()),
                         )

@@ -192,6 +192,10 @@ impl ActionModResponse {
 /// can accept partially serialised data. Module does *not*
 /// sends empty properties over the protocol to save the bandwidth.
 pub struct ActionResponse {
+    // Full query path used to launch the model cycle.
+    #[serde(default)]
+    query: String,
+
     // Entity Id
     eid: String,
 
@@ -220,7 +224,7 @@ pub struct ActionResponse {
 
 impl ActionResponse {
     pub fn new(eid: String, aid: String, sid: String, response: ActionModResponse, constraints: ConstraintResponse) -> Self {
-        Self { eid, aid, sid, response, constraints, cid: "".to_string(), timestamp: Utc::now(), telemetry: vec![] }
+        Self { query: String::new(), eid, aid, sid, response, constraints, cid: "".to_string(), timestamp: Utc::now(), telemetry: vec![] }
     }
 
     /// Build an ActionResponse from sensor JSON event payload.
@@ -257,6 +261,11 @@ impl ActionResponse {
         &self.eid
     }
 
+    /// Return full query path used for this cycle, if known.
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
     /// Return action Id
     pub fn aid(&self) -> &str {
         &self.aid
@@ -284,6 +293,11 @@ impl ActionResponse {
         if self.cid.is_empty() {
             self.cid = cid;
         }
+    }
+
+    /// Set full query path.
+    pub fn set_query(&mut self, query: String) {
+        self.query = query;
     }
 
     /// Match Eid.

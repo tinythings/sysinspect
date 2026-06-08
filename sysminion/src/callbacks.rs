@@ -12,6 +12,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct ActionResponseCallback {
     cid: String,
+    query: String,
     minion: Arc<SysMinion>,
     telemetry_config: Option<TelemetrySpec>,
 }
@@ -19,8 +20,8 @@ pub struct ActionResponseCallback {
 impl ActionResponseCallback {
     /// The `cid` (Cycle ID) is used to identify the master cycle, so the response
     /// is registered with the other minions, grouped into the same call session.
-    pub(crate) fn new(minion: Arc<SysMinion>, cid: &str) -> Self {
-        Self { minion, cid: cid.to_owned(), telemetry_config: None }
+    pub(crate) fn new(minion: Arc<SysMinion>, cid: &str, query: &str) -> Self {
+        Self { minion, cid: cid.to_owned(), query: query.to_owned(), telemetry_config: None }
     }
 }
 
@@ -28,6 +29,7 @@ impl ActionResponseCallback {
 impl EventProcessorCallback for ActionResponseCallback {
     async fn on_action_response(&mut self, mut ar: ActionResponse) -> Result<(), SysinspectError> {
         ar.set_cid(self.cid.to_owned());
+        ar.set_query(self.query.clone());
         if let Some(tcfg) = &self.telemetry_config {
             ar.set_telemetry_config(tcfg.action());
         }
@@ -44,12 +46,13 @@ impl EventProcessorCallback for ActionResponseCallback {
 pub struct ModelResponseCallback {
     minion: Arc<SysMinion>,
     cid: String,
+    query: String,
     telemetry_config: Option<TelemetrySpec>,
 }
 
 impl ModelResponseCallback {
-    pub(crate) fn new(minion: Arc<SysMinion>, cid: &str) -> Self {
-        Self { minion, cid: cid.to_owned(), telemetry_config: None }
+    pub(crate) fn new(minion: Arc<SysMinion>, cid: &str, query: &str) -> Self {
+        Self { minion, cid: cid.to_owned(), query: query.to_owned(), telemetry_config: None }
     }
 }
 
@@ -68,6 +71,7 @@ impl EventProcessorCallback for ModelResponseCallback {
         );
 
         fin.set_cid(self.cid.to_owned());
+        fin.set_query(self.query.clone());
         if let Some(tcfg) = &self.telemetry_config {
             fin.set_telemetry_config(tcfg.minion());
         }

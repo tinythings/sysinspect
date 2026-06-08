@@ -277,12 +277,12 @@ impl Widget for &SysInspectUX {
         let cycles_max = self.cycles_buf.iter().map(|c| c.get_list_line(false).width()).max().unwrap_or(10);
         let minions_max = self.li_minions.iter().map(|m| m.get_list_line(false).width()).max().unwrap_or(8);
 
-        let content_w = cycles_max.max(minions_max).min(30);
-        let col_w = (content_w as u16 + 5).max(20);
+        let cycles_w = (cycles_max as u16 + 5).max(20).min(area.width.saturating_sub(20));
+        let minions_w = (minions_max as u16 + 5).max(20).min(area.width.saturating_sub(cycles_w).saturating_sub(10));
 
         let [cycles_a, minions_a, events_a]: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(col_w), Constraint::Length(col_w), Constraint::Min(0)])
+            .constraints([Constraint::Length(cycles_w), Constraint::Length(minions_w), Constraint::Min(0)])
             .split(area)
             .as_ref()
             .try_into()

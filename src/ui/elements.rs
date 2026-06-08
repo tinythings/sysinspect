@@ -52,13 +52,41 @@ impl CycleListItem {
     pub fn new(title: &str, event: EventSession) -> Self {
         CycleListItem { event, title: title.to_string() }
     }
+
+    fn display_query(query: &str) -> String {
+        query.strip_suffix("/$").unwrap_or(query).to_string()
+    }
+
+    fn query_spans(query: &str, dimmed: bool) -> Vec<Span<'static>> {
+        let display = Self::display_query(query);
+        if dimmed {
+            return vec![Span::styled(display, Style::default().fg(palette::FG))];
+        }
+
+        let parts: Vec<&str> = display.split('/').collect();
+        match parts.as_slice() {
+            [model, target] => vec![
+                Span::styled((*model).to_string(), Style::default().fg(palette::PROCESSING_BASE)),
+                Span::styled("/", Style::default().fg(palette::FG)),
+                Span::styled((*target).to_string(), Style::default().fg(palette::PROCESSING_HEAT)),
+            ],
+            [model, target, state] => vec![
+                Span::styled((*model).to_string(), Style::default().fg(palette::PROCESSING_BASE)),
+                Span::styled("/", Style::default().fg(palette::FG)),
+                Span::styled((*target).to_string(), Style::default().fg(palette::PROCESSING_HEAT)),
+                Span::styled("/", Style::default().fg(palette::FG)),
+                Span::styled((*state).to_string(), Style::default().fg(palette::PROCESSING_PEAK)),
+            ],
+            _ => vec![Span::styled(display, Style::default().fg(palette::FG))],
+        }
+    }
 }
 
 impl DbListItem for CycleListItem {
     type EventType = EventSession;
 
     fn title(&self) -> String {
-        format!("{} {}", self.event.query(), self.title)
+        format!("{} {}", Self::display_query(self.event.query()), self.title)
     }
 
     /// Return event
@@ -68,12 +96,9 @@ impl DbListItem for CycleListItem {
 
     /// Return list line
     fn get_list_line(&self, hl: bool) -> Line<'static> {
-        let _ = hl;
-        Line::from(vec![
-            Span::styled(self.event().get_ts_mask(None), Style::default().fg(palette::GRAY_1)),
-            Span::raw(" "),
-            Span::styled(self.event().query().to_string(), Style::default().fg(palette::FG)),
-        ])
+        let mut spans = vec![Span::styled(self.event().get_ts_mask(Some("%m-%d %H:%M")), Style::default().fg(palette::GRAY_1)), Span::raw(" ")];
+        spans.extend(Self::query_spans(self.event().query(), hl));
+        Line::from(spans)
     }
 }
 
