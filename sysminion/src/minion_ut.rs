@@ -237,6 +237,43 @@ mod tests {
         assert!(res.is_ok(), "instance did not exit on reconnect");
     }
 
+    #[test]
+    fn classify_execution_failure_marks_missing_module_as_module_resolve() {
+        let err = SysinspectError::ModuleError(
+            "Missing module \"runtime.lua-runtime\" in \"/usr/share/sysinspect/modules/runtime/lua-runtime\"".to_string(),
+        );
+
+        assert_eq!(SysMinion::classify_execution_failure_for_test(&err), "module_resolve");
+    }
+
+    #[test]
+    fn synthetic_execution_failure_response_carries_tui_visible_fields() {
+        let ar = SysMinion::build_execution_failure_response_for_test(
+            "cycle-123",
+            "runtimes/all/$",
+            "key:PRIVACY_POLICY_URL",
+            "module_resolve",
+            "Error loading module: Missing module \"runtime.lua-runtime\" in \"/usr/share/sysinspect/modules/runtime/lua-runtime\"",
+            "mid-42",
+        );
+
+        assert_eq!(ar.aid(), "execution_error");
+        assert_eq!(ar.eid(), "runtimes/all/$");
+        assert_eq!(ar.sid(), "$");
+        assert_eq!(ar.cid(), "cycle-123");
+        assert_eq!(ar.response.retcode(), 1);
+        assert!(ar.response.message().contains("Missing module"));
+
+        let data = ar.response.data().expect("execution failure response must carry data");
+        assert_eq!(data.get("kind").and_then(|v| v.as_str()), Some("execution_error"));
+        assert_eq!(data.get("phase").and_then(|v| v.as_str()), Some("module_resolve"));
+        assert_eq!(data.get("query").and_then(|v| v.as_str()), Some("runtimes/all/$"));
+        assert_eq!(data.get("context").and_then(|v| v.as_str()), Some("key:PRIVACY_POLICY_URL"));
+        assert_eq!(data.get("minion_id").and_then(|v| v.as_str()), Some("mid-42"));
+        assert!(data.get("error").and_then(|v| v.as_str()).is_some_and(|v| v.contains("Missing module")));
+        assert_eq!(ar.constraints.descr(), "Model execution failed");
+    }
+
     #[tokio::test]
     async fn proto_eof_emits_reconnect_signal() {
         let _guard = TEST_LOCK.lock().await;

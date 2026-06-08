@@ -267,6 +267,41 @@ impl SysMinion {
         "execution"
     }
 
+    fn build_execution_failure_response(cycle_id: &str, scheme: &str, context: &str, phase: &str, error: &str, minion_id: &str) -> ActionResponse {
+        let mut response = ActionModResponse::with_retcode(1);
+        response.set_message(error.to_string());
+        response.set_data(json!({
+            "kind": "execution_error",
+            "phase": phase,
+            "error": error,
+            "query": scheme,
+            "context": context,
+            "minion_id": minion_id,
+        }));
+
+        let mut failure = ActionResponse::new(
+            scheme.to_string(),
+            "execution_error".to_string(),
+            "$".to_string(),
+            response,
+            ConstraintResponse::new("Model execution failed".to_string()),
+        );
+        failure.set_cid(cycle_id.to_string());
+        failure
+    }
+
+    #[cfg(test)]
+    pub(crate) fn classify_execution_failure_for_test(err: &SysinspectError) -> &'static str {
+        Self::classify_execution_failure(err)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn build_execution_failure_response_for_test(
+        cycle_id: &str, scheme: &str, context: &str, phase: &str, error: &str, minion_id: &str,
+    ) -> ActionResponse {
+        Self::build_execution_failure_response(cycle_id, scheme, context, phase, error, minion_id)
+    }
+
     fn backlog_snapshot(&self) -> BacklogSnapshot {
         let journal = self.journal.stats().unwrap_or_default();
         let dpq = self.dpq.stats();
@@ -1609,25 +1644,7 @@ impl SysMinion {
     /// Launch sysinspect
     async fn launch_sysinspect(self: Arc<Self>, cycle_id: &str, scheme: &str, msp: &ModStatePayload, context: &str) {
         async fn emit_execution_failure(minion: Arc<SysMinion>, cycle_id: &str, scheme: &str, context: &str, phase: &str, error: &str) {
-            let mut response = ActionModResponse::with_retcode(1);
-            response.set_message(error.to_string());
-            response.set_data(json!({
-                "kind": "execution_error",
-                "phase": phase,
-                "error": error,
-                "query": scheme,
-                "context": context,
-                "minion_id": minion.get_minion_id(),
-            }));
-
-            let mut failure = ActionResponse::new(
-                scheme.to_string(),
-                "execution_error".to_string(),
-                "$".to_string(),
-                response,
-                ConstraintResponse::new("Model execution failed".to_string()),
-            );
-            failure.set_cid(cycle_id.to_string());
+            let failure = SysMinion::build_execution_failure_response(cycle_id, scheme, context, phase, error, minion.get_minion_id());
 
             if let Err(send_err) = minion.send_callback(failure).await {
                 log::error!("Failed to send execution failure callback for cycle {}: {}", cycle_id, send_err);
