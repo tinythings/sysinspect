@@ -245,6 +245,20 @@ impl DslBrowser {
         }
     }
 
+    fn ctxfields_update(&mut self) {
+        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).cloned();
+        let entry = self.resolved_model().and_then(|row| {
+            target_id.as_deref().and_then(|tid| row.target_actions.iter().find(|(id, _)| id == tid).map(|(_, actions)| actions.clone()))
+        });
+
+        if let Some(actions) = entry {
+            self.update_context_fields(&actions);
+        } else {
+            self.context_active = false;
+            self.context_fields = Vec::new();
+        }
+    }
+
     #[allow(clippy::type_complexity)]
     fn update_context_fields(&mut self, actions: &[(String, Vec<String>, Vec<(String, String, bool)>)]) {
         let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
@@ -599,6 +613,7 @@ impl DslBrowser {
             }
             DslFocus::State => {
                 handle_list_nav(code, &mut self.states);
+                self.ctxfields_update();
                 true
             }
             DslFocus::Minions => {
