@@ -732,7 +732,9 @@ async fn main() {
         sr.set_checkbook_labels(clidef::split_by(&params, "labels", None));
         sr.set_traits(get_minion_traits(None));
 
-        sr.start().await;
+        if let Err(err) = sr.start().await {
+            log::error!("{err}");
+        }
     }
 }
 

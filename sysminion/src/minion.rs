@@ -30,7 +30,10 @@ use libsysinspect::{
     context,
     inspector::SysInspectRunner,
     intp::{
-        actproc::{modfinder::ModCall, response::ActionResponse},
+        actproc::{
+            modfinder::ModCall,
+            response::{ActionModResponse, ActionResponse, ConstraintResponse},
+        },
         inspector::SysInspector,
     },
     journal::Journal,
@@ -242,6 +245,28 @@ pub struct SysMinion {
 }
 
 impl SysMinion {
+    fn classify_execution_failure(err: &SysinspectError) -> &'static str {
+        let msg = err.to_string();
+
+        if msg.contains("Missing module") {
+            return "module_resolve";
+        }
+        if msg.contains("Error loading model DSL") || msg.contains("Cannot resolve model path") {
+            return "model_load";
+        }
+        if msg.contains("Entities \"") && msg.contains("are not bound with the state") {
+            return "action_select";
+        }
+        if msg.contains("Action chain requires definition") || msg.contains("expected to be already") {
+            return "action_chain";
+        }
+        if msg.contains("failed to run") {
+            return "action_run";
+        }
+
+        "execution"
+    }
+
     fn backlog_snapshot(&self) -> BacklogSnapshot {
         let journal = self.journal.stats().unwrap_or_default();
         let dpq = self.dpq.stats();
@@ -1583,11 +1608,38 @@ impl SysMinion {
 
     /// Launch sysinspect
     async fn launch_sysinspect(self: Arc<Self>, cycle_id: &str, scheme: &str, msp: &ModStatePayload, context: &str) {
+        async fn emit_execution_failure(minion: Arc<SysMinion>, cycle_id: &str, scheme: &str, context: &str, phase: &str, error: &str) {
+            let mut response = ActionModResponse::with_retcode(1);
+            response.set_message(error.to_string());
+            response.set_data(json!({
+                "kind": "execution_error",
+                "phase": phase,
+                "error": error,
+                "query": scheme,
+                "context": context,
+                "minion_id": minion.get_minion_id(),
+            }));
+
+            let mut failure = ActionResponse::new(
+                scheme.to_string(),
+                "execution_error".to_string(),
+                "$".to_string(),
+                response,
+                ConstraintResponse::new("Model execution failed".to_string()),
+            );
+            failure.set_cid(cycle_id.to_string());
+
+            if let Err(send_err) = minion.send_callback(failure).await {
+                log::error!("Failed to send execution failure callback for cycle {}: {}", cycle_id, send_err);
+            }
+        }
+
         // Get the query first
         let mqr = match MinionQuery::new(scheme) {
             Ok(mqr) => mqr,
             Err(err) => {
                 log::error!("Query error: {err}");
+                emit_execution_failure(self.clone(), cycle_id, scheme, context, "query_parse", &err.to_string()).await;
                 return;
             }
         };
@@ -1612,6 +1664,15 @@ impl SysMinion {
                         Some(p) => p.to_path_buf(),
                         None => {
                             log::error!("Unable to determine parent directory for file: {}", dst.display());
+                            emit_execution_failure(
+                                self.clone(),
+                                cycle_id,
+                                scheme,
+                                context,
+                                "model_sync",
+                                &format!("Unable to determine parent directory for {}", dst.display()),
+                            )
+                            .await;
                             return;
                         }
                     };
@@ -1620,6 +1681,7 @@ impl SysMinion {
                         log::debug!("Creating directory: {}", dst_dir.display());
                         if let Err(err) = fs::create_dir_all(&dst_dir) {
                             log::error!("Unable to create directories for model download: {err}");
+                            emit_execution_failure(self.clone(), cycle_id, scheme, context, "model_sync", &err.to_string()).await;
                             return;
                         }
                     }
@@ -1627,6 +1689,7 @@ impl SysMinion {
                     log::debug!("Saving URI {uri_file} as {}", dst_dir.display());
                     if let Err(err) = fs::write(&dst, data) {
                         log::error!("Unable to save downloaded file to {}: {err}", dst.display());
+                        emit_execution_failure(self.clone(), cycle_id, scheme, context, "model_sync", &err.to_string()).await;
                         return;
                     }
                     dirty = true;
@@ -1659,11 +1722,17 @@ impl SysMinion {
             sr.add_model_callback(Box::new(ModelResponseCallback::new(self.as_ptr(), cycle_id)));
 
             match tokio::task::spawn_blocking(move || futures::executor::block_on(sr.start())).await {
-                Ok(()) => {
+                Ok(Ok(())) => {
                     log::debug!("Task {} finished", cycle_id);
+                }
+                Ok(Err(err)) => {
+                    log::error!("Model execution failed for cycle {}: {}", cycle_id, err);
+                    let phase = Self::classify_execution_failure(&err);
+                    emit_execution_failure(self.clone(), cycle_id, scheme, context, phase, &err.to_string()).await;
                 }
                 Err(e) => {
                     log::error!("Blocking task crashed: {e}");
+                    emit_execution_failure(self.clone(), cycle_id, scheme, context, "runner_crash", &e.to_string()).await;
                 }
             };
             self.as_ptr().send_model_ack(cycle_id).await;

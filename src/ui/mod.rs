@@ -131,6 +131,7 @@ pub struct SysInspectUX {
     pub minion_logs_polling: bool,
     pub minion_logs_online: bool,
     pub minion_logs_last_fetch: Instant,
+    pub minion_logs_viewport_rows: Cell<usize>,
 
     // Online minions action menu
     pub minions_menu_visible: bool,
@@ -211,6 +212,7 @@ impl Default for SysInspectUX {
             minion_logs_polling: true,
             minion_logs_online: true,
             minion_logs_last_fetch: Instant::now(),
+            minion_logs_viewport_rows: Cell::new(0),
 
             minions_menu_visible: false,
             minions_menu_sel: 0,
@@ -954,6 +956,9 @@ impl SysInspectUX {
         if !self.minion_logs_visible {
             return false;
         }
+        let page = self.minion_logs_viewport_rows.get().max(1);
+        let total_rows = self.filtered_rendered_log_lines().len();
+        let max_top = total_rows.saturating_sub(page);
         if self.minion_logs_filter_focus {
             match e.code {
                 KeyCode::Esc => {
@@ -997,7 +1002,7 @@ impl SysInspectUX {
             }
             KeyCode::Up => {
                 if self.minion_logs_scroll == usize::MAX {
-                    self.minion_logs_scroll = self.minion_logs_lines.len().saturating_sub(1);
+                    self.minion_logs_scroll = max_top;
                 }
                 self.minion_logs_scroll = self.minion_logs_scroll.saturating_sub(1);
             }
@@ -1005,23 +1010,23 @@ impl SysInspectUX {
                 if self.minion_logs_scroll == usize::MAX {
                     return true;
                 }
-                self.minion_logs_scroll = (self.minion_logs_scroll + 1).min(self.minion_logs_lines.len().saturating_sub(1));
-                if self.minion_logs_scroll >= self.minion_logs_lines.len().saturating_sub(1) {
+                self.minion_logs_scroll = (self.minion_logs_scroll + 1).min(max_top);
+                if self.minion_logs_scroll >= max_top {
                     self.minion_logs_scroll = usize::MAX;
                 }
             }
             KeyCode::PageUp => {
                 if self.minion_logs_scroll == usize::MAX {
-                    self.minion_logs_scroll = self.minion_logs_lines.len().saturating_sub(1);
+                    self.minion_logs_scroll = max_top;
                 }
-                self.minion_logs_scroll = self.minion_logs_scroll.saturating_sub(10);
+                self.minion_logs_scroll = self.minion_logs_scroll.saturating_sub(page);
             }
             KeyCode::PageDown => {
                 if self.minion_logs_scroll == usize::MAX {
                     return true;
                 }
-                self.minion_logs_scroll = (self.minion_logs_scroll + 10).min(self.minion_logs_lines.len().saturating_sub(1));
-                if self.minion_logs_scroll >= self.minion_logs_lines.len().saturating_sub(1) {
+                self.minion_logs_scroll = (self.minion_logs_scroll + page).min(max_top);
+                if self.minion_logs_scroll >= max_top {
                     self.minion_logs_scroll = usize::MAX;
                 }
             }

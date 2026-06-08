@@ -75,31 +75,23 @@ impl SysInspectUX {
         };
 
         let text_area = Rect { x: content_area.x, y: content_area.y, width: content_area.width.saturating_sub(1), height: content_area.height };
+        self.minion_logs_viewport_rows.set(text_area.height as usize);
 
+        let rendered_lines = self.filtered_rendered_log_lines();
         let text_h = text_area.height as usize;
-        let start = if self.minion_logs_scroll == usize::MAX {
-            let mut remaining = text_h;
-            let mut idx = filtered_lines.len();
-            while idx > 0 && remaining > 0 {
-                idx -= 1;
-                remaining = remaining.saturating_sub(1 + filtered_lines[idx].matches('\n').count());
-            }
-            idx
-        } else {
-            self.minion_logs_scroll.min(filtered_lines.len().saturating_sub(1))
-        };
-        let end = (start + text_h).min(filtered_lines.len());
+        let max_top = rendered_lines.len().saturating_sub(text_h);
+        let start = if self.minion_logs_scroll == usize::MAX { max_top } else { self.minion_logs_scroll.min(max_top) };
+        let end = (start + text_h).min(rendered_lines.len());
         if filtered_lines.is_empty() {
             let msg = if self.minion_logs_lines.is_empty() { "(no log lines)" } else { "(no matches)" };
             Widget::render(Paragraph::new(msg).style(Style::default().fg(palette::FG).bg(bg)), text_area, buf);
         } else {
-            let visible: Vec<Line> = filtered_lines[start..end].iter().flat_map(|s| render_log_line(s)).collect();
+            let visible: Vec<Line> = rendered_lines[start..end].to_vec();
             Widget::render(Paragraph::new(visible).style(Style::default().bg(bg)), text_area, buf);
         }
 
-        let total_visible: usize = filtered_lines.iter().map(|s| 1 + s.matches('\n').count()).sum();
         let scroll_area = Rect { x: content_area.right().saturating_sub(1), y: content_area.y, width: 1, height: content_area.height };
-        let mut scroll = ScrollbarState::default().content_length(total_visible.max(1)).position(start);
+        let mut scroll = ScrollbarState::default().content_length(rendered_lines.len().max(1)).position(start);
         Scrollbar::default()
             .begin_symbol(None)
             .end_symbol(None)
@@ -165,9 +157,20 @@ impl SysInspectUX {
         let inp = Input::new("").prompt("").placeholder("filter lines...").styles(styles);
         StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
+
+    pub(crate) fn filtered_rendered_log_lines(&self) -> Vec<Line<'static>> {
+        let filter_val = self.minion_logs_filter.value().to_lowercase();
+        let filtered_lines: Vec<&String> = if filter_val.is_empty() {
+            self.minion_logs_lines.iter().collect()
+        } else {
+            self.minion_logs_lines.iter().filter(|l| l.to_lowercase().contains(&filter_val)).collect()
+        };
+
+        filtered_lines.iter().flat_map(|s| render_log_line(s)).collect()
+    }
 }
 
-fn colorize_log_line(line: &str) -> Line<'_> {
+fn colorize_log_line(line: &str) -> Line<'static> {
     let default = || Line::styled(line.to_string(), Style::default().fg(palette::FG));
 
     let Some((ts, rest)) = line.split_once(" - ") else {
@@ -214,12 +217,12 @@ fn colorize_log_line(line: &str) -> Line<'_> {
     Line::from(spans)
 }
 
-fn render_log_line(line: &str) -> Vec<Line<'_>> {
+fn render_log_line(line: &str) -> Vec<Line<'static>> {
     let mut lines_iter = line.split('\n');
     let first = lines_iter.next().unwrap_or("");
     let mut out = vec![colorize_log_line(first)];
     for cont in lines_iter {
-        out.push(Line::styled(cont, Style::default().fg(palette::MUTED)));
+        out.push(Line::styled(cont.to_string(), Style::default().fg(palette::MUTED)));
     }
     out
 }

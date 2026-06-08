@@ -152,6 +152,11 @@ impl ActionModResponse {
         &self.message
     }
 
+    /// Set a general return message.
+    pub fn set_message(&mut self, message: String) {
+        self.message = message;
+    }
+
     pub fn data(&self) -> Option<Value> {
         self.data.to_owned()
     }
