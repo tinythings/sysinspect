@@ -44,7 +44,16 @@ You will see a three panel layout: the left panel shows the list of model calls,
 list of minions that were affected by the model call, and the right panel shows the list of events that were
 happening on the particular minion. The right panel will be empty until you select a minion from the middle panel.
 
+The left panel now shows the full query path for stored calls in the form ``model/target`` or
+``model/target/state``. The default state ``$`` is omitted from display.
+
 Navigating the events in the right panel is done with the up/down arrow keys and ``ENTER`` to jump to the details
 panel, where one can scroll the available data.
+
+From the Online Minions popup, the operator can also open ``System logs`` for a selected online minion.
+This log view is queried through the master without SSH, shows one merged operator-visible stream, and opens
+tailed from the true bottom of the visible window. Hard execution failures that do not produce a normal action
+result are emitted back into the event list as structured terminal failure events instead of appearing only in
+raw logs.
 
 To exit the TUI, press ``q`` or ``ESC``.
