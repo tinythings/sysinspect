@@ -86,6 +86,37 @@ pub struct ConsoleResponse {
     pub payload: ConsolePayload,
 }
 
+/// Internal master/minion command reply used for one-shot interactive console
+/// requests that need a direct minion answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinionCommandReply {
+    pub cycle_id: String,
+    pub ok: bool,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+/// Request parameters for reading one raw logfile snapshot from a minion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleMinionLogRequest {
+    pub stream: String,
+    pub lines: usize,
+}
+
+/// Snapshot of one selected raw minion logfile.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsoleMinionLogSnapshot {
+    pub minion_id: String,
+    pub source_kind: String,
+    pub path: String,
+    #[serde(default)]
+    pub lines: Vec<String>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConsolePayload {
@@ -137,6 +168,11 @@ pub enum ConsolePayload {
     MinionInfo {
         /// One row per key/value pair for one selected minion.
         rows: Vec<ConsoleMinionInfoRow>,
+    },
+    /// Raw logfile snapshot for one selected minion.
+    MinionLogs {
+        /// Snapshot payload.
+        snapshot: ConsoleMinionLogSnapshot,
     },
     /// Available models discovered by the master.
     Models {

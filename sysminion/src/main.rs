@@ -33,6 +33,7 @@ mod start_ut;
 
 use clap::{ArgMatches, Command};
 use clidef::cli;
+use colored::Colorize;
 use daemonize::Daemonize;
 use libcommon::SysinspectError;
 use libsysinspect::{
@@ -41,14 +42,61 @@ use libsysinspect::{
     logger,
 };
 use log::LevelFilter;
-use std::{collections::BTreeSet, env, fs::File, process::exit, sync::Arc, sync::OnceLock};
+use std::{collections::BTreeSet, env, fs::File, io::IsTerminal, process::exit, sync::Arc};
 use tokio::task::JoinHandle;
 
-use crate::minion::SysMinion;
+use crate::minion::{LOG_RING, SysMinion};
 
 static APPNAME: &str = "sysminion";
 static VERSION: &str = env!("CARGO_PKG_VERSION");
-static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
+
+struct RingBufferLogger {
+    nocolor: bool,
+}
+
+impl log::Log for RingBufferLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        if metadata.level() > log::Level::Trace {
+            return false;
+        }
+        if metadata.level() < log::Level::Warn && !logger::is_internal_target(metadata.target()) {
+            return false;
+        }
+        true
+    }
+
+    fn log(&self, msg: &log::Record) {
+        if !self.enabled(msg.metadata()) {
+            return;
+        }
+        if logger::is_noise_message(&msg.args().to_string()) {
+            return;
+        }
+
+        let s_level: String = match msg.level() {
+            log::Level::Info => format!("{}", msg.level().as_str().bright_green()),
+            log::Level::Warn => format!("{}", msg.level().as_str().yellow()),
+            log::Level::Error => format!("{}", msg.level().as_str().bright_red()),
+            log::Level::Debug => format!("{}", msg.level().as_str().bright_cyan()),
+            log::Level::Trace => format!("{}", msg.level().as_str().cyan()),
+        };
+
+        let no_color = self.nocolor || !std::io::stdout().is_terminal();
+        let raw = format!("[{}] - {}: {}", chrono::Local::now().format("%d/%m/%Y %H:%M:%S"), s_level, msg.args());
+        let clean = logger::strip_ansi_codes(raw.as_str()).into_owned();
+        let stream = if msg.level() <= log::Level::Warn { "stderr" } else { "stdout" };
+        if stream == "stderr" {
+            eprintln!("{}", if no_color { &clean } else { &raw });
+        } else {
+            println!("{}", if no_color { &clean } else { &raw });
+        }
+        if msg.level() <= log::Level::Info {
+            LOG_RING.write().unwrap().push(clean);
+        }
+    }
+
+    fn flush(&self) {}
+}
 
 fn runtime(worker_threads: usize, max_blocking_threads: usize) -> Result<tokio::runtime::Runtime, SysinspectError> {
     tokio::runtime::Builder::new_multi_thread()
@@ -226,7 +274,7 @@ fn main() -> std::io::Result<()> {
     }
 
     // Setup logger
-    if let Err(err) = log::set_logger(LOGGER.get_or_init(|| logger::STDOUTLogger::new(params.get_flag("no-color")))).map(|()| {
+    if let Err(err) = log::set_boxed_logger(Box::new(RingBufferLogger { nocolor: params.get_flag("no-color") })).map(|()| {
         log::set_max_level(match params.get_count("debug") {
             0 => LevelFilter::Info,
             1 => LevelFilter::Debug,

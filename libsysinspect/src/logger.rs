@@ -2,10 +2,11 @@ use std::{io::IsTerminal, sync::Mutex};
 
 use chrono::Local;
 use colored::{self, Colorize};
-use console::strip_ansi_codes;
 use log::{Level, Metadata, Record};
 
-fn is_internal_target(target: &str) -> bool {
+pub use console::strip_ansi_codes;
+
+pub fn is_internal_target(target: &str) -> bool {
     [
         "sysinspect",
         "sysmaster",
@@ -40,7 +41,7 @@ fn is_internal_target(target: &str) -> bool {
     .any(|pfx| target == *pfx || target.starts_with(&format!("{pfx}::")))
 }
 
-fn is_noise_message(msg: &str) -> bool {
+pub fn is_noise_message(msg: &str) -> bool {
     [
         "write_command;",
         "write_commands;",

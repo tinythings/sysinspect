@@ -24,7 +24,7 @@ use libeventreg::{
 };
 use libsysinspect::{
     cfg::mmconf::{CFG_MODELS_ROOT, CFG_PENDING_COMMANDS_ROOT, MasterConfig},
-    console::ensure_console_keypair,
+    console::{MinionCommandReply, ensure_console_keypair},
     context::ProfileConsoleRequest,
     mdescr::{mspec::MODEL_FILE_EXT, mspecdef::ModelSpec, telemetry::DataExportType},
     rsa::rotation::{RotationActor, RsaTransportRotator, SignedRotationIntent},
@@ -39,7 +39,7 @@ use libsysproto::{
     query::{
         SCHEME_COMMAND,
         commands::{
-            CLUSTER_CMDB_UPSERT, CLUSTER_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE,
+            CLUSTER_CMDB_UPSERT, CLUSTER_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE,
             CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
@@ -63,7 +63,7 @@ use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
 };
 use tokio::sync::Mutex;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time;
 use tokio::time::{Duration, sleep};
 
@@ -141,6 +141,7 @@ pub struct SysMaster {
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
     peer_direct_tx: HashMap<String, mpsc::Sender<OutgoingFrame>>,
+    pending_console_replies: HashMap<String, oneshot::Sender<MinionCommandReply>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
 }
@@ -202,6 +203,7 @@ impl SysMaster {
             vmcluster,
             conn_to_mid: HashMap::new(),
             peer_direct_tx: HashMap::new(),
+            pending_console_replies: HashMap::new(),
             peer_transport: PeerTransport::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
         })
@@ -815,7 +817,23 @@ impl SysMaster {
                 });
             }
             RequestType::Response => {
-                log::info!("Response");
+                let c_master = Arc::clone(&master);
+                let c_id = req.id().to_string();
+                let c_payload = req.payload().clone();
+                tokio::spawn(async move {
+                    let reply = match serde_json::from_value::<MinionCommandReply>(c_payload) {
+                        Ok(reply) => reply,
+                        Err(err) => {
+                            log::error!("Failed to parse minion response payload from {}: {}", c_id, err);
+                            return;
+                        }
+                    };
+                    let Some(tx) = c_master.lock().await.pending_console_replies.remove(&reply.cycle_id) else {
+                        log::debug!("Dropped unsolicited minion response from {} for cycle {}", c_id, reply.cycle_id);
+                        return;
+                    };
+                    let _ = tx.send(reply);
+                });
             }
             RequestType::Ehlo => {
                 let c_master = Arc::clone(&master);
@@ -900,7 +918,11 @@ impl SysMaster {
                     let sid = match m
                         .evtipc
                         .open_session(
-                            util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned()),
+                            pl.get("query").and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()).map(|v| v.to_string()).unwrap_or_else(|| {
+                                let entity = util::dataconv::as_str(pl.get(&ProtoKey::EntityId.to_string()).cloned());
+                                let state = util::dataconv::as_str(pl.get(&ProtoKey::SessionId.to_string()).cloned());
+                                if state.is_empty() || state == "$" { entity } else { format!("{entity}/{state}") }
+                            }),
                             util::dataconv::as_str(pl.get(&ProtoKey::CycleId.to_string()).cloned()),
                             util::dataconv::as_str(pl.get(&ProtoKey::Timestamp.to_string()).cloned()),
                         )

@@ -67,7 +67,14 @@ impl SysInspectUX {
         ]);
     }
 
-    pub(crate) fn status_at_online_minions(&mut self) {
+    pub(crate) fn status_at_minion_menu(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text =
+            Line::from(vec![key("\u{2191}\u{2193} "), desc("navigate,  "), key("Enter "), desc("select,  "), key("Esc "), desc("close")]);
+    }
+
+    pub(crate) fn status_at_minions_browser(&mut self) {
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
         self.status_text = Line::from(vec![
@@ -88,7 +95,7 @@ impl SysInspectUX {
         ]);
     }
 
-    pub(crate) fn status_at_minion_info(&mut self) {
+    pub(crate) fn status_at_minion_traits(&mut self) {
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
         self.status_text = Line::from(vec![
@@ -107,6 +114,30 @@ impl SysInspectUX {
             key("Esc "),
             desc("back"),
         ]);
+    }
+
+    pub(crate) fn status_at_minion_logs(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        let mut spans = vec![
+            key("\u{2191}\u{2193} "),
+            desc("scroll,  "),
+            key("PgUp/PgDn "),
+            desc("skip,  "),
+            key("Tab "),
+            desc("filter,  "),
+            key("/ "),
+            desc("filter,  "),
+            key("P "),
+            desc(if self.minion_logs_polling { "pause,  " } else { "resume,  " }),
+        ];
+        if !self.minion_logs_polling {
+            spans.push(key("R "));
+            spans.push(desc("refresh,  "));
+        }
+        spans.push(key("Esc "));
+        spans.push(desc("back"));
+        self.status_text = Line::from(spans);
     }
 
     pub(crate) fn status_at_query_composer(&mut self) {

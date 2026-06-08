@@ -113,7 +113,7 @@ impl SysInspectUX {
 
         let left_w = self.li_events.iter().map(|e| e.left_width()).max().unwrap_or(0);
         let items: Vec<ListItem> = self.li_events.iter().map(|e| ListItem::new(e.get_aligned_line(left_w))).collect();
-        let hl_style = if self.active_box == ActiveBox::Events {
+        let hl_style = if self.main_box_active(ActiveBox::Events) {
             Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(palette::MUTED).bg(palette::SURFACE)
@@ -122,7 +122,7 @@ impl SysInspectUX {
 
         let mut events_scroll_state = ScrollbarState::default()
             .content_length(self.li_events.len())
-            .position(if self.active_box == ActiveBox::Events { self.selected_event } else { 0 });
+            .position(if self.main_box_active(ActiveBox::Events) { self.selected_event } else { 0 });
         Scrollbar::default()
             .begin_symbol(None)
             .end_symbol(None)
@@ -171,7 +171,7 @@ impl SysInspectUX {
 
         let mut minions_scroll_state = ScrollbarState::default()
             .content_length(self.li_minions.len())
-            .position(if self.active_box == ActiveBox::Minions { self.selected_minion } else { 0 });
+            .position(if self.main_box_active(ActiveBox::Minions) { self.selected_minion } else { 0 });
         Scrollbar::default()
             .begin_symbol(None)
             .end_symbol(None)
@@ -184,7 +184,7 @@ impl SysInspectUX {
 
     /// Prepares an active block with the border and title
     fn _get_box_block(&self, title: &str, hl: ActiveBox) -> Block<'_> {
-        if self.active_box == hl {
+        if self.main_box_active(hl) {
             let t = title.to_string();
             Block::default()
                 .borders(Borders::ALL)
@@ -194,14 +194,14 @@ impl SysInspectUX {
                     Span::styled("\u{E0B0}", Style::default().fg(palette::ACCENT)),
                 ]))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::ACCENT).bg(palette::BG_2))
+                .border_style(Style::default().fg(palette::ACCENT))
         } else {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!(" {title} "))
-                .title_style(Style::default().fg(palette::MUTED).bg(palette::BG_2))
+                .title_style(Style::default().fg(palette::MUTED))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::FAINT).bg(palette::BG_2))
+                .border_style(Style::default().fg(palette::FAINT))
         }
     }
 
@@ -236,11 +236,11 @@ impl SysInspectUX {
     }
 
     fn _get_list_items<T: DbListItem>(&self, items: &[T], hl: ActiveBox) -> Vec<ListItem<'static>> {
-        items.iter().map(|item| ListItem::new(item.get_list_line(self.active_box != hl))).collect()
+        items.iter().map(|item| ListItem::new(item.get_list_line(!self.main_box_active(hl)))).collect()
     }
 
     fn _wrap_list_items<'a>(&self, items: Vec<ListItem<'a>>, hl: ActiveBox) -> List<'a> {
-        let hl_style = if self.active_box == hl {
+        let hl_style = if self.main_box_active(hl) {
             Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(palette::MUTED).bg(palette::SURFACE)
@@ -272,17 +272,17 @@ impl Widget for &SysInspectUX {
         Self: Sized,
     {
         // Fill main background
-        Block::default().style(Style::default().bg(palette::BG_2)).render(area, buf);
+        Block::default().style(Style::default().bg(palette::BG_1)).render(area, buf);
 
         let cycles_max = self.cycles_buf.iter().map(|c| c.get_list_line(false).width()).max().unwrap_or(10);
         let minions_max = self.li_minions.iter().map(|m| m.get_list_line(false).width()).max().unwrap_or(8);
 
-        let content_w = cycles_max.max(minions_max).min(30);
-        let col_w = (content_w as u16 + 5).max(20);
+        let cycles_w = (cycles_max as u16 + 5).max(20).min(area.width.saturating_sub(20));
+        let minions_w = (minions_max as u16 + 5).max(20).min(area.width.saturating_sub(cycles_w).saturating_sub(10));
 
         let [cycles_a, minions_a, events_a]: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(col_w), Constraint::Length(col_w), Constraint::Min(0)])
+            .constraints([Constraint::Length(cycles_w), Constraint::Length(minions_w), Constraint::Min(0)])
             .split(area)
             .as_ref()
             .try_into()
@@ -297,8 +297,10 @@ impl Widget for &SysInspectUX {
         self.dialog_purge(area, buf);
         self.dialog_exit(area, buf);
         self.dialog_help(area, buf);
-        self.dialog_online_minions(area, buf);
-        self.dialog_online_minion_info(area, buf);
+        self.dialog_minions(area, buf);
+        self.minion_actions_menu(area, buf);
+        self.minion_traits(area, buf);
+        self.dialog_minion_logs(area, buf);
         self.dialog_trait_tag(area, buf);
         self.dialog_dsl_browser(area, buf);
         self.dialog_error(area, buf);

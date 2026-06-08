@@ -152,7 +152,7 @@ impl SysInspectRunner {
     }
 
     /// Start the inspector
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self) -> Result<(), SysinspectError> {
         log::debug!("Starting sysinspect runner");
         match mspec::load(Self::minion_cfg().clone(), &self.model_pth, self.traits.clone(), self.context.clone()) {
             Ok(spec) => {
@@ -194,35 +194,29 @@ impl SysInspectRunner {
                                                         log::trace!("Action response for '{}': {:#?}", ac.id(), response);
                                                         evtproc.lock().await.receiver().register(response.eid().to_owned(), response);
                                                     }
-                                                    Err(err) => {
-                                                        log::error!("{err}")
-                                                    }
+                                                    Err(err) => return Err(err),
                                                 }
                                             } else {
                                                 log::warn!("Action {} skipped due to dependencies results mismatch", ac.id())
                                             }
                                         }
-                                        Err(err) => {
-                                            log::error!("{err}");
-                                            return; // halt immediately
-                                        }
+                                        Err(err) => return Err(err),
                                     };
                                 }
                             }
-                            Err(err) => {
-                                log::error!("{err}");
-                            }
+                            Err(err) => return Err(err),
                         }
                         log::debug!("Starting event processor cycle");
                         evtproc.lock().await.process(false).await;
                         log::debug!("Event processing cycle finished");
                     }
-                    Err(err) => log::error!("{err}"),
+                    Err(err) => return Err(err),
                 }
                 log::debug!("Done");
+                Ok(())
             }
-            Err(err) => log::error!("Error loading mspec: {err}"),
-        };
+            Err(err) => Err(err),
+        }
     }
 
     /// Set minion traits

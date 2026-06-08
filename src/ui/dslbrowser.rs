@@ -3,9 +3,8 @@ use std::cell::Cell;
 use crossterm::event::KeyCode;
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Modifier, Style},
-    text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
         StatefulWidget, Widget,
@@ -243,6 +242,20 @@ impl DslBrowser {
                 let display: Vec<String> = row.states.iter().map(|s| if s == "$" { "(default)".to_string() } else { s.clone() }).collect();
                 self.states = ListBox::new(display, 0);
             }
+        }
+    }
+
+    fn ctxfields_update(&mut self) {
+        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).cloned();
+        let entry = self.resolved_model().and_then(|row| {
+            target_id.as_deref().and_then(|tid| row.target_actions.iter().find(|(id, _)| id == tid).map(|(_, actions)| actions.clone()))
+        });
+
+        if let Some(actions) = entry {
+            self.update_context_fields(&actions);
+        } else {
+            self.context_active = false;
+            self.context_fields = Vec::new();
         }
     }
 
@@ -556,12 +569,10 @@ impl DslBrowser {
                 self.focus = prev;
                 return true;
             }
-            KeyCode::Char('d') => {
-                if self.resolved_model().is_some() {
-                    self.desc_popup_text = self.build_full_description();
-                    self.desc_popup_scroll = 0;
-                    self.desc_popup_visible = true;
-                }
+            KeyCode::Char('d') if !matches!(self.focus, DslFocus::Query | DslFocus::ContextField(_)) && self.resolved_model().is_some() => {
+                self.desc_popup_text = self.build_full_description();
+                self.desc_popup_scroll = 0;
+                self.desc_popup_visible = true;
                 return true;
             }
             _ => {}
@@ -602,6 +613,7 @@ impl DslBrowser {
             }
             DslFocus::State => {
                 handle_list_nav(code, &mut self.states);
+                self.ctxfields_update();
                 true
             }
             DslFocus::Minions => {
@@ -727,20 +739,35 @@ impl SysInspectUX {
 
         Clear.render(popup, buf);
 
+        let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let state_display = self.dsl_browser.states.items.get(self.dsl_browser.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+
+        let has_model = !model_name.is_empty() && model_name != "(select)" && model_name != "(no models found)";
+        let has_target = !target_id.is_empty() && target_id != "(select)" && target_id != "(none)" && target_id != "—";
+        let has_state = !state_display.is_empty() && state_display != "(select)" && state_display != "(default)" && state_display != "$";
+
+        let mut title_segments = vec![TitleSegment { text: " Query Composer ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG }];
+        if has_model {
+            title_segments.push(TitleSegment { text: format!(" {model_name} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK });
+        }
+        if has_target {
+            title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: palette::PROCESSING_PEAK, fg: palette::BG_2 });
+        }
+        if has_state {
+            title_segments.push(TitleSegment { text: format!(" {state_display} "), bg: palette::PROCESSING, fg: palette::BG_3 });
+        }
+
         let block = Block::default()
-            .title(Line::from(vec![
-                Span::styled("\u{E0B2}", Style::default().fg(palette::BORDER)),
-                Span::styled("Query Composer", Style::default().fg(palette::BLACK).bg(palette::BORDER)),
-                Span::styled("\u{E0B0}", Style::default().fg(palette::BORDER)),
-            ]))
-            .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::BORDER).bg(palette::POPUP_BG_BASE))
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
             .padding(Padding::horizontal(2))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
         let inner = block.inner(popup);
         block.render(popup, buf);
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        title::overlay_gradient_title(buf, popup, &title_style, &title_segments);
 
         self.dsl_browser.render_content(inner, buf);
 
@@ -800,7 +827,7 @@ impl SysInspectUX {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(palette::PROCESSING_GLOW).bg(bg))
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
