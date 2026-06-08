@@ -6,6 +6,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
 };
+use ratatui_glamour::color::blend_2d;
 
 #[derive(Default)]
 enum AlertButtons {
@@ -50,6 +51,7 @@ impl SysInspectUX {
             Some(palette::WHITE),
             None,
             None,
+            None,
         );
     }
 
@@ -73,6 +75,7 @@ impl SysInspectUX {
             Some(palette::WHITE),
             None,
             None,
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
 
@@ -94,6 +97,7 @@ impl SysInspectUX {
             None,
             None,
             Some(palette::BG_1),
+            None,
             None,
             None,
         );
@@ -120,6 +124,7 @@ impl SysInspectUX {
             None,
             Some("Yep!"),
             Some("Nope"),
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
 
@@ -146,6 +151,7 @@ impl SysInspectUX {
             None,
             None,
             Some(palette::WHITE),
+            None,
             None,
             None,
         );
@@ -187,12 +193,14 @@ impl SysInspectUX {
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
         buttons: AlertButtons, width: Option<u16>, border_color: Option<Color>, border_type: Option<ratatui::widgets::BorderType>,
         text_color: Option<Color>, title_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>,
+        gradient: Option<(f32, &[Color])>,
     ) {
         let background = background.unwrap_or(palette::POPUP_BG_BASE);
         let border_color = border_color.unwrap_or(palette::BORDER);
         let border_type = border_type.unwrap_or(ratatui::widgets::BorderType::Plain);
         let text_color = text_color.unwrap_or(palette::FG);
         let title_color = title_color.unwrap_or(palette::BLACK);
+        let has_gradient = gradient.is_some();
 
         let text = format!("\n{text}");
         let text_lines = Self::get_text_lines(&text);
@@ -225,18 +233,31 @@ impl SysInspectUX {
             .border_type(border_type)
             .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(2))
-            .style(Style::default().bg(background));
+            .style(if has_gradient { Style::default() } else { Style::default().bg(background) });
 
         let popup_inner = popup_block.inner(canvas);
+
+        if let Some((angle, stops)) = gradient {
+            let colors = blend_2d(canvas.width as usize, canvas.height as usize, angle, stops);
+            for row in 0..canvas.height {
+                for col in 0..canvas.width {
+                    let idx = row as usize * canvas.width as usize + col as usize;
+                    if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                        cell.set_bg(colors[idx]);
+                    }
+                }
+            }
+        }
+
         popup_block.render(canvas, buf);
 
+        let text_bg = if has_gradient { Style::default().fg(text_color) } else { Style::default().fg(text_color).bg(background) };
         let vertical_chunks =
             Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_lines), Constraint::Length(1)]).split(popup_inner);
 
         let text_area = vertical_chunks[0];
         let button_area = vertical_chunks[1];
-
-        Paragraph::new(text).alignment(text_align).style(Style::default().fg(text_color).bg(background)).render(text_area, buf);
+        Paragraph::new(text).alignment(text_align).style(text_bg).render(text_area, buf);
         let (lbtn_label, rbtn_label) = match buttons {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(left_label.unwrap_or(OK_LABEL)), Self::format_button(right_label.unwrap_or(CANCEL_LABEL))),
