@@ -59,7 +59,7 @@ impl SysInspectUX {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::PROCESSING_GLOW))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
 

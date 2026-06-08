@@ -11,6 +11,7 @@ use ratatui::{
     },
 };
 use ratatui_cheese::input::{Input, InputState};
+use ratatui_glamour::color::blend_2d;
 use ratatui_glamour::rule::{dashed_title, gradient_rule};
 
 use super::{
@@ -776,7 +777,7 @@ impl SysInspectUX {
         let border_color = glow_bg;
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(2))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
@@ -836,15 +837,25 @@ impl SysInspectUX {
         let bg = palette::POPUP_BG_1;
         Clear.render(canvas, buf);
 
+        let grad_colors = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_2] as &[ratatui::style::Color]);
+        for row in 0..canvas.height {
+            for col in 0..canvas.width {
+                let idx = row as usize * canvas.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                    cell.set_bg(grad_colors[idx]);
+                }
+            }
+        }
+
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
         let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let has_target = target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty();
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::PROCESSING_GLOW))
-            .style(Style::default().bg(bg));
+            .style(Style::default());
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
@@ -859,12 +870,14 @@ impl SysInspectUX {
         title::overlay_gradient_title(buf, canvas, &title_style, segments.as_slice());
 
         // Build rendered lines with section headers
-        let body_style = Style::default().fg(palette::FG).bg(bg);
+        let body_style = Style::default().fg(palette::FG);
 
         // Layout: scrollable content area + close button
         let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Min(1), Constraint::Length(1)]).split(inner);
         let content_area = chunks[0];
         let btn_area = chunks[1];
+
+        let text_w = content_area.width.saturating_sub(1);
 
         let glamour_text_fg = palette::PROCESSING;
         let glamour_grad_start = palette::PRIMARY;
@@ -872,7 +885,7 @@ impl SysInspectUX {
 
         // Compute total lines for scrollbar
         let mut total_lines = 0usize;
-        let desc_max_w = content_area.width.saturating_sub(3) as usize;
+        let desc_max_w = text_w.saturating_sub(3) as usize;
         for line in text.split('\n') {
             if line.starts_with("Model: ") || line.starts_with("Target \"") || line.starts_with("Context:") || line.is_empty() {
                 total_lines += 1;
@@ -883,7 +896,7 @@ impl SysInspectUX {
                 let indent = "    ";
                 let after_key = (indent.len() + key.len()) as u16;
                 let desc_col = after_key + 2 + tag.len() as u16 + 2;
-                let desc_width = content_area.width.saturating_sub(desc_col).max(10) as usize;
+                let desc_width = text_w.saturating_sub(desc_col).max(10) as usize;
                 let rest = &line[tag_pos + 2 + tag.len()..];
                 let desc = rest.trim_start();
                 if desc.is_empty() {
@@ -918,7 +931,7 @@ impl SysInspectUX {
                 let fill_x = name_x + model_name.len() as u16;
                 buf.set_string(fill_x, yy, suffix, Style::default().fg(glamour_text_fg));
                 gradient_rule(
-                    Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
+                    Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
                     buf,
                     fill_x + suffix.len() as u16,
                     glamour_grad_start,
@@ -932,17 +945,17 @@ impl SysInspectUX {
                 if let Some(quote_open) = title_line.find('"')
                     && let Some(quote_close) = title_line[quote_open + 1..].find('"')
                 {
-                    let before = &title_line[..=quote_open];
+                    let before = format!(" {}", &title_line[..=quote_open]);
                     let target_name = &title_line[quote_open + 1..quote_open + 1 + quote_close];
                     let after = "\" ";
                     let cx = content_area.x;
-                    buf.set_string(cx, yy, before, Style::default().fg(glamour_text_fg));
+                    buf.set_string(cx, yy, &before, Style::default().fg(glamour_text_fg));
                     let name_x = cx + before.len() as u16;
                     buf.set_string(name_x, yy, target_name, Style::default().fg(palette::PRIMARY));
                     let fill_x = name_x + target_name.len() as u16;
                     buf.set_string(fill_x, yy, after, Style::default().fg(glamour_text_fg));
                     gradient_rule(
-                        Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
+                        Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
                         buf,
                         fill_x + after.len() as u16,
                         glamour_grad_start,
@@ -952,7 +965,7 @@ impl SysInspectUX {
                     continue;
                 }
                 dashed_title(
-                    Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
+                    Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
                     buf,
                     title_line,
                     glamour_text_fg,
@@ -963,7 +976,7 @@ impl SysInspectUX {
             } else if line.starts_with("Context:") {
                 in_context = true;
                 dashed_title(
-                    Rect { x: content_area.x, y: yy, width: content_area.width, height: 1 },
+                    Rect { x: content_area.x, y: yy, width: text_w, height: 1 },
                     buf,
                     "Context",
                     glamour_text_fg,
@@ -984,7 +997,7 @@ impl SysInspectUX {
                 if yy < content_area.bottom() {
                     let after_key = (indent.len() + key.len()) as u16;
                     let desc_col = content_area.x + after_key + 2 + tag.len() as u16 + 2;
-                    let desc_width = content_area.right().saturating_sub(desc_col).max(10) as usize;
+                    let desc_width = content_area.right().saturating_sub(1).saturating_sub(desc_col).max(10) as usize;
                     let dstyle = if desc == "Unknown field" { Style::default().fg(palette::FAINT) } else { body_style };
 
                     if desc.is_empty() {
@@ -1010,7 +1023,7 @@ impl SysInspectUX {
             } else {
                 let is_list = line.starts_with("- ") || (line.as_bytes().first().is_some_and(|c| c.is_ascii_digit()) && line.contains(". "));
                 let indent = if is_list { "      " } else { "    " };
-                for wrapped in wrap_text(&format!("{indent}{line}"), (content_area.width.saturating_sub(3)) as usize) {
+                for wrapped in wrap_text(&format!("{indent}{line}"), (text_w.saturating_sub(3)) as usize) {
                     if yy >= content_area.bottom() {
                         break;
                     }

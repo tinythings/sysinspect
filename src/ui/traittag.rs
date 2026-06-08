@@ -35,7 +35,7 @@ impl SysInspectUX {
             ]))
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::BORDER))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
 

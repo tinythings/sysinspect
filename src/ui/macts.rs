@@ -8,6 +8,7 @@ use ratatui::{
     style::Style,
     widgets::{Block, BorderType, Borders, Clear, Widget},
 };
+use ratatui_glamour::color::blend_2d;
 use ratatui_glamour::rule::dashed_title;
 use unicode_width::UnicodeWidthStr;
 
@@ -72,14 +73,24 @@ impl SysInspectUX {
         let y = parent.y + (parent.height.saturating_sub(h)) / 2;
         let canvas = Rect { x, y, width: w, height: h };
 
-        let bg = palette::POPUP_BG_BASE;
         Clear.render(canvas, buf);
+
+        let grad_colors =
+            blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[ratatui::style::Color]);
+        for row in 0..canvas.height {
+            for col in 0..canvas.width {
+                let idx = row as usize * canvas.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                    cell.set_bg(grad_colors[idx]);
+                }
+            }
+        }
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(palette::PROCESSING_GLOW))
-            .style(Style::default().bg(bg));
+            .style(Style::default());
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
@@ -112,8 +123,7 @@ impl SysInspectUX {
                     break;
                 }
                 let selected = flat_idx == self.minions_menu_sel;
-                let item_style =
-                    if selected { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::FG).bg(bg) };
+                let item_style = if selected { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::FG) };
 
                 let hint = format!("^{key}");
                 let padding = (inner.width as usize).saturating_sub(label.len() + 1 + hint.len()).saturating_sub(2); // one space on each side

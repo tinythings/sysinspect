@@ -43,7 +43,7 @@ impl SysInspectUX {
         Clear.render(canvas, buf);
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border))
             .style(Style::default().bg(bg));
         let inner = block.inner(canvas);

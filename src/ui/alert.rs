@@ -40,7 +40,7 @@ impl SysInspectUX {
             buf,
             Some("Error"),
             &text,
-            Some(palette::POPUP_BG_1),
+            None,
             Alignment::Left,
             AlertResult::Quit,
             AlertButtons::Close,
@@ -51,7 +51,7 @@ impl SysInspectUX {
             Some(palette::WHITE),
             None,
             None,
-            None,
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
 
@@ -119,7 +119,7 @@ impl SysInspectUX {
             AlertButtons::OkCancel,
             Some(36),
             Some(palette::PROCESSING_PEAK),
-            Some(ratatui::widgets::BorderType::Plain),
+            Some(ratatui::widgets::BorderType::Rounded),
             Some(palette::FG),
             None,
             Some("Yep!"),
@@ -153,7 +153,7 @@ impl SysInspectUX {
             Some(palette::WHITE),
             None,
             None,
-            None,
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
 
@@ -197,7 +197,7 @@ impl SysInspectUX {
     ) {
         let background = background.unwrap_or(palette::POPUP_BG_BASE);
         let border_color = border_color.unwrap_or(palette::BORDER);
-        let border_type = border_type.unwrap_or(ratatui::widgets::BorderType::Plain);
+        let border_type = border_type.unwrap_or(ratatui::widgets::BorderType::Rounded);
         let text_color = text_color.unwrap_or(palette::FG);
         let title_color = title_color.unwrap_or(palette::BLACK);
         let has_gradient = gradient.is_some();
@@ -209,7 +209,7 @@ impl SysInspectUX {
         #[allow(clippy::unnecessary_unwrap)]
         let mut width = if width.is_none() { (parent.width / 4).max(20) } else { width.unwrap() };
         if width == 0 {
-            width = Self::get_max_width_lines(&text) + 2;
+            width = Self::get_max_width_lines(&text) + 6;
         }
 
         let x = parent.x + (parent.width.saturating_sub(width)) / 2;
@@ -344,7 +344,7 @@ impl SysInspectUX {
         #[allow(clippy::unnecessary_unwrap)]
         let mut width = if width.is_none() { (parent.width / 4).max(20) } else { width.unwrap() };
         if width == 0 {
-            width = Self::get_max_width_lines(&text) + 2;
+            width = Self::get_max_width_lines(&text) + 6;
         }
 
         let x = parent.x + (parent.width.saturating_sub(width)) / 2;
@@ -365,7 +365,7 @@ impl SysInspectUX {
             })
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Plain)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(palette::BORDER))
             .padding(Padding::horizontal(2))
             .style(Style::default().bg(background));

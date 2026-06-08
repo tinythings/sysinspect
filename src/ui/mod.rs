@@ -34,6 +34,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
+use unicode_width::UnicodeWidthStr;
 
 mod alert;
 mod dslbrowser;
@@ -1914,6 +1915,6 @@ impl SysInspectUX {
 
     /// Get the maximum width of the lines
     fn get_max_width_lines(s: &str) -> u16 {
-        s.lines().map(|l| l.len() as u16).max().unwrap_or_default()
+        s.lines().map(|l| UnicodeWidthStr::width(l) as u16).max().unwrap_or_default()
     }
 }
