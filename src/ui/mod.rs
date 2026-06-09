@@ -144,7 +144,7 @@ pub struct SysInspectUX {
     // Cluster-wide operation confirmation
     pub cluster_confirm_visible: bool,
     pub cluster_confirm_choice: AlertResult,
-    pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all
+    pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all, 3=delete minion
 
     // Tag popup
     pub tag_visible: bool,
@@ -654,11 +654,17 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 5 {
                     self.cluster_confirm_visible = true;
                     self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 1;
+                    self.pending_cluster_action = 3;
                 } else if self.minions_menu_sel == 6 {
                     self.cluster_confirm_visible = true;
                     self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                    self.pending_cluster_action = 1;
+                } else if self.minions_menu_sel == 7 {
+                    self.cluster_confirm_visible = true;
+                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
                     self.pending_cluster_action = 2;
+                } else if self.minions_menu_sel == 8 {
+                    // TODO: do_minion_add()
                 }
             }
             _ => {
@@ -1053,6 +1059,16 @@ impl SysInspectUX {
                 self.pending_cluster_action = 2;
                 true
             }
+            KeyCode::Insert => {
+                // TODO: do_minion_add()
+                true
+            }
+            KeyCode::Delete => {
+                self.cluster_confirm_visible = true;
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                self.pending_cluster_action = 3;
+                true
+            }
             _ => false,
         }
     }
@@ -1075,6 +1091,7 @@ impl SysInspectUX {
                     match self.pending_cluster_action {
                         1 => self.do_cluster_shutdown(),
                         2 => self.do_cluster_reconnect(),
+                        3 => self.do_minion_delete(),
                         _ => {}
                     }
                 }
@@ -1117,6 +1134,22 @@ impl SysInspectUX {
                 self.status_at_minions_browser();
             }
         }
+    }
+
+    fn do_minion_delete(&mut self) {
+        let row = match self.selected_popup_minion() {
+            Some(row) => row,
+            None => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No minion selected".to_string();
+                self.status_at_minions_browser();
+                return;
+            }
+        };
+        let _host = Self::online_host(&row);
+        let _mid = row.minion_id.clone();
+        // TODO: call_master_console with CLUSTER_REMOVE_MINION
+        self.status_at_minions_browser();
     }
 
     fn open_logs_popup(&mut self) {

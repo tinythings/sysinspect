@@ -834,7 +834,7 @@ impl SysInspectUX {
         let y = parent.y + (parent.height.saturating_sub(h)) / 2;
         let canvas = Rect { x, y, width: w, height: h };
 
-        let bg = palette::POPUP_BG_1;
+        let _bg = palette::POPUP_BG_1;
         Clear.render(canvas, buf);
 
         let grad_colors = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_2] as &[ratatui::style::Color]);

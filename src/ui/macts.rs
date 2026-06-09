@@ -14,13 +14,19 @@ use unicode_width::UnicodeWidthStr;
 
 struct MenuSection {
     title: &'static str,
-    items: &'static [(&'static str, char)],
+    items: &'static [(&'static str, &'static str)],
 }
 
 const MENU_SECTIONS: &[MenuSection] = &[
-    MenuSection { title: "Tools", items: &[("System logs", 'L'), ("Defined traits", 'T')] },
-    MenuSection { title: "Minion Operations", items: &[("Remote start", 'S'), ("Shutdown minion", 'D'), ("Force re-connect", 'F')] },
-    MenuSection { title: "Cluster Operations", items: &[("Shutdown everything", 'X'), ("Reconnect all minions", 'A')] },
+    MenuSection { title: "Tools", items: &[("System logs", "^L"), ("Defined traits", "^T")] },
+    MenuSection {
+        title: "Minion Operations",
+        items: &[("Remote start", "^S"), ("Shutdown minion", "^D"), ("Force re-connect", "^F"), ("Delete minion", "DEL")],
+    },
+    MenuSection {
+        title: "Cluster Operations",
+        items: &[("Shutdown everything", "^X"), ("Reconnect all minions", "^A"), ("Register a new minion", "INS")],
+    },
 ];
 
 pub(crate) fn total_menu_items() -> usize {
@@ -52,7 +58,7 @@ impl SysInspectUX {
         let max_item_w = max_label_w + 34;
 
         let mut title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        let is_cluster = self.minions_menu_sel >= 5;
+        let is_cluster = self.minions_menu_sel >= 6;
         let mut segments = vec![TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG }];
         if is_cluster {
             segments.push(TitleSegment { text: " Cluster ".into(), bg: palette::PROCESSING_PEAK, fg: palette::FG });
@@ -125,15 +131,16 @@ impl SysInspectUX {
                 let selected = flat_idx == self.minions_menu_sel;
                 let item_style = if selected { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::FG) };
 
-                let hint = format!("^{key}");
-                let padding = (inner.width as usize).saturating_sub(label.len() + 1 + hint.len()).saturating_sub(2); // one space on each side
+                let hint = key;
+                let padding =
+                    (inner.width as usize).saturating_sub(UnicodeWidthStr::width(label) + 1 + UnicodeWidthStr::width(hint)).saturating_sub(2);
                 let line = format!(" {label}{}{hint} ", " ".repeat(padding));
                 buf.set_string(inner.x, row_y, &line, item_style);
 
                 // Re-paint just the key hint with its own style on top
-                let hint_x = inner.x + (inner.width.saturating_sub(hint.len() as u16 + 2));
+                let hint_x = inner.x + (inner.width.saturating_sub(UnicodeWidthStr::width(hint) as u16 + 2));
                 let hint_sel_style = if selected { Style::default().fg(palette::BG_0).bg(palette::HIGHLIGHT) } else { hint_style };
-                buf.set_string(hint_x, row_y, &hint, hint_sel_style);
+                buf.set_string(hint_x, row_y, hint, hint_sel_style);
 
                 row_y += 1;
                 flat_idx += 1;
