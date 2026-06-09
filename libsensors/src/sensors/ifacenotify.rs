@@ -144,10 +144,10 @@ impl IfaceSensor {
                         let line = line.trim();
                         if line.starts_with("status:") {
                             state.link_up = line.eq("status: active");
-                        } else if line.starts_with("inet ") || line.starts_with("inet6 ") {
-                            if let Some(addr) = line.split_whitespace().nth(1) {
-                                state.addrs.insert(addr.split('%').next().unwrap_or(addr).to_string());
-                            }
+                        } else if (line.starts_with("inet ") || line.starts_with("inet6 "))
+                            && let Some(addr) = line.split_whitespace().nth(1)
+                        {
+                            state.addrs.insert(addr.split('%').next().unwrap_or(addr).to_string());
                         }
                     }
                 }

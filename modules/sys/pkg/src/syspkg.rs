@@ -355,10 +355,10 @@ fn check_package(name: &str) -> PkgState {
         for line in stdout.lines() {
             let trimmed = line.trim();
             if !trimmed.is_empty() && !trimmed.starts_with("Name") {
-                if let Some(ver) = trimmed.split_whitespace().next() {
-                    if let Some(v) = ver.strip_prefix(&format!("{}-", name)) {
-                        state.installed_version = Some(v.to_string());
-                    }
+                if let Some(ver) = trimmed.split_whitespace().next()
+                    && let Some(v) = ver.strip_prefix(&format!("{}-", name))
+                {
+                    state.installed_version = Some(v.to_string());
                 }
                 break;
             }
@@ -366,27 +366,27 @@ fn check_package(name: &str) -> PkgState {
     }
 
     // Available version & repo
-    if let Ok((0, stdout, _)) = exec("pkg", &["rquery", "%v\t%R", name]) {
-        if let Some(line) = stdout.lines().next() {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if let Some(v) = parts.first() {
-                state.available_version = Some(v.to_string());
-            }
-            if parts.len() > 1 {
-                state.repo = Some(parts[1].to_string());
-            }
+    if let Ok((0, stdout, _)) = exec("pkg", &["rquery", "%v\t%R", name])
+        && let Some(line) = stdout.lines().next()
+    {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if let Some(v) = parts.first() {
+            state.available_version = Some(v.to_string());
+        }
+        if parts.len() > 1 {
+            state.repo = Some(parts[1].to_string());
         }
     }
 
     // Is it upgradable?
-    if state.installed {
-        if let Ok((0, stdout, _)) = exec("pkg", &["version", "-vL=", name]) {
-            // Output like "nginx-1.24.0 < needs updating (repository has 1.26.0)"
-            for line in stdout.lines() {
-                if line.contains('<') && line.contains(name) {
-                    state.upgradable = true;
-                    break;
-                }
+    if state.installed
+        && let Ok((0, stdout, _)) = exec("pkg", &["version", "-vL=", name])
+    {
+        // Output like "nginx-1.24.0 < needs updating (repository has 1.26.0)"
+        for line in stdout.lines() {
+            if line.contains('<') && line.contains(name) {
+                state.upgradable = true;
+                break;
             }
         }
     }
