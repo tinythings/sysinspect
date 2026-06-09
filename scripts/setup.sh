@@ -14,6 +14,20 @@ require_cmd() {
 	command -v "$1" >/dev/null 2>&1 || { echo "Missing $1. Install it first." >&2; exit 1; }
 }
 
+ensure_helper_link() {
+	want="$1"
+	have="$2"
+	if command -v "$want" >/dev/null 2>&1; then
+		return
+	fi
+	if ! command -v "$have" >/dev/null 2>&1; then
+		return
+	fi
+	echo "Creating $want symlink"
+	mkdir -p "$HOME/.cargo/bin"
+	ln -sf "$(command -v "$have")" "$HOME/.cargo/bin/$want"
+}
+
 add_rustup_target() {
 	rustup target list --installed | grep -qx "$1" || {
 		echo "Adding target $1"
@@ -45,6 +59,7 @@ esac
 run_setup
 
 # --- shared steps ---
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 require_cmd cargo
 command -v rustup >/dev/null 2>&1 || { echo "Missing rustup. Install it first." >&2; exit 1; }
 

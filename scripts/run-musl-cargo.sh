@@ -14,7 +14,13 @@ prefix="${ROOT_DIR}/target/musl/${target}"
 libdir="${prefix}/lib"
 includedir="${prefix}/include"
 
-sh scripts/check-musl-target.sh "$target" "$cc"
+sh scripts/check-musl-target.sh "$target" "$cc" || status=$?
+if [ "${status:-0}" -ne 0 ]; then
+	if [ "$status" -eq 2 ]; then
+		exit 0
+	fi
+	exit "$status"
+fi
 
 export LIBRARY_PATH="$libdir${LIBRARY_PATH:+:$LIBRARY_PATH}"
 export C_INCLUDE_PATH="$includedir${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
