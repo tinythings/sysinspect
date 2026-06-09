@@ -10,24 +10,20 @@ run_setup() {
 	if ! command -v protoc >/dev/null 2>&1; then need_dnf=true; fi
 	if ! command -v jq >/dev/null 2>&1; then need_dnf=true; fi
 	if ! command -v meson >/dev/null 2>&1; then need_dnf=true; fi
+	if ! command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then need_dnf=true; fi
 	if ! command -v rustup-init >/dev/null 2>&1; then need_dnf=true; fi
 	if ! perl -e 'use File::Spec' 2>/dev/null; then need_dnf=true; fi
 
 	if $need_dnf; then
 		require_cmd dnf
 		echo "Installing Fedora build packages with dnf"
-		$(sudo_cmd) dnf install -y rustup perl pkgconf clang clang-devel protobuf-compiler jq meson \
+		$(sudo_cmd) dnf install -y rustup perl pkgconf clang clang-devel protobuf-compiler jq meson musl-gcc musl-libc-static \
 			openssl-devel libffi-devel libsodium-devel pam-devel llvm-devel
 		hash -r
 	fi
 
-	if ! command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
-		if [ -x /usr/bin/gcc ]; then
-			echo "Creating x86_64-linux-gnu-gcc symlink"
-			mkdir -p "$HOME/.cargo/bin"
-			ln -sf /usr/bin/gcc "$HOME/.cargo/bin/x86_64-linux-gnu-gcc"
-		fi
-	fi
+	ensure_helper_link x86_64-linux-gnu-gcc gcc
+	ensure_helper_link x86_64-linux-musl-gcc musl-gcc
 
 	if ! command -v rustup >/dev/null 2>&1; then
 		if command -v rustup-init >/dev/null 2>&1; then
