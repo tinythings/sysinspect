@@ -33,11 +33,12 @@ build_target() {
 	prefix="${ROOT_DIR}/target/musl/${rust_target}"
 	libdir="${prefix}/lib"
 	includedir="${prefix}/include"
+	build_marker="${prefix}/.sysinspect-pam-pic"
 
 	libpam="${libdir}/libpam.a"
 	libpam_misc="${libdir}/libpam_misc.a"
 
-	if [ -f "$libpam" ] && [ -f "$libpam_misc" ]; then
+	if [ -f "$libpam" ] && [ -f "$libpam_misc" ] && [ -f "$build_marker" ]; then
 		echo "PAM already installed for $rust_target — skip."
 		return
 	fi
@@ -50,7 +51,7 @@ build_target() {
 		(
 			cd "${DL_DIR}/Linux-PAM-${PAM_VER}"
 			make distclean >/dev/null 2>&1 || true
-			CC="$cc" ./configure \
+			CC="$cc" CFLAGS="-fPIC" ./configure \
 				--host="$pam_target" \
 				--prefix="$prefix" \
 				--enable-static \
@@ -72,8 +73,9 @@ build_target() {
 		for d in libpam libpamc libpam_misc; do
 			cp "${d}/include/security/"*.h "$includedir/security/" 2>/dev/null || true
 		done
-		echo "PAM installed for $rust_target OK."
-	)
+			: > "$build_marker"
+			echo "PAM installed for $rust_target OK."
+		)
 }
 
 require_cmd wget
