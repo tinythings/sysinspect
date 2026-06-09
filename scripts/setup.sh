@@ -59,6 +59,7 @@ esac
 run_setup
 
 # --- shared steps ---
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 require_cmd cargo
 command -v rustup >/dev/null 2>&1 || { echo "Missing rustup. Install it first." >&2; exit 1; }
 
