@@ -14,10 +14,14 @@ C_YLW := \033[1;93m
 C_GRN := \033[1;92m
 C_OFF := \033[0m
 
+
 .PHONY: help release mxrun mxrun-init mxrun-toggle set-local-builds set-remote-builds build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
-	musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 \
 	stats man test test-core test-modules test-sensors test-integration tar dev-tls advisory \
 	_dev _all_dev _all _build _modules_dev _modules _modules_dist_dev _test _test_core _test_modules _test_sensors _test_integration
+
+ifeq ($(UNAME_S),Linux)
+.PHONY: musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64
+endif
 
 help:
 	@printf '\n$$ make [help]\n\n'
@@ -33,11 +37,13 @@ help:
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "all" "Compile core plus modules in release mode."
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules" "Compile modules only in release mode."
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
+ifeq ($(UNAME_S),Linux)
 	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Cross Build"
 	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
 	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
 	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
 	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
+endif
 	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Testing"
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test" "Run the full nextest suite for this platform."
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test-core" "Run core crate unit/bin tests only."
@@ -124,6 +130,7 @@ advisory:
 smoke-test:
 	sh smoke-tests/run.sh
 
+ifeq ($(UNAME_S),Linux)
 musl-aarch64-dev:
 	@sh scripts/run-musl-cargo.sh aarch64-unknown-linux-musl aarch64-linux-musl-gcc build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call stage_profile_modules,debug,aarch64-unknown-linux-musl)
@@ -143,6 +150,7 @@ musl-x86_64:
 	@sh scripts/run-musl-cargo.sh x86_64-unknown-linux-musl x86_64-linux-musl-gcc build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
+endif
 
 all-dev:
 	@scripts/maybe-mxrun.sh all-dev || $(MAKE) _all_dev

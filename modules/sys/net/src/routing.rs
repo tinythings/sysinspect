@@ -203,17 +203,9 @@ fn parse_prefix(dst: &str) -> (Option<IpAddr>, u8) {
 #[cfg(target_os = "freebsd")]
 fn parse_route_line(line: &str) -> Option<RtRec> {
     let fields = line.split_whitespace().collect::<Vec<_>>();
-    (fields.len() >= 4).then_some(fields).and_then(|fields| {
+    (fields.len() >= 4).then_some(fields).map(|fields| {
         let (dst, dst_len) = parse_prefix(fields[0]);
-        Some(RtRec {
-            gw: fields[1].parse::<IpAddr>().ok(),
-            src: None,
-            dst,
-            proto: None,
-            scope: None,
-            dst_len,
-            iface: fields[fields.len() - 1].to_string(),
-        })
+        RtRec { gw: fields[1].parse::<IpAddr>().ok(), src: None, dst, proto: None, scope: None, dst_len, iface: fields[fields.len() - 1].to_string() }
     })
 }
 
