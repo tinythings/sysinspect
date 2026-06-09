@@ -12,11 +12,18 @@ run_setup() {
 		break
 	done
 
-	if ! command -v rustup >/dev/null 2>&1; then
-		echo "Installing rustup"
+	if ! command -v rustup >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1; then
+		echo "Installing rustup and Cargo toolchain"
 		toolchain=$(awk -F\" '/channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo stable)
 		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$toolchain"
 	fi
 
 	[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+	if command -v rustup >/dev/null 2>&1 && ! command -v cargo >/dev/null 2>&1; then
+		echo "Activating Rust toolchain"
+		toolchain=$(awk -F\" '/channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo stable)
+		rustup toolchain install "$toolchain"
+		rustup default "$toolchain"
+		[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+	fi
 }
