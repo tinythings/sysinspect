@@ -102,7 +102,7 @@ mxrun: setup
 	sh scripts/mxrun-status.sh
 
 setup:
-	@sh scripts/setup.sh || true
+	@sh scripts/setup.sh
 
 clean:
 	cargo clean
@@ -125,26 +125,22 @@ smoke-test:
 	sh smoke-tests/run.sh
 
 musl-aarch64-dev:
-	$(call check_present,aarch64-linux-musl-gcc)
-	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh aarch64-unknown-linux-musl aarch64-linux-musl-gcc build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call stage_profile_modules,debug,aarch64-unknown-linux-musl)
 	$(call stage_profile_minion,debug,aarch64-unknown-linux-musl)
 
 musl-aarch64:
-	$(call check_present,aarch64-linux-musl-gcc)
-	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh aarch64-unknown-linux-musl aarch64-linux-musl-gcc build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call stage_profile_modules,release,aarch64-unknown-linux-musl)
 	$(call stage_profile_minion,release,aarch64-unknown-linux-musl)
 
 musl-x86_64-dev:
-	$(call check_present,x86_64-linux-musl-gcc)
-	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh x86_64-unknown-linux-musl x86_64-linux-musl-gcc build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call stage_profile_modules,debug,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,debug,x86_64-unknown-linux-musl)
 
 musl-x86_64:
-	$(call check_present,x86_64-linux-musl-gcc)
-	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh x86_64-unknown-linux-musl x86_64-linux-musl-gcc build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 

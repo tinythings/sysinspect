@@ -3,7 +3,7 @@
 set -eu
 
 run_setup() {
-	local need_dnf=false
+	need_dnf=false
 
 	if ! command -v pkg-config >/dev/null 2>&1; then need_dnf=true; fi
 	if ! command -v clang >/dev/null 2>&1; then need_dnf=true; fi

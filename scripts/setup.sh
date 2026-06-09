@@ -23,22 +23,22 @@ add_rustup_target() {
 
 # --- dispatch to per-OS setup script ---
 case "$OS" in
-	Linux)
-		distro=$( . /etc/os-release 2>/dev/null && echo "$ID" )
-		case "$distro" in
-			debian|ubuntu) source scripts/setup-debian.sh ;;
-			fedora)        source scripts/setup-fedora.sh ;;
-			*)
-				echo "Unsupported Linux distribution: $distro" >&2
-				echo "Supported: Debian, Ubuntu, Fedora, FreeBSD" >&2
-				exit 1
-				;;
-		esac
-		;;
-	FreeBSD) source scripts/setup-freebsd.sh ;;
-	*)
-		echo "Unsupported setup host: $OS" >&2
-		exit 1
+		Linux)
+			distro=$( . /etc/os-release 2>/dev/null && echo "$ID" )
+			case "$distro" in
+				debian|ubuntu) . scripts/setup-debian.sh ;;
+				fedora)        . scripts/setup-fedora.sh ;;
+				*)
+					echo "Unsupported Linux distribution: $distro" >&2
+					echo "Supported: Debian, Ubuntu, Fedora, FreeBSD" >&2
+					exit 1
+					;;
+			esac
+			;;
+		FreeBSD) . scripts/setup-freebsd.sh ;;
+		*)
+			echo "Unsupported setup host: $OS" >&2
+			exit 1
 		;;
 esac
 
