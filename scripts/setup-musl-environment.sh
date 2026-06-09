@@ -3,8 +3,10 @@ set -eu
 
 PAM_VER="1.6.1"
 PAM_URL="https://github.com/linux-pam/linux-pam/releases/download/v${PAM_VER}/Linux-PAM-${PAM_VER}.tar.xz"
-DL_DIR="./target/tmp/pam-build"
-INSTALL_LOG="./target/tmp/musl-pam-install.log"
+ROOT_DIR=$(pwd)
+TMP_DIR="${ROOT_DIR}/target/tmp"
+DL_DIR="${TMP_DIR}/pam-build"
+INSTALL_LOG="${TMP_DIR}/musl-pam-install.log"
 
 require_cmd() {
 	command -v "$1" >/dev/null 2>&1 || { echo "Missing $1. Install it first." >&2; exit 1; }
@@ -25,73 +27,72 @@ download_pam() {
 }
 
 build_target() {
-	target="$1"
+	pam_target="$1"
 	cc="$2"
-	sysroot="$3"
+	rust_target="$3"
+	prefix="${ROOT_DIR}/target/musl/${rust_target}"
+	libdir="${prefix}/lib"
+	includedir="${prefix}/include"
 
-	libpam="${sysroot}/lib/libpam.a"
-	libpam_misc="${sysroot}/lib/libpam_misc.a"
+	libpam="${libdir}/libpam.a"
+	libpam_misc="${libdir}/libpam_misc.a"
 
 	if [ -f "$libpam" ] && [ -f "$libpam_misc" ]; then
-		echo "PAM already installed for $target — skip."
+		echo "PAM already installed for $rust_target — skip."
 		return
 	fi
 
 	require_cmd "$cc"
 	require_cmd make
 
-	echo "Building Linux-PAM ${PAM_VER} for $target (CC=$cc) ..."
-	(
-		cd "${DL_DIR}/Linux-PAM-${PAM_VER}"
-		CC="$cc" ./configure \
-			--host="$target" \
-			--prefix="$sysroot" \
-			--enable-static \
+			echo "Building Linux-PAM ${PAM_VER} for $rust_target (CC=$cc) ..."
+			echo "Installing static PAM into $libdir"
+		(
+			cd "${DL_DIR}/Linux-PAM-${PAM_VER}"
+			make distclean >/dev/null 2>&1 || true
+			CC="$cc" ./configure \
+				--host="$pam_target" \
+				--prefix="$prefix" \
+				--enable-static \
 			--disable-shared \
 			--disable-doc \
 			--disable-nls \
 			--disable-selinux \
 			--disable-regenerate-docu \
 			>"$INSTALL_LOG" 2>&1
-		make -j"$(nproc)" -C libpam >> "$INSTALL_LOG" 2>&1
-		make -j"$(nproc)" -C libpam_misc >> "$INSTALL_LOG" 2>&1
-		make -j"$(nproc)" -C libpamc >> "$INSTALL_LOG" 2>&1
+			make -j"$(nproc)" -C libpam_internal >> "$INSTALL_LOG" 2>&1
+			make -j"$(nproc)" -C libpam >> "$INSTALL_LOG" 2>&1
+			make -j"$(nproc)" -C libpamc >> "$INSTALL_LOG" 2>&1
+			make -j"$(nproc)" -C libpam_misc >> "$INSTALL_LOG" 2>&1
 
-		MUST_SUDO=
-		if [ ! -w "$sysroot" ]; then
-			if ! sudo -n true 2>/dev/null; then
-				echo "PAM install for $target skipped — requires sudo (run manually)."
-				exit 1
-			fi
-			MUST_SUDO=sudo
-		fi
-		$MUST_SUDO mkdir -p "${sysroot}/lib" "${sysroot}/include/security"
-		$MUST_SUDO cp libpam/.libs/libpam.a "${sysroot}/lib/"
-		$MUST_SUDO cp libpam_misc/.libs/libpam_misc.a "${sysroot}/lib/"
-		$MUST_SUDO cp libpamc/.libs/libpamc.a "${sysroot}/lib/" 2>/dev/null || true
+			mkdir -p "$libdir" "$includedir/security"
+			cp libpam/.libs/libpam.a "$libdir/"
+			cp libpam_misc/.libs/libpam_misc.a "$libdir/"
+			cp libpamc/.libs/libpamc.a "$libdir/" 2>/dev/null || true
 		for d in libpam libpamc libpam_misc; do
-			$MUST_SUDO cp "${d}/include/security/"*.h "${sysroot}/include/security/" 2>/dev/null || true
+			cp "${d}/include/security/"*.h "$includedir/security/" 2>/dev/null || true
 		done
-		echo "PAM installed for $target OK."
-	) || true
+		echo "PAM installed for $rust_target OK."
+	)
 }
 
 require_cmd wget
 require_cmd nproc
 require_cmd tar
+mkdir -p "$TMP_DIR"
 
 download_pam
 
 if command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
 	build_target aarch64-linux-musl \
 		aarch64-linux-musl-gcc \
-		/opt/aarch64-linux-musl-cross/aarch64-linux-musl
+		aarch64-unknown-linux-musl
 fi
 
 if command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
 	build_target x86_64-linux-musl \
 		x86_64-linux-musl-gcc \
-		/usr/lib/x86_64-linux-musl
+		x86_64-unknown-linux-musl
 fi
 
 echo "Done."
