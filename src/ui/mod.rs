@@ -330,15 +330,36 @@ impl SysInspectUX {
                         Ok(config_path) => {
                             self.setup_wizard.ok_pressed = false;
                             self.setup_wizard.visible = false;
-                            let msg = format!(
-                                "Config written to:\n{}\n\nStart the master with:\n  sysmaster --start -c {}",
-                                config_path.display(),
+
+                            // Spawn master in daemon mode (no TUI output pollution)
+                            let master_bin = if self.setup_wizard.installation_mode == setup::InstallationMode::Custom {
+                                std::path::PathBuf::from(self.setup_wizard.custom_destination.value()).join("bin/sysmaster")
+                            } else {
+                                std::path::PathBuf::from(self.setup_wizard.sysmaster_path.value())
+                            };
+                            std::process::Command::new(&master_bin)
+                                .arg("--start")
+                                .arg("-c")
+                                .arg(config_path.to_string_lossy().as_ref())
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .spawn()
+                                .ok();
+
+                            // Wait for master to come up
+                            for _ in 0..10 {
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                if self.try_reconnect_silent().is_ok() {
+                                    return self.run_normal_loop(term);
+                                }
+                            }
+
+                            // Not yet up — stay in setup loop, will auto-reconnect
+                            self.info_alert_visible = true;
+                            self.info_alert_message = format!(
+                                "Config written to:\n{}\n\nMaster is starting in the background.\nThe UI will reconnect automatically.",
                                 config_path.display(),
                             );
-                            self.info_alert_visible = true;
-                            self.info_alert_message = msg.clone();
-                            self.pending_exit = true;
-                            self.pending_exit_message = Some(msg);
                         }
                         Err(e) => {
                             self.setup_wizard.error_message = Some(e);
