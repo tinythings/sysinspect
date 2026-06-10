@@ -12,9 +12,9 @@ use libmodpak::{SysInspectModPak, compare_versions};
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
-        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleModelRow, ConsoleOnlineMinionRow,
-        ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client,
-        load_master_private_key,
+        ConsoleEnvelope, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleModelRow,
+        ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply,
+        authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
@@ -453,6 +453,18 @@ impl SysMaster {
         Ok(snapshot)
     }
 
+    async fn master_log_snapshot(master: Arc<Mutex<Self>>) -> Result<ConsoleMasterLogSnapshot, SysinspectError> {
+        let guard = master.lock().await;
+        let std = std::fs::read_to_string(guard.cfg.logfile_std()).unwrap_or_default();
+        let err = std::fs::read_to_string(guard.cfg.logfile_err()).unwrap_or_default();
+        Ok(ConsoleMasterLogSnapshot {
+            standard_log: std.lines().map(|s| s.to_string()).collect(),
+            errors_log: err.lines().map(|s| s.to_string()).collect(),
+            standard_path: guard.cfg.logfile_std().display().to_string(),
+            errors_path: guard.cfg.logfile_err().display().to_string(),
+        })
+    }
+
     /// Remove a minion from registry and key storage and prepare the matching console reply.
     ///
     /// When a command message can still be constructed for the target minion it
@@ -690,6 +702,13 @@ impl SysMaster {
                     Err(err) => ConsoleResponse::err(format!("Unable to get minion logs: {err}")),
                 },
                 Err(err) => ConsoleResponse::err(format!("Failed to parse minion logs request: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MASTER_LOGS}")) {
+            return match Self::master_log_snapshot(Arc::clone(&master)).await {
+                Ok(snapshot) => ConsoleResponse::ok(ConsolePayload::MasterLogs { snapshot }),
+                Err(err) => ConsoleResponse::err(format!("Unable to get master logs: {err}")),
             };
         }
 

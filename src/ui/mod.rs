@@ -15,8 +15,8 @@ use libsysinspect::{
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS,
-        CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
+        CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -160,6 +160,16 @@ pub struct SysInspectUX {
     pub minion_logs_last_fetch: Instant,
     pub minion_logs_viewport_rows: Cell<usize>,
 
+    // Master logs popup
+    pub master_logs_visible: bool,
+    pub master_logs_tab: usize,
+    pub master_logs_sections: Vec<rawlogs::LogSection>,
+    pub master_logs_filter: ratatui_cheese::input::InputState,
+    pub master_logs_filter_focus: bool,
+    pub master_logs_polling: bool,
+    pub master_logs_last_fetch: Instant,
+    pub master_logs_viewport_rows: Cell<usize>,
+
     // Online minions action menu
     pub minions_menu_visible: bool,
     pub minions_menu_sel: usize,
@@ -261,6 +271,15 @@ impl Default for SysInspectUX {
             minion_logs_online: true,
             minion_logs_last_fetch: Instant::now(),
             minion_logs_viewport_rows: Cell::new(0),
+
+            master_logs_visible: false,
+            master_logs_tab: 0,
+            master_logs_sections: Vec::new(),
+            master_logs_filter: ratatui_cheese::input::InputState::new(),
+            master_logs_filter_focus: false,
+            master_logs_polling: true,
+            master_logs_last_fetch: Instant::now(),
+            master_logs_viewport_rows: Cell::new(0),
 
             minions_menu_visible: false,
             minions_menu_sel: 0,
@@ -579,6 +598,9 @@ impl SysInspectUX {
                             Err(_) => self.minion_logs_online = false,
                         }
                     }
+                    if self.master_logs_visible && self.master_logs_polling && self.master_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
+                        let _ = self.load_master_logs();
+                    }
                 }
             }
         }
@@ -751,6 +773,10 @@ impl SysInspectUX {
     fn on_minions_popup(&mut self, e: event::KeyEvent) -> bool {
         if !self.minions_visible {
             return false;
+        }
+
+        if self.master_logs_visible {
+            return self.on_master_logs_popup(e);
         }
 
         if self.minion_logs_visible {
@@ -1582,6 +1608,171 @@ impl SysInspectUX {
         true
     }
 
+    fn open_master_logs(&mut self) {
+        self.master_logs_visible = true;
+        self.master_logs_tab = 0;
+        self.master_logs_filter = ratatui_cheese::input::InputState::new();
+        self.master_logs_filter_focus = false;
+        self.master_logs_polling = true;
+        self.master_logs_last_fetch = Instant::now();
+        self.status_at_master_logs();
+        if let Err(err) = self.load_master_logs() {
+            self.master_logs_visible = false;
+            self.error_alert_visible = true;
+            self.error_alert_message = err.to_string();
+        }
+    }
+
+    fn load_master_logs(&mut self) -> Result<(), SysinspectError> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MASTER_LOGS}"), "*", None, None, None).await })
+        })?;
+        match resp.payload {
+            ConsolePayload::MasterLogs { snapshot } => {
+                self.master_logs_sections = vec![
+                    rawlogs::LogSection {
+                        title: "Standard".into(),
+                        path: snapshot.standard_path,
+                        lines: snapshot.standard_log,
+                        scroll: Cell::new(usize::MAX),
+                    },
+                    rawlogs::LogSection {
+                        title: "Errors".into(),
+                        path: snapshot.errors_path,
+                        lines: snapshot.errors_log,
+                        scroll: Cell::new(usize::MAX),
+                    },
+                ];
+                self.master_logs_last_fetch = Instant::now();
+                Ok(())
+            }
+            _ => Err(SysinspectError::ProtoError("Unexpected console payload for master logs".to_string())),
+        }
+    }
+
+    fn on_master_logs_popup(&mut self, e: event::KeyEvent) -> bool {
+        if !self.master_logs_visible {
+            return false;
+        }
+        let page = self.master_logs_viewport_rows.get().max(1);
+        let section = match self.master_logs_sections.get(self.master_logs_tab) {
+            Some(s) => s,
+            None => return true,
+        };
+        let rendered = Self::filtered_master_rendered_lines(&section.lines, &self.master_logs_filter);
+        let total_rows = rendered.len();
+        let max_top = total_rows.saturating_sub(page);
+
+        if self.master_logs_filter_focus {
+            match e.code {
+                KeyCode::Esc => {
+                    self.master_logs_filter_focus = false;
+                }
+                KeyCode::Tab => {
+                    self.master_logs_filter_focus = false;
+                }
+                KeyCode::Backspace => {
+                    self.master_logs_filter.delete_before();
+                }
+                KeyCode::Delete => {
+                    self.master_logs_filter.delete_at();
+                }
+                KeyCode::Left => {
+                    self.master_logs_filter.move_left();
+                }
+                KeyCode::Right => {
+                    self.master_logs_filter.move_right();
+                }
+                KeyCode::Home => {
+                    self.master_logs_filter.home();
+                }
+                KeyCode::End => {
+                    self.master_logs_filter.end();
+                }
+                KeyCode::Char(c) => {
+                    self.master_logs_filter.insert_char(c);
+                }
+                _ => {}
+            }
+            return true;
+        }
+
+        match e.code {
+            KeyCode::Esc => {
+                self.master_logs_visible = false;
+            }
+            KeyCode::Left => {
+                self.master_logs_tab = self.master_logs_tab.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                if self.master_logs_tab + 1 < self.master_logs_sections.len() {
+                    self.master_logs_tab += 1;
+                }
+            }
+            KeyCode::Tab => {
+                self.master_logs_filter_focus = true;
+            }
+            KeyCode::Up => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    scroll = max_top;
+                }
+                scroll = scroll.saturating_sub(1);
+                s.scroll.set(scroll);
+            }
+            KeyCode::Down => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    return true;
+                }
+                scroll = (scroll + 1).min(max_top);
+                if scroll >= max_top {
+                    scroll = usize::MAX;
+                }
+                s.scroll.set(scroll);
+            }
+            KeyCode::PageUp => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    scroll = max_top;
+                }
+                scroll = scroll.saturating_sub(page);
+                s.scroll.set(scroll);
+            }
+            KeyCode::PageDown => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    return true;
+                }
+                scroll = (scroll + page).min(max_top);
+                if scroll >= max_top {
+                    scroll = usize::MAX;
+                }
+                s.scroll.set(scroll);
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                if let Err(err) = self.load_master_logs() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err.to_string();
+                }
+            }
+            KeyCode::Char('/') => {
+                self.master_logs_filter_focus = true;
+            }
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                self.master_logs_polling = !self.master_logs_polling;
+                self.status_at_master_logs();
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn on_tag_popup(&mut self, e: event::KeyEvent) -> bool {
         if !self.tag_visible {
             return false;
@@ -2018,6 +2209,9 @@ impl SysInspectUX {
                     self.error_alert_message = format!("Failed to load models: {err}");
                 }
             },
+            KeyCode::Char('m') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_master_logs();
+            }
             KeyCode::Char('o') if !e.modifiers.contains(KeyModifiers::CONTROL) => match self.fetch_minions() {
                 Ok(rows) if rows.is_empty() => {
                     self.error_alert_visible = true;

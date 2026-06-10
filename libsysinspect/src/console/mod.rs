@@ -117,6 +117,15 @@ pub struct ConsoleMinionLogSnapshot {
     pub truncated: bool,
 }
 
+/// Raw logfile snapshot for the master's own standard and error logs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleMasterLogSnapshot {
+    pub standard_log: Vec<String>,
+    pub errors_log: Vec<String>,
+    pub standard_path: String,
+    pub errors_path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConsolePayload {
@@ -173,6 +182,11 @@ pub enum ConsolePayload {
     MinionLogs {
         /// Snapshot payload.
         snapshot: ConsoleMinionLogSnapshot,
+    },
+    /// Raw logfile snapshot for the master's own standard and error logs.
+    MasterLogs {
+        /// Snapshot payload.
+        snapshot: ConsoleMasterLogSnapshot,
     },
     /// Available models discovered by the master.
     Models {

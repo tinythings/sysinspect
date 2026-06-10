@@ -61,6 +61,9 @@ pub mod commands {
 
     // Force all online minions to reconnect (cluster-wide broadcast)
     pub const CLUSTER_RECONNECT: &str = "cluster/reconnect";
+
+    // Read recent raw log snapshot from the master (standard + error logs)
+    pub const CLUSTER_MASTER_LOGS: &str = "cluster/master/logs";
 }
 
 ///

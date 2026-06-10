@@ -140,6 +140,32 @@ impl SysInspectUX {
         self.status_text = Line::from(spans);
     }
 
+    pub(crate) fn status_at_master_logs(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        let mut spans = vec![
+            key("\u{2190}\u{2192} "),
+            desc("switch tab,  "),
+            key("\u{2191}\u{2193} "),
+            desc("scroll,  "),
+            key("PgUp/PgDn "),
+            desc("skip,  "),
+            key("Tab "),
+            desc("filter,  "),
+            key("/ "),
+            desc("filter,  "),
+            key("P "),
+            desc(if self.master_logs_polling { "pause,  " } else { "resume,  " }),
+        ];
+        if !self.master_logs_polling {
+            spans.push(key("R "));
+            spans.push(desc("refresh,  "));
+        }
+        spans.push(key("Esc "));
+        spans.push(desc("close"));
+        self.status_text = Line::from(spans);
+    }
+
     pub(crate) fn status_at_query_composer(&mut self) {
         self.status_text = Line::from(vec![
             Span::styled(" Tab ", Style::default().fg(palette::FG)),

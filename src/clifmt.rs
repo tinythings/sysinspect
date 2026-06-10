@@ -412,5 +412,6 @@ pub fn render_console_payload(payload: &ConsolePayload) -> String {
             out.join("\n")
         }
         ConsolePayload::Models { .. } => String::new(),
+        ConsolePayload::MasterLogs { snapshot: _ } => String::new(),
     }
 }
