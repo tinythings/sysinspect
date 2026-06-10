@@ -21,15 +21,15 @@ use libsysproto::query::{
 };
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Direction, Layout},
-    style::Style,
-    text::Line,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
+    text::{Line, Span},
     widgets::{Paragraph, Row},
 };
 use ratatui_cheese::tree::TreeState;
 use std::{
     cell::{Cell, RefCell},
-    io::{self, Error},
+    io::{self},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -43,6 +43,7 @@ mod macts;
 mod online;
 mod palette;
 mod rawlogs;
+mod setup;
 mod statusbar;
 mod title;
 mod traitsview;
@@ -50,23 +51,40 @@ mod traittag;
 mod typecolors;
 mod wgt;
 
-pub async fn run(cfg: MasterConfig) -> io::Result<()> {
-    match SysInspectUX::new(cfg.clone()).await {
-        Ok(mut app) => {
-            let mut terminal = ratatui::init();
-            let r = app.run(&mut terminal);
-            ratatui::restore();
-
-            // XXX: Temporary log dumper. Should go to its own window popup later
-            if !MEM_LOGGER.get_messages().is_empty() {
-                println!("Memory log:");
-                println!("{:#?}", MEM_LOGGER.get_messages());
+pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
+    let mut terminal = ratatui::init();
+    let (result, exit_message) = match SysInspectUX::new(cfg.clone()).await {
+        Ok(app) => (app.run_loop(&mut terminal), None),
+        Err(err) => {
+            if config_found {
+                let app = SysInspectUX {
+                    cfg,
+                    offline: true,
+                    error_alert_visible: true,
+                    error_alert_message: format!("Cannot connect to master.\n\n{err}\n\nStart the master, then reconnect."),
+                    ..Default::default()
+                };
+                (app.run_offline_loop(&mut terminal), None)
+            } else {
+                let app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
+                let mut exit_message = None;
+                let r = app.run_setup_loop(&mut terminal, &mut exit_message);
+                (r, exit_message)
             }
-
-            r
         }
-        Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
+    };
+    ratatui::restore();
+
+    if let Some(msg) = exit_message {
+        println!("\n{msg}\n");
     }
+
+    if !MEM_LOGGER.get_messages().is_empty() {
+        println!("Memory log:");
+        println!("{:#?}", MEM_LOGGER.get_messages());
+    }
+
+    result
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -89,7 +107,7 @@ pub struct SysInspectUX {
     pub event_data: IndexMap<String, String>,
     pub active_box: ActiveBox,
     saved_active_box: Option<ActiveBox>,
-    main_focus_suspended: bool,
+    no_focus: bool,
 
     pub status_text: Line<'static>,
 
@@ -101,6 +119,10 @@ pub struct SysInspectUX {
     pub error_alert_visible: bool,
     pub error_alert_message: String,
     pub error_alert_choice: AlertResult,
+
+    /// Information alert (success/info popups)
+    pub info_alert_visible: bool,
+    pub info_alert_message: String,
 
     /// Exit alert
     pub exit_alert_visible: bool,
@@ -162,6 +184,17 @@ pub struct SysInspectUX {
 
     pub cfg: MasterConfig,
 
+    // Master setup wizard (first-run)
+    pub setup_wizard: setup::MasterSetupWizard,
+
+    // Connection state
+    pub offline: bool,
+    pub last_reconnect_attempt: Instant,
+
+    // Exit-after-popup state (for setup config-written notice)
+    pub pending_exit: bool,
+    pub pending_exit_message: Option<String>,
+
     // Buffers
     pub cycles_buf: Vec<CycleListItem>,
     pub minions_buf: Vec<MinionListItem>,
@@ -184,7 +217,7 @@ impl Default for SysInspectUX {
             event_data: IndexMap::new(),
             active_box: ActiveBox::default(),
             saved_active_box: None,
-            main_focus_suspended: false,
+            no_focus: false,
             status_text: Line::from(vec![]),
 
             // Alerts
@@ -195,6 +228,8 @@ impl Default for SysInspectUX {
             error_alert_visible: false,
             error_alert_choice: AlertResult::default(),
             error_alert_message: String::new(),
+            info_alert_visible: false,
+            info_alert_message: String::new(),
             help_popup_visible: false,
 
             minions_visible: false,
@@ -239,6 +274,12 @@ impl Default for SysInspectUX {
             evtipc: None,
             dsl_browser: dslbrowser::DslBrowser::new(),
             cfg: MasterConfig::default(),
+            setup_wizard: setup::MasterSetupWizard::default(),
+            offline: false,
+            last_reconnect_attempt: Instant::now(),
+
+            pending_exit: false,
+            pending_exit_message: None,
             cycles_buf: Vec::new(),
             minions_buf: Vec::new(),
             events_buf: Vec::new(),
@@ -263,13 +304,128 @@ impl SysInspectUX {
         Ok(ux)
     }
 
-    pub fn run(&mut self, term: &mut DefaultTerminal) -> io::Result<()> {
-        self.cycles_buf = self.get_cycles().unwrap();
+    pub fn run_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.cycles_buf = self.get_cycles().unwrap_or_default();
+        self.run_normal_loop(term)
+    }
 
+    pub fn run_setup_loop(mut self, term: &mut DefaultTerminal, exit_msg: &mut Option<String>) -> io::Result<()> {
+        self.last_reconnect_attempt = Instant::now();
+        self.no_focus = true;
+
+        while !self.exit {
+            term.draw(|frame| self.draw(frame))?;
+            if self.setup_wizard.ok_pressed {
+                match self.setup_wizard.write_config() {
+                    Ok(config_path) => {
+                        self.setup_wizard.ok_pressed = false;
+                        self.setup_wizard.visible = false;
+                        let msg = format!(
+                            "Config written to:\n{}\n\nStart the master with:\n  sysmaster --start -c {}",
+                            config_path.display(),
+                            config_path.display(),
+                        );
+                        self.info_alert_visible = true;
+                        self.info_alert_message = msg.clone();
+                        self.pending_exit = true;
+                        self.pending_exit_message = Some(msg);
+                    }
+                    Err(e) => {
+                        self.setup_wizard.error_message = Some(e);
+                        self.setup_wizard.ok_pressed = false;
+                    }
+                }
+            }
+            if !self.error_alert_visible && !self.setup_wizard.visible && self.try_reconnect_silent().is_ok() {
+                return self.run_normal_loop(term);
+            }
+            // Periodic silent reconnect in setup mode
+            if !self.setup_wizard.ok_pressed && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) && self.evtipc.is_some() {
+                self.last_reconnect_attempt = Instant::now();
+                if self.try_reconnect_silent().is_ok() {
+                    return self.run_normal_loop(term);
+                }
+            }
+            self.on_events_setup()?;
+        }
+        *exit_msg = self.pending_exit_message.take();
+        Ok(())
+    }
+
+    fn run_normal_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.last_reconnect_attempt = Instant::now();
         while !self.exit {
             self.sync_main_focus_for_overlays();
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
+            if self.offline && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {
+                self.last_reconnect_attempt = Instant::now();
+                if self.try_reconnect_silent().is_ok() {
+                    self.offline = false;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn run_offline_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.last_reconnect_attempt = Instant::now();
+        self.no_focus = true;
+
+        while !self.exit {
+            term.draw(|frame| self.draw(frame))?;
+            // Periodic silent reconnect attempt
+            if self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {
+                self.last_reconnect_attempt = Instant::now();
+                if self.try_reconnect_silent().is_ok() {
+                    return self.run_normal_loop(term);
+                }
+            }
+            self.on_events()?;
+        }
+        Ok(())
+    }
+
+    fn try_reconnect_silent(&mut self) -> Result<(), String> {
+        let socket = self.cfg.telemetry_socket();
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async { DbIPCClient::new(socket.to_str().unwrap_or_default()).await })
+        }) {
+            Ok(ipc) => {
+                self.evtipc = Some(Arc::new(Mutex::new(ipc)));
+                self.setup_wizard.visible = false;
+                self.error_alert_visible = false;
+                self.offline = false;
+                self.cycles_buf = self.get_cycles().unwrap_or_default();
+                Ok(())
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn try_reconnect(&mut self) -> Result<(), String> {
+        self.try_reconnect_silent().map_err(|e| {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Master still not reachable: {e}");
+            e
+        })
+    }
+
+    fn on_events_setup(&mut self) -> io::Result<()> {
+        if event::poll(Duration::from_secs(1))?
+            && let Event::Key(e) = event::read()?
+            && e.kind == KeyEventKind::Press
+        {
+            if self.setup_wizard.visible && !self.error_alert_visible && !self.exit_alert_visible && !self.info_alert_visible {
+                self.setup_wizard.handle_key(e);
+                if self.setup_wizard.quit_requested {
+                    self.setup_wizard.quit_requested = false;
+                    self.exit_alert_visible = true;
+                    self.exit_alert_choice = AlertResult::Default;
+                }
+            } else {
+                self.on_key(e);
+            }
         }
         Ok(())
     }
@@ -284,8 +440,29 @@ impl SysInspectUX {
 
         frame.render_widget(self, main_area);
 
-        let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
-        frame.render_widget(status_paragraph, status_area);
+        if self.offline {
+            let offline_w: u16 = 14;
+            let [main_status, offline_area]: [Rect; 2] = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(offline_w)].as_ref())
+                .split(status_area)
+                .as_ref()
+                .try_into()
+                .unwrap();
+
+            let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+            frame.render_widget(status_paragraph, main_status);
+
+            let offline_paragraph = Paragraph::new(Line::from(vec![Span::styled(
+                "  Offline \u{2716} ",
+                Style::default().fg(palette::ERROR_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD),
+            )]))
+            .style(Style::default().bg(palette::BG_1));
+            frame.render_widget(offline_paragraph, offline_area);
+        } else {
+            let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+            frame.render_widget(status_paragraph, status_area);
+        }
     }
 
     fn on_events(&mut self) -> io::Result<()> {
@@ -297,16 +474,24 @@ impl SysInspectUX {
                 self.on_key(e);
             }
         } else {
-            if let Ok(cycles) = self.get_cycles() {
-                self.cycles_buf = cycles;
-            }
-            if self.minions_visible {
-                self.refresh_minions();
-            }
-            if self.minion_logs_visible && self.minion_logs_polling && self.minion_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
-                match self.load_selected_minion_logs() {
-                    Ok(()) => self.minion_logs_online = true,
-                    Err(_) => self.minion_logs_online = false,
+            if !self.offline {
+                match self.get_cycles() {
+                    Ok(cycles) => self.cycles_buf = cycles,
+                    Err(_) => {
+                        self.offline = true;
+                        self.evtipc = None;
+                    }
+                }
+                if !self.offline {
+                    if self.minions_visible {
+                        self.refresh_minions();
+                    }
+                    if self.minion_logs_visible && self.minion_logs_polling && self.minion_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
+                        match self.load_selected_minion_logs() {
+                            Ok(()) => self.minion_logs_online = true,
+                            Err(_) => self.minion_logs_online = false,
+                        }
+                    }
                 }
             }
         }
@@ -315,7 +500,7 @@ impl SysInspectUX {
 
     /// Cycle active pan to the right (used on RIGHT or ENTER key)
     fn shift_next(&mut self) {
-        if self.main_focus_suspended {
+        if self.no_focus {
             return;
         }
         match self.active_box {
@@ -344,7 +529,7 @@ impl SysInspectUX {
 
     /// Cycle active pan to the left (used on LEFT or ESC key)
     fn shift_prev(&mut self) {
-        if self.main_focus_suspended {
+        if self.no_focus {
             return;
         }
         match self.active_box {
@@ -459,6 +644,20 @@ impl SysInspectUX {
         }
 
         stat
+    }
+
+    fn on_info_alert(&mut self, e: event::KeyEvent) -> bool {
+        if !self.info_alert_visible {
+            return false;
+        }
+        if matches!(e.code, KeyCode::Enter | KeyCode::Esc) {
+            self.info_alert_visible = false;
+            if self.pending_exit {
+                self.pending_exit = false;
+                self.exit();
+            }
+        }
+        true
     }
 
     /// Process online minions popup key events
@@ -871,17 +1070,17 @@ impl SysInspectUX {
 
     fn sync_main_focus_for_overlays(&mut self) {
         let overlay_visible = self.any_overlay_visible();
-        if overlay_visible && !self.main_focus_suspended {
+        if overlay_visible && !self.no_focus {
             self.saved_active_box = Some(self.active_box);
-            self.main_focus_suspended = true;
-        } else if !overlay_visible && self.main_focus_suspended {
+            self.no_focus = true;
+        } else if !overlay_visible && self.no_focus {
             self.active_box = self.saved_active_box.take().unwrap_or_default();
-            self.main_focus_suspended = false;
+            self.no_focus = false;
         }
     }
 
     pub(crate) fn main_box_active(&self, hl: ActiveBox) -> bool {
-        !self.main_focus_suspended && self.active_box == hl
+        !self.no_focus && self.active_box == hl
     }
 
     fn refresh_minions(&mut self) {
@@ -1470,6 +1669,30 @@ impl SysInspectUX {
             return;
         }
 
+        // Information alert is modal
+        if self.on_info_alert(e) {
+            return;
+        }
+
+        // Exit alert takes priority over setup wizard
+        if self.on_exit_alert(e) {
+            return;
+        }
+
+        // Setup wizard is modal
+        if self.setup_wizard.visible {
+            self.setup_wizard.handle_key(e);
+            if self.setup_wizard.quit_requested {
+                self.setup_wizard.quit_requested = false;
+                self.exit_alert_visible = true;
+                self.exit_alert_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.on_error_alert(e) {
+            return;
+        }
+
         if self.dsl_browser.visible {
             self.dsl_browser.handle_key(e.code);
             if !self.dsl_browser.visible {
@@ -1515,10 +1738,6 @@ impl SysInspectUX {
         }
 
         if self.on_purge_alert(e) {
-            return;
-        }
-
-        if self.on_exit_alert(e) {
             return;
         }
 

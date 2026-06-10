@@ -56,6 +56,31 @@ impl SysInspectUX {
         );
     }
 
+    pub fn dialog_info(&self, parent: Rect, buf: &mut Buffer, title: &str, text: &str, quit_button: bool) {
+        let max_w = ((parent.width * 3 / 4).max(50)) as usize;
+        let wrapped_lines = wrap_text(text, max_w);
+        let text = if wrapped_lines.is_empty() { "".to_string() } else { wrapped_lines.join("\n") };
+        Self::_popup_ex(
+            parent,
+            buf,
+            Some(title),
+            &text,
+            None,
+            Alignment::Left,
+            AlertResult::Quit,
+            if quit_button { AlertButtons::Quit } else { AlertButtons::Close },
+            Some(0),
+            Some(palette::SUCCESS_PEAK),
+            None,
+            None,
+            Some(palette::BG_1),
+            None,
+            None,
+            None,
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
+        );
+    }
+
     pub fn dialog_purge(&self, parent: Rect, buf: &mut Buffer) {
         if !self.purge_alert_visible {
             return;
@@ -284,7 +309,7 @@ impl SysInspectUX {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(left_label.unwrap_or(OK_LABEL)), Self::format_button(right_label.unwrap_or(CANCEL_LABEL))),
             AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
-            AlertButtons::Quit => (Self::format_button(CLOSE_LABEL), "".to_string()),
+            AlertButtons::Quit => (Self::format_button(QUIT_LABEL), "".to_string()),
             AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 
@@ -406,7 +431,7 @@ impl SysInspectUX {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(OK_LABEL), Self::format_button(CANCEL_LABEL)),
             AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
-            AlertButtons::Quit => (Self::format_button(CLOSE_LABEL), "".to_string()),
+            AlertButtons::Quit => (Self::format_button(QUIT_LABEL), "".to_string()),
             AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 

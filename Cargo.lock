@@ -8444,6 +8444,7 @@ dependencies = [
  "ratatui-cheese",
  "ratatui-glamour",
  "serde_json",
+ "serde_yaml",
  "sysinfo 0.33.1",
  "tokio",
  "unicode-width 0.2.2",
