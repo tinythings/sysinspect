@@ -39,6 +39,7 @@ use unicode_width::UnicodeWidthStr;
 mod alert;
 mod dslbrowser;
 mod elements;
+mod filepicker;
 mod macts;
 mod online;
 mod palette;
@@ -187,6 +188,9 @@ pub struct SysInspectUX {
     // Master setup wizard (first-run)
     pub setup_wizard: setup::MasterSetupWizard,
 
+    // File picker
+    pub file_picker: filepicker::FilePicker,
+
     // Connection state
     pub offline: bool,
     pub last_reconnect_attempt: Instant,
@@ -275,6 +279,7 @@ impl Default for SysInspectUX {
             dsl_browser: dslbrowser::DslBrowser::new(),
             cfg: MasterConfig::default(),
             setup_wizard: setup::MasterSetupWizard::default(),
+            file_picker: filepicker::FilePicker::default(),
             offline: false,
             last_reconnect_attempt: Instant::now(),
 
@@ -316,23 +321,29 @@ impl SysInspectUX {
         while !self.exit {
             term.draw(|frame| self.draw(frame))?;
             if self.setup_wizard.ok_pressed {
-                match self.setup_wizard.write_config() {
-                    Ok(config_path) => {
-                        self.setup_wizard.ok_pressed = false;
-                        self.setup_wizard.visible = false;
-                        let msg = format!(
-                            "Config written to:\n{}\n\nStart the master with:\n  sysmaster --start -c {}",
-                            config_path.display(),
-                            config_path.display(),
-                        );
-                        self.info_alert_visible = true;
-                        self.info_alert_message = msg.clone();
-                        self.pending_exit = true;
-                        self.pending_exit_message = Some(msg);
-                    }
-                    Err(e) => {
-                        self.setup_wizard.error_message = Some(e);
-                        self.setup_wizard.ok_pressed = false;
+                if self.setup_wizard.sysmaster_path.value().is_empty() {
+                    self.setup_wizard.error_message = Some("Sys Master binary must be selected.".to_string());
+                    self.setup_wizard.ok_pressed = false;
+                    self.setup_wizard.focus = setup::SetupFocus::SysMasterPath;
+                } else {
+                    match self.setup_wizard.write_config() {
+                        Ok(config_path) => {
+                            self.setup_wizard.ok_pressed = false;
+                            self.setup_wizard.visible = false;
+                            let msg = format!(
+                                "Config written to:\n{}\n\nStart the master with:\n  sysmaster --start -c {}",
+                                config_path.display(),
+                                config_path.display(),
+                            );
+                            self.info_alert_visible = true;
+                            self.info_alert_message = msg.clone();
+                            self.pending_exit = true;
+                            self.pending_exit_message = Some(msg);
+                        }
+                        Err(e) => {
+                            self.setup_wizard.error_message = Some(e);
+                            self.setup_wizard.ok_pressed = false;
+                        }
                     }
                 }
             }
@@ -345,6 +356,26 @@ impl SysInspectUX {
                 if self.try_reconnect_silent().is_ok() {
                     return self.run_normal_loop(term);
                 }
+            }
+            // Launch file picker for sysmaster selection
+            if self.setup_wizard.launch_file_picker {
+                self.setup_wizard.launch_file_picker = false;
+                let start_dir = std::path::Path::new(&self.setup_wizard.sysmaster_path.value())
+                    .parent()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                self.file_picker.open(&start_dir, filepicker::PickerMode::FilePicker);
+            }
+            // File picker result -> back to sysmaster path
+            if let Some(path) = self.file_picker.selected.take() {
+                self.setup_wizard.sysmaster_path.set_value(path.to_string_lossy().to_string());
+            }
+            // Status bar for sysmaster path focus
+            if self.setup_wizard.focus == setup::SetupFocus::SysMasterPath {
+                self.status_text = Line::from(vec![
+                    Span::styled(" Enter ", Style::default().fg(palette::FG)),
+                    Span::styled("to browse for sysmaster binary", Style::default().fg(palette::FAINT)),
+                ]);
             }
             self.on_events_setup()?;
         }
@@ -416,7 +447,12 @@ impl SysInspectUX {
             && let Event::Key(e) = event::read()?
             && e.kind == KeyEventKind::Press
         {
-            if self.setup_wizard.visible && !self.error_alert_visible && !self.exit_alert_visible && !self.info_alert_visible {
+            if self.setup_wizard.visible
+                && !self.error_alert_visible
+                && !self.exit_alert_visible
+                && !self.info_alert_visible
+                && !self.file_picker.visible
+            {
                 self.setup_wizard.handle_key(e);
                 if self.setup_wizard.quit_requested {
                     self.setup_wizard.quit_requested = false;
@@ -1679,8 +1715,8 @@ impl SysInspectUX {
             return;
         }
 
-        // Setup wizard is modal
-        if self.setup_wizard.visible {
+        // Setup wizard is modal (but not when file picker is open)
+        if self.setup_wizard.visible && !self.file_picker.visible {
             self.setup_wizard.handle_key(e);
             if self.setup_wizard.quit_requested {
                 self.setup_wizard.quit_requested = false;
@@ -1690,6 +1726,11 @@ impl SysInspectUX {
             return;
         }
         if self.on_error_alert(e) {
+            return;
+        }
+
+        // File picker is modal
+        if self.file_picker.visible && self.file_picker.handle_key(e) {
             return;
         }
 

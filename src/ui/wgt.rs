@@ -294,7 +294,10 @@ impl Widget for &SysInspectUX {
         self._render_right_pane(events_a, buf);
 
         // Catch dialogs
-        if !self.error_alert_visible {
+        if self.file_picker.visible {
+            self.file_picker.render(area, buf);
+        }
+        if !self.error_alert_visible && !self.file_picker.visible {
             self.setup_wizard.render(area, buf);
         }
         self.dialog_purge(area, buf);

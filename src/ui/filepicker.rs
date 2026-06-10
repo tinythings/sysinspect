@@ -83,10 +83,10 @@ impl Default for FilePicker {
 }
 
 impl FilePicker {
-    pub fn open(&mut self, path: &PathBuf, mode: PickerMode) {
+    pub fn open(&mut self, path: &std::path::Path, mode: PickerMode) {
         self.visible = true;
         self.mode = mode;
-        self.current_path = path.clone();
+        self.current_path = path.to_path_buf();
         self.selected = None;
         self.dir_cursor = 0;
         self.file_cursor = 0;
@@ -144,8 +144,8 @@ impl FilePicker {
                 }
             }
 
-            dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            dirs.sort_by_key(|a| a.name.to_lowercase());
+            files.sort_by_key(|a| a.name.to_lowercase());
 
             self.entries.append(&mut dirs);
             self.dirs_end = self.entries.len();
@@ -182,10 +182,10 @@ impl FilePicker {
         if is_dir {
             return "\u{1F4C1}"; // 📁
         }
-        if let Ok(m) = fs::metadata(path) {
-            if m.permissions().mode() & 0o111 != 0 {
-                return "\u{1F4A5}"; // 💥 executable
-            }
+        if let Ok(m) = fs::metadata(path)
+            && m.permissions().mode() & 0o111 != 0
+        {
+            return "\u{1F4A5}"; // 💥 executable
         }
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
         match ext.as_str() {
@@ -260,28 +260,24 @@ impl FilePicker {
                     self.focus = if self.focus == PickerFocus::Files { PickerFocus::Dirs } else { PickerFocus::Files };
                 }
             }
-            KeyCode::Up => {
-                match self.focus {
-                    PickerFocus::Dirs => {
-                        self.dir_cursor = self.dir_cursor.saturating_sub(1);
-                    }
-                    PickerFocus::Files => {
-                        self.file_cursor = self.file_cursor.saturating_sub(1);
-                    }
+            KeyCode::Up => match self.focus {
+                PickerFocus::Dirs => {
+                    self.dir_cursor = self.dir_cursor.saturating_sub(1);
                 }
-            }
-            KeyCode::Down => {
-                match self.focus {
-                    PickerFocus::Dirs => {
-                        let max = self.dirs_end.saturating_sub(1);
-                        self.dir_cursor = (self.dir_cursor + 1).min(max);
-                    }
-                    PickerFocus::Files => {
-                        let max = self.entries.len().saturating_sub(self.dirs_end).saturating_sub(1);
-                        self.file_cursor = (self.file_cursor + 1).min(max);
-                    }
+                PickerFocus::Files => {
+                    self.file_cursor = self.file_cursor.saturating_sub(1);
                 }
-            }
+            },
+            KeyCode::Down => match self.focus {
+                PickerFocus::Dirs => {
+                    let max = self.dirs_end.saturating_sub(1);
+                    self.dir_cursor = (self.dir_cursor + 1).min(max);
+                }
+                PickerFocus::Files => {
+                    let max = self.entries.len().saturating_sub(self.dirs_end).saturating_sub(1);
+                    self.file_cursor = (self.file_cursor + 1).min(max);
+                }
+            },
             KeyCode::Enter => {
                 let idx = match self.focus {
                     PickerFocus::Dirs => self.dir_cursor,
@@ -357,11 +353,8 @@ impl FilePicker {
 
         // ── Filter row ──
         let filter_label = if self.filter_focus { " / \u{2192} " } else { " / " };
-        let fl_style = if self.filter_focus {
-            Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette::MUTED)
-        };
+        let fl_style =
+            if self.filter_focus { Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD) } else { Style::default().fg(palette::MUTED) };
         buf.set_string(inner.x + 1, row_y, filter_label, fl_style);
 
         let input_x = inner.x + 5;
@@ -429,7 +422,9 @@ impl FilePicker {
         for idx in 0..dlg_w {
             let sx = x.saturating_add(2).saturating_add(idx);
             let sy = y.saturating_add(dlg_h);
-            if sx > max_x || sy > max_y { continue; }
+            if sx > max_x || sy > max_y {
+                continue;
+            }
             if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
                 cell.set_bg(palette::SHADOW_BG);
                 cell.set_fg(palette::SHADOW_FG);
@@ -439,7 +434,9 @@ impl FilePicker {
             for idx in 0..dlg_h {
                 let sx = x.saturating_add(dlg_w).saturating_add(offset);
                 let sy = y.saturating_add(idx).saturating_add(1);
-                if sx > max_x || sy > max_y { continue; }
+                if sx > max_x || sy > max_y {
+                    continue;
+                }
                 if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
                     cell.set_bg(palette::SHADOW_BG);
                     cell.set_fg(palette::SHADOW_FG);

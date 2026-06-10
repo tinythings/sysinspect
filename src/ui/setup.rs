@@ -23,6 +23,7 @@ pub enum InstallationMode {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SetupFocus {
+    SysMasterPath,
     SystemRadio,
     CustomRadio,
     CustomDest,
@@ -38,6 +39,7 @@ impl SetupFocus {
     fn next(self) -> Self {
         use SetupFocus::*;
         match self {
+            SysMasterPath => SystemRadio,
             SystemRadio => CustomRadio,
             CustomRadio => CustomDest,
             CustomDest => BindAddr,
@@ -46,14 +48,15 @@ impl SetupFocus {
             FsPort => ApiCheck,
             ApiCheck => Ok,
             Ok => Cancel,
-            Cancel => SystemRadio,
+            Cancel => SysMasterPath,
         }
     }
 
     fn prev(self) -> Self {
         use SetupFocus::*;
         match self {
-            SystemRadio => Cancel,
+            SysMasterPath => Cancel,
+            SystemRadio => SysMasterPath,
             CustomRadio => SystemRadio,
             CustomDest => CustomRadio,
             BindAddr => CustomDest,
@@ -70,6 +73,8 @@ impl SetupFocus {
 pub struct MasterSetupWizard {
     pub visible: bool,
     pub installation_mode: InstallationMode,
+    pub sysmaster_path: InputState,
+    pub launch_file_picker: bool,
     pub custom_destination: InputState,
     pub bind_addr: InputState,
     pub bind_port: InputState,
@@ -84,6 +89,16 @@ pub struct MasterSetupWizard {
 impl Default for MasterSetupWizard {
     fn default() -> Self {
         let cwd = std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+
+        let mut sysmaster_path = InputState::new();
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(exe_dir) = exe.parent()
+        {
+            let candidate = exe_dir.join("sysmaster");
+            if candidate.exists() && candidate.is_file() {
+                sysmaster_path.set_value(candidate.to_string_lossy().to_string());
+            }
+        }
 
         let mut custom_dest = InputState::new();
         custom_dest.set_value(cwd);
@@ -100,12 +115,14 @@ impl Default for MasterSetupWizard {
         Self {
             visible: false,
             installation_mode: InstallationMode::SystemWide,
+            sysmaster_path,
+            launch_file_picker: false,
             custom_destination: custom_dest,
             bind_addr,
             bind_port,
             fs_port,
             api_enabled: true,
-            focus: SetupFocus::SystemRadio,
+            focus: SetupFocus::SysMasterPath,
             ok_pressed: false,
             quit_requested: false,
             error_message: None,
@@ -127,6 +144,9 @@ impl MasterSetupWizard {
                 self.focus = self.focus.prev();
             }
             KeyCode::Enter => match self.focus {
+                SetupFocus::SysMasterPath => {
+                    self.launch_file_picker = true;
+                }
                 SetupFocus::Ok => {
                     self.ok_pressed = true;
                 }
@@ -194,6 +214,7 @@ impl MasterSetupWizard {
 
     fn focused_input_mut(&mut self) -> Option<&mut InputState> {
         match self.focus {
+            SetupFocus::SysMasterPath => Some(&mut self.sysmaster_path),
             SetupFocus::CustomDest => Some(&mut self.custom_destination),
             SetupFocus::BindAddr => Some(&mut self.bind_addr),
             SetupFocus::BindPort => Some(&mut self.bind_port),
@@ -211,7 +232,7 @@ impl MasterSetupWizard {
             return;
         }
         let dlg_w = (parent.width * 3 / 4).clamp(60, 72);
-        let dlg_h = if self.installation_mode == InstallationMode::Custom { 15u16 } else { 14u16 };
+        let dlg_h = if self.installation_mode == InstallationMode::Custom { 16u16 } else { 15u16 };
         let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
         let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
         let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
@@ -264,6 +285,18 @@ impl MasterSetupWizard {
             palette::PROCESSING_DIMMED,
         );
         row_y += 1;
+
+        // SysMaster path row
+        Self::render_input_row(
+            inner.x,
+            &mut row_y,
+            inner.width,
+            buf,
+            " Sys Master:",
+            &self.sysmaster_path,
+            self.is_focused(SetupFocus::SysMasterPath),
+            label_w,
+        );
 
         // Radio buttons — each on its own line
         let sys_checked = self.installation_mode == InstallationMode::SystemWide;
@@ -448,9 +481,9 @@ impl MasterSetupWizard {
         if !is_system {
             let bin_dir = root.join("bin");
             std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Cannot create bin dir: {e}"))?;
-            let src = std::env::current_exe().map_err(|e| format!("Cannot locate current binary: {e}"))?;
-            let dest = bin_dir.join("sysinspect");
-            std::fs::copy(&src, &dest).map_err(|e| format!("Cannot copy binary to {}: {e}", dest.display()))?;
+            let src = std::path::PathBuf::from(self.sysmaster_path.value());
+            let dest = bin_dir.join("sysmaster");
+            std::fs::copy(&src, &dest).map_err(|e| format!("Cannot copy sysmaster to {}: {e}", dest.display()))?;
         }
         let config_path = config_dir.join("sysinspect.conf");
 
