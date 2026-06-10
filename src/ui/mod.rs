@@ -366,15 +366,39 @@ impl SysInspectUX {
                     .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
                 self.file_picker.open(&start_dir, filepicker::PickerMode::FilePicker);
             }
-            // File picker result -> back to sysmaster path
+            // Launch dir picker for custom destination
+            if self.setup_wizard.launch_dir_picker {
+                self.setup_wizard.launch_dir_picker = false;
+                let start_dir = std::path::PathBuf::from(self.setup_wizard.custom_destination.value());
+                self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
+            }
+            // File/dir picker result
             if let Some(path) = self.file_picker.selected.take() {
-                self.setup_wizard.sysmaster_path.set_value(path.to_string_lossy().to_string());
+                match self.file_picker.mode {
+                    filepicker::PickerMode::DirectoryPicker => {
+                        self.setup_wizard.custom_destination.set_value(path.to_string_lossy().to_string());
+                    }
+                    _ => {
+                        self.setup_wizard.sysmaster_path.set_value(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+            // File picker status bar overrides everything
+            if self.file_picker.visible {
+                self.status_text = self.file_picker.status_line();
             }
             // Status bar for sysmaster path focus
             if self.setup_wizard.focus == setup::SetupFocus::SysMasterPath {
                 self.status_text = Line::from(vec![
                     Span::styled(" Enter ", Style::default().fg(palette::FG)),
                     Span::styled("to browse for sysmaster binary", Style::default().fg(palette::FAINT)),
+                ]);
+            }
+            // Status bar for custom destination focus
+            if self.setup_wizard.focus == setup::SetupFocus::CustomDest {
+                self.status_text = Line::from(vec![
+                    Span::styled(" Enter ", Style::default().fg(palette::FG)),
+                    Span::styled("to browse for directory", Style::default().fg(palette::FAINT)),
                 ]);
             }
             self.on_events_setup()?;
@@ -387,6 +411,9 @@ impl SysInspectUX {
         self.last_reconnect_attempt = Instant::now();
         while !self.exit {
             self.sync_main_focus_for_overlays();
+            if self.file_picker.visible {
+                self.status_text = self.file_picker.status_line();
+            }
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
             if self.offline && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {
@@ -404,6 +431,9 @@ impl SysInspectUX {
         self.no_focus = true;
 
         while !self.exit {
+            if self.file_picker.visible {
+                self.status_text = self.file_picker.status_line();
+            }
             term.draw(|frame| self.draw(frame))?;
             // Periodic silent reconnect attempt
             if self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {

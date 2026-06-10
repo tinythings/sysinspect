@@ -7,6 +7,7 @@ use ratatui::{
     layout::Position,
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, StatefulWidget, Widget},
 };
 use ratatui_cheese::input::{Input, InputState};
@@ -38,10 +39,6 @@ struct DirEntry {
     path: PathBuf,
     is_dir: bool,
     is_parent: bool,
-    mode: String,
-    user: String,
-    group: String,
-    mtime: String,
     icon: &'static str,
 }
 
@@ -104,17 +101,7 @@ impl FilePicker {
 
         // Parent entry
         if let Some(parent) = self.current_path.parent() {
-            self.entries.push(DirEntry {
-                name: "..".into(),
-                path: parent.to_path_buf(),
-                is_dir: true,
-                is_parent: true,
-                mode: String::new(),
-                user: String::new(),
-                group: String::new(),
-                mtime: String::new(),
-                icon: "↑",
-            });
+            self.entries.push(DirEntry { name: "..".into(), path: parent.to_path_buf(), is_dir: true, is_parent: true, icon: "↑" });
         }
 
         let filter = self.filter_input.value().to_lowercase();
@@ -132,10 +119,9 @@ impl FilePicker {
                     continue;
                 }
 
-                let (mode, user, group, mtime) = Self::meta_info_or_unknown(&path);
                 let icon = Self::file_icon(&path, is_dir);
 
-                let de = DirEntry { name, path, is_dir, is_parent: false, mode, user, group, mtime, icon };
+                let de = DirEntry { name, path, is_dir, is_parent: false, icon };
 
                 if is_dir {
                     dirs.push(de);
@@ -278,19 +264,58 @@ impl FilePicker {
                     self.file_cursor = (self.file_cursor + 1).min(max);
                 }
             },
+            KeyCode::PageUp => {
+                let page = 10usize;
+                match self.focus {
+                    PickerFocus::Dirs => {
+                        self.dir_cursor = self.dir_cursor.saturating_sub(page);
+                    }
+                    PickerFocus::Files => {
+                        self.file_cursor = self.file_cursor.saturating_sub(page);
+                    }
+                }
+            }
+            KeyCode::PageDown => {
+                let page = 10usize;
+                match self.focus {
+                    PickerFocus::Dirs => {
+                        let max = self.dirs_end.saturating_sub(1);
+                        self.dir_cursor = (self.dir_cursor + page).min(max);
+                    }
+                    PickerFocus::Files => {
+                        let max = self.entries.len().saturating_sub(self.dirs_end).saturating_sub(1);
+                        self.file_cursor = (self.file_cursor + page).min(max);
+                    }
+                }
+            }
             KeyCode::Enter => {
                 let idx = match self.focus {
                     PickerFocus::Dirs => self.dir_cursor,
                     PickerFocus::Files => self.dirs_end + self.file_cursor,
                 };
 
-                if let Some(entry) = self.entries.get(idx) {
-                    if entry.is_dir {
-                        self.current_path = entry.path.clone();
-                        self.dir_cursor = 0;
-                        self.file_cursor = 0;
-                        self.refresh_entries();
-                    } else {
+                if let Some(entry) = self.entries.get(idx)
+                    && (entry.is_parent || entry.is_dir)
+                {
+                    self.current_path = entry.path.clone();
+                    self.dir_cursor = 0;
+                    self.file_cursor = 0;
+                    self.refresh_entries();
+                }
+            }
+            KeyCode::Char(' ') => {
+                if self.mode == PickerMode::DirectoryPicker {
+                    self.selected = Some(self.current_path.clone());
+                    self.visible = false;
+                } else {
+                    let idx = match self.focus {
+                        PickerFocus::Dirs => self.dir_cursor,
+                        PickerFocus::Files => self.dirs_end + self.file_cursor,
+                    };
+                    if let Some(entry) = self.entries.get(idx)
+                        && !entry.is_parent
+                        && !entry.is_dir
+                    {
                         self.selected = Some(entry.path.clone());
                         self.visible = false;
                     }
@@ -304,6 +329,17 @@ impl FilePicker {
         }
 
         true
+    }
+
+    pub fn status_line(&self) -> Line<'static> {
+        Line::from(vec![
+            Span::styled(" Enter ", Style::default().fg(palette::FG)),
+            Span::styled("to navigate,  ", Style::default().fg(palette::FAINT)),
+            Span::styled("Space ", Style::default().fg(palette::FG)),
+            Span::styled("to select,  ", Style::default().fg(palette::FAINT)),
+            Span::styled("Esc ", Style::default().fg(palette::FG)),
+            Span::styled("to cancel", Style::default().fg(palette::FAINT)),
+        ])
     }
 
     pub fn render(&self, parent: Rect, buf: &mut Buffer) {
@@ -337,12 +373,16 @@ impl FilePicker {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
+        let title_text = match self.mode {
+            PickerMode::DirectoryPicker => " Directory Selector ",
+            PickerMode::FilePicker => " File Selector ",
+        };
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         title::overlay_gradient_title(
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: " File Selector ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+            &[TitleSegment { text: title_text.into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
         );
 
         if inner.height < 4 {
@@ -488,7 +528,8 @@ impl FilePicker {
             buf.set_string(area.x + 1, ry, &line, row_style);
 
             if !entry.is_parent {
-                let info = format!(" {}  {}  {}  {}", entry.mode, entry.user, entry.group, entry.mtime);
+                let (mode, user, group, mtime) = Self::meta_info_or_unknown(&entry.path);
+                let info = format!(" {}  {}  {}  {}", mode, user, group, mtime);
                 let info_x = area.x + 3 + longest_name as u16;
                 if info_x < area.right() {
                     let info_style = if is_selected { muted_hl } else { muted };

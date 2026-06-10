@@ -75,6 +75,7 @@ pub struct MasterSetupWizard {
     pub installation_mode: InstallationMode,
     pub sysmaster_path: InputState,
     pub launch_file_picker: bool,
+    pub launch_dir_picker: bool,
     pub custom_destination: InputState,
     pub bind_addr: InputState,
     pub bind_port: InputState,
@@ -91,10 +92,8 @@ impl Default for MasterSetupWizard {
         let cwd = std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
 
         let mut sysmaster_path = InputState::new();
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(exe_dir) = exe.parent()
-        {
-            let candidate = exe_dir.join("sysmaster");
+        if let Ok(cwd) = std::env::current_dir() {
+            let candidate = cwd.join("sysmaster");
             if candidate.exists() && candidate.is_file() {
                 sysmaster_path.set_value(candidate.to_string_lossy().to_string());
             }
@@ -117,6 +116,7 @@ impl Default for MasterSetupWizard {
             installation_mode: InstallationMode::SystemWide,
             sysmaster_path,
             launch_file_picker: false,
+            launch_dir_picker: false,
             custom_destination: custom_dest,
             bind_addr,
             bind_port,
@@ -158,6 +158,9 @@ impl MasterSetupWizard {
                 }
                 SetupFocus::CustomRadio => {
                     self.installation_mode = InstallationMode::Custom;
+                }
+                SetupFocus::CustomDest => {
+                    self.launch_dir_picker = true;
                 }
                 SetupFocus::ApiCheck => {
                     self.api_enabled = !self.api_enabled;
@@ -484,6 +487,9 @@ impl MasterSetupWizard {
             let src = std::path::PathBuf::from(self.sysmaster_path.value());
             let dest = bin_dir.join("sysmaster");
             std::fs::copy(&src, &dest).map_err(|e| format!("Cannot copy sysmaster to {}: {e}", dest.display()))?;
+            let self_src = std::env::current_exe().map_err(|e| format!("Cannot locate sysinspect binary: {e}"))?;
+            let self_dest = bin_dir.join("sysinspect");
+            std::fs::copy(&self_src, &self_dest).map_err(|e| format!("Cannot copy sysinspect to {}: {e}", self_dest.display()))?;
         }
         let config_path = config_dir.join("sysinspect.conf");
 
