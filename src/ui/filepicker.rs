@@ -510,8 +510,15 @@ impl FilePicker {
         let hl_style = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
         let muted_hl = Style::default().fg(palette::BG_0).bg(palette::HIGHLIGHT);
 
-        // Calculate field widths for alignment
-        let longest_name = entries.iter().map(|e| UnicodeWidthStr::width(e.name.as_str()) + 4).max().unwrap_or(10);
+        // Calculate field widths for alignment (includes icon + spaces)
+        let longest_name = entries
+            .iter()
+            .map(|e| {
+                let icon = if e.is_parent { "↑ " } else { e.icon };
+                UnicodeWidthStr::width(format!("    {icon} {}", e.name).as_str())
+            })
+            .max()
+            .unwrap_or(10);
 
         for (i, entry) in visible.enumerate() {
             let abs_idx = scroll.get() + i;
@@ -525,25 +532,33 @@ impl FilePicker {
 
             let icon = if entry.is_parent { "↑ " } else { entry.icon };
             let line = format!("    {icon} {}", entry.name);
-            buf.set_string(area.x + 1, ry, &line, row_style);
 
             if !entry.is_parent {
                 let (mode, user, group, mtime) = Self::meta_info_or_unknown(&entry.path);
                 let info = format!(" {}  {}  {}  {}", mode, user, group, mtime);
                 let info_x = area.x + 3 + longest_name as u16;
+                let name_end = info_x.saturating_sub(1); // leave gap before info
+                let max_name_w = name_end.saturating_sub(area.x + 1);
+                let name_trimmed = truncate_to_width(&line, max_name_w);
+                buf.set_string(area.x + 1, ry, &name_trimmed, row_style);
                 if info_x < area.right() {
                     let info_style = if is_selected { muted_hl } else { muted };
                     buf.set_string(info_x, ry, &info, info_style);
                 }
+            } else {
+                buf.set_string(area.x + 1, ry, &line, row_style);
             }
 
-            // Re-paint icon with proper style
+            // Re-paint with highlight if selected
             if is_selected {
-                buf.set_string(area.x + 1, ry, &line, row_style);
-            }
-            // Re-paint .. "↑" icon
-            if is_selected {
-                buf.set_string(area.x + 1, ry, &line, row_style);
+                if !entry.is_parent {
+                    let name_end = (area.x + 3 + longest_name as u16).saturating_sub(1);
+                    let max_name_w = name_end.saturating_sub(area.x + 1);
+                    let name_trimmed = truncate_to_width(&line, max_name_w);
+                    buf.set_string(area.x + 1, ry, &name_trimmed, row_style);
+                } else {
+                    buf.set_string(area.x + 1, ry, &line, row_style);
+                }
             }
         }
 
@@ -607,4 +622,14 @@ fn format_mtime(modified: Option<std::time::SystemTime>) -> String {
         }
         None => "??? ?? ??:??".to_string(),
     }
+}
+
+fn truncate_to_width(s: &str, max_w: u16) -> String {
+    let mut w: u16 = 0;
+    s.chars()
+        .take_while(|c| {
+            w += unicode_width::UnicodeWidthChar::width(*c).unwrap_or(0) as u16;
+            w <= max_w
+        })
+        .collect()
 }

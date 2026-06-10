@@ -1530,7 +1530,7 @@ impl MasterConfig {
 
     /// Return errors logfile in daemon mode
     pub fn logfile_err(&self) -> PathBuf {
-        if let Some(lfn) = &self.log_main {
+        if let Some(lfn) = &self.log_err {
             return PathBuf::from(lfn);
         }
 

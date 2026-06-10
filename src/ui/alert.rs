@@ -114,7 +114,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Help"),
-            "\"c\" - call composer\n\"h\" - show this help\n\"o\" - registered minions popup\n\"p\" - purge all records\n\"q\" - quit the UI\n",
+            "\"c\" - call composer\n\"h\" - show this help\n\"m\" - master operations\n\"o\" - registered minions popup\n\"p\" - purge all records\n\"q\" - quit the UI\n",
             None,
             Alignment::Left,
             AlertResult::Close,
@@ -196,6 +196,37 @@ impl SysInspectUX {
             None,
             None,
             styled_text,
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
+        );
+    }
+
+    pub fn dialog_master_confirm(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.master_confirm_visible {
+            return;
+        }
+        let text = match self.master_confirm_action {
+            1 => "Start the master in daemon mode?",
+            2 => "Restart the master?\n\nThis will stop the daemon and start it again.",
+            3 => "Stop the master?\n\nThis will terminate the daemon process.",
+            _ => return,
+        };
+        Self::_popup_ex(
+            parent,
+            buf,
+            Some("Master Operation"),
+            text,
+            None,
+            Alignment::Center,
+            self.master_confirm_choice.clone(),
+            AlertButtons::YesNo,
+            Some(50),
+            Some(palette::PROCESSING_PEAK),
+            None,
+            None,
+            Some(palette::FG),
+            None,
+            None,
+            None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }

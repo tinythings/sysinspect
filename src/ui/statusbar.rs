@@ -166,6 +166,13 @@ impl SysInspectUX {
         self.status_text = Line::from(spans);
     }
 
+    pub(crate) fn status_at_master_menu(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text =
+            Line::from(vec![key("\u{2191}\u{2193} "), desc("navigate,  "), key("Enter "), desc("select,  "), key("Esc "), desc("close")]);
+    }
+
     pub(crate) fn status_at_query_composer(&mut self) {
         self.status_text = Line::from(vec![
             Span::styled(" Tab ", Style::default().fg(palette::FG)),

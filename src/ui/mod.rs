@@ -30,6 +30,7 @@ use ratatui_cheese::tree::TreeState;
 use std::{
     cell::{Cell, RefCell},
     io::{self},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -54,31 +55,8 @@ mod wgt;
 
 pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
     let mut terminal = ratatui::init();
-    let (result, exit_message) = match SysInspectUX::new(cfg.clone()).await {
-        Ok(app) => (app.run_loop(&mut terminal), None),
-        Err(err) => {
-            if config_found {
-                let app = SysInspectUX {
-                    cfg,
-                    offline: true,
-                    error_alert_visible: true,
-                    error_alert_message: format!("Cannot connect to master.\n\n{err}\n\nStart the master, then reconnect."),
-                    ..Default::default()
-                };
-                (app.run_offline_loop(&mut terminal), None)
-            } else {
-                let app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
-                let mut exit_message = None;
-                let r = app.run_setup_loop(&mut terminal, &mut exit_message);
-                (r, exit_message)
-            }
-        }
-    };
+    let result = tokio_run(cfg, config_found, &mut terminal).await;
     ratatui::restore();
-
-    if let Some(msg) = exit_message {
-        println!("\n{msg}\n");
-    }
 
     if !MEM_LOGGER.get_messages().is_empty() {
         println!("Memory log:");
@@ -86,6 +64,29 @@ pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
     }
 
     result
+}
+
+async fn tokio_run(cfg: MasterConfig, config_found: bool, term: &mut DefaultTerminal) -> io::Result<()> {
+    match SysInspectUX::new(cfg.clone()).await {
+        Ok(app) => app.run_connected(term),
+        Err(_) if config_found => {
+            let mut app = SysInspectUX { cfg, offline: true, ..Default::default() };
+            if app.find_sysmaster_binary().is_some() {
+                app.master_confirm_visible = true;
+                app.master_confirm_choice = AlertResult::Default;
+                app.master_confirm_action = 1;
+                app.run_offline_loop(term)
+            } else {
+                app.setup_wizard = setup::MasterSetupWizard::from_config(&app.cfg);
+                app.setup_wizard.visible = true;
+                app.run_setup_loop(term, &mut None)
+            }
+        }
+        Err(_) => {
+            let app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
+            app.run_setup_loop(term, &mut None)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -169,6 +170,11 @@ pub struct SysInspectUX {
     pub master_logs_polling: bool,
     pub master_logs_last_fetch: Instant,
     pub master_logs_viewport_rows: Cell<usize>,
+    pub master_menu_visible: bool,
+    pub master_menu_sel: usize,
+    pub master_confirm_visible: bool,
+    pub master_confirm_choice: AlertResult,
+    pub master_confirm_action: u8, // 0=none, 1=start, 2=restart, 3=stop
 
     // Online minions action menu
     pub minions_menu_visible: bool,
@@ -280,6 +286,11 @@ impl Default for SysInspectUX {
             master_logs_polling: true,
             master_logs_last_fetch: Instant::now(),
             master_logs_viewport_rows: Cell::new(0),
+            master_menu_visible: false,
+            master_menu_sel: 0,
+            master_confirm_visible: false,
+            master_confirm_choice: AlertResult::default(),
+            master_confirm_action: 0,
 
             minions_menu_visible: false,
             minions_menu_sel: 0,
@@ -333,6 +344,11 @@ impl SysInspectUX {
         self.run_normal_loop(term)
     }
 
+    fn run_connected(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.cycles_buf = self.get_cycles().unwrap_or_default();
+        self.run_normal_loop(term)
+    }
+
     pub fn run_setup_loop(mut self, term: &mut DefaultTerminal, exit_msg: &mut Option<String>) -> io::Result<()> {
         self.last_reconnect_attempt = Instant::now();
         self.no_focus = true;
@@ -341,7 +357,8 @@ impl SysInspectUX {
             term.draw(|frame| self.draw(frame))?;
             if self.setup_wizard.ok_pressed {
                 if self.setup_wizard.sysmaster_path.value().is_empty() {
-                    self.setup_wizard.error_message = Some("Sys Master binary must be selected.".to_string());
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Sys Master binary must be selected.".to_string();
                     self.setup_wizard.ok_pressed = false;
                     self.setup_wizard.focus = setup::SetupFocus::SysMasterPath;
                 } else {
@@ -357,12 +374,17 @@ impl SysInspectUX {
                                 std::path::PathBuf::from(self.setup_wizard.sysmaster_path.value())
                             };
                             std::process::Command::new(&master_bin)
-                                .arg("--start")
+                                .arg("--daemon")
                                 .arg("-c")
                                 .arg(config_path.to_string_lossy().as_ref())
                                 .stdout(std::process::Stdio::null())
                                 .stderr(std::process::Stdio::null())
                                 .spawn()
+                                .map(|c| {
+                                    std::thread::spawn(move || {
+                                        c.wait_with_output().ok();
+                                    });
+                                })
                                 .ok();
 
                             // Wait for master to come up
@@ -381,7 +403,8 @@ impl SysInspectUX {
                             );
                         }
                         Err(e) => {
-                            self.setup_wizard.error_message = Some(e);
+                            self.error_alert_visible = true;
+                            self.error_alert_message = e;
                             self.setup_wizard.ok_pressed = false;
                         }
                     }
@@ -773,10 +796,6 @@ impl SysInspectUX {
     fn on_minions_popup(&mut self, e: event::KeyEvent) -> bool {
         if !self.minions_visible {
             return false;
-        }
-
-        if self.master_logs_visible {
-            return self.on_master_logs_popup(e);
         }
 
         if self.minion_logs_visible {
@@ -1172,13 +1191,19 @@ impl SysInspectUX {
         self.purge_alert_visible
             || self.error_alert_visible
             || self.exit_alert_visible
+            || self.info_alert_visible
             || self.help_popup_visible
             || self.minions_visible
             || self.minion_traits_visible
             || self.minion_logs_visible
+            || self.master_logs_visible
             || self.minions_menu_visible
+            || self.master_menu_visible
+            || self.master_confirm_visible
             || self.tag_visible
             || self.dsl_browser.visible
+            || self.setup_wizard.visible
+            || self.file_picker.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1651,6 +1676,27 @@ impl SysInspectUX {
         }
     }
 
+    fn load_master_logs_local(&mut self) -> Result<(), String> {
+        let std = std::fs::read_to_string(self.cfg.logfile_std()).map_err(|e| format!("Cannot read standard log: {e}"))?;
+        let err = std::fs::read_to_string(self.cfg.logfile_err()).map_err(|e| format!("Cannot read error log: {e}"))?;
+        self.master_logs_sections = vec![
+            rawlogs::LogSection {
+                title: "Standard".into(),
+                path: self.cfg.logfile_std().display().to_string(),
+                lines: if std.is_empty() { vec!["(empty)".into()] } else { std.lines().map(|s| s.to_string()).collect() },
+                scroll: Cell::new(usize::MAX),
+            },
+            rawlogs::LogSection {
+                title: "Errors".into(),
+                path: self.cfg.logfile_err().display().to_string(),
+                lines: if err.is_empty() { vec!["(empty)".into()] } else { err.lines().map(|s| s.to_string()).collect() },
+                scroll: Cell::new(usize::MAX),
+            },
+        ];
+        self.master_logs_last_fetch = Instant::now();
+        Ok(())
+    }
+
     fn on_master_logs_popup(&mut self, e: event::KeyEvent) -> bool {
         if !self.master_logs_visible {
             return false;
@@ -1771,6 +1817,171 @@ impl SysInspectUX {
             _ => {}
         }
         true
+    }
+
+    fn find_sysmaster_binary(&self) -> Option<PathBuf> {
+        // 1. Self-contained: {root}/bin/sysmaster
+        let root = self.cfg.root_dir();
+        let candidate = root.join("bin/sysmaster");
+        if candidate.exists() && candidate.is_file() {
+            return Some(candidate);
+        }
+        // 2. Same dir as current binary
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            let candidate = dir.join("sysmaster");
+            if candidate.exists() && candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn on_master_menu(&mut self, e: event::KeyEvent) -> bool {
+        if !self.master_menu_visible {
+            return false;
+        }
+        match e.code {
+            KeyCode::Esc => {
+                self.master_menu_visible = false;
+                self.status_at_cycles();
+            }
+            KeyCode::Up => {
+                self.master_menu_sel = self.master_menu_sel.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                self.master_menu_sel = (self.master_menu_sel + 1).min(macts::total_master_menu_items().saturating_sub(1));
+            }
+            KeyCode::Enter => {
+                self.master_menu_visible = false;
+                match self.master_menu_sel {
+                    0 => {
+                        if self.evtipc.is_some() {
+                            self.open_master_logs();
+                        } else {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = "Master is not running".to_string();
+                        }
+                    }
+                    1 => match self.load_master_logs_local() {
+                        Ok(()) => {
+                            self.master_logs_visible = true;
+                            self.master_logs_tab = 0;
+                            self.master_logs_polling = false;
+                            self.status_at_master_logs();
+                        }
+                        Err(e) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = e;
+                        }
+                    },
+                    2 => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = "Not implemented yet".to_string();
+                    }
+                    3 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 1;
+                    }
+                    4 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 3;
+                    }
+                    5 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 2;
+                    }
+                    _ => {}
+                }
+                self.status_at_cycles();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn on_master_confirm(&mut self, e: event::KeyEvent) -> bool {
+        if !self.master_confirm_visible {
+            return false;
+        }
+        match e.code {
+            KeyCode::Tab => {
+                self.master_confirm_choice =
+                    if self.master_confirm_choice == AlertResult::Default { AlertResult::Quit } else { AlertResult::Default };
+            }
+            KeyCode::Esc => {
+                self.master_confirm_visible = false;
+                self.master_confirm_action = 0;
+            }
+            KeyCode::Enter => {
+                self.master_confirm_visible = false;
+                let action = self.master_confirm_action;
+                self.master_confirm_action = 0;
+                if self.master_confirm_choice == AlertResult::Quit {
+                    match action {
+                        1 => self.do_master_start(),
+                        2 => self.do_master_restart(),
+                        3 => self.do_master_stop(),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn do_master_start(&mut self) {
+        if let Some(bin) = self.find_sysmaster_binary() {
+            let config_path = {
+                let root = self.cfg.root_dir();
+                let etc_path = root.join("etc/sysinspect.conf");
+                if etc_path.exists() { etc_path } else { root.join("sysinspect.conf") }
+            };
+            let child = std::process::Command::new(&bin)
+                .arg("--daemon")
+                .arg("-c")
+                .arg(config_path.to_string_lossy().as_ref())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            if let Ok(c) = child {
+                std::thread::spawn(move || {
+                    c.wait_with_output().ok();
+                });
+            }
+            for _ in 0..10 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if self.try_reconnect_silent().is_ok() {
+                    return;
+                }
+            }
+            self.error_alert_visible = true;
+            self.error_alert_message = "Master started but not reachable yet.".to_string();
+        } else {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Cannot find sysmaster binary".to_string();
+        }
+    }
+
+    fn do_master_stop(&mut self) {
+        if let Err(err) = libsysinspect::util::sys::kill_process(self.cfg.pidfile(), None) {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Failed to stop master: {err}");
+        } else {
+            self.offline = true;
+            self.evtipc = None;
+        }
+    }
+
+    fn do_master_restart(&mut self) {
+        self.do_master_stop();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        self.do_master_start();
     }
 
     fn on_tag_popup(&mut self, e: event::KeyEvent) -> bool {
@@ -1952,6 +2163,11 @@ impl SysInspectUX {
             return;
         }
 
+        // Master operations menu is modal
+        if self.on_master_menu(e) {
+            return;
+        }
+
         // Exit alert takes priority over setup wizard
         if self.on_exit_alert(e) {
             return;
@@ -2028,11 +2244,19 @@ impl SysInspectUX {
             return;
         }
 
+        if self.on_master_confirm(e) {
+            return;
+        }
+
         if self.on_error_alert(e) {
             return;
         }
 
         if self.on_tag_popup(e) {
+            return;
+        }
+
+        if self.on_master_logs_popup(e) {
             return;
         }
 
@@ -2210,7 +2434,9 @@ impl SysInspectUX {
                 }
             },
             KeyCode::Char('m') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.open_master_logs();
+                self.master_menu_visible = true;
+                self.master_menu_sel = 0;
+                self.status_at_master_menu();
             }
             KeyCode::Char('o') if !e.modifiers.contains(KeyModifiers::CONTROL) => match self.fetch_minions() {
                 Ok(rows) if rows.is_empty() => {

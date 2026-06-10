@@ -131,6 +131,39 @@ impl Default for MasterSetupWizard {
 }
 
 impl MasterSetupWizard {
+    pub fn from_config(cfg: &libsysinspect::cfg::mmconf::MasterConfig) -> Self {
+        let root = cfg.root_dir();
+        let is_system = root == *"/etc/sysinspect";
+        let mut w = MasterSetupWizard {
+            installation_mode: if is_system { InstallationMode::SystemWide } else { InstallationMode::Custom },
+            ..Default::default()
+        };
+
+        // Pre-fill from existing config
+        let bind = cfg.bind_addr();
+        w.bind_addr.set_value(bind.split(':').next().unwrap_or("0.0.0.0").to_string());
+        w.bind_port.set_value(bind.split(':').nth(1).unwrap_or("4200").to_string());
+
+        let fs = cfg.fileserver_bind_addr();
+        w.fs_port.set_value(fs.split(':').nth(1).unwrap_or("4201").to_string());
+
+        w.api_enabled = cfg.api_enabled();
+
+        if !is_system {
+            w.custom_destination.set_value(root.to_string_lossy().to_string());
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            let candidate = cwd.join("sysmaster");
+            if candidate.exists() && candidate.is_file() {
+                w.sysmaster_path.set_value(candidate.to_string_lossy().to_string());
+            }
+        }
+
+        w.focus = SetupFocus::SysMasterPath;
+        w
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         if !self.visible {
@@ -474,8 +507,10 @@ impl MasterSetupWizard {
         std::fs::create_dir_all(&root).map_err(|e| format!("Cannot create root dir: {e}"))?;
         let telemetry_dir = root.join("telemetry");
         let datastore_dir = root.join("datastore");
+        let log_dir = root.join("log");
         std::fs::create_dir_all(&telemetry_dir).map_err(|e| format!("Cannot create telemetry dir: {e}"))?;
         std::fs::create_dir_all(&datastore_dir).map_err(|e| format!("Cannot create datastore dir: {e}"))?;
+        std::fs::create_dir_all(&log_dir).map_err(|e| format!("Cannot create log dir: {e}"))?;
 
         // Determine config path and pre-create bin/ for self-contained layouts
         let is_system = matches!(self.installation_mode, InstallationMode::SystemWide);
@@ -498,13 +533,15 @@ impl MasterSetupWizard {
         let fs_port: u32 = self.fs_port.value().parse().map_err(|_| "Invalid fileserver port".to_string())?;
 
         let partial = format!(
-            "root: \"{}\"\nbind.ip: \"{}\"\nbind.port: {}\nfileserver.bind.ip: \"{}\"\nfileserver.bind.port: {}\nfileserver.models: []\napi.enabled: {}\n",
+            "root: \"{}\"\nbind.ip: \"{}\"\nbind.port: {}\nfileserver.bind.ip: \"{}\"\nfileserver.bind.port: {}\nfileserver.models: []\napi.enabled: {}\nlog.stream: \"{}/log/sysmaster.standard.log\"\nlog.errors: \"{}/log/sysmaster.errors.log\"\n",
             root.display(),
             bind_addr,
             bind_port,
             bind_addr,
             fs_port,
             self.api_enabled,
+            root.display(),
+            root.display(),
         );
         let master_cfg: MasterConfig = serde_yaml::from_str(&partial).map_err(|e| format!("Cannot construct config: {e}"))?;
         let yaml = SysInspectConfig::default().set_master_config(master_cfg).to_yaml();
