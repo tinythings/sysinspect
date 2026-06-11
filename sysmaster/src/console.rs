@@ -8,13 +8,13 @@
 use super::*;
 
 use crate::hopstart::{HopStartTarget, HopStarter};
-use libmodpak::{SysInspectModPak, compare_versions};
+use libmodpak::{SysInspectModPak, compare_versions, mpk::ModPakRepoIndex};
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
         ConsoleEnvelope, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleModelRow,
-        ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply,
-        authorised_console_client, load_master_private_key,
+        ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow,
+        MinionCommandReply, authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
@@ -507,6 +507,34 @@ impl SysMaster {
         ))
     }
 
+    async fn module_index_data(&mut self) -> Result<Vec<ConsoleModuleRow>, SysinspectError> {
+        let idx_path = self.cfg.fileserver_root().join("repo").join("mod.index");
+        if !idx_path.exists() {
+            return Ok(Vec::new());
+        }
+        let yaml = std::fs::read_to_string(&idx_path).map_err(|e| SysinspectError::ConfigError(format!("Cannot read module index: {e}")))?;
+        let idx = ModPakRepoIndex::from_yaml(&yaml)?;
+        let mut rows = Vec::new();
+        for (platform, arch_map) in idx.platform.iter() {
+            for (arch, mod_map) in arch_map.iter() {
+                for (name, attrs) in mod_map.iter() {
+                    rows.push(ConsoleModuleRow {
+                        name: name.clone(),
+                        platform: platform.clone(),
+                        arch: arch.clone(),
+                        subpath: attrs.subpath.clone(),
+                        descr: attrs.descr.clone(),
+                        mod_type: attrs.mod_type.clone(),
+                        version: attrs.version.clone(),
+                        author: attrs.author.clone(),
+                        manpage: attrs.manpage.clone(),
+                    });
+                }
+            }
+        }
+        Ok(rows)
+    }
+
     async fn upsert_cmdb_console_response(&mut self, mid: &str, context: &str) -> Result<ConsoleResponse, SysinspectError> {
         if mid.trim().is_empty() {
             return Ok(ConsoleResponse::err("CMDB update requires a minion id"));
@@ -709,6 +737,13 @@ impl SysMaster {
             return match Self::master_log_snapshot(Arc::clone(&master)).await {
                 Ok(snapshot) => ConsoleResponse::ok(ConsolePayload::MasterLogs { snapshot }),
                 Err(err) => ConsoleResponse::err(format!("Unable to get master logs: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MODULE_INDEX}")) {
+            return match master.lock().await.module_index_data().await {
+                Ok(rows) => ConsoleResponse::ok(ConsolePayload::MasterModuleIndex { rows }),
+                Err(err) => ConsoleResponse::err(format!("Unable to get module index: {err}")),
             };
         }
 

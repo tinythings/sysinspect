@@ -899,6 +899,9 @@ impl SysInspectModPak {
                 &checksum,
                 if meta.get_args().is_empty() { None } else { Some(meta.get_args().clone()) },
                 if meta.get_opts().is_empty() { None } else { Some(meta.get_opts().clone()) },
+                meta.get_version().map(|s| s.to_string()),
+                meta.get_author().map(|s| s.to_string()),
+                meta.get_manpage().map(|s| s.to_string()),
             )
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {e}")))?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());

@@ -16,7 +16,7 @@ use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
         CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
-        CLUSTER_MODELS, CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -45,6 +45,7 @@ mod macts;
 mod online;
 mod palette;
 mod rawlogs;
+mod repomanager;
 mod setup;
 mod statusbar;
 mod title;
@@ -207,6 +208,9 @@ pub struct SysInspectUX {
     // File picker
     pub file_picker: filepicker::FilePicker,
 
+    // Repository manager
+    pub repo_manager: repomanager::RepoManager,
+
     // Connection state
     pub offline: bool,
     pub last_reconnect_attempt: Instant,
@@ -310,6 +314,7 @@ impl Default for SysInspectUX {
             cfg: MasterConfig::default(),
             setup_wizard: setup::MasterSetupWizard::default(),
             file_picker: filepicker::FilePicker::default(),
+            repo_manager: repomanager::RepoManager::default(),
             offline: false,
             last_reconnect_attempt: Instant::now(),
 
@@ -450,6 +455,9 @@ impl SysInspectUX {
             if self.file_picker.visible {
                 self.status_text = self.file_picker.status_line();
             }
+            if self.repo_manager.visible {
+                self.status_at_repo_manager();
+            }
             // Status bar for sysmaster path focus
             if self.setup_wizard.focus == setup::SetupFocus::SysMasterPath {
                 self.status_text = Line::from(vec![
@@ -477,6 +485,9 @@ impl SysInspectUX {
             if self.file_picker.visible {
                 self.status_text = self.file_picker.status_line();
             }
+            if self.repo_manager.visible {
+                self.status_at_repo_manager();
+            }
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
             if self.offline && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {
@@ -496,6 +507,9 @@ impl SysInspectUX {
         while !self.exit {
             if self.file_picker.visible {
                 self.status_text = self.file_picker.status_line();
+            }
+            if self.repo_manager.visible {
+                self.status_at_repo_manager();
             }
             term.draw(|frame| self.draw(frame))?;
             // Periodic silent reconnect attempt
@@ -626,6 +640,12 @@ impl SysInspectUX {
                     }
                 }
             }
+        }
+        // Process file picker result for repo manager
+        if self.repo_manager.visible
+            && let Some(path) = self.file_picker.selected.take()
+        {
+            self.process_module_add(&path);
         }
         Ok(())
     }
@@ -1697,6 +1717,124 @@ impl SysInspectUX {
         Ok(())
     }
 
+    fn load_module_index(&mut self) -> Result<(), String> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MODULE_INDEX}"), "*", None, None, None).await })
+        })
+        .map_err(|e| format!("Failed to get module index: {e}"))?;
+        match resp.payload {
+            ConsolePayload::MasterModuleIndex { rows } => {
+                self.repo_manager.rows = rows;
+                self.repo_manager.cursor = 0;
+                Ok(())
+            }
+            _ => Err("Unexpected console payload for module index".to_string()),
+        }
+    }
+
+    fn on_repo_manager(&mut self, e: event::KeyEvent) -> bool {
+        if !self.repo_manager.visible {
+            return false;
+        }
+        if self.repo_manager.staging {
+            return self.repo_manager.handle_staging_key(e);
+        }
+        let page = 10usize;
+        match e.code {
+            KeyCode::Esc => {
+                self.repo_manager.visible = false;
+            }
+            KeyCode::Up => {
+                self.repo_manager.cursor = self.repo_manager.cursor.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                self.repo_manager.cursor = (self.repo_manager.cursor + 1).min(self.repo_manager.rows.len().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.repo_manager.cursor = self.repo_manager.cursor.saturating_sub(page);
+            }
+            KeyCode::PageDown => {
+                self.repo_manager.cursor = (self.repo_manager.cursor + page).min(self.repo_manager.rows.len().saturating_sub(1));
+            }
+            KeyCode::Enter => {} // placeholder
+            KeyCode::Delete => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "Not implemented yet".to_string();
+            }
+            KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.file_picker.open(&std::env::current_dir().unwrap_or_default(), filepicker::PickerMode::Any);
+            }
+            KeyCode::Char('l') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "Not implemented yet".to_string();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn process_module_add(&mut self, path: &std::path::Path) {
+        if path.is_dir() {
+            let staged = Self::scan_dir_for_modules(path);
+            if staged.is_empty() {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No .spec files found in the selected directory".to_string();
+            } else {
+                self.repo_manager.enter_staging(staged);
+            }
+        } else {
+            let spec = path.with_extension("spec");
+            if spec.exists() {
+                let module_name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                let (version, descr) = Self::read_spec_version_descr(&spec);
+                self.repo_manager.enter_staging(vec![repomanager::StagedModule {
+                    name: module_name,
+                    version,
+                    descr,
+                    path: path.to_path_buf(),
+                    checked: true,
+                }]);
+            } else {
+                self.error_alert_visible = true;
+                self.error_alert_message = "Module has no specfile. Add this module manually via CLI.".to_string();
+            }
+        }
+    }
+
+    fn scan_dir_for_modules(root: &std::path::Path) -> Vec<repomanager::StagedModule> {
+        let mut staged = Vec::new();
+        let Ok(entries) = std::fs::read_dir(root) else { return staged };
+        for entry in entries.flatten() {
+            let sub = entry.path();
+            if !sub.is_dir() {
+                continue;
+            }
+            let module_name = sub.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let spec = sub.join(format!("{module_name}.spec"));
+            if !spec.exists() {
+                continue;
+            }
+            let (version, descr) = Self::read_spec_version_descr(&spec);
+            let bin = sub.join(&module_name);
+            staged.push(repomanager::StagedModule { name: module_name, version, descr, path: if bin.exists() { bin } else { spec }, checked: true });
+        }
+        staged
+    }
+
+    fn read_spec_version_descr(spec: &std::path::Path) -> (Option<String>, String) {
+        match std::fs::read_to_string(spec) {
+            Ok(yaml) => match serde_yaml::from_str::<serde_yaml::Value>(&yaml) {
+                Ok(v) => (
+                    v.get("version").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    v.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default(),
+                ),
+                Err(_) => (None, String::new()),
+            },
+            Err(_) => (None, String::new()),
+        }
+    }
+
     fn on_master_logs_popup(&mut self, e: event::KeyEvent) -> bool {
         if !self.master_logs_visible {
             return false;
@@ -1881,16 +2019,25 @@ impl SysInspectUX {
                         self.error_alert_message = "Not implemented yet".to_string();
                     }
                     3 => {
-                        self.master_confirm_visible = true;
-                        self.master_confirm_choice = AlertResult::Default;
-                        self.master_confirm_action = 1;
+                        if let Err(err) = self.load_module_index() {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = err;
+                        } else {
+                            self.repo_manager.visible = true;
+                            self.status_at_repo_manager();
+                        }
                     }
                     4 => {
                         self.master_confirm_visible = true;
                         self.master_confirm_choice = AlertResult::Default;
-                        self.master_confirm_action = 3;
+                        self.master_confirm_action = 1;
                     }
                     5 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 3;
+                    }
+                    6 => {
                         self.master_confirm_visible = true;
                         self.master_confirm_choice = AlertResult::Default;
                         self.master_confirm_action = 2;
@@ -2189,6 +2336,11 @@ impl SysInspectUX {
 
         // File picker is modal
         if self.file_picker.visible && self.file_picker.handle_key(e) {
+            return;
+        }
+
+        // Repo manager is modal
+        if self.on_repo_manager(e) {
             return;
         }
 

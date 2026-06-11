@@ -126,6 +126,24 @@ pub struct ConsoleMasterLogSnapshot {
     pub errors_path: String,
 }
 
+/// One row in the master's module repository index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleModuleRow {
+    pub name: String,
+    pub platform: String,
+    pub arch: String,
+    pub subpath: String,
+    pub descr: String,
+    #[serde(rename = "type")]
+    pub mod_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manpage: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConsolePayload {
@@ -187,6 +205,11 @@ pub enum ConsolePayload {
     MasterLogs {
         /// Snapshot payload.
         snapshot: ConsoleMasterLogSnapshot,
+    },
+    /// Module repository index from the master.
+    MasterModuleIndex {
+        /// One row per indexed module.
+        rows: Vec<ConsoleModuleRow>,
     },
     /// Available models discovered by the master.
     Models {

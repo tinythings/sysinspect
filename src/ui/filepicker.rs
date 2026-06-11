@@ -25,6 +25,7 @@ use unicode_width::UnicodeWidthStr;
 pub enum PickerMode {
     DirectoryPicker,
     FilePicker,
+    Any,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -298,6 +299,7 @@ impl FilePicker {
                     && (entry.is_parent || entry.is_dir)
                 {
                     self.current_path = entry.path.clone();
+                    self.filter_input = InputState::new();
                     self.dir_cursor = 0;
                     self.file_cursor = 0;
                     self.refresh_entries();
@@ -312,12 +314,13 @@ impl FilePicker {
                         PickerFocus::Dirs => self.dir_cursor,
                         PickerFocus::Files => self.dirs_end + self.file_cursor,
                     };
-                    if let Some(entry) = self.entries.get(idx)
-                        && !entry.is_parent
-                        && !entry.is_dir
-                    {
-                        self.selected = Some(entry.path.clone());
-                        self.visible = false;
+                    if let Some(entry) = self.entries.get(idx) {
+                        let selectable = if self.mode == PickerMode::Any { !entry.is_parent } else { !entry.is_parent && !entry.is_dir };
+                        if selectable {
+                            self.selected = Some(entry.path.clone());
+                            self.filter_input = InputState::new();
+                            self.visible = false;
+                        }
                     }
                 }
             }
@@ -376,6 +379,7 @@ impl FilePicker {
         let title_text = match self.mode {
             PickerMode::DirectoryPicker => " Directory Selector ",
             PickerMode::FilePicker => " File Selector ",
+            PickerMode::Any => " Module Selector ",
         };
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         title::overlay_gradient_title(

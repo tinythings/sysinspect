@@ -30,7 +30,10 @@ const MENU_SECTIONS: &[MenuSection] = &[
 ];
 
 const MASTER_MENU_SECTIONS: &[MenuSection] = &[
-    MenuSection { title: "Operations", items: &[("View master logs online", ""), ("View local logs", ""), ("Register a minion", "")] },
+    MenuSection {
+        title: "Operations",
+        items: &[("View master logs online", ""), ("View local logs", ""), ("Register a minion", ""), ("Repository manager", "")],
+    },
     MenuSection { title: "System", items: &[("Start", ""), ("Stop", ""), ("Restart", "")] },
 ];
 
@@ -218,7 +221,7 @@ impl SysInspectUX {
         ];
 
         let local_logs_available = self.cfg.logfile_std().exists() || self.cfg.logfile_err().exists();
-        let disabled = [!local_logs_available, false, false, false, false, false];
+        let disabled = [!local_logs_available, false, false, false, false, false, false];
 
         render_menu_popup(parent, buf, MASTER_MENU_SECTIONS, self.master_menu_sel, &segments, &title_style, max_item_w, &disabled);
     }

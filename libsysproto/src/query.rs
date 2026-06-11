@@ -64,6 +64,9 @@ pub mod commands {
 
     // Read recent raw log snapshot from the master (standard + error logs)
     pub const CLUSTER_MASTER_LOGS: &str = "cluster/master/logs";
+
+    // Get the module repository index from the master
+    pub const CLUSTER_MODULE_INDEX: &str = "cluster/module/index";
 }
 
 ///
