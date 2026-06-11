@@ -55,7 +55,9 @@ mod tests {
         let dst = repo.root.join("script").join(platform).join(arch).join(subpath);
         fs::create_dir_all(dst.parent().expect("module parent should exist")).expect("module parent should be created");
         fs::write(&dst, format!("content for {name}")).expect("module file should be written");
-        repo.idx.index_module(name, subpath, platform, arch, "demo module", false, "deadbeef", None, None).expect("module should be indexed");
+        repo.idx
+            .index_module(name, subpath, platform, arch, "demo module", false, "deadbeef", None, None, None, None, None)
+            .expect("module should be indexed");
         fs::write(repo.root.join("mod.index"), repo.idx.to_yaml().expect("index should serialize")).expect("index file should be written");
     }
 
