@@ -10,7 +10,10 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Widget},
 };
 use ratatui_glamour::color::blend_2d;
-use std::cell::Cell;
+use std::{
+    cell::Cell,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Debug, Clone)]
 pub struct StagedModule {
@@ -41,6 +44,15 @@ pub struct RepoManager {
     pub staging_cursor: usize,
     pub staging_scroll: Cell<usize>,
     pub staging_focus: StagingFocus,
+
+    // Progress
+    pub progress: Arc<Mutex<Option<(usize, usize)>>>,
+
+    // Signals
+    pub bulk_add_triggered: bool,
+    pub bulk_delete_triggered: bool,
+    pub delete_mode: bool,
+    pub needs_reload: bool,
 }
 
 impl Default for RepoManager {
@@ -55,6 +67,11 @@ impl Default for RepoManager {
             staging_cursor: 0,
             staging_scroll: Cell::new(0),
             staging_focus: StagingFocus::List,
+            progress: Arc::new(Mutex::new(None)),
+            bulk_add_triggered: false,
+            bulk_delete_triggered: false,
+            delete_mode: false,
+            needs_reload: false,
         }
     }
 }
@@ -70,6 +87,7 @@ impl RepoManager {
 
     pub fn exit_staging(&mut self) {
         self.staging = false;
+        self.delete_mode = false;
         self.staged.clear();
     }
 
@@ -110,8 +128,11 @@ impl RepoManager {
             }
             crossterm::event::KeyCode::Enter => match self.staging_focus {
                 StagingFocus::AddSelected => {
-                    // TODO: bulk register checked modules
-                    self.exit_staging();
+                    if self.delete_mode {
+                        self.bulk_delete_triggered = true;
+                    } else {
+                        self.bulk_add_triggered = true;
+                    }
                 }
                 StagingFocus::Cancel => {
                     self.exit_staging();
@@ -127,7 +148,9 @@ impl RepoManager {
         if !self.visible {
             return;
         }
-        if self.staging {
+        if self.progress.lock().unwrap().is_some() {
+            self.render_progress(parent, buf);
+        } else if self.staging {
             self.render_staging(parent, buf);
         } else {
             self.render_main(parent, buf);
@@ -188,9 +211,7 @@ impl RepoManager {
             s = s.min(max_scroll);
             self.scroll.set(s);
 
-            let muted = Style::default().fg(palette::MUTED);
             let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
-            let dim_hl = Style::default().fg(palette::BG_0).bg(palette::HIGHLIGHT);
 
             for i in 0..view_h.min(total.saturating_sub(s)) {
                 let idx = s + i;
@@ -198,15 +219,27 @@ impl RepoManager {
                 let row = &self.rows[idx];
                 let selected = idx == cursor;
                 let row_style = if selected { hl } else { Style::default().fg(palette::FG) };
-                let dim = if selected { dim_hl } else { muted };
+
+                // Fill entire row with highlight background when selected
+                if selected {
+                    for cx in 0..inner.width {
+                        if let Some(cell) = buf.cell_mut(Position::new(inner.x + cx, ry)) {
+                            cell.set_bg(palette::HIGHLIGHT);
+                        }
+                    }
+                }
 
                 let name = truncate_str(&row.name, name_w as usize);
                 buf.set_string(inner.x + 1, ry, format!(" {name}"), row_style);
+
                 let ver = row.version.as_deref().unwrap_or("—");
-                buf.set_string(inner.x + 1 + name_w + 1, ry, truncate_str(ver, ver_w as usize), dim);
+                let ver_style = if selected { row_style } else { Style::default().fg(palette::HIGHLIGHT) };
+                buf.set_string(inner.x + 1 + name_w + 1, ry, truncate_str(ver, ver_w as usize), ver_style);
+
                 let desc_x = inner.x + 1 + name_w + 1 + ver_w + 1;
                 let max_desc = desc_w.saturating_sub(1) as usize;
-                buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), dim);
+                let desc_style = if selected { row_style } else { Style::default().fg(palette::GRAY_1) };
+                buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
             }
 
             if total > view_h {
@@ -343,21 +376,87 @@ impl RepoManager {
 
         // Buttons
         let btn_y = inner.y + list_height + 1;
-        let add_label = "[ Add Selected ]";
+        let action_label = if self.delete_mode { "[ Delete ]" } else { "[ Add Selected ]" };
         let cancel_label = "[ Cancel ]";
-        let add_w = add_label.len() as u16;
+        let action_w = action_label.len() as u16;
         let cancel_w = cancel_label.len() as u16;
-        let total_btn_w = add_w + cancel_w + 6;
+        let total_btn_w = action_w + cancel_w + 6;
         let btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
 
         let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
         let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
 
-        let add_style = if self.staging_focus == StagingFocus::AddSelected { sel_btn } else { unsel_btn };
+        let action_style = if self.staging_focus == StagingFocus::AddSelected { sel_btn } else { unsel_btn };
         let cancel_style = if self.staging_focus == StagingFocus::Cancel { sel_btn } else { unsel_btn };
 
-        buf.set_string(btn_x, btn_y, add_label, add_style);
-        buf.set_string(btn_x + add_w + 4, btn_y, cancel_label, cancel_style);
+        buf.set_string(btn_x, btn_y, action_label, action_style);
+        buf.set_string(btn_x + action_w + 4, btn_y, cancel_label, cancel_style);
+
+        Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
+    }
+
+    fn render_progress(&self, parent: Rect, buf: &mut Buffer) {
+        let (done, total) = match *self.progress.lock().unwrap() {
+            Some(p) => p,
+            None => return,
+        };
+
+        let dlg_w = (parent.width / 2).clamp(50, 80);
+        let dlg_h = 6u16;
+        let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
+        let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
+
+        Clear.render(canvas, buf);
+
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 13.0, &[palette::GRAY_0, palette::PROCESSING_GLOW] as &[Color]);
+        for row in 0..canvas.height {
+            for col in 0..canvas.width {
+                let idx = row as usize * canvas.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                    cell.set_bg(grad[idx]);
+                }
+            }
+        }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+            .style(Style::default());
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        title::overlay_gradient_title(
+            buf,
+            canvas,
+            &title_style,
+            &[TitleSegment { text: " Adding Modules ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+        );
+
+        let bar_y = inner.y + 1;
+        let bar_w = inner.width.saturating_sub(2);
+        let filled = (bar_w as usize * done).checked_div(total).map(|v| v as u16).unwrap_or(0);
+
+        // Draw filled and unfilled portions
+        if filled > 0 {
+            buf.set_string(inner.x + 1, bar_y, "█".repeat(filled as usize), Style::default().fg(palette::PROCESSING_PEAK));
+        }
+        if filled < bar_w {
+            let unfilled = (bar_w - filled) as usize;
+            buf.set_string(inner.x + 1 + filled, bar_y, "─".repeat(unfilled), Style::default().fg(palette::MUTED));
+        }
+
+        // Percentage
+        let pct = (done * 100).checked_div(total).map(|p| format!("{p}%")).unwrap_or_else(|| "0%".into());
+        let pct_x = inner.x + (inner.width.saturating_sub(pct.len() as u16)) / 2;
+        buf.set_string(pct_x, bar_y, &pct, Style::default().fg(palette::FG).add_modifier(Modifier::BOLD));
+
+        // Cancel button
+        let cancel = "[ Cancel ]";
+        let btn_x = inner.x + (inner.width.saturating_sub(cancel.len() as u16)) / 2;
+        buf.set_string(btn_x, bar_y + 1, cancel, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
 
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
     }

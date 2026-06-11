@@ -1,4 +1,4 @@
-use crate::{MEM_LOGGER, call_master_console, ui::elements::DbListItem};
+use crate::{call_master_console, ui::elements::DbListItem};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
@@ -8,9 +8,11 @@ use libeventreg::{
     ipcc::DbIPCClient,
     kvdb::{EventData, EventMinion, EventSession},
 };
+use libmodcore::modinit::ModInterface;
+use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
-    console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleOnlineMinionRow, ConsolePayload},
+    console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
@@ -58,11 +60,6 @@ pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
     let mut terminal = ratatui::init();
     let result = tokio_run(cfg, config_found, &mut terminal).await;
     ratatui::restore();
-
-    if !MEM_LOGGER.get_messages().is_empty() {
-        println!("Memory log:");
-        println!("{:#?}", MEM_LOGGER.get_messages());
-    }
 
     result
 }
@@ -610,7 +607,8 @@ impl SysInspectUX {
 
     fn on_events(&mut self) -> io::Result<()> {
         self.sync_main_focus_for_overlays();
-        if event::poll(Duration::from_secs(1))? {
+        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some() { Duration::from_millis(50) } else { Duration::from_secs(1) };
+        if event::poll(poll_dur)? {
             if let Event::Key(e) = event::read()?
                 && e.kind == KeyEventKind::Press
             {
@@ -646,6 +644,20 @@ impl SysInspectUX {
             && let Some(path) = self.file_picker.selected.take()
         {
             self.process_module_add(&path);
+        }
+        // Detect progress bar completion for bulk add
+        if self.repo_manager.visible {
+            let p = self.repo_manager.progress.lock().unwrap();
+            if p.is_none() {
+                drop(p);
+                if self.repo_manager.needs_reload {
+                    self.repo_manager.needs_reload = false;
+                    let _ = self.load_module_index();
+                }
+            } else {
+                // Track that a reload is needed when progress finishes
+                self.repo_manager.needs_reload = true;
+            }
         }
         Ok(())
     }
@@ -1724,7 +1736,8 @@ impl SysInspectUX {
         })
         .map_err(|e| format!("Failed to get module index: {e}"))?;
         match resp.payload {
-            ConsolePayload::MasterModuleIndex { rows } => {
+            ConsolePayload::MasterModuleIndex { mut rows } => {
+                rows.sort_by(|a, b| a.name.cmp(&b.name));
                 self.repo_manager.rows = rows;
                 self.repo_manager.cursor = 0;
                 Ok(())
@@ -1738,11 +1751,35 @@ impl SysInspectUX {
             return false;
         }
         if self.repo_manager.staging {
-            return self.repo_manager.handle_staging_key(e);
+            let handled = self.repo_manager.handle_staging_key(e);
+            if self.repo_manager.bulk_add_triggered {
+                self.repo_manager.bulk_add_triggered = false;
+                let checked: Vec<_> = self.repo_manager.staged.iter().filter(|m| m.checked).cloned().collect();
+                if checked.is_empty() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "No modules selected".to_string();
+                } else {
+                    self.repo_manager.exit_staging();
+                    self.bulk_add_modules(checked);
+                }
+            }
+            if self.repo_manager.bulk_delete_triggered {
+                self.repo_manager.bulk_delete_triggered = false;
+                let checked: Vec<_> = self.repo_manager.staged.iter().filter(|m| m.checked).map(|m| m.name.clone()).collect();
+                if checked.is_empty() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "No modules selected".to_string();
+                } else {
+                    self.repo_manager.exit_staging();
+                    self.bulk_delete_modules(&checked);
+                }
+            }
+            return handled;
         }
         let page = 10usize;
         match e.code {
             KeyCode::Esc => {
+                self.repo_manager.exit_staging();
                 self.repo_manager.visible = false;
             }
             KeyCode::Up => {
@@ -1759,8 +1796,24 @@ impl SysInspectUX {
             }
             KeyCode::Enter => {} // placeholder
             KeyCode::Delete => {
-                self.error_alert_visible = true;
-                self.error_alert_message = "Not implemented yet".to_string();
+                if !self.repo_manager.rows.is_empty() {
+                    self.repo_manager.delete_mode = true;
+                    self.repo_manager.staged = self
+                        .repo_manager
+                        .rows
+                        .iter()
+                        .map(|r| repomanager::StagedModule {
+                            name: r.name.clone(),
+                            version: r.version.clone(),
+                            descr: r.descr.clone(),
+                            path: std::path::PathBuf::new(),
+                            checked: false,
+                        })
+                        .collect();
+                    self.repo_manager.staging = true;
+                    self.repo_manager.staging_cursor = 0;
+                    self.repo_manager.staging_focus = repomanager::StagingFocus::List;
+                }
             }
             KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.file_picker.open(&std::env::current_dir().unwrap_or_default(), filepicker::PickerMode::Any);
@@ -1776,12 +1829,20 @@ impl SysInspectUX {
 
     fn process_module_add(&mut self, path: &std::path::Path) {
         if path.is_dir() {
-            let staged = Self::scan_dir_for_modules(path);
+            let mut staged = Self::scan_dir_for_modules(path);
             if staged.is_empty() {
                 self.error_alert_visible = true;
                 self.error_alert_message = "No .spec files found in the selected directory".to_string();
             } else {
-                self.repo_manager.enter_staging(staged);
+                let total = staged.len();
+                Self::dedup_staged_modules(&self.repo_manager.rows, &mut staged);
+                let skipped = total - staged.len();
+                if staged.is_empty() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("No new modules found, {skipped} skipped");
+                } else {
+                    self.repo_manager.enter_staging(staged);
+                }
             }
         } else {
             let spec = path.with_extension("spec");
@@ -1810,16 +1871,103 @@ impl SysInspectUX {
             if !sub.is_dir() {
                 continue;
             }
-            let module_name = sub.file_name().unwrap_or_default().to_string_lossy().to_string();
-            let spec = sub.join(format!("{module_name}.spec"));
+            let dir_name = sub.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let spec = sub.join(format!("{dir_name}.spec"));
             if !spec.exists() {
                 continue;
             }
+            let module_name = Self::read_spec_name(&spec).unwrap_or_else(|| dir_name.clone());
             let (version, descr) = Self::read_spec_version_descr(&spec);
-            let bin = sub.join(&module_name);
+            let bin = sub.join(&dir_name);
             staged.push(repomanager::StagedModule { name: module_name, version, descr, path: if bin.exists() { bin } else { spec }, checked: true });
         }
         staged
+    }
+
+    fn read_spec_name(spec: &std::path::Path) -> Option<String> {
+        match std::fs::read_to_string(spec) {
+            Ok(yaml) => match serde_yaml::from_str::<serde_yaml::Value>(&yaml) {
+                Ok(v) => v.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        }
+    }
+
+    fn dedup_staged_modules(existing: &[ConsoleModuleRow], staged: &mut Vec<repomanager::StagedModule>) {
+        staged.retain(|m| !existing.iter().any(|r| r.name == m.name && r.version == m.version));
+    }
+
+    fn bulk_add_modules(&mut self, staged: Vec<repomanager::StagedModule>) {
+        let total = staged.len();
+        *self.repo_manager.progress.lock().unwrap() = Some((0, total));
+        let progress = self.repo_manager.progress.clone();
+        let repo_root = self.cfg.fileserver_root().join("repo");
+
+        std::thread::spawn(move || {
+            let mut repo = match SysInspectModPak::new(repo_root) {
+                Ok(r) => r,
+                Err(e) => {
+                    *progress.lock().unwrap() = None;
+                    // Can't access self.error_alert here — just log
+                    log::error!("Cannot open repository: {e}");
+                    return;
+                }
+            };
+            for (i, m) in staged.iter().enumerate() {
+                let spec_path = m.path.with_extension("spec");
+                let spec_yaml = match std::fs::read_to_string(&spec_path) {
+                    Ok(y) => y,
+                    Err(e) => {
+                        log::error!("Cannot read spec {}: {e}", m.name);
+                        *progress.lock().unwrap() = None;
+                        return;
+                    }
+                };
+                let mi: ModInterface = match serde_yaml::from_str(&spec_yaml) {
+                    Ok(mi) => mi,
+                    Err(e) => {
+                        log::error!("Invalid spec {}: {e}", m.name);
+                        *progress.lock().unwrap() = None;
+                        return;
+                    }
+                };
+                let meta = match ModPakMetadata::from_spec(&mi, m.path.clone()) {
+                    Ok(meta) => meta,
+                    Err(e) => {
+                        log::error!("Invalid spec data {}: {e}", m.name);
+                        *progress.lock().unwrap() = None;
+                        return;
+                    }
+                };
+                if let Err(e) = repo.add_module(meta) {
+                    log::error!("Cannot add module {}: {e}", m.name);
+                    *progress.lock().unwrap() = None;
+                    return;
+                }
+                *progress.lock().unwrap() = Some((i + 1, total));
+            }
+            *progress.lock().unwrap() = None;
+        });
+    }
+
+    fn bulk_delete_modules(&mut self, names: &[String]) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        if let Err(e) = repo.remove_module(name_refs) {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Cannot remove modules: {e}");
+        } else {
+            let _ = self.load_module_index();
+        }
     }
 
     fn read_spec_version_descr(spec: &std::path::Path) -> (Option<String>, String) {

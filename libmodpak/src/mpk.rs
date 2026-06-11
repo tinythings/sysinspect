@@ -860,6 +860,30 @@ impl ModPakMetadata {
         Ok(mpm)
     }
 
+    /// Build metadata from a parsed spec and binary path (no CLI).
+    pub fn from_spec(spec: &ModInterface, path: std::path::PathBuf) -> Result<Self, SysinspectError> {
+        let mut mpm = ModPakMetadata {
+            path,
+            name: spec.name().to_string(),
+            descr: spec.description().to_string().replace('\n', " "),
+            version: if spec.version().is_empty() { None } else { Some(spec.version().to_string()) },
+            author: if spec.author().is_empty() { None } else { Some(spec.author().to_string()) },
+            manpage: spec.manpage().map(|s| s.to_string()),
+            ..Default::default()
+        };
+        mpm.load_args(spec.arguments().to_vec());
+        mpm.load_opts(spec.options().to_vec());
+
+        if mpm.name.is_empty() {
+            return Err(SysinspectError::InvalidModuleName("Module name is empty in spec".to_string()));
+        }
+        if mpm.descr.is_empty() {
+            return Err(SysinspectError::InvalidModuleName("Module description is empty in spec".to_string()));
+        }
+        mpm.validate_namespace()?;
+        Ok(mpm)
+    }
+
     pub(crate) fn get_descr(&self) -> &str {
         &self.descr
     }

@@ -8433,6 +8433,7 @@ dependencies = [
  "jsonpath_lib",
  "libcommon",
  "libeventreg",
+ "libmodcore",
  "libmodpak",
  "libsetup",
  "libsysinspect",
