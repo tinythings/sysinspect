@@ -19,7 +19,7 @@ use std::{
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::PathBuf,
 };
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PickerMode {
@@ -79,6 +79,72 @@ impl Default for FilePicker {
             filter_focus: false,
         }
     }
+}
+
+fn fold_path_fish_style(path: &str, max_width: usize) -> String {
+    if path.is_empty() {
+        return ".".into();
+    }
+    let display_path = if let Ok(home) = std::env::var("HOME")
+        && path.starts_with(home.as_str())
+        && (path.len() == home.len() || path.as_bytes()[home.len()] == b'/')
+    {
+        let tail = &path[home.len()..];
+        let trimmed = tail.trim_start_matches('/');
+        if trimmed.is_empty() { "~".into() } else { format!("~/{}", trimmed) }
+    } else {
+        path.to_string()
+    };
+    let components: Vec<&str> = display_path.split('/').collect();
+    if components.len() <= 2 {
+        let w = UnicodeWidthStr::width(display_path.as_str());
+        if w <= max_width {
+            return display_path;
+        }
+        return prefix_ellipsis(&display_path, max_width);
+    }
+    let last = *components.last().unwrap();
+    let intermediates = &components[1..components.len() - 1];
+    let mut folded = String::new();
+    let starts_with_slash = display_path.starts_with('/');
+    let starts_with_tilde = display_path.starts_with("~/");
+    if starts_with_tilde {
+        folded.push_str("~/");
+    } else if starts_with_slash {
+        folded.push('/');
+    }
+    for comp in intermediates {
+        if let Some(ch) = comp.chars().next() {
+            folded.push(ch);
+            folded.push('/');
+        }
+    }
+    folded.push_str(last);
+    let w = UnicodeWidthStr::width(folded.as_str());
+    if w <= max_width {
+        return folded;
+    }
+    prefix_ellipsis(&folded, max_width)
+}
+
+fn prefix_ellipsis(text: &str, max_width: usize) -> String {
+    let ellipsis_w = UnicodeWidthStr::width("…");
+    if max_width <= ellipsis_w {
+        return "…".into();
+    }
+    let available = max_width - ellipsis_w;
+    let chars: Vec<char> = text.chars().collect();
+    let mut right_width = 0usize;
+    let mut start_idx = chars.len();
+    for (i, ch) in chars.iter().enumerate().rev() {
+        right_width += UnicodeWidthChar::width(*ch).unwrap_or(0);
+        if right_width >= available {
+            start_idx = i;
+            break;
+        }
+    }
+    let tail: String = chars[start_idx..].iter().collect();
+    format!("…{}", tail)
 }
 
 impl FilePicker {
@@ -197,7 +263,7 @@ impl FilePicker {
                     self.focus = PickerFocus::Dirs;
                     self.refresh_entries();
                 }
-                KeyCode::Tab | KeyCode::BackTab => {
+                KeyCode::Down | KeyCode::Tab | KeyCode::BackTab => {
                     self.filter_focus = false;
                     self.refresh_entries();
                 }
@@ -251,6 +317,9 @@ impl FilePicker {
                 }
             }
             KeyCode::Up => match self.focus {
+                PickerFocus::Dirs if self.dir_cursor == 0 && self.entries.first().is_some_and(|e| e.is_parent) => {
+                    self.filter_focus = true;
+                }
                 PickerFocus::Dirs => {
                     self.dir_cursor = self.dir_cursor.saturating_sub(1);
                 }
@@ -390,12 +459,18 @@ impl FilePicker {
             PickerMode::LibrarySelector => " Library Selector ",
         };
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[TitleSegment { text: title_text.into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
-        );
+
+        let title_area_w = canvas.width.saturating_sub(2);
+        let mode_w = UnicodeWidthStr::width(title_text) as u16;
+        let path_avail = title_area_w.saturating_sub(3 + mode_w) as usize;
+        let path_str = self.current_path.to_string_lossy().to_string();
+        let folded = if path_avail > 0 { fold_path_fish_style(&path_str, path_avail) } else { String::new() };
+
+        let mut segments = vec![TitleSegment { text: title_text.into(), bg: palette::PROCESSING_BASE, fg: palette::FG }];
+        if !folded.is_empty() {
+            segments.push(TitleSegment { text: folded, bg: palette::PROCESSING_HEAT, fg: palette::FG });
+        }
+        title::overlay_gradient_title(buf, canvas, &title_style, &segments);
 
         if inner.height < 4 {
             return;
@@ -441,7 +516,7 @@ impl FilePicker {
         let dir_end = (row_y + dir_rows).min(inner.y + inner.height);
         let dir_area = Rect { x: inner.x + 1, y: row_y, width: inner.width.saturating_sub(1), height: dir_rows.min(dir_end.saturating_sub(row_y)) };
 
-        self.render_section(dir_area, buf, &dir_list, self.dir_cursor, self.focus == PickerFocus::Dirs, &self.dir_scroll);
+        self.render_section(dir_area, buf, &dir_list, self.dir_cursor, !self.filter_focus && self.focus == PickerFocus::Dirs, &self.dir_scroll);
         row_y = dir_area.y + dir_area.height;
 
         // ── Files section ──
@@ -467,7 +542,14 @@ impl FilePicker {
                 height: (available - dir_rows).saturating_sub(1).min(file_end.saturating_sub(row_y)),
             };
 
-            self.render_section(file_area, buf, &file_list, self.file_cursor, self.focus == PickerFocus::Files, &self.file_scroll);
+            self.render_section(
+                file_area,
+                buf,
+                &file_list,
+                self.file_cursor,
+                !self.filter_focus && self.focus == PickerFocus::Files,
+                &self.file_scroll,
+            );
         }
 
         // MS-DOS shadow
@@ -522,8 +604,8 @@ impl FilePicker {
         let visible = entries.iter().skip(s).take(view_h);
 
         let muted = Style::default().fg(palette::MUTED);
-        let hl_style = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
-        let muted_hl = Style::default().fg(palette::BG_0).bg(palette::HIGHLIGHT);
+        let hl_style = Style::default().fg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD);
+        let muted_hl = Style::default().fg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD);
 
         // Calculate field widths for alignment (includes icon + spaces)
         let longest_name = entries
@@ -545,8 +627,9 @@ impl FilePicker {
             let is_selected = abs_idx == cursor && active;
             let row_style = if is_selected { hl_style } else { Style::default().fg(palette::FG) };
 
-            let icon = if entry.is_parent { "↑ " } else { entry.icon };
-            let line = format!("    {icon} {}", entry.name);
+            let icon_str = if entry.is_parent { "↑ " } else { entry.icon };
+            let prefix = if is_selected { " ✨ " } else { "    " };
+            let line = format!("{prefix}{icon_str} {}", entry.name);
 
             if !entry.is_parent {
                 let (mode, user, group, mtime) = Self::meta_info_or_unknown(&entry.path);
@@ -562,18 +645,6 @@ impl FilePicker {
                 }
             } else {
                 buf.set_string(area.x + 1, ry, &line, row_style);
-            }
-
-            // Re-paint with highlight if selected
-            if is_selected {
-                if !entry.is_parent {
-                    let name_end = (area.x + 3 + longest_name as u16).saturating_sub(1);
-                    let max_name_w = name_end.saturating_sub(area.x + 1);
-                    let name_trimmed = truncate_to_width(&line, max_name_w);
-                    buf.set_string(area.x + 1, ry, &name_trimmed, row_style);
-                } else {
-                    buf.set_string(area.x + 1, ry, &line, row_style);
-                }
             }
         }
 
