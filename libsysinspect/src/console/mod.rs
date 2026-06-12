@@ -126,6 +126,19 @@ pub struct ConsoleMasterLogSnapshot {
     pub errors_path: String,
 }
 
+/// One argument/option of a module in the repository index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleModuleArgument {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argtype: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
 /// One row in the master's module repository index.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConsoleModuleRow {
@@ -142,6 +155,10 @@ pub struct ConsoleModuleRow {
     pub author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manpage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<ConsoleModuleArgument>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opts: Option<Vec<ConsoleModuleArgument>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

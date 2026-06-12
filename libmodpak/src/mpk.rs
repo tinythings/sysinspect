@@ -620,17 +620,17 @@ impl ModPakRepoIndex {
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ModPackArgument {
-    name: String,
-    description: String,
+    pub name: String,
+    pub description: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    argtype: Option<String>, // data type: str, int, bool, float, list etc
+    pub argtype: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    required: Option<bool>,
+    pub required: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    default: Option<String>,
+    pub default: Option<String>,
 }
 
 impl ModPackArgument {

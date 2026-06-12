@@ -1220,7 +1220,7 @@ fn handle_ctx_edit(code: KeyCode, f: &mut ContextField, idx: usize, total: usize
     }
 }
 
-fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+pub(crate) fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     if text.is_empty() || max_width < 4 {
         return vec![];
     }

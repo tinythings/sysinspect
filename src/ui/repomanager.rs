@@ -1,16 +1,18 @@
 use super::{
-    palette,
+    dslbrowser, palette,
     title::{self, TitleSegment, TitleStyle},
 };
-use libsysinspect::console::ConsoleModuleRow;
+use libsysinspect::console::{ConsoleModuleArgument, ConsoleModuleRow};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Position},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders, Clear, StatefulWidget, Widget},
+    text::Line,
+    widgets::{Block, BorderType, Borders, Clear, Paragraph, StatefulWidget, Tabs, Widget},
 };
 use ratatui_cheese::input::{Input, InputState, InputStyles};
 use ratatui_glamour::color::blend_2d;
+use ratatui_glamour::rule::dashed_title;
 use std::{
     cell::Cell,
     sync::{Arc, Mutex},
@@ -58,6 +60,12 @@ pub struct RepoManager {
     // Filter
     pub filter: InputState,
     pub filter_focus: bool,
+
+    // Module info popup
+    pub info_visible: bool,
+    pub info_row: usize,
+    pub info_tab: u8,
+    pub info_scroll: Cell<usize>,
 }
 
 impl Default for RepoManager {
@@ -79,6 +87,10 @@ impl Default for RepoManager {
             needs_reload: false,
             filter: InputState::new(),
             filter_focus: false,
+            info_visible: false,
+            info_row: 0,
+            info_tab: 0,
+            info_scroll: Cell::new(0),
         }
     }
 }
@@ -157,6 +169,8 @@ impl RepoManager {
         }
         if self.progress.lock().unwrap().is_some() {
             self.render_progress(parent, buf);
+        } else if self.info_visible {
+            self.render_info(parent, buf);
         } else if self.staging {
             self.render_staging(parent, buf);
         } else {
@@ -525,6 +539,291 @@ impl RepoManager {
         StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
 
+    pub fn handle_info_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
+        if !self.info_visible {
+            return false;
+        }
+        match key.code {
+            crossterm::event::KeyCode::Esc => {
+                self.info_visible = false;
+            }
+            crossterm::event::KeyCode::Enter => {
+                self.info_visible = false;
+            }
+            crossterm::event::KeyCode::Left => {
+                self.info_tab = self.info_tab.saturating_sub(1);
+                self.info_scroll.set(0);
+            }
+            crossterm::event::KeyCode::Right => {
+                self.info_tab = (self.info_tab + 1).min(3);
+                self.info_scroll.set(0);
+            }
+            crossterm::event::KeyCode::Up => {
+                let s = self.info_scroll.get();
+                self.info_scroll.set(s.saturating_sub(1));
+            }
+            crossterm::event::KeyCode::Down => {
+                let s = self.info_scroll.get();
+                self.info_scroll.set(s.saturating_add(1));
+            }
+            crossterm::event::KeyCode::PageUp => {
+                let s = self.info_scroll.get();
+                self.info_scroll.set(s.saturating_sub(10));
+            }
+            crossterm::event::KeyCode::PageDown => {
+                let s = self.info_scroll.get();
+                self.info_scroll.set(s.saturating_add(10));
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn render_info(&self, parent: Rect, buf: &mut Buffer) {
+        let row = match self.rows.get(self.info_row) {
+            Some(r) => r,
+            None => return,
+        };
+        let w = (parent.width * 80 / 100).max(60).min(parent.width.saturating_sub(2));
+        let h = (parent.height * 80 / 100).clamp(12, 24);
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        Clear.render(canvas, buf);
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_2] as &[Color]);
+        for ry in 0..canvas.height {
+            for cx in 0..canvas.width {
+                let idx = ry as usize * canvas.width as usize + cx as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + cx, canvas.y + ry)) {
+                    cell.set_bg(grad[idx]);
+                }
+            }
+        }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+            .style(Style::default());
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        title::overlay_gradient_title(
+            buf,
+            canvas,
+            &title_style,
+            &[TitleSegment { text: format!(" {} ", row.name), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+        );
+
+        if inner.height < 4 {
+            return;
+        }
+        let [tabs_area, body_area, btn_area] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(1), Constraint::Length(1)])
+            .split(inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+
+        let titles: Vec<Line> = ["Description", "Arguments", "Options", "Manual"].iter().map(|t| Line::from(format!(" {t} "))).collect();
+        Tabs::new(titles)
+            .select(self.info_tab as usize)
+            .divider("│")
+            .style(Style::default().fg(palette::MUTED))
+            .highlight_style(Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD))
+            .render(tabs_area, buf);
+
+        let section_title = ["Description", "Arguments", "Options", "Manual Page"][self.info_tab as usize];
+        let mut yy = body_area.y;
+        dashed_title(
+            Rect { x: body_area.x, y: yy, width: body_area.width, height: 1 },
+            buf,
+            &format!(" {section_title} "),
+            palette::PROCESSING,
+            palette::PRIMARY,
+            palette::PROCESSING_DIMMED,
+        );
+        yy += 1;
+        yy += 1;
+
+        let content_area = Rect { x: body_area.x, y: yy, width: body_area.width.saturating_sub(1), height: body_area.height.saturating_sub(2) };
+        let muted = Style::default().fg(palette::MUTED);
+
+        match self.info_tab {
+            0 => {
+                let desc = if row.descr.is_empty() { "Description is not available" } else { &row.descr };
+                self.render_info_text(content_area, buf, desc);
+            }
+            1 => {
+                if let Some(ref args) = row.args
+                    && !args.is_empty()
+                {
+                    self.render_args_opts(content_area, buf, args, false);
+                } else {
+                    self.render_placeholder(content_area, buf, "This module has no arguments", &muted);
+                }
+            }
+            2 => {
+                if let Some(ref opts) = row.opts
+                    && !opts.is_empty()
+                {
+                    self.render_args_opts(content_area, buf, opts, true);
+                } else {
+                    self.render_placeholder(content_area, buf, "This module has no options", &muted);
+                }
+            }
+            3 => {
+                if let Some(ref man) = row.manpage
+                    && !man.is_empty()
+                {
+                    let rendered: Vec<ratatui::text::Line> = man.split('\n').map(|line| render_markup_spans(line)).collect();
+                    self.render_info_lines(content_area, buf, &rendered);
+                } else {
+                    self.render_placeholder(content_area, buf, "Manual page is not available", &muted);
+                }
+            }
+            _ => {}
+        }
+
+        // Close button
+        let close_lbl = "[ Close ]";
+        let close_w = close_lbl.len() as u16;
+        let btn_x = btn_area.x + (btn_area.width.saturating_sub(close_w)) / 2;
+        Paragraph::new(close_lbl)
+            .style(Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD))
+            .render(Rect::new(btn_x, btn_area.y, close_w, 1), buf);
+
+        // Change default temporarily for shadow computation
+        Self::draw_shadow(buf, canvas, w, h);
+    }
+
+    fn render_info_text(&self, area: Rect, buf: &mut Buffer, text: &str) {
+        let w = (area.width.saturating_sub(3)) as usize;
+        let lines: Vec<String> = text.split('\n').flat_map(|l| dslbrowser::wrap_text(l, w)).collect();
+        let max_off = lines.len().saturating_sub(area.height as usize);
+        let off = self.info_scroll.get().min(max_off);
+        let body = Style::default().fg(palette::FG);
+        for (yy, line) in (area.y..).zip(lines.iter().skip(off).take(area.height as usize)) {
+            if yy >= area.bottom() {
+                break;
+            }
+            buf.set_string(area.x + 2, yy, line, body);
+        }
+        self.draw_scrollbar(buf, area, off, lines.len().max(1), area.height as usize);
+    }
+
+    fn render_info_lines(&self, area: Rect, buf: &mut Buffer, lines: &[ratatui::text::Line]) {
+        let max_off = lines.len().saturating_sub(area.height as usize);
+        let off = self.info_scroll.get().min(max_off);
+        for (yy, line) in (area.y..).zip(lines.iter().skip(off).take(area.height as usize)) {
+            if yy >= area.bottom() {
+                break;
+            }
+            let spans = line.spans.clone();
+            let mut x = area.x + 2;
+            for span in spans {
+                buf.set_span(x, yy, &span, area.width.saturating_sub(x.saturating_sub(area.x)));
+                x += span.width() as u16;
+            }
+        }
+        self.draw_scrollbar(buf, area, off, lines.len().max(1), area.height as usize);
+    }
+
+    fn render_placeholder(&self, area: Rect, buf: &mut Buffer, msg: &str, style: &Style) {
+        let x = area.x + (area.width.saturating_sub(msg.len() as u16)) / 2;
+        let y = area.y + area.height / 2;
+        buf.set_string(x, y, msg, *style);
+    }
+
+    fn render_args_opts(&self, area: Rect, buf: &mut Buffer, items: &[ConsoleModuleArgument], _is_opts: bool) {
+        let name_max_w = items.iter().map(|a| a.name.len()).max().unwrap_or(8).min(16);
+        let left_w = name_max_w + 2;
+        let desc_x = (area.x + 2 + left_w as u16 + 6).max(area.x + 14);
+        let desc_w = area.right().saturating_sub(desc_x + 1) as usize;
+
+        let key_style = Style::default().fg(palette::WARNING_PEAK);
+        let req_style = Style::default().fg(palette::ERROR_HEAT);
+        let opt_style = Style::default().fg(palette::SUCCESS_HEAT);
+        let def_style = Style::default().fg(palette::WARNING_GLOW);
+        let desc_style = Style::default().fg(palette::GRAY_1);
+
+        #[derive(Clone)]
+        struct LineSeg {
+            text: String,
+            x: u16,
+            style: Style,
+        }
+        let mut all_rows: Vec<Vec<LineSeg>> = Vec::new();
+
+        for item in items {
+            let is_req = item.required.unwrap_or(false);
+            let tag = if is_req { "required" } else { "optional" };
+            let tag_style = if is_req { req_style } else { opt_style };
+
+            // Left column
+            let mut left = vec![
+                LineSeg { text: item.name.clone(), x: area.x + 2, style: key_style },
+                LineSeg { text: tag.to_string(), x: area.x + 2, style: tag_style },
+            ];
+            if let Some(ref d) = item.default
+                && !d.is_empty()
+            {
+                left.push(LineSeg { text: format!("default: {d}"), x: area.x + 2, style: def_style });
+            }
+
+            // Right column (description, wrapped)
+            let desc_lines = dslbrowser::wrap_text(&item.description, desc_w);
+            let right: Vec<Vec<LineSeg>> = desc_lines.iter().map(|l| vec![LineSeg { text: l.clone(), x: desc_x, style: desc_style }]).collect();
+
+            // Merge: description starts on same line as name
+            let rows = left.len().max(right.len());
+            for i in 0..rows {
+                let mut row = Vec::new();
+                if i < left.len() {
+                    row.push(left[i].clone());
+                }
+                if i < right.len() {
+                    row.extend(right[i].clone());
+                }
+                all_rows.push(row);
+            }
+            // Blank separator
+            all_rows.push(Vec::new());
+        }
+
+        let total = all_rows.len();
+        let view_h = area.height as usize;
+        let max_off = total.saturating_sub(view_h);
+        let off = self.info_scroll.get().min(max_off);
+        for (yy, row) in (area.y..).zip(all_rows.iter().skip(off).take(view_h)) {
+            if yy >= area.bottom() {
+                break;
+            }
+            for seg in row {
+                buf.set_string(seg.x, yy, &seg.text, seg.style);
+            }
+        }
+        self.draw_scrollbar(buf, area, off, total.max(1), view_h);
+    }
+
+    fn draw_scrollbar(&self, buf: &mut Buffer, area: Rect, offset: usize, total: usize, view_h: usize) {
+        let bar_h = ((view_h as f64 / total.max(1) as f64) * view_h as f64).max(1.0) as usize;
+        let bar_h = bar_h.min(view_h);
+        let bar_y = ((offset as f64 / total.max(1) as f64) * (view_h - bar_h) as f64) as usize;
+        for i in 0..view_h {
+            let sx = area.right().saturating_sub(1);
+            let sy = area.y + i as u16;
+            if i >= bar_y && i < bar_y + bar_h {
+                buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
+            } else {
+                buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+            }
+        }
+    }
+
     fn draw_shadow(buf: &mut Buffer, canvas: Rect, dlg_w: u16, dlg_h: u16) {
         let buf_area = buf.area();
         let x = canvas.x;
@@ -556,6 +855,119 @@ impl RepoManager {
             }
         }
     }
+}
+
+fn render_markup_spans(input: &str) -> ratatui::text::Line<'static> {
+    use ratatui::text::Span;
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut current = String::new();
+    let mut style = Style::default();
+
+    fn fg_color(c: char) -> Option<Color> {
+        Some(match c {
+            'k' => palette::BG_1,
+            'r' => palette::ERROR_PEAK,
+            'g' => palette::SUCCESS,
+            'y' => palette::WARNING,
+            'b' => palette::PROCESSING,
+            'm' => palette::HIGHLIGHT,
+            'c' => palette::SUCCESS_PEAK,
+            'w' => palette::FG,
+            'K' => palette::GRAY_1,
+            'R' => palette::ERROR_GLOW,
+            'G' => palette::SUCCESS_GLOW,
+            'Y' => palette::WARNING_PEAK,
+            'B' => palette::PROCESSING_GLOW,
+            'M' => palette::SECONDARY,
+            'C' => palette::SECONDARY,
+            'W' => palette::FG,
+            _ => return None,
+        })
+    }
+
+    fn bg_color(c: char) -> Option<Color> {
+        Some(match c {
+            'k' => palette::BG_1,
+            'r' => palette::ERROR_BASE,
+            'g' => palette::SUCCESS_BASE,
+            'y' => palette::WARNING_BASE,
+            'b' => palette::PROCESSING_BASE,
+            'm' => palette::HIGHLIGHT,
+            'c' => palette::SECONDARY,
+            'w' => palette::FG,
+            _ => return None,
+        })
+    }
+
+    fn attrs(chars: &str) -> Modifier {
+        let mut m = Modifier::empty();
+        for c in chars.chars() {
+            match c {
+                'b' => m |= Modifier::BOLD,
+                'd' => m |= Modifier::DIM,
+                'u' => m |= Modifier::UNDERLINED,
+                'i' => m |= Modifier::REVERSED,
+                's' => m |= Modifier::CROSSED_OUT,
+                _ => {}
+            }
+        }
+        m
+    }
+
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '[' {
+            current.push(ch);
+            continue;
+        }
+        let mut tag = String::new();
+        while let Some(&c) = chars.peek() {
+            chars.next();
+            if c == ']' {
+                break;
+            }
+            tag.push(c);
+        }
+        if tag == "N" {
+            if !current.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut current), style));
+            }
+            style = Style::default();
+            continue;
+        }
+        let mut parts = tag.splitn(3, ':');
+        let fg = parts.next().unwrap_or("");
+        let bg = parts.next().unwrap_or("");
+        let at = parts.next().unwrap_or("");
+        if !tag.contains(':') {
+            current.push('[');
+            current.push_str(&tag);
+            current.push(']');
+            continue;
+        }
+        if !current.is_empty() {
+            spans.push(Span::styled(std::mem::take(&mut current), style));
+        }
+        if let Some(c) = fg.chars().next()
+            && let Some(col) = fg_color(c)
+        {
+            style = style.fg(col);
+        }
+        if let Some(c) = bg.chars().next()
+            && let Some(col) = bg_color(c)
+        {
+            style = style.bg(col);
+        }
+        style = style.add_modifier(attrs(at));
+    }
+    if !current.is_empty() {
+        spans.push(Span::styled(current, style));
+    }
+    if spans.is_empty() {
+        spans.push(Span::raw(""));
+    }
+    ratatui::text::Line::from(spans)
 }
 
 fn truncate_str(s: &str, max_w: usize) -> String {

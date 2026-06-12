@@ -1776,6 +1776,9 @@ impl SysInspectUX {
             }
             return handled;
         }
+        if self.repo_manager.info_visible {
+            return self.repo_manager.handle_info_key(e);
+        }
         if self.repo_manager.filter_focus {
             match e.code {
                 KeyCode::Esc => {
@@ -1831,7 +1834,15 @@ impl SysInspectUX {
             KeyCode::PageDown => {
                 self.repo_manager.cursor = (self.repo_manager.cursor + page).min(max_cursor());
             }
-            KeyCode::Enter => {} // placeholder
+            KeyCode::Enter => {
+                if !self.repo_manager.rows.is_empty() {
+                    self.repo_manager.info_visible = true;
+                    self.repo_manager.info_row = self.repo_manager.cursor;
+                    self.repo_manager.info_tab = 0;
+                    self.repo_manager.info_scroll.set(0);
+                    self.status_at_repo_manager();
+                }
+            }
             KeyCode::Delete => {
                 if !self.repo_manager.rows.is_empty() {
                     self.repo_manager.delete_mode = true;

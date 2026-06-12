@@ -13,8 +13,8 @@ use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
         ConsoleEnvelope, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleModelRow,
-        ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow,
-        MinionCommandReply, authorised_console_client, load_master_private_key,
+        ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
+        ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
@@ -528,6 +528,28 @@ impl SysMaster {
                         version: attrs.version.clone(),
                         author: attrs.author.clone(),
                         manpage: attrs.manpage.clone(),
+                        args: attrs.args.as_ref().map(|a| {
+                            a.iter()
+                                .map(|aa| ConsoleModuleArgument {
+                                    name: aa.name.clone(),
+                                    description: aa.description.clone(),
+                                    argtype: aa.argtype.clone(),
+                                    required: aa.required,
+                                    default: aa.default.clone(),
+                                })
+                                .collect()
+                        }),
+                        opts: attrs.opts.as_ref().map(|o| {
+                            o.iter()
+                                .map(|oo| ConsoleModuleArgument {
+                                    name: oo.name.clone(),
+                                    description: oo.description.clone(),
+                                    argtype: oo.argtype.clone(),
+                                    required: oo.required,
+                                    default: oo.default.clone(),
+                                })
+                                .collect()
+                        }),
                     });
                 }
             }
