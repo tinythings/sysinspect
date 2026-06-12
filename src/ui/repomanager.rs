@@ -1,5 +1,5 @@
 use super::{
-    dslbrowser, palette, profiles,
+    dslbrowser, palette, platforms, profiles,
     title::{self, TitleSegment, TitleStyle},
 };
 use libsysinspect::console::{ConsoleModuleArgument, ConsoleModuleRow};
@@ -40,6 +40,7 @@ pub enum StagingMode {
     ModuleDelete,
     ProfileModuleAdd,
     ProfileLibraryAdd,
+    PlatformBuildAdd,
 }
 
 #[derive(Debug)]
@@ -85,6 +86,9 @@ pub struct RepoManager {
 
     // Profiles
     pub profiles: profiles::ProfilesManager,
+
+    // Platforms
+    pub platforms: platforms::PlatformsManager,
 }
 
 impl Default for RepoManager {
@@ -117,6 +121,7 @@ impl Default for RepoManager {
             lib_cursor: 0,
             lib_scroll: Cell::new(0),
             profiles: profiles::ProfilesManager::default(),
+            platforms: platforms::PlatformsManager::default(),
         }
     }
 }
@@ -318,7 +323,7 @@ impl RepoManager {
             0 => self.render_modules(body, buf),
             1 => self.render_libraries(body, buf),
             2 => self.profiles.render_list(body, buf, self.filter_focus, &self.filter),
-            3 => self.render_platforms_placeholder(body, buf),
+            3 => self.platforms.render_list(body, buf, self.filter_focus, &self.filter),
             _ => {}
         }
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
@@ -715,13 +720,6 @@ impl RepoManager {
         let styles = InputStyles { text: Style::default().fg(palette::BG_1), ..Default::default() };
         let inp = Input::new("").prompt("").placeholder("search name/description...").styles(styles);
         StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
-    }
-
-    fn render_platforms_placeholder(&self, inner: Rect, buf: &mut Buffer) {
-        let msg = "Platforms management is not implemented yet";
-        let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
-        let y = inner.y + inner.height / 2;
-        buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
     }
 
     pub fn handle_info_key(&mut self, key: crossterm::event::KeyEvent) -> bool {

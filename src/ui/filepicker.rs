@@ -27,6 +27,7 @@ pub enum PickerMode {
     FilePicker,
     Any,
     LibrarySelector,
+    MinionBuild,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -193,6 +194,8 @@ impl FilePicker {
 
                 if is_dir {
                     dirs.push(de);
+                } else if self.mode == PickerMode::MinionBuild && !de.name.starts_with("sysminion") {
+                    // MinionBuild mode only shows sysminion* files
                 } else {
                     files.push(de);
                 }
@@ -305,14 +308,21 @@ impl FilePicker {
                 self.visible = false;
             }
             KeyCode::Tab => {
-                if (self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector)
+                if (self.mode == PickerMode::FilePicker
+                    || self.mode == PickerMode::Any
+                    || self.mode == PickerMode::LibrarySelector
+                    || self.mode == PickerMode::MinionBuild)
                     && self.entries.len() > self.dirs_end
                 {
                     self.focus = if self.focus == PickerFocus::Dirs { PickerFocus::Files } else { PickerFocus::Dirs };
                 }
             }
             KeyCode::BackTab => {
-                if self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector {
+                if self.mode == PickerMode::FilePicker
+                    || self.mode == PickerMode::Any
+                    || self.mode == PickerMode::LibrarySelector
+                    || self.mode == PickerMode::MinionBuild
+                {
                     self.focus = if self.focus == PickerFocus::Files { PickerFocus::Dirs } else { PickerFocus::Files };
                 }
             }
@@ -387,11 +397,12 @@ impl FilePicker {
                         PickerFocus::Files => self.dirs_end + self.file_cursor,
                     };
                     if let Some(entry) = self.entries.get(idx) {
-                        let selectable = if self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector {
-                            !entry.is_parent
-                        } else {
-                            !entry.is_parent && !entry.is_dir
-                        };
+                        let selectable =
+                            if self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector || self.mode == PickerMode::MinionBuild {
+                                !entry.is_parent
+                            } else {
+                                !entry.is_parent && !entry.is_dir
+                            };
                         if selectable {
                             self.selected = Some(entry.path.clone());
                             self.filter_input = InputState::new();
@@ -457,6 +468,7 @@ impl FilePicker {
             PickerMode::FilePicker => " File Selector ",
             PickerMode::Any => " Module Selector ",
             PickerMode::LibrarySelector => " Library Selector ",
+            PickerMode::MinionBuild => " SysMinion Selector ",
         };
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
 
@@ -496,8 +508,15 @@ impl FilePicker {
         let filter_line = filter_active as u16;
         row_y += 1;
 
-        let sections: u16 =
-            if self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector { 2 } else { 1 };
+        let sections: u16 = if self.mode == PickerMode::FilePicker
+            || self.mode == PickerMode::Any
+            || self.mode == PickerMode::LibrarySelector
+            || self.mode == PickerMode::MinionBuild
+        {
+            2
+        } else {
+            1
+        };
         let available = inner.height.saturating_sub(1).saturating_sub(row_y.saturating_sub(inner.y)).saturating_sub(filter_line);
         let dir_rows = if sections == 2 { available / 2 } else { available };
 
@@ -520,7 +539,10 @@ impl FilePicker {
         row_y = dir_area.y + dir_area.height;
 
         // ── Files section ──
-        if (self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector)
+        if (self.mode == PickerMode::FilePicker
+            || self.mode == PickerMode::Any
+            || self.mode == PickerMode::LibrarySelector
+            || self.mode == PickerMode::MinionBuild)
             && row_y + 1 < inner.y + inner.height
         {
             dashed_title(
