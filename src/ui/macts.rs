@@ -32,9 +32,9 @@ const MENU_SECTIONS: &[MenuSection] = &[
 const MASTER_MENU_SECTIONS: &[MenuSection] = &[
     MenuSection {
         title: "Operations",
-        items: &[("View master logs online", ""), ("View local logs", ""), ("Register a minion", ""), ("Repository manager", "")],
+        items: &[("View master logs online", "^O"), ("View local logs", "^L"), ("Register a minion", "^R"), ("Repository manager", "^G")],
     },
-    MenuSection { title: "System", items: &[("Start", ""), ("Stop", ""), ("Restart", "")] },
+    MenuSection { title: "System", items: &[("Start", "^T"), ("Stop", "^S"), ("Restart", "^E")] },
 ];
 
 pub(crate) fn total_menu_items() -> usize {
@@ -215,9 +215,11 @@ impl SysInspectUX {
         let max_item_w = max_label_w + 20;
 
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let is_system = self.master_menu_sel >= 4;
+        let sub_title = if is_system { " System " } else { " Operations " };
         let segments = vec![
             TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-            TitleSegment { text: " Operations ".into(), bg: palette::PROCESSING_HEAT, fg: palette::FG },
+            TitleSegment { text: sub_title.into(), bg: palette::PROCESSING_HEAT, fg: palette::FG },
         ];
 
         let local_logs_available = self.cfg.logfile_std().exists() || self.cfg.logfile_err().exists();

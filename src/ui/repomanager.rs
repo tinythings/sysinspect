@@ -4,11 +4,12 @@ use super::{
 };
 use libsysinspect::console::ConsoleModuleRow;
 use ratatui::{
-    layout::Position,
+    layout::{Constraint, Direction, Layout, Position},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders, Clear, Widget},
+    widgets::{Block, BorderType, Borders, Clear, StatefulWidget, Widget},
 };
+use ratatui_cheese::input::{Input, InputState, InputStyles};
 use ratatui_glamour::color::blend_2d;
 use std::{
     cell::Cell,
@@ -53,6 +54,10 @@ pub struct RepoManager {
     pub bulk_delete_triggered: bool,
     pub delete_mode: bool,
     pub needs_reload: bool,
+
+    // Filter
+    pub filter: InputState,
+    pub filter_focus: bool,
 }
 
 impl Default for RepoManager {
@@ -72,6 +77,8 @@ impl Default for RepoManager {
             bulk_delete_triggered: false,
             delete_mode: false,
             needs_reload: false,
+            filter: InputState::new(),
+            filter_focus: false,
         }
     }
 }
@@ -192,66 +199,94 @@ impl RepoManager {
             &[TitleSegment { text: " Module and Library Manager ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
         );
 
-        if inner.height >= 3 && !self.rows.is_empty() {
-            let name_w: u16 = 28;
-            let ver_w: u16 = 6;
-            let desc_w = inner.width.saturating_sub(name_w + ver_w + 2);
+        if inner.height >= 4 {
+            // Filter row
+            let [filter_area, list_area] = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(0)])
+                .split(inner)
+                .as_ref()
+                .try_into()
+                .unwrap();
 
-            let view_h = inner.height as usize;
-            let total = self.rows.len();
-            let max_scroll = total.saturating_sub(view_h);
-            let mut s = self.scroll.get();
-            let cursor = self.cursor.min(total.saturating_sub(1));
-            if cursor < s {
-                s = cursor;
-            }
-            if cursor >= s + view_h {
-                s = cursor.saturating_sub(view_h.saturating_sub(1));
-            }
-            s = s.min(max_scroll);
-            self.scroll.set(s);
+            Self::render_filter_row(filter_area, buf, self.filter_focus, &self.filter);
 
-            let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
+            if !self.rows.is_empty() {
+                let inner = list_area;
+                let name_w: u16 = 28;
+                let ver_w: u16 = 6;
+                let desc_w = inner.width.saturating_sub(name_w + ver_w + 2);
 
-            for i in 0..view_h.min(total.saturating_sub(s)) {
-                let idx = s + i;
-                let ry = inner.y + i as u16;
-                let row = &self.rows[idx];
-                let selected = idx == cursor;
-                let row_style = if selected { hl } else { Style::default().fg(palette::FG) };
+                // Build filtered list
+                let f = self.filter.value().to_lowercase();
+                let filtered: Vec<(usize, &ConsoleModuleRow)> = self
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f))
+                    .collect();
 
-                // Fill entire row with highlight background when selected
-                if selected {
-                    for cx in 0..inner.width {
-                        if let Some(cell) = buf.cell_mut(Position::new(inner.x + cx, ry)) {
-                            cell.set_bg(palette::HIGHLIGHT);
-                        }
-                    }
+                let view_h = inner.height as usize;
+                let total = filtered.len();
+                let max_scroll = total.saturating_sub(view_h);
+                let mut s = self.scroll.get();
+                let cursor = self.cursor.min(total.saturating_sub(1));
+                if cursor < s {
+                    s = cursor;
                 }
+                if cursor >= s + view_h {
+                    s = cursor.saturating_sub(view_h.saturating_sub(1));
+                }
+                s = s.min(max_scroll);
+                self.scroll.set(s);
 
-                let name = truncate_str(&row.name, name_w as usize);
-                buf.set_string(inner.x + 1, ry, format!(" {name}"), row_style);
+                if total == 0 {
+                    let msg = "(no matches)";
+                    let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
+                    let y = inner.y + inner.height / 2;
+                    buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+                } else {
+                    let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
+                    for i in 0..view_h.min(total.saturating_sub(s)) {
+                        let fi = s + i;
+                        let (_orig_idx, row) = filtered[fi];
+                        let ry = inner.y + i as u16;
+                        let selected = !self.filter_focus && fi == cursor;
+                        let row_style = if selected { hl } else { Style::default().fg(palette::FG) };
 
-                let ver = row.version.as_deref().unwrap_or("—");
-                let ver_style = if selected { row_style } else { Style::default().fg(palette::HIGHLIGHT) };
-                buf.set_string(inner.x + 1 + name_w + 1, ry, truncate_str(ver, ver_w as usize), ver_style);
+                        if selected {
+                            for cx in 0..inner.width {
+                                if let Some(cell) = buf.cell_mut(Position::new(inner.x + cx, ry)) {
+                                    cell.set_bg(palette::HIGHLIGHT);
+                                }
+                            }
+                        }
 
-                let desc_x = inner.x + 1 + name_w + 1 + ver_w + 1;
-                let max_desc = desc_w.saturating_sub(1) as usize;
-                let desc_style = if selected { row_style } else { Style::default().fg(palette::GRAY_1) };
-                buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
-            }
+                        let name = truncate_str(&row.name, name_w as usize);
+                        buf.set_string(inner.x + 1, ry, format!(" {name}"), row_style);
 
-            if total > view_h {
-                let bar_h = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
-                let bar_y = ((s as f64 / total as f64) * (view_h - bar_h) as f64) as usize;
-                for i in 0..view_h {
-                    let sx = inner.right().saturating_sub(1);
-                    let sy = inner.y + i as u16;
-                    if i >= bar_y && i < bar_y + bar_h {
-                        buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
-                    } else {
-                        buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+                        let ver = row.version.as_deref().unwrap_or("—");
+                        let ver_style = if selected { row_style } else { Style::default().fg(palette::HIGHLIGHT) };
+                        buf.set_string(inner.x + 1 + name_w + 1, ry, truncate_str(ver, ver_w as usize), ver_style);
+
+                        let desc_x = inner.x + 1 + name_w + 1 + ver_w + 1;
+                        let max_desc = desc_w.saturating_sub(1) as usize;
+                        let desc_style = if selected { row_style } else { Style::default().fg(palette::GRAY_1) };
+                        buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
+                    }
+
+                    if total > view_h {
+                        let bar_h = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
+                        let bar_y = ((s as f64 / total as f64) * (view_h - bar_h) as f64) as usize;
+                        for i in 0..view_h {
+                            let sx = inner.right().saturating_sub(1);
+                            let sy = inner.y + i as u16;
+                            if i >= bar_y && i < bar_y + bar_h {
+                                buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
+                            } else {
+                                buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+                            }
+                        }
                     }
                 }
             }
@@ -459,6 +494,35 @@ impl RepoManager {
         buf.set_string(btn_x, bar_y + 1, cancel, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
 
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
+    }
+
+    fn render_filter_row(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
+        let label_style = if focused { Style::default().fg(palette::ACCENT) } else { Style::default().fg(palette::MUTED) };
+        buf.set_string(area.x, area.y, "filter: ", label_style);
+
+        let input_x = area.x + 8u16;
+        let input_w = area.width.saturating_sub(8);
+        if input_w == 0 {
+            return;
+        }
+
+        let field_bg = if focused { palette::HIGHLIGHT } else { palette::GRAY_1 };
+        for cx in input_x..input_x + input_w {
+            if let Some(cell) = buf.cell_mut(Position::new(cx, area.y)) {
+                cell.set_bg(field_bg);
+            }
+        }
+
+        let mut is = InputState::new();
+        is.set_value(filter_state.value().to_string());
+        is.set_focused(focused);
+        let fc = filter_state.cursor_pos();
+        while is.cursor_pos() < fc {
+            is.move_right();
+        }
+        let styles = InputStyles { text: Style::default().fg(palette::BG_1), ..Default::default() };
+        let inp = Input::new("").prompt("").placeholder("search name/description...").styles(styles);
+        StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
 
     fn draw_shadow(buf: &mut Buffer, canvas: Rect, dlg_w: u16, dlg_h: u16) {

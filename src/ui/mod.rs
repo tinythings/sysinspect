@@ -1776,23 +1776,60 @@ impl SysInspectUX {
             }
             return handled;
         }
+        if self.repo_manager.filter_focus {
+            match e.code {
+                KeyCode::Esc => {
+                    self.repo_manager.filter_focus = false;
+                    self.repo_manager.cursor = 0;
+                }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    self.repo_manager.filter_focus = false;
+                    self.repo_manager.cursor = 0;
+                }
+                KeyCode::Backspace => {
+                    self.repo_manager.filter.delete_before();
+                }
+                KeyCode::Delete => {
+                    self.repo_manager.filter.delete_at();
+                }
+                KeyCode::Left => {
+                    self.repo_manager.filter.move_left();
+                }
+                KeyCode::Right => {
+                    self.repo_manager.filter.move_right();
+                }
+                KeyCode::Home => {
+                    self.repo_manager.filter.home();
+                }
+                KeyCode::End => {
+                    self.repo_manager.filter.end();
+                }
+                KeyCode::Char(c) => {
+                    self.repo_manager.filter.insert_char(c);
+                }
+                _ => {}
+            }
+            return true;
+        }
+        let max_cursor = || self.repo_filtered_count().saturating_sub(1);
         let page = 10usize;
         match e.code {
             KeyCode::Esc => {
                 self.repo_manager.exit_staging();
                 self.repo_manager.visible = false;
+                self.status_at_cycles();
             }
             KeyCode::Up => {
                 self.repo_manager.cursor = self.repo_manager.cursor.saturating_sub(1);
             }
             KeyCode::Down => {
-                self.repo_manager.cursor = (self.repo_manager.cursor + 1).min(self.repo_manager.rows.len().saturating_sub(1));
+                self.repo_manager.cursor = (self.repo_manager.cursor + 1).min(max_cursor());
             }
             KeyCode::PageUp => {
                 self.repo_manager.cursor = self.repo_manager.cursor.saturating_sub(page);
             }
             KeyCode::PageDown => {
-                self.repo_manager.cursor = (self.repo_manager.cursor + page).min(self.repo_manager.rows.len().saturating_sub(1));
+                self.repo_manager.cursor = (self.repo_manager.cursor + page).min(max_cursor());
             }
             KeyCode::Enter => {} // placeholder
             KeyCode::Delete => {
@@ -1822,9 +1859,20 @@ impl SysInspectUX {
                 self.error_alert_visible = true;
                 self.error_alert_message = "Not implemented yet".to_string();
             }
+            KeyCode::Tab => {
+                self.repo_manager.filter_focus = true;
+            }
+            KeyCode::Char('/') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.repo_manager.filter_focus = true;
+            }
             _ => {}
         }
         true
+    }
+
+    fn repo_filtered_count(&self) -> usize {
+        let f = self.repo_manager.filter.value().to_lowercase();
+        self.repo_manager.rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f)).count()
     }
 
     fn process_module_add(&mut self, path: &std::path::Path) {
@@ -2132,6 +2180,63 @@ impl SysInspectUX {
             KeyCode::Esc => {
                 self.master_menu_visible = false;
                 self.status_at_cycles();
+            }
+            KeyCode::Char('o') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                if self.evtipc.is_some() {
+                    self.open_master_logs();
+                } else {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Master is not running".to_string();
+                }
+            }
+            KeyCode::Char('l') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                match self.load_master_logs_local() {
+                    Ok(()) => {
+                        self.master_logs_visible = true;
+                        self.master_logs_tab = 0;
+                        self.master_logs_polling = false;
+                        self.status_at_master_logs();
+                    }
+                    Err(e) => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = e;
+                    }
+                }
+            }
+            KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.error_alert_visible = true;
+                self.error_alert_message = "Not implemented yet".to_string();
+            }
+            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                if let Err(err) = self.load_module_index() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                } else {
+                    self.repo_manager.visible = true;
+                    self.status_at_repo_manager();
+                }
+            }
+            KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 1;
+            }
+            KeyCode::Char('s') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 3;
+            }
+            KeyCode::Char('e') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 2;
             }
             KeyCode::Up => {
                 self.master_menu_sel = self.master_menu_sel.saturating_sub(1);
@@ -2733,6 +2838,54 @@ impl SysInspectUX {
                     self.error_alert_message = format!("Failed to load models: {err}");
                 }
             },
+            KeyCode::Char('o') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.evtipc.is_some() {
+                    self.open_master_logs();
+                } else {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Master is not running".to_string();
+                }
+            }
+            KeyCode::Char('l') if e.modifiers.contains(KeyModifiers::CONTROL) => match self.load_master_logs_local() {
+                Ok(()) => {
+                    self.master_logs_visible = true;
+                    self.master_logs_tab = 0;
+                    self.master_logs_polling = false;
+                    self.status_at_master_logs();
+                }
+                Err(e) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = e;
+                }
+            },
+            KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "Not implemented yet".to_string();
+            }
+            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Err(err) = self.load_module_index() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                } else {
+                    self.repo_manager.visible = true;
+                    self.status_at_repo_manager();
+                }
+            }
+            KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 1;
+            }
+            KeyCode::Char('s') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 3;
+            }
+            KeyCode::Char('e') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 2;
+            }
             KeyCode::Char('m') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = true;
                 self.master_menu_sel = 0;
