@@ -283,7 +283,7 @@ impl RepoManager {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let tab_names = ["Modules", "Libraries", "Profiles"];
+        let tab_names = ["Modules", "Libraries", "Profiles", "Platforms"];
         let section_name = tab_names[self.active_tab as usize];
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         title::overlay_gradient_title(
@@ -291,8 +291,8 @@ impl RepoManager {
             canvas,
             &title_style,
             &[
-                TitleSegment { text: " Artefacts ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG },
-                TitleSegment { text: format!(" {section_name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG },
+                TitleSegment { text: " Artefacts ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {section_name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG, modifier: Modifier::empty() },
             ],
         );
 
@@ -318,6 +318,7 @@ impl RepoManager {
             0 => self.render_modules(body, buf),
             1 => self.render_libraries(body, buf),
             2 => self.profiles.render_list(body, buf, self.filter_focus, &self.filter),
+            3 => self.render_platforms_placeholder(body, buf),
             _ => {}
         }
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
@@ -357,7 +358,12 @@ impl RepoManager {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: " Module and Library Manager ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+            &[TitleSegment {
+                text: " Module and Library Manager ".into(),
+                bg: palette::PROCESSING_BASE,
+                fg: palette::FG,
+                modifier: Modifier::empty(),
+            }],
         );
 
         if inner.height < 6 || self.staged.is_empty() {
@@ -711,6 +717,13 @@ impl RepoManager {
         StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
 
+    fn render_platforms_placeholder(&self, inner: Rect, buf: &mut Buffer) {
+        let msg = "Platforms management is not implemented yet";
+        let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
+        let y = inner.y + inner.height / 2;
+        buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+    }
+
     pub fn handle_info_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
         if !self.info_visible {
             return false;
@@ -794,7 +807,7 @@ impl RepoManager {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: format!(" {} ", row.name), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+            &[TitleSegment { text: format!(" {} ", row.name), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
         );
 
         if inner.height < 4 {
@@ -915,7 +928,7 @@ impl RepoManager {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: format!(" {} ", lib.name), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+            &[TitleSegment { text: format!(" {} ", lib.name), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
         );
 
         let key_style = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);

@@ -763,15 +763,20 @@ impl SysInspectUX {
             (palette::FG, palette::PROCESSING_GLOW, palette::PROCESSING_HEAT, palette::PROCESSING_PEAK, palette::PROCESSING)
         };
 
-        let mut title_segments = vec![TitleSegment { text: " Query Composer ".into(), bg: glow_bg, fg: title_fg }];
+        let mut title_segments = vec![TitleSegment { text: " Query Composer ".into(), bg: glow_bg, fg: title_fg, modifier: Modifier::empty() }];
         if has_model {
-            title_segments.push(TitleSegment { text: format!(" {model_name} "), bg: heat_bg, fg: palette::SUCCESS_PEAK });
+            title_segments.push(TitleSegment {
+                text: format!(" {model_name} "),
+                bg: heat_bg,
+                fg: palette::SUCCESS_PEAK,
+                modifier: Modifier::empty(),
+            });
         }
         if has_target {
-            title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: peak_bg, fg: palette::BG_2 });
+            title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: peak_bg, fg: palette::BG_2, modifier: Modifier::empty() });
         }
         if has_state {
-            title_segments.push(TitleSegment { text: format!(" {state_display} "), bg: proc_bg, fg: palette::BG_3 });
+            title_segments.push(TitleSegment { text: format!(" {state_display} "), bg: proc_bg, fg: palette::BG_3, modifier: Modifier::empty() });
         }
 
         let border_color = glow_bg;
@@ -861,11 +866,16 @@ impl SysInspectUX {
 
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         let mut segments = vec![
-            TitleSegment { text: " Details on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-            TitleSegment { text: format!(" {model_name} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK },
+            TitleSegment { text: " Details on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() },
+            TitleSegment { text: format!(" {model_name} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK, modifier: Modifier::empty() },
         ];
         if has_target {
-            segments.push(TitleSegment { text: format!(" {target_id} "), bg: palette::PROCESSING_PEAK, fg: palette::SUCCESS_PEAK });
+            segments.push(TitleSegment {
+                text: format!(" {target_id} "),
+                bg: palette::PROCESSING_PEAK,
+                fg: palette::SUCCESS_PEAK,
+                modifier: Modifier::empty(),
+            });
         }
         title::overlay_gradient_title(buf, canvas, &title_style, segments.as_slice());
 

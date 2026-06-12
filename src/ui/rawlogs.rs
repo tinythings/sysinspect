@@ -35,12 +35,12 @@ impl SysInspectUX {
         let (kind_bg, kind_fg) = if self.minion_logs_online { (palette::PROCESSING_PEAK, palette::FG) } else { (palette::GRAY_2, palette::FG) };
         let (poll_bg, poll_fg) = if self.minion_logs_online { (palette::PROCESSING, palette::BG_1) } else { (palette::FG, palette::BG_1) };
         let mut segments = vec![
-            TitleSegment { text: " Logs ".into(), bg: logs_bg, fg: logs_fg },
-            TitleSegment { text: format!(" {} ", self.minion_logs_host), bg: host_bg, fg: host_fg },
-            TitleSegment { text: format!(" {} ", self.minion_logs_source_kind), bg: kind_bg, fg: kind_fg },
+            TitleSegment { text: " Logs ".into(), bg: logs_bg, fg: logs_fg, modifier: Modifier::empty() },
+            TitleSegment { text: format!(" {} ", self.minion_logs_host), bg: host_bg, fg: host_fg, modifier: Modifier::empty() },
+            TitleSegment { text: format!(" {} ", self.minion_logs_source_kind), bg: kind_bg, fg: kind_fg, modifier: Modifier::empty() },
         ];
         if self.minion_logs_polling {
-            segments.push(TitleSegment { text: " \u{27F3} ".into(), bg: poll_bg, fg: poll_fg });
+            segments.push(TitleSegment { text: " \u{27F3} ".into(), bg: poll_bg, fg: poll_fg, modifier: Modifier::empty() });
         }
         let min_width = title::ensure_inner_width(60, &title_style, &segments).saturating_add(2);
         let width = parent.width.saturating_sub(6).clamp(min_width, 140);
@@ -155,12 +155,12 @@ impl SysInspectUX {
         let bg = palette::BG_2;
 
         let mut segments = vec![
-            TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-            TitleSegment { text: format!(" {} ", section.title), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS },
-            TitleSegment { text: format!(" {} ", section.path), bg: palette::PROCESSING_PEAK, fg: palette::FG },
+            TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() },
+            TitleSegment { text: format!(" {} ", section.title), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS, modifier: Modifier::empty() },
+            TitleSegment { text: format!(" {} ", section.path), bg: palette::PROCESSING_PEAK, fg: palette::FG, modifier: Modifier::empty() },
         ];
         if self.master_logs_polling {
-            segments.push(TitleSegment { text: " \u{27F3} ".into(), bg: palette::PROCESSING, fg: palette::BG_1 });
+            segments.push(TitleSegment { text: " \u{27F3} ".into(), bg: palette::PROCESSING, fg: palette::BG_1, modifier: Modifier::empty() });
         }
         let min_width = title::ensure_inner_width(60, &title_style, &segments).saturating_add(2);
         let width = parent.width.saturating_sub(6).clamp(min_width, 140);

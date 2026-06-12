@@ -1811,7 +1811,7 @@ impl SysInspectUX {
                     self.repo_manager.filter_focus = false;
                     self.repo_manager.cursor = 0;
                 }
-                KeyCode::Tab | KeyCode::BackTab => {
+                KeyCode::Down | KeyCode::Tab | KeyCode::BackTab => {
                     self.repo_manager.filter_focus = false;
                     self.repo_manager.cursor = 0;
                 }
@@ -1880,44 +1880,16 @@ impl SysInspectUX {
             }
             if self.repo_manager.profiles.detail_visible {
                 let handled = self.repo_manager.profiles.handle_detail_key(e.code);
-                if !handled {
-                    match e.code {
-                        KeyCode::Enter => match self.repo_manager.profiles.detail_focus {
-                            profiles::ProfDetailFocus::AddModuleBtn => {
-                                self.repo_manager.enter_profile_module_staging();
-                            }
-                            profiles::ProfDetailFocus::AddLibraryBtn => {
-                                self.repo_manager.enter_profile_library_staging();
-                            }
-                            profiles::ProfDetailFocus::CloseBtn => {
-                                self.repo_manager.profiles.detail_visible = false;
-                                self.status_at_profiles();
-                            }
-                            _ => {}
-                        },
-                        KeyCode::Char('d') | KeyCode::Delete => {
-                            let name = self.repo_manager.profiles.detail_name.clone();
-                            match self.repo_manager.profiles.detail_focus {
-                                profiles::ProfDetailFocus::Modules => {
-                                    if let Some(m) = self.repo_manager.profiles.detail_selected_module() {
-                                        let sel = m.selector.clone();
-                                        let _ = self.do_profile_remove_match(&name, &sel, false);
-                                        if let Ok((mods, libs)) = self.load_profile_detail(&name) {
-                                            self.repo_manager.profiles.enter_detail(name, mods, libs);
-                                        }
-                                    }
-                                }
-                                profiles::ProfDetailFocus::Libraries => {
-                                    if let Some(l) = self.repo_manager.profiles.detail_selected_library() {
-                                        let sel = l.selector.clone();
-                                        let _ = self.do_profile_remove_match(&name, &sel, true);
-                                        if let Ok((mods, libs)) = self.load_profile_detail(&name) {
-                                            self.repo_manager.profiles.enter_detail(name, mods, libs);
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
+                if !handled && e.code == KeyCode::Enter {
+                    match self.repo_manager.profiles.detail_focus {
+                        profiles::ProfDetailFocus::AddModuleBtn => {
+                            self.repo_manager.enter_profile_module_staging();
+                        }
+                        profiles::ProfDetailFocus::AddLibraryBtn => {
+                            self.repo_manager.enter_profile_library_staging();
+                        }
+                        profiles::ProfDetailFocus::CloseBtn => {
+                            self.repo_manager.profiles.detail_visible = false;
                             self.status_at_profiles();
                         }
                         _ => {}
@@ -1961,7 +1933,7 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Right => {
-                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(2);
+                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(3);
                 self.repo_manager.cursor = 0;
                 self.repo_manager.lib_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
@@ -2127,20 +2099,21 @@ impl SysInspectUX {
     fn load_profile_detail(&mut self, name: &str) -> Result<(Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedLibrary>), String> {
         let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
         let payload_mods = self.call_profile_rpc(&ctx_mods)?;
-        let module_selectors = match payload_mods {
+        let module_selectors: Vec<String> = match payload_mods {
             ConsolePayload::StringList { items } => items,
             _ => return Err("Unexpected payload for profile module selectors".to_string()),
         };
 
         let ctx_libs = serde_json::json!({"op": "list", "name": name, "library": true}).to_string();
         let payload_libs = self.call_profile_rpc(&ctx_libs)?;
-        let library_selectors = match payload_libs {
+        let library_selectors: Vec<String> = match payload_libs {
             ConsolePayload::StringList { items } => items,
             _ => return Err("Unexpected payload for profile library selectors".to_string()),
         };
 
         let resolved_modules: Vec<profiles::ResolvedModule> = module_selectors
             .iter()
+            .filter_map(|s| s.split_once(": ").map(|x| x.1))
             .flat_map(|sel| {
                 self.repo_manager
                     .rows
@@ -2150,7 +2123,7 @@ impl SysInspectUX {
                         name: r.name.clone(),
                         version: r.version.clone().unwrap_or_default(),
                         descr: r.descr.clone(),
-                        selector: sel.clone(),
+                        selector: sel.to_string(),
                     })
                     .collect::<Vec<_>>()
             })
@@ -2158,6 +2131,7 @@ impl SysInspectUX {
 
         let resolved_libraries: Vec<profiles::ResolvedLibrary> = library_selectors
             .iter()
+            .filter_map(|s| s.split_once(": ").map(|x| x.1))
             .flat_map(|sel| {
                 self.repo_manager
                     .lib_rows
@@ -2167,7 +2141,7 @@ impl SysInspectUX {
                         name: r.name.clone(),
                         kind: r.kind.clone(),
                         checksum: r.checksum.clone(),
-                        selector: sel.clone(),
+                        selector: sel.to_string(),
                     })
                     .collect::<Vec<_>>()
             })
@@ -2204,8 +2178,12 @@ impl SysInspectUX {
 
     fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool) {
         let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
-        let _ = self.do_profile_add_matches(&self.repo_manager.profiles.detail_name.clone(), names, library);
         let name = self.repo_manager.profiles.detail_name.clone();
+        if let Err(e) = self.do_profile_add_matches(&name, names, library) {
+            self.error_alert_visible = true;
+            self.error_alert_message = e;
+            return;
+        }
         match self.load_profile_detail(&name) {
             Ok((modules, libraries)) => {
                 self.repo_manager.profiles.enter_detail(name, modules, libraries);

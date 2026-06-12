@@ -45,8 +45,8 @@ impl SysInspectUX {
 
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         let title_segments = [
-            TitleSegment { text: " Minion Traits: ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-            TitleSegment { text: format!(" {name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG },
+            TitleSegment { text: " Minion Traits: ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() },
+            TitleSegment { text: format!(" {name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG, modifier: Modifier::empty() },
         ];
         let content_w = title::ensure_inner_width((line_w + 6) as u16, &title_style, &title_segments);
         let w = content_w.min(parent.width.saturating_sub(8)).max(40);

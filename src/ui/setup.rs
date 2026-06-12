@@ -298,7 +298,7 @@ impl MasterSetupWizard {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: " Master Setup ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+            &[TitleSegment { text: " Master Setup ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
         );
 
         if inner.height < 3 {

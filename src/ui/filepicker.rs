@@ -466,9 +466,9 @@ impl FilePicker {
         let path_str = self.current_path.to_string_lossy().to_string();
         let folded = if path_avail > 0 { fold_path_fish_style(&path_str, path_avail) } else { String::new() };
 
-        let mut segments = vec![TitleSegment { text: title_text.into(), bg: palette::PROCESSING_BASE, fg: palette::FG }];
+        let mut segments = vec![TitleSegment { text: title_text.into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }];
         if !folded.is_empty() {
-            segments.push(TitleSegment { text: folded, bg: palette::PROCESSING_HEAT, fg: palette::FG });
+            segments.push(TitleSegment { text: folded, bg: palette::PROCESSING_HEAT, fg: palette::FG, modifier: Modifier::empty() });
         }
         title::overlay_gradient_title(buf, canvas, &title_style, &segments);
 

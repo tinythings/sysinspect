@@ -20,25 +20,41 @@ pub enum ProfDetailFocus {
 }
 
 impl ProfDetailFocus {
-    pub fn next(self) -> Self {
+    pub fn next(self, has_modules: bool, has_libraries: bool) -> Self {
         use ProfDetailFocus::*;
-        match self {
-            Modules => Libraries,
-            Libraries => AddModuleBtn,
-            AddModuleBtn => AddLibraryBtn,
-            AddLibraryBtn => CloseBtn,
-            CloseBtn => Modules,
+        let mut cur = self;
+        loop {
+            cur = match cur {
+                Modules => Libraries,
+                Libraries => AddModuleBtn,
+                AddModuleBtn => AddLibraryBtn,
+                AddLibraryBtn => CloseBtn,
+                CloseBtn => Modules,
+            };
+            match cur {
+                Modules if !has_modules => continue,
+                Libraries if !has_libraries => continue,
+                _ => return cur,
+            }
         }
     }
 
-    pub fn prev(self) -> Self {
+    pub fn prev(self, has_modules: bool, has_libraries: bool) -> Self {
         use ProfDetailFocus::*;
-        match self {
-            Modules => CloseBtn,
-            Libraries => Modules,
-            AddModuleBtn => Libraries,
-            AddLibraryBtn => AddModuleBtn,
-            CloseBtn => AddLibraryBtn,
+        let mut cur = self;
+        loop {
+            cur = match cur {
+                Modules => CloseBtn,
+                Libraries => Modules,
+                AddModuleBtn => Libraries,
+                AddLibraryBtn => AddModuleBtn,
+                CloseBtn => AddLibraryBtn,
+            };
+            match cur {
+                Modules if !has_modules => continue,
+                Libraries if !has_libraries => continue,
+                _ => return cur,
+            }
         }
     }
 }
@@ -84,11 +100,9 @@ pub struct ProfilesManager {
     pub detail_name: String,
     pub detail_modules: Vec<ResolvedModule>,
     pub detail_libraries: Vec<ResolvedLibrary>,
-    pub detail_mcursor: usize,
-    pub detail_lcursor: usize,
     pub detail_focus: ProfDetailFocus,
-    pub detail_mscroll: Cell<usize>,
-    pub detail_lscroll: Cell<usize>,
+    pub detail_moffset: Cell<usize>,
+    pub detail_loffset: Cell<usize>,
 
     // Create overlay
     pub create_visible: bool,
@@ -111,11 +125,9 @@ impl Default for ProfilesManager {
             detail_name: String::new(),
             detail_modules: Vec::new(),
             detail_libraries: Vec::new(),
-            detail_mcursor: 0,
-            detail_lcursor: 0,
             detail_focus: ProfDetailFocus::Modules,
-            detail_mscroll: Cell::new(0),
-            detail_lscroll: Cell::new(0),
+            detail_moffset: Cell::new(0),
+            detail_loffset: Cell::new(0),
             create_visible: false,
             create_input: InputState::new(),
             create_focus: ProfCreateFocus::Input,
@@ -174,44 +186,69 @@ impl ProfilesManager {
                 self.detail_visible = false;
             }
             KeyCode::Tab => {
-                self.detail_focus = self.detail_focus.next();
+                let hm = !self.detail_modules.is_empty();
+                let hl = !self.detail_libraries.is_empty();
+                self.detail_focus = self.detail_focus.next(hm, hl);
             }
             KeyCode::BackTab => {
-                self.detail_focus = self.detail_focus.prev();
+                let hm = !self.detail_modules.is_empty();
+                let hl = !self.detail_libraries.is_empty();
+                self.detail_focus = self.detail_focus.prev(hm, hl);
             }
             KeyCode::Up => match self.detail_focus {
-                Modules => self.detail_mcursor = self.detail_mcursor.saturating_sub(1),
-                Libraries => self.detail_lcursor = self.detail_lcursor.saturating_sub(1),
+                Modules => {
+                    let o = self.detail_moffset.get();
+                    self.detail_moffset.set(o.saturating_sub(1));
+                }
+                Libraries => {
+                    let o = self.detail_loffset.get();
+                    self.detail_loffset.set(o.saturating_sub(1));
+                }
                 _ => {}
             },
             KeyCode::Down => match self.detail_focus {
                 Modules => {
-                    let max = self.detail_modules.len().saturating_sub(1);
-                    self.detail_mcursor = (self.detail_mcursor + 1).min(max);
+                    let o = self.detail_moffset.get();
+                    let view_h = 10usize; // approximate, clamped in render
+                    let max = self.detail_modules.len().saturating_sub(view_h);
+                    self.detail_moffset.set((o + 1).min(max));
                 }
                 Libraries => {
-                    let max = self.detail_libraries.len().saturating_sub(1);
-                    self.detail_lcursor = (self.detail_lcursor + 1).min(max);
+                    let o = self.detail_loffset.get();
+                    let view_h = 10usize;
+                    let max = self.detail_libraries.len().saturating_sub(view_h);
+                    self.detail_loffset.set((o + 1).min(max));
                 }
                 _ => {}
             },
-            KeyCode::Char('d') | KeyCode::Delete => match self.detail_focus {
-                Modules => return false,   // trigger in mod.rs to remove module
-                Libraries => return false, // trigger in mod.rs to remove library
+            KeyCode::PageUp => match self.detail_focus {
+                Modules => {
+                    let o = self.detail_moffset.get();
+                    self.detail_moffset.set(o.saturating_sub(10));
+                }
+                Libraries => {
+                    let o = self.detail_loffset.get();
+                    self.detail_loffset.set(o.saturating_sub(10));
+                }
                 _ => {}
             },
-            KeyCode::Enter => return false, // button actions handled in mod.rs
+            KeyCode::PageDown => match self.detail_focus {
+                Modules => {
+                    let o = self.detail_moffset.get();
+                    let max = self.detail_modules.len().saturating_sub(10);
+                    self.detail_moffset.set((o + 10).min(max));
+                }
+                Libraries => {
+                    let o = self.detail_loffset.get();
+                    let max = self.detail_libraries.len().saturating_sub(10);
+                    self.detail_loffset.set((o + 10).min(max));
+                }
+                _ => {}
+            },
+            KeyCode::Enter => return false,
             _ => {}
         }
         true
-    }
-
-    pub fn detail_selected_module(&self) -> Option<&ResolvedModule> {
-        self.detail_modules.get(self.detail_mcursor)
-    }
-
-    pub fn detail_selected_library(&self) -> Option<&ResolvedLibrary> {
-        self.detail_libraries.get(self.detail_lcursor)
     }
 
     // ── Create key handling ──
@@ -295,11 +332,15 @@ impl ProfilesManager {
         self.detail_name = name;
         self.detail_modules = modules;
         self.detail_libraries = libraries;
-        self.detail_mcursor = 0;
-        self.detail_lcursor = 0;
-        self.detail_focus = ProfDetailFocus::Modules;
-        self.detail_mscroll.set(0);
-        self.detail_lscroll.set(0);
+        self.detail_focus = if !self.detail_modules.is_empty() {
+            ProfDetailFocus::Modules
+        } else if !self.detail_libraries.is_empty() {
+            ProfDetailFocus::Libraries
+        } else {
+            ProfDetailFocus::AddModuleBtn
+        };
+        self.detail_moffset.set(0);
+        self.detail_loffset.set(0);
         self.detail_visible = true;
     }
 
@@ -406,7 +447,7 @@ impl ProfilesManager {
 
         Clear.render(canvas, buf);
 
-        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_2] as &[Color]);
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_0] as &[Color]);
         for ry in 0..canvas.height {
             for cx in 0..canvas.width {
                 let idx = ry as usize * canvas.width as usize + cx as usize;
@@ -425,12 +466,24 @@ impl ProfilesManager {
         block.render(canvas, buf);
 
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[TitleSegment { text: format!(" Profile: {} ", self.detail_name), bg: palette::PROCESSING_BASE, fg: palette::FG }],
-        );
+        let focus_text = match self.detail_focus {
+            ProfDetailFocus::Modules => Some(" Modules "),
+            ProfDetailFocus::Libraries => Some(" Libraries "),
+            _ => None,
+        };
+        let mut title_segments = vec![
+            TitleSegment { text: " Profile ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() },
+            TitleSegment {
+                text: format!(" {} ", self.detail_name),
+                bg: palette::PROCESSING_GLOW,
+                fg: palette::SUCCESS_PEAK,
+                modifier: Modifier::BOLD,
+            },
+        ];
+        if let Some(ft) = focus_text {
+            title_segments.push(TitleSegment { text: ft.into(), bg: palette::PROCESSING_HEAT, fg: palette::FG, modifier: Modifier::empty() });
+        }
+        title::overlay_gradient_title(buf, canvas, &title_style, &title_segments);
 
         if inner.height < 6 {
             return;
@@ -449,16 +502,15 @@ impl ProfilesManager {
             buf,
             " Modules ",
             palette::PROCESSING,
-            palette::PROCESSING_GLOW,
+            palette::PROCESSING_PEAK,
             palette::PROCESSING_DIMMED,
         );
         row_y += 1;
 
         if mod_h > 0 {
-            let mod_area = Rect { x: inner.x + 1, y: row_y, width: inner.width.saturating_sub(2), height: mod_h.saturating_sub(2) };
-            let active = self.detail_focus == ProfDetailFocus::Modules;
-            self.render_resolved_modules(mod_area, buf, active);
-            row_y = mod_area.bottom();
+            let mod_area = Rect { x: inner.x, y: row_y, width: inner.width.saturating_sub(1), height: mod_h.saturating_sub(1) };
+            self.render_resolved_modules(mod_area, buf, self.detail_focus == ProfDetailFocus::Modules);
+            row_y = mod_area.bottom() + 1;
         }
 
         // ── Libraries section ──
@@ -468,19 +520,18 @@ impl ProfilesManager {
                 buf,
                 " Libraries ",
                 palette::PROCESSING,
-                palette::PROCESSING_GLOW,
+                palette::PROCESSING_PEAK,
                 palette::PROCESSING_DIMMED,
             );
             row_y += 1;
 
             let lib_area = Rect {
-                x: inner.x + 1,
+                x: inner.x,
                 y: row_y,
-                width: inner.width.saturating_sub(2),
+                width: inner.width.saturating_sub(1),
                 height: (inner.bottom().saturating_sub(row_y)).saturating_sub(btn_height),
             };
-            let active = self.detail_focus == ProfDetailFocus::Libraries;
-            self.render_resolved_libraries(lib_area, buf, active);
+            self.render_resolved_libraries(lib_area, buf, self.detail_focus == ProfDetailFocus::Libraries);
         }
 
         // ── Buttons ──
@@ -496,8 +547,8 @@ impl ProfilesManager {
             ProfDetailFocus::CloseBtn => 2,
             _ => usize::MAX,
         };
-        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
-        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2);
 
         for (i, label) in btn_labels.iter().enumerate() {
             let style = if i == focus_idx { sel_btn } else { unsel_btn };
@@ -508,12 +559,13 @@ impl ProfilesManager {
         Self::draw_shadow(buf, canvas, w, h);
     }
 
-    fn render_resolved_modules(&self, area: Rect, buf: &mut Buffer, active: bool) {
+    fn render_resolved_modules(&self, area: Rect, buf: &mut Buffer, focused: bool) {
         if self.detail_modules.is_empty() {
             let msg = "(no modules in this profile)";
             let x = area.x + (area.width.saturating_sub(msg.len() as u16)) / 2;
             let y = area.y + area.height / 2;
             buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            Self::draw_scrollbar(buf, area, 0, 1, area.height as usize, focused);
             return;
         }
 
@@ -522,48 +574,34 @@ impl ProfilesManager {
         let view_h = area.height as usize;
         let total = self.detail_modules.len();
         let max_scroll = total.saturating_sub(view_h);
-        let mut s = self.detail_mscroll.get();
-        let cursor = self.detail_mcursor.min(total.saturating_sub(1));
-        if cursor < s {
-            s = cursor;
-        }
-        if cursor >= s + view_h {
-            s = cursor.saturating_sub(view_h.saturating_sub(1));
-        }
-        s = s.min(max_scroll);
-        self.detail_mscroll.set(s);
-
-        let hl_style = Style::default().fg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD);
-        let muted = Style::default().fg(palette::MUTED);
+        let s = self.detail_moffset.get().min(max_scroll);
+        self.detail_moffset.set(s);
 
         for i in 0..view_h.min(total.saturating_sub(s)) {
             let idx = s + i;
             let ry = area.y + i as u16;
             let m = &self.detail_modules[idx];
-            let sel = active && idx == cursor;
-            let row_style = if sel { hl_style } else { Style::default().fg(palette::FG) };
-            let prefix = if sel { " ✨ " } else { "    " };
-            buf.set_string(area.x + 1, ry, prefix, row_style);
-            buf.set_string(area.x + 5, ry, truncate_str(&m.name, name_w as usize), row_style);
-            let ver_style = if sel { hl_style } else { Style::default().fg(palette::HIGHLIGHT) };
-            buf.set_string(area.x + 5 + name_w + 1, ry, truncate_str(&m.version, ver_w as usize), ver_style);
-            let desc_x = area.x + 5 + name_w + 1 + ver_w + 1;
-            let max_desc = (area.width.saturating_sub(5 + name_w + ver_w + 3)) as usize;
-            let desc_style = if sel { hl_style } else { muted };
-            buf.set_string(desc_x, ry, truncate_str(&m.descr, max_desc), desc_style);
+            let fg = if focused { palette::FG } else { palette::MUTED };
+            let ver_fg = if focused { palette::HIGHLIGHT } else { palette::MUTED };
+            let desc_fg = if focused { palette::GRAY_1 } else { palette::MUTED };
+            let row_style = Style::default().fg(fg);
+            buf.set_string(area.x + 2, ry, truncate_str(&m.name, name_w as usize), row_style);
+            buf.set_string(area.x + 2 + name_w + 1, ry, truncate_str(&m.version, ver_w as usize), Style::default().fg(ver_fg));
+            let desc_x = area.x + 2 + name_w + 1 + ver_w + 1;
+            let max_desc = (area.width.saturating_sub(2 + name_w + ver_w + 3)) as usize;
+            buf.set_string(desc_x, ry, truncate_str(&m.descr, max_desc), Style::default().fg(desc_fg));
         }
 
-        if total > view_h {
-            Self::draw_scrollbar(buf, area, s, total, view_h);
-        }
+        Self::draw_scrollbar(buf, area, s, total, view_h, focused);
     }
 
-    fn render_resolved_libraries(&self, area: Rect, buf: &mut Buffer, active: bool) {
+    fn render_resolved_libraries(&self, area: Rect, buf: &mut Buffer, focused: bool) {
         if self.detail_libraries.is_empty() {
             let msg = "(no libraries in this profile)";
             let x = area.x + (area.width.saturating_sub(msg.len() as u16)) / 2;
             let y = area.y + area.height / 2;
             buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            Self::draw_scrollbar(buf, area, 0, 1, area.height as usize, focused);
             return;
         }
 
@@ -573,39 +611,24 @@ impl ProfilesManager {
         let view_h = area.height as usize;
         let total = self.detail_libraries.len();
         let max_scroll = total.saturating_sub(view_h);
-        let mut s = self.detail_lscroll.get();
-        let cursor = self.detail_lcursor.min(total.saturating_sub(1));
-        if cursor < s {
-            s = cursor;
-        }
-        if cursor >= s + view_h {
-            s = cursor.saturating_sub(view_h.saturating_sub(1));
-        }
-        s = s.min(max_scroll);
-        self.detail_lscroll.set(s);
-
-        let hl_style = Style::default().fg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD);
-        let muted = Style::default().fg(palette::MUTED);
+        let s = self.detail_loffset.get().min(max_scroll);
+        self.detail_loffset.set(s);
 
         for i in 0..view_h.min(total.saturating_sub(s)) {
             let idx = s + i;
             let ry = area.y + i as u16;
             let lib = &self.detail_libraries[idx];
-            let sel = active && idx == cursor;
-            let row_style = if sel { hl_style } else { Style::default().fg(palette::FG) };
-            let prefix = if sel { " ✨ " } else { "    " };
-            buf.set_string(area.x + 1, ry, prefix, row_style);
-            let kind_style = if sel { row_style } else { Style::default().fg(palette::PROCESSING) };
-            buf.set_string(area.x + 5, ry, format!(" {}", truncate_str(&lib.kind, kind_w as usize)), kind_style);
-            buf.set_string(area.x + 5 + kind_w + 1, ry, truncate_str(&lib.name, name_w as usize), row_style);
-            let sum_style = if sel { row_style } else { muted };
-            let sum_x = area.x + 5 + kind_w + 1 + name_w + 1;
-            buf.set_string(sum_x, ry, truncate_str(&lib.checksum, sum_w as usize), sum_style);
+            let fg = if focused { palette::FG } else { palette::MUTED };
+            let kind_fg = if focused { palette::PROCESSING } else { palette::MUTED };
+            let sum_fg = if focused { palette::GRAY_1 } else { palette::MUTED };
+            let row_style = Style::default().fg(fg);
+            buf.set_string(area.x + 2, ry, truncate_str(&lib.kind, kind_w as usize), Style::default().fg(kind_fg));
+            buf.set_string(area.x + 2 + kind_w + 1, ry, truncate_str(&lib.name, name_w as usize), row_style);
+            let sum_x = area.x + 2 + kind_w + 1 + name_w + 1;
+            buf.set_string(sum_x, ry, truncate_str(&lib.checksum, sum_w as usize), Style::default().fg(sum_fg));
         }
 
-        if total > view_h {
-            Self::draw_scrollbar(buf, area, s, total, view_h);
-        }
+        Self::draw_scrollbar(buf, area, s, total, view_h, focused);
     }
 
     pub fn render_create(&self, parent: Rect, buf: &mut Buffer) {
@@ -640,7 +663,7 @@ impl ProfilesManager {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: " Create Profile ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+            &[TitleSegment { text: " Create Profile ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
         );
 
         // Name input row
@@ -679,8 +702,8 @@ impl ProfilesManager {
         let total_btn_w = create_w + cancel_w + 2;
         let btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
 
-        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
-        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2);
 
         let create_style = if self.create_focus == ProfCreateFocus::CreateBtn { sel_btn } else { unsel_btn };
         let cancel_style = if self.create_focus == ProfCreateFocus::CancelBtn { sel_btn } else { unsel_btn };
@@ -722,7 +745,7 @@ impl ProfilesManager {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: " Delete Profile ".into(), bg: palette::ERROR_BASE, fg: palette::FG }],
+            &[TitleSegment { text: " Delete Profile ".into(), bg: palette::ERROR_BASE, fg: palette::FG, modifier: Modifier::empty() }],
         );
 
         // Confirm text
@@ -739,8 +762,8 @@ impl ProfilesManager {
         let total_btn_w = yes_w + no_w + 4;
         let btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
 
-        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
-        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2);
 
         let yes_style = if self.delete_focus == ProfDeleteFocus::YesBtn { sel_btn } else { unsel_btn };
         let no_style = if self.delete_focus == ProfDeleteFocus::NoBtn { sel_btn } else { unsel_btn };
@@ -781,15 +804,27 @@ impl ProfilesManager {
         ratatui::widgets::StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
 
-    fn draw_scrollbar(buf: &mut Buffer, area: Rect, offset: usize, total: usize, view_h: usize) {
-        let bar_h = ((view_h as f64 / total.max(1) as f64) * view_h as f64).max(1.0) as usize;
+    fn draw_scrollbar(buf: &mut Buffer, area: Rect, offset: usize, total: usize, view_h: usize, focused: bool) {
+        if view_h == 0 {
+            return;
+        }
+        if total <= view_h {
+            for i in 0..view_h {
+                let sx = area.right().saturating_sub(1);
+                let sy = area.y + i as u16;
+                buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+            }
+            return;
+        }
+        let bar_h = ((view_h as f64 / total as f64) * view_h as f64).max(2.0) as usize;
         let bar_h = bar_h.min(view_h);
-        let bar_y = ((offset as f64 / total.max(1) as f64) * (view_h - bar_h) as f64) as usize;
+        let bar_y = ((offset as f64 / (total - view_h).max(1) as f64) * (view_h - bar_h) as f64) as usize;
+        let thumb_fg = if focused { palette::PROCESSING_HEAT } else { palette::PROCESSING_BASE };
         for i in 0..view_h {
             let sx = area.right().saturating_sub(1);
             let sy = area.y + i as u16;
             if i >= bar_y && i < bar_y + bar_h {
-                buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
+                buf.set_string(sx, sy, "█", Style::default().fg(thumb_fg));
             } else {
                 buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
             }

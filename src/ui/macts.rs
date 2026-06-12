@@ -5,7 +5,7 @@ use super::{
 use ratatui::{
     layout::Position,
     prelude::{Buffer, Rect},
-    style::Style,
+    style::{Modifier, Style},
     widgets::{Block, BorderType, Borders, Clear, Widget},
 };
 use ratatui_glamour::color::blend_2d;
@@ -193,13 +193,20 @@ impl SysInspectUX {
 
         let mut title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         let is_cluster = self.minions_menu_sel >= 6;
-        let mut segments = vec![TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG }];
+        let mut segments =
+            vec![TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() }];
         if is_cluster {
-            segments.push(TitleSegment { text: " Cluster ".into(), bg: palette::PROCESSING_PEAK, fg: palette::FG });
-            segments.push(TitleSegment { text: " ⚡⚡⚡ ".into(), bg: palette::ERROR_PEAK, fg: palette::WARNING_PEAK });
+            segments.push(TitleSegment { text: " Cluster ".into(), bg: palette::PROCESSING_PEAK, fg: palette::FG, modifier: Modifier::empty() });
+            segments
+                .push(TitleSegment { text: " ⚡⚡⚡ ".into(), bg: palette::ERROR_PEAK, fg: palette::WARNING_PEAK, modifier: Modifier::empty() });
             title_style.gradient_target = Some(palette::ERROR_BASE);
         } else {
-            segments.push(TitleSegment { text: format!(" {host} "), bg: palette::PROCESSING_HEAT, fg: palette::SUCCESS_PEAK });
+            segments.push(TitleSegment {
+                text: format!(" {host} "),
+                bg: palette::PROCESSING_HEAT,
+                fg: palette::SUCCESS_PEAK,
+                modifier: Modifier::empty(),
+            });
         }
 
         render_menu_popup(parent, buf, MENU_SECTIONS, self.minions_menu_sel, &segments, &title_style, max_item_w, &[]);
@@ -218,8 +225,8 @@ impl SysInspectUX {
         let is_system = self.master_menu_sel >= 4;
         let sub_title = if is_system { " System " } else { " Operations " };
         let segments = vec![
-            TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG },
-            TitleSegment { text: sub_title.into(), bg: palette::PROCESSING_HEAT, fg: palette::FG },
+            TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() },
+            TitleSegment { text: sub_title.into(), bg: palette::PROCESSING_HEAT, fg: palette::FG, modifier: Modifier::empty() },
         ];
 
         let local_logs_available = self.cfg.logfile_std().exists() || self.cfg.logfile_err().exists();
