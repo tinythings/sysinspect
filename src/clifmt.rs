@@ -414,5 +414,6 @@ pub fn render_console_payload(payload: &ConsolePayload) -> String {
         ConsolePayload::Models { .. } => String::new(),
         ConsolePayload::MasterLogs { snapshot: _ } => String::new(),
         ConsolePayload::MasterModuleIndex { .. } => String::new(),
+        ConsolePayload::MasterLibraryIndex { .. } => String::new(),
     }
 }

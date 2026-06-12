@@ -66,6 +66,13 @@ pub struct RepoManager {
     pub info_row: usize,
     pub info_tab: u8,
     pub info_scroll: Cell<usize>,
+    pub info_active_tab: u8,
+
+    // Tabs
+    pub active_tab: u8,
+    pub lib_rows: Vec<libsysinspect::console::ConsoleLibraryRow>,
+    pub lib_cursor: usize,
+    pub lib_scroll: Cell<usize>,
 }
 
 impl Default for RepoManager {
@@ -91,6 +98,11 @@ impl Default for RepoManager {
             info_row: 0,
             info_tab: 0,
             info_scroll: Cell::new(0),
+            info_active_tab: 0,
+            active_tab: 0,
+            lib_rows: Vec::new(),
+            lib_cursor: 0,
+            lib_scroll: Cell::new(0),
         }
     }
 }
@@ -167,14 +179,15 @@ impl RepoManager {
         if !self.visible {
             return;
         }
+        self.render_main(parent, buf);
         if self.progress.lock().unwrap().is_some() {
             self.render_progress(parent, buf);
-        } else if self.info_visible {
+        }
+        if self.info_visible {
             self.render_info(parent, buf);
-        } else if self.staging {
+        }
+        if self.staging {
             self.render_staging(parent, buf);
-        } else {
-            self.render_main(parent, buf);
         }
     }
 
@@ -187,7 +200,7 @@ impl RepoManager {
 
         Clear.render(canvas, buf);
 
-        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[Color]);
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_3, palette::BG_1] as &[Color]);
         for row in 0..canvas.height {
             for col in 0..canvas.width {
                 let idx = row as usize * canvas.width as usize + col as usize;
@@ -205,112 +218,43 @@ impl RepoManager {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
+        let tab_names = ["Modules", "Libraries", "Profiles"];
+        let section_name = tab_names[self.active_tab as usize];
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         title::overlay_gradient_title(
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: " Module and Library Manager ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+            &[
+                TitleSegment { text: " Artefacts ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG },
+                TitleSegment { text: format!(" {section_name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG },
+            ],
         );
 
-        if inner.height >= 4 {
-            // Filter row
-            let [filter_area, list_area] = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(1), Constraint::Min(0)])
-                .split(inner)
-                .as_ref()
-                .try_into()
-                .unwrap();
-
-            Self::render_filter_row(filter_area, buf, self.filter_focus, &self.filter);
-
-            if !self.rows.is_empty() {
-                let inner = list_area;
-                let name_w: u16 = 28;
-                let ver_w: u16 = 6;
-                let desc_w = inner.width.saturating_sub(name_w + ver_w + 2);
-
-                // Build filtered list
-                let f = self.filter.value().to_lowercase();
-                let filtered: Vec<(usize, &ConsoleModuleRow)> = self
-                    .rows
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, r)| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f))
-                    .collect();
-
-                let view_h = inner.height as usize;
-                let total = filtered.len();
-                let max_scroll = total.saturating_sub(view_h);
-                let mut s = self.scroll.get();
-                let cursor = self.cursor.min(total.saturating_sub(1));
-                if cursor < s {
-                    s = cursor;
-                }
-                if cursor >= s + view_h {
-                    s = cursor.saturating_sub(view_h.saturating_sub(1));
-                }
-                s = s.min(max_scroll);
-                self.scroll.set(s);
-
-                if total == 0 {
-                    let msg = "(no matches)";
-                    let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
-                    let y = inner.y + inner.height / 2;
-                    buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
-                } else {
-                    let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
-                    for i in 0..view_h.min(total.saturating_sub(s)) {
-                        let fi = s + i;
-                        let (_orig_idx, row) = filtered[fi];
-                        let ry = inner.y + i as u16;
-                        let selected = !self.filter_focus && fi == cursor;
-                        let row_style = if selected { hl } else { Style::default().fg(palette::FG) };
-
-                        if selected {
-                            for cx in 0..inner.width {
-                                if let Some(cell) = buf.cell_mut(Position::new(inner.x + cx, ry)) {
-                                    cell.set_bg(palette::HIGHLIGHT);
-                                }
-                            }
-                        }
-
-                        let name = truncate_str(&row.name, name_w as usize);
-                        buf.set_string(inner.x + 1, ry, format!(" {name}"), row_style);
-
-                        let ver = row.version.as_deref().unwrap_or("—");
-                        let ver_style = if selected { row_style } else { Style::default().fg(palette::HIGHLIGHT) };
-                        buf.set_string(inner.x + 1 + name_w + 1, ry, truncate_str(ver, ver_w as usize), ver_style);
-
-                        let desc_x = inner.x + 1 + name_w + 1 + ver_w + 1;
-                        let max_desc = desc_w.saturating_sub(1) as usize;
-                        let desc_style = if selected { row_style } else { Style::default().fg(palette::GRAY_1) };
-                        buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
-                    }
-
-                    if total > view_h {
-                        let bar_h = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
-                        let bar_y = ((s as f64 / total as f64) * (view_h - bar_h) as f64) as usize;
-                        for i in 0..view_h {
-                            let sx = inner.right().saturating_sub(1);
-                            let sy = inner.y + i as u16;
-                            if i >= bar_y && i < bar_y + bar_h {
-                                buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
-                            } else {
-                                buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
-                            }
-                        }
-                    }
-                }
-            }
-        } else if inner.height >= 3 {
-            let msg = "(no modules found)";
-            let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
-            let y = inner.y + inner.height / 2;
-            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+        if inner.height < 4 {
+            return;
         }
+        let [tabs_area, body] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+        let titles: Vec<Line> = tab_names.iter().map(|t| Line::from(format!(" {t} "))).collect();
+        Tabs::new(titles)
+            .select(self.active_tab as usize)
+            .divider("\u{E0B1}")
+            .style(Style::default().fg(palette::MUTED))
+            .highlight_style(Style::default().fg(palette::GRAY_2).add_modifier(Modifier::BOLD))
+            .render(tabs_area, buf);
 
+        match self.active_tab {
+            0 => self.render_modules(body, buf),
+            1 => self.render_libraries(body, buf),
+            2 => self.render_profiles_placeholder(body, buf),
+            _ => {}
+        }
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
     }
 
@@ -325,7 +269,7 @@ impl RepoManager {
 
         Clear.render(canvas, buf);
 
-        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[Color]);
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_3, palette::BG_1] as &[Color]);
         for row in 0..canvas.height {
             for col in 0..canvas.width {
                 let idx = row as usize * canvas.width as usize + col as usize;
@@ -476,14 +420,6 @@ impl RepoManager {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[TitleSegment { text: " Adding Modules ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG }],
-        );
-
         let bar_y = inner.y + 1;
         let bar_w = inner.width.saturating_sub(2);
         let filled = (bar_w as usize * done).checked_div(total).map(|v| v as u16).unwrap_or(0);
@@ -510,12 +446,190 @@ impl RepoManager {
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
     }
 
+    fn render_modules(&self, inner: Rect, buf: &mut Buffer) {
+        if inner.height < 2 {
+            return;
+        }
+        let [filter_area, list_area] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+        Self::render_filter_row(filter_area, buf, self.filter_focus, &self.filter);
+        let name_w: u16 = 28;
+        let ver_w: u16 = 6;
+        if self.rows.is_empty() {
+            let msg = "(no modules found)";
+            let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
+            let y = list_area.y + list_area.height / 2;
+            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            return;
+        }
+        let flt = self.filter.value().to_lowercase();
+        let filtered: Vec<(usize, &ConsoleModuleRow)> = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| flt.is_empty() || r.name.to_lowercase().contains(&flt) || r.descr.to_lowercase().contains(&flt))
+            .collect();
+        let view_h = list_area.height as usize;
+        let total = filtered.len();
+        let max_scroll = total.saturating_sub(view_h);
+        let mut s = self.scroll.get();
+        let cursor = self.cursor.min(total.saturating_sub(1));
+        if cursor < s {
+            s = cursor;
+        }
+        if cursor >= s + view_h {
+            s = cursor.saturating_sub(view_h.saturating_sub(1));
+        }
+        s = s.min(max_scroll);
+        self.scroll.set(s);
+        if total == 0 {
+            let msg = "(no matches)";
+            let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
+            let y = list_area.y + list_area.height / 2;
+            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            return;
+        }
+        let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
+        for i in 0..view_h.min(total.saturating_sub(s)) {
+            let fi = s + i;
+            let (_oi, row) = filtered[fi];
+            let ry = list_area.y + i as u16;
+            let sel = !self.filter_focus && fi == cursor;
+            let row_style = if sel { hl } else { Style::default().fg(palette::FG) };
+            if sel {
+                for cx in 0..list_area.width {
+                    if let Some(cell) = buf.cell_mut(Position::new(list_area.x + cx, ry)) {
+                        cell.set_bg(palette::HIGHLIGHT);
+                    }
+                }
+            }
+            buf.set_string(list_area.x + 1, ry, format!(" {}", truncate_str(&row.name, name_w as usize)), row_style);
+            let ver_style = if sel { row_style } else { Style::default().fg(palette::HIGHLIGHT) };
+            buf.set_string(list_area.x + 1 + name_w + 1, ry, truncate_str(row.version.as_deref().unwrap_or("—"), ver_w as usize), ver_style);
+            let desc_style = if sel { row_style } else { Style::default().fg(palette::GRAY_1) };
+            let desc_x = list_area.x + 1 + name_w + 1 + ver_w + 1;
+            let max_desc = (list_area.width.saturating_sub(name_w + ver_w + 3)) as usize;
+            buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
+        }
+        if total > view_h {
+            let bh = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
+            let by = ((s as f64 / total as f64) * (view_h - bh) as f64) as usize;
+            for i in 0..view_h {
+                let sx = list_area.right().saturating_sub(1);
+                let sy = list_area.y + i as u16;
+                if i >= by && i < by + bh {
+                    buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
+                } else {
+                    buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+                }
+            }
+        }
+    }
+
+    fn render_libraries(&self, inner: Rect, buf: &mut Buffer) {
+        if inner.height < 2 {
+            return;
+        }
+        let [filter_area, list_area] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+        Self::render_filter_row(filter_area, buf, self.filter_focus, &self.filter);
+        if self.lib_rows.is_empty() {
+            let msg = "(no libraries found)";
+            let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
+            let y = list_area.y + list_area.height / 2;
+            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            return;
+        }
+        let flt = self.filter.value().to_lowercase();
+        let filtered: Vec<(usize, &libsysinspect::console::ConsoleLibraryRow)> = self
+            .lib_rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| flt.is_empty() || r.name.to_lowercase().contains(&flt) || r.kind.to_lowercase().contains(&flt))
+            .collect();
+        let view_h = list_area.height as usize;
+        let total = filtered.len();
+        let max_scroll = total.saturating_sub(view_h);
+        let mut s = self.lib_scroll.get();
+        let cursor = self.lib_cursor.min(total.saturating_sub(1));
+        if cursor < s {
+            s = cursor;
+        }
+        if cursor >= s + view_h {
+            s = cursor.saturating_sub(view_h.saturating_sub(1));
+        }
+        s = s.min(max_scroll);
+        self.lib_scroll.set(s);
+        if total == 0 {
+            let msg = "(no matches)";
+            let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
+            let y = list_area.y + list_area.height / 2;
+            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            return;
+        }
+        let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
+        let kind_w: u16 = 8;
+        let name_w = list_area.width.saturating_sub(kind_w + 38);
+        let sum_w = 30u16;
+        for i in 0..view_h.min(total.saturating_sub(s)) {
+            let fi = s + i;
+            let (_oi, row) = filtered[fi];
+            let ry = list_area.y + i as u16;
+            let sel = !self.filter_focus && fi == cursor;
+            let row_style = if sel { hl } else { Style::default().fg(palette::FG) };
+            if sel {
+                for cx in 0..list_area.width {
+                    if let Some(cell) = buf.cell_mut(Position::new(list_area.x + cx, ry)) {
+                        cell.set_bg(palette::HIGHLIGHT);
+                    }
+                }
+            }
+            let kind_style = if sel { row_style } else { Style::default().fg(palette::PROCESSING) };
+            buf.set_string(list_area.x + 1, ry, format!(" {}", truncate_str(&row.kind, kind_w as usize)), kind_style);
+            let name_style = if sel { row_style } else { Style::default().fg(palette::FG) };
+            buf.set_string(list_area.x + 1 + kind_w + 1, ry, truncate_str(&row.name, name_w as usize), name_style);
+            let sum_style = if sel { row_style } else { Style::default().fg(palette::GRAY_1) };
+            let sum_x = list_area.x + 1 + kind_w + 1 + name_w + 1;
+            buf.set_string(sum_x, ry, truncate_str(&row.checksum, sum_w as usize), sum_style);
+        }
+        if total > view_h {
+            let bh = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
+            let by = ((s as f64 / total as f64) * (view_h - bh) as f64) as usize;
+            for i in 0..view_h {
+                let sx = list_area.right().saturating_sub(1);
+                let sy = list_area.y + i as u16;
+                if i >= by && i < by + bh {
+                    buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
+                } else {
+                    buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+                }
+            }
+        }
+    }
+
+    fn render_profiles_placeholder(&self, inner: Rect, buf: &mut Buffer) {
+        let msg = "Profiles management is not implemented yet";
+        let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
+        let y = inner.y + inner.height / 2;
+        buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+    }
+
     fn render_filter_row(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
         let label_style = if focused { Style::default().fg(palette::ACCENT) } else { Style::default().fg(palette::MUTED) };
-        buf.set_string(area.x, area.y, "filter: ", label_style);
+        buf.set_string(area.x + 2, area.y, "filter: ", label_style);
 
-        let input_x = area.x + 8u16;
-        let input_w = area.width.saturating_sub(8);
+        let input_x = area.x + 10u16;
+        let input_w = area.width.saturating_sub(10);
         if input_w == 0 {
             return;
         }
@@ -550,11 +664,11 @@ impl RepoManager {
             crossterm::event::KeyCode::Enter => {
                 self.info_visible = false;
             }
-            crossterm::event::KeyCode::Left => {
+            crossterm::event::KeyCode::Left if self.info_active_tab == 0 => {
                 self.info_tab = self.info_tab.saturating_sub(1);
                 self.info_scroll.set(0);
             }
-            crossterm::event::KeyCode::Right => {
+            crossterm::event::KeyCode::Right if self.info_active_tab == 0 => {
                 self.info_tab = (self.info_tab + 1).min(3);
                 self.info_scroll.set(0);
             }
@@ -580,6 +694,14 @@ impl RepoManager {
     }
 
     fn render_info(&self, parent: Rect, buf: &mut Buffer) {
+        match self.info_active_tab {
+            0 => self.render_module_info(parent, buf),
+            1 => self.render_library_info(parent, buf),
+            _ => {}
+        }
+    }
+
+    fn render_module_info(&self, parent: Rect, buf: &mut Buffer) {
         let row = match self.rows.get(self.info_row) {
             Some(r) => r,
             None => return,
@@ -631,9 +753,9 @@ impl RepoManager {
         let titles: Vec<Line> = ["Description", "Arguments", "Options", "Manual"].iter().map(|t| Line::from(format!(" {t} "))).collect();
         Tabs::new(titles)
             .select(self.info_tab as usize)
-            .divider("│")
+            .divider("\u{E0B1}")
             .style(Style::default().fg(palette::MUTED))
-            .highlight_style(Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD))
+            .highlight_style(Style::default().fg(palette::GRAY_2).add_modifier(Modifier::BOLD))
             .render(tabs_area, buf);
 
         let section_title = ["Description", "Arguments", "Options", "Manual Page"][self.info_tab as usize];
@@ -697,6 +819,70 @@ impl RepoManager {
             .render(Rect::new(btn_x, btn_area.y, close_w, 1), buf);
 
         // Change default temporarily for shadow computation
+        Self::draw_shadow(buf, canvas, w, h);
+    }
+
+    fn render_library_info(&self, parent: Rect, buf: &mut Buffer) {
+        let lib = match self.lib_rows.get(self.info_row) {
+            Some(r) => r,
+            None => return,
+        };
+        let w = (parent.width * 60 / 100).max(50).min(parent.width.saturating_sub(2));
+        let h: u16 = 8;
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        Clear.render(canvas, buf);
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_2] as &[Color]);
+        for ry in 0..canvas.height {
+            for cx in 0..canvas.width {
+                let idx = ry as usize * canvas.width as usize + cx as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + cx, canvas.y + ry)) {
+                    cell.set_bg(grad[idx]);
+                }
+            }
+        }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+            .style(Style::default());
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        title::overlay_gradient_title(
+            buf,
+            canvas,
+            &title_style,
+            &[TitleSegment { text: format!(" {} ", lib.name), bg: palette::PROCESSING_BASE, fg: palette::FG }],
+        );
+
+        let key_style = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
+        let val_style = Style::default().fg(palette::FG);
+
+        let lines = [("Name:    ", &lib.name), ("Type:    ", &lib.kind), ("Sha256:  ", &lib.checksum)];
+        for (i, (label, value)) in lines.iter().enumerate() {
+            let ry = inner.y + 1 + i as u16;
+            buf.set_string(inner.x + 3, ry, label, key_style);
+            buf.set_string(
+                inner.x + 3 + label.len() as u16,
+                ry,
+                truncate_str(value, (inner.width as usize).saturating_sub(3 + label.len() + 2)),
+                val_style,
+            );
+        }
+
+        let close_lbl = "[ Close ]";
+        let close_w = close_lbl.len() as u16;
+        let btn_x = inner.x + (inner.width.saturating_sub(close_w)) / 2;
+        let btn_y = inner.y + 5;
+        Paragraph::new(close_lbl)
+            .style(Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD))
+            .render(Rect::new(btn_x, btn_y, close_w, 1), buf);
+
         Self::draw_shadow(buf, canvas, w, h);
     }
 

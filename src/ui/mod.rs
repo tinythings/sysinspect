@@ -17,8 +17,9 @@ use libsysinspect::{
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
-        CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT,
+        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN,
+        CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -643,7 +644,11 @@ impl SysInspectUX {
         if self.repo_manager.visible
             && let Some(path) = self.file_picker.selected.take()
         {
-            self.process_module_add(&path);
+            match self.repo_manager.active_tab {
+                0 => self.process_module_add(&path),
+                1 => self.process_library_add(&path),
+                _ => {}
+            }
         }
         // Detect progress bar completion for bulk add
         if self.repo_manager.visible {
@@ -1236,6 +1241,7 @@ impl SysInspectUX {
             || self.dsl_browser.visible
             || self.setup_wizard.visible
             || self.file_picker.visible
+            || self.repo_manager.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1814,7 +1820,10 @@ impl SysInspectUX {
             }
             return true;
         }
-        let max_cursor = || self.repo_filtered_count().saturating_sub(1);
+        let total_count = if self.repo_manager.active_tab == 1 { self.repo_filtered_lib_count() } else { self.repo_filtered_count() };
+        let max_cursor = total_count.saturating_sub(1);
+        let cursor_ref: &mut usize =
+            if self.repo_manager.active_tab == 1 { &mut self.repo_manager.lib_cursor } else { &mut self.repo_manager.cursor };
         let page = 10usize;
         match e.code {
             KeyCode::Esc => {
@@ -1822,24 +1831,50 @@ impl SysInspectUX {
                 self.repo_manager.visible = false;
                 self.status_at_cycles();
             }
+            KeyCode::Left => {
+                self.repo_manager.active_tab = self.repo_manager.active_tab.saturating_sub(1);
+                self.repo_manager.cursor = 0;
+                self.repo_manager.lib_cursor = 0;
+                if self.repo_manager.active_tab == 1 {
+                    let _ = self.load_library_index();
+                }
+            }
+            KeyCode::Right => {
+                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(2);
+                self.repo_manager.cursor = 0;
+                self.repo_manager.lib_cursor = 0;
+                if self.repo_manager.active_tab == 1 {
+                    let _ = self.load_library_index();
+                }
+            }
             KeyCode::Up => {
-                self.repo_manager.cursor = self.repo_manager.cursor.saturating_sub(1);
+                *cursor_ref = cursor_ref.saturating_sub(1);
             }
             KeyCode::Down => {
-                self.repo_manager.cursor = (self.repo_manager.cursor + 1).min(max_cursor());
+                *cursor_ref = (*cursor_ref + 1).min(max_cursor);
             }
             KeyCode::PageUp => {
-                self.repo_manager.cursor = self.repo_manager.cursor.saturating_sub(page);
+                *cursor_ref = cursor_ref.saturating_sub(page);
             }
             KeyCode::PageDown => {
-                self.repo_manager.cursor = (self.repo_manager.cursor + page).min(max_cursor());
+                *cursor_ref = (*cursor_ref + page).min(max_cursor);
             }
             KeyCode::Enter => {
-                if !self.repo_manager.rows.is_empty() {
+                if self.repo_manager.active_tab == 1 {
+                    if !self.repo_manager.lib_rows.is_empty() {
+                        self.repo_manager.info_visible = true;
+                        self.repo_manager.info_row = self.repo_manager.lib_cursor;
+                        self.repo_manager.info_tab = 0;
+                        self.repo_manager.info_scroll.set(0);
+                        self.repo_manager.info_active_tab = 1;
+                        self.status_at_repo_manager();
+                    }
+                } else if !self.repo_manager.rows.is_empty() {
                     self.repo_manager.info_visible = true;
                     self.repo_manager.info_row = self.repo_manager.cursor;
                     self.repo_manager.info_tab = 0;
                     self.repo_manager.info_scroll.set(0);
+                    self.repo_manager.info_active_tab = 0;
                     self.status_at_repo_manager();
                 }
             }
@@ -1864,7 +1899,8 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.file_picker.open(&std::env::current_dir().unwrap_or_default(), filepicker::PickerMode::Any);
+                let mode = if self.repo_manager.active_tab == 1 { filepicker::PickerMode::LibrarySelector } else { filepicker::PickerMode::Any };
+                self.file_picker.open(&std::env::current_dir().unwrap_or_default(), mode);
             }
             KeyCode::Char('l') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.error_alert_visible = true;
@@ -1884,6 +1920,27 @@ impl SysInspectUX {
     fn repo_filtered_count(&self) -> usize {
         let f = self.repo_manager.filter.value().to_lowercase();
         self.repo_manager.rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f)).count()
+    }
+
+    fn repo_filtered_lib_count(&self) -> usize {
+        let f = self.repo_manager.filter.value().to_lowercase();
+        self.repo_manager.lib_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.kind.to_lowercase().contains(&f)).count()
+    }
+
+    fn load_library_index(&mut self) -> Result<(), String> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_LIBRARY_INDEX}"), "*", None, None, None).await })
+        })
+        .map_err(|e| format!("Failed to get library index: {e}"))?;
+        match resp.payload {
+            ConsolePayload::MasterLibraryIndex { rows } => {
+                self.repo_manager.lib_rows = rows;
+                self.repo_manager.lib_cursor = 0;
+                Ok(())
+            }
+            _ => Err("Unexpected console payload for library index".to_string()),
+        }
     }
 
     fn process_module_add(&mut self, path: &std::path::Path) {
@@ -2026,6 +2083,46 @@ impl SysInspectUX {
             self.error_alert_message = format!("Cannot remove modules: {e}");
         } else {
             let _ = self.load_module_index();
+        }
+    }
+
+    fn process_library_add(&mut self, path: &std::path::Path) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        if path.is_dir() {
+            if let Err(e) = repo.add_library(path.to_path_buf()) {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot add library: {e}");
+            } else {
+                self.load_library_index().ok();
+            }
+        } else {
+            // Single file: wrap in temp dir, use add_library
+            let tmp = std::env::temp_dir().join("sysinspect_lib_add");
+            let _ = std::fs::create_dir_all(&tmp);
+            let dest = tmp.join(path.file_name().unwrap_or_default());
+            match std::fs::copy(path, &dest) {
+                Ok(_) => {
+                    if let Err(e) = repo.add_library(tmp.clone()) {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Cannot add library file: {e}");
+                    } else {
+                        self.load_library_index().ok();
+                    }
+                    let _ = std::fs::remove_dir_all(&tmp);
+                }
+                Err(e) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Cannot copy library file: {e}");
+                }
+            }
         }
     }
 

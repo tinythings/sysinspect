@@ -67,6 +67,9 @@ pub mod commands {
 
     // Get the module repository index from the master
     pub const CLUSTER_MODULE_INDEX: &str = "cluster/module/index";
+
+    // Get the library repository index from the master
+    pub const CLUSTER_LIBRARY_INDEX: &str = "cluster/library/index";
 }
 
 ///

@@ -356,7 +356,7 @@ pub struct ModPakRepoIndex {
     /// Usually they are meant to be just Python scripts. Possibly .so files could be also
     /// there, but they have to be unique in naming for each platform/arch and linked
     /// accordingly.
-    library: IndexMap<String, ModPakRepoLibFile>,
+    pub library: IndexMap<String, ModPakRepoLibFile>,
 
     /// Statically linked sysminion builds grouped by platform and architecture.
     #[serde(default)]

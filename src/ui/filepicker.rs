@@ -26,6 +26,7 @@ pub enum PickerMode {
     DirectoryPicker,
     FilePicker,
     Any,
+    LibrarySelector,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -238,12 +239,14 @@ impl FilePicker {
                 self.visible = false;
             }
             KeyCode::Tab => {
-                if self.mode == PickerMode::FilePicker && self.entries.len() > self.dirs_end {
+                if (self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector)
+                    && self.entries.len() > self.dirs_end
+                {
                     self.focus = if self.focus == PickerFocus::Dirs { PickerFocus::Files } else { PickerFocus::Dirs };
                 }
             }
             KeyCode::BackTab => {
-                if self.mode == PickerMode::FilePicker {
+                if self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector {
                     self.focus = if self.focus == PickerFocus::Files { PickerFocus::Dirs } else { PickerFocus::Files };
                 }
             }
@@ -315,7 +318,11 @@ impl FilePicker {
                         PickerFocus::Files => self.dirs_end + self.file_cursor,
                     };
                     if let Some(entry) = self.entries.get(idx) {
-                        let selectable = if self.mode == PickerMode::Any { !entry.is_parent } else { !entry.is_parent && !entry.is_dir };
+                        let selectable = if self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector {
+                            !entry.is_parent
+                        } else {
+                            !entry.is_parent && !entry.is_dir
+                        };
                         if selectable {
                             self.selected = Some(entry.path.clone());
                             self.filter_input = InputState::new();
@@ -351,14 +358,14 @@ impl FilePicker {
         }
 
         let dlg_w = (parent.width * 3 / 4).clamp(60, 80);
-        let dlg_h = (parent.height * 3 / 4).clamp(14, 24);
+        let dlg_h = parent.height.saturating_sub(4);
         let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
         let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
         let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
 
         Clear.render(canvas, buf);
 
-        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[Color]);
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_0] as &[Color]);
         for row in 0..canvas.height {
             for col in 0..canvas.width {
                 let idx = row as usize * canvas.width as usize + col as usize;
@@ -380,6 +387,7 @@ impl FilePicker {
             PickerMode::DirectoryPicker => " Directory Selector ",
             PickerMode::FilePicker => " File Selector ",
             PickerMode::Any => " Module Selector ",
+            PickerMode::LibrarySelector => " Library Selector ",
         };
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
         title::overlay_gradient_title(
@@ -413,7 +421,8 @@ impl FilePicker {
         let filter_line = filter_active as u16;
         row_y += 1;
 
-        let sections: u16 = if self.mode == PickerMode::FilePicker { 2 } else { 1 };
+        let sections: u16 =
+            if self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector { 2 } else { 1 };
         let available = inner.height.saturating_sub(1).saturating_sub(row_y.saturating_sub(inner.y)).saturating_sub(filter_line);
         let dir_rows = if sections == 2 { available / 2 } else { available };
 
@@ -435,8 +444,10 @@ impl FilePicker {
         self.render_section(dir_area, buf, &dir_list, self.dir_cursor, self.focus == PickerFocus::Dirs, &self.dir_scroll);
         row_y = dir_area.y + dir_area.height;
 
-        // ── Files section (FilePicker only) ──
-        if self.mode == PickerMode::FilePicker && row_y + 1 < inner.y + inner.height {
+        // ── Files section ──
+        if (self.mode == PickerMode::FilePicker || self.mode == PickerMode::Any || self.mode == PickerMode::LibrarySelector)
+            && row_y + 1 < inner.y + inner.height
+        {
             dashed_title(
                 Rect { x: inner.x, y: row_y, width: inner.width, height: 1 },
                 buf,

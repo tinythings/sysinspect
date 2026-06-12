@@ -12,9 +12,9 @@ use libmodpak::{SysInspectModPak, compare_versions, mpk::ModPakRepoIndex};
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
-        ConsoleEnvelope, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleModelRow,
-        ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
-        ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client, load_master_private_key,
+        ConsoleEnvelope, ConsoleLibraryRow, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot,
+        ConsoleModelRow, ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse,
+        ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
@@ -557,6 +557,20 @@ impl SysMaster {
         Ok(rows)
     }
 
+    async fn library_index_data(&mut self) -> Result<Vec<ConsoleLibraryRow>, SysinspectError> {
+        let idx_path = self.cfg.fileserver_root().join("repo").join("mod.index");
+        if !idx_path.exists() {
+            return Ok(Vec::new());
+        }
+        let yaml = std::fs::read_to_string(&idx_path).map_err(|e| SysinspectError::ConfigError(format!("Cannot read module index: {e}")))?;
+        let idx = ModPakRepoIndex::from_yaml(&yaml)?;
+        let mut rows = Vec::new();
+        for (name, file) in idx.library.iter() {
+            rows.push(ConsoleLibraryRow { name: name.clone(), checksum: file.checksum().to_string(), kind: file.kind().to_string() });
+        }
+        Ok(rows)
+    }
+
     async fn upsert_cmdb_console_response(&mut self, mid: &str, context: &str) -> Result<ConsoleResponse, SysinspectError> {
         if mid.trim().is_empty() {
             return Ok(ConsoleResponse::err("CMDB update requires a minion id"));
@@ -766,6 +780,13 @@ impl SysMaster {
             return match master.lock().await.module_index_data().await {
                 Ok(rows) => ConsoleResponse::ok(ConsolePayload::MasterModuleIndex { rows }),
                 Err(err) => ConsoleResponse::err(format!("Unable to get module index: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_LIBRARY_INDEX}")) {
+            return match master.lock().await.library_index_data().await {
+                Ok(rows) => ConsoleResponse::ok(ConsolePayload::MasterLibraryIndex { rows }),
+                Err(err) => ConsoleResponse::err(format!("Unable to get library index: {err}")),
             };
         }
 

@@ -126,6 +126,14 @@ pub struct ConsoleMasterLogSnapshot {
     pub errors_path: String,
 }
 
+/// One library entry in the master's repository index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleLibraryRow {
+    pub name: String,
+    pub checksum: String,
+    pub kind: String,
+}
+
 /// One argument/option of a module in the repository index.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConsoleModuleArgument {
@@ -227,6 +235,11 @@ pub enum ConsolePayload {
     MasterModuleIndex {
         /// One row per indexed module.
         rows: Vec<ConsoleModuleRow>,
+    },
+    /// Library repository index from the master.
+    MasterLibraryIndex {
+        /// One row per indexed library file.
+        rows: Vec<ConsoleLibraryRow>,
     },
     /// Available models discovered by the master.
     Models {
