@@ -1,5 +1,5 @@
 use super::{
-    dslbrowser, palette,
+    dslbrowser, palette, profiles,
     title::{self, TitleSegment, TitleStyle},
 };
 use libsysinspect::console::{ConsoleModuleArgument, ConsoleModuleRow};
@@ -34,6 +34,14 @@ pub enum StagingFocus {
     Cancel,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StagingMode {
+    ModuleAdd,
+    ModuleDelete,
+    ProfileModuleAdd,
+    ProfileLibraryAdd,
+}
+
 #[derive(Debug)]
 pub struct RepoManager {
     pub visible: bool,
@@ -47,6 +55,7 @@ pub struct RepoManager {
     pub staging_cursor: usize,
     pub staging_scroll: Cell<usize>,
     pub staging_focus: StagingFocus,
+    pub staging_mode: StagingMode,
 
     // Progress
     pub progress: Arc<Mutex<Option<(usize, usize)>>>,
@@ -73,6 +82,9 @@ pub struct RepoManager {
     pub lib_rows: Vec<libsysinspect::console::ConsoleLibraryRow>,
     pub lib_cursor: usize,
     pub lib_scroll: Cell<usize>,
+
+    // Profiles
+    pub profiles: profiles::ProfilesManager,
 }
 
 impl Default for RepoManager {
@@ -87,6 +99,7 @@ impl Default for RepoManager {
             staging_cursor: 0,
             staging_scroll: Cell::new(0),
             staging_focus: StagingFocus::List,
+            staging_mode: StagingMode::ModuleAdd,
             progress: Arc::new(Mutex::new(None)),
             bulk_add_triggered: false,
             bulk_delete_triggered: false,
@@ -103,6 +116,7 @@ impl Default for RepoManager {
             lib_rows: Vec::new(),
             lib_cursor: 0,
             lib_scroll: Cell::new(0),
+            profiles: profiles::ProfilesManager::default(),
         }
     }
 }
@@ -120,6 +134,48 @@ impl RepoManager {
         self.staging = false;
         self.delete_mode = false;
         self.staged.clear();
+    }
+
+    pub fn enter_profile_module_staging(&mut self) {
+        self.staged = self
+            .rows
+            .iter()
+            .map(|r| StagedModule {
+                name: r.name.clone(),
+                version: r.version.clone(),
+                descr: r.descr.clone(),
+                path: std::path::PathBuf::new(),
+                checked: false,
+            })
+            .collect();
+        self.staging_cursor = 0;
+        self.staging_scroll = Cell::new(0);
+        self.staging_focus = StagingFocus::List;
+        self.staging_mode = StagingMode::ProfileModuleAdd;
+        self.profiles.detail_visible = false;
+        self.staging = true;
+        self.delete_mode = false;
+    }
+
+    pub fn enter_profile_library_staging(&mut self) {
+        self.staged = self
+            .lib_rows
+            .iter()
+            .map(|r| StagedModule {
+                name: r.name.clone(),
+                version: Some(r.kind.clone()),
+                descr: r.checksum.clone(),
+                path: std::path::PathBuf::new(),
+                checked: false,
+            })
+            .collect();
+        self.staging_cursor = 0;
+        self.staging_scroll = Cell::new(0);
+        self.staging_focus = StagingFocus::List;
+        self.staging_mode = StagingMode::ProfileLibraryAdd;
+        self.profiles.detail_visible = false;
+        self.staging = true;
+        self.delete_mode = false;
     }
 
     pub fn handle_staging_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
@@ -189,6 +245,15 @@ impl RepoManager {
         if self.staging {
             self.render_staging(parent, buf);
         }
+        if self.profiles.detail_visible {
+            self.profiles.render_detail(parent, buf);
+        }
+        if self.profiles.create_visible {
+            self.profiles.render_create(parent, buf);
+        }
+        if self.profiles.delete_visible {
+            self.profiles.render_delete(parent, buf);
+        }
     }
 
     fn render_main(&self, parent: Rect, buf: &mut Buffer) {
@@ -252,7 +317,7 @@ impl RepoManager {
         match self.active_tab {
             0 => self.render_modules(body, buf),
             1 => self.render_libraries(body, buf),
-            2 => self.render_profiles_placeholder(body, buf),
+            2 => self.profiles.render_list(body, buf, self.filter_focus, &self.filter),
             _ => {}
         }
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
@@ -615,13 +680,6 @@ impl RepoManager {
                 }
             }
         }
-    }
-
-    fn render_profiles_placeholder(&self, inner: Rect, buf: &mut Buffer) {
-        let msg = "Profiles management is not implemented yet";
-        let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
-        let y = inner.y + inner.height / 2;
-        buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
     }
 
     fn render_filter_row(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {

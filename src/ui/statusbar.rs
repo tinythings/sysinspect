@@ -192,6 +192,33 @@ impl SysInspectUX {
         ]);
     }
 
+    pub(crate) fn status_at_profiles(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+
+        let p = &self.repo_manager.profiles;
+        if p.delete_visible {
+            self.status_text = Line::from(vec![key("Tab "), desc("switch  "), key("Enter "), desc("confirm  "), key("Esc "), desc("cancel")]);
+        } else if p.create_visible {
+            self.status_text = Line::from(vec![key("Tab "), desc("switch  "), key("Enter "), desc("create  "), key("Esc "), desc("cancel")]);
+        } else if p.detail_visible {
+            self.status_text = Line::from(vec![key("Tab "), desc("switch section  "), key("d/Del "), desc("remove  "), key("Esc "), desc("close")]);
+        } else {
+            self.status_text = Line::from(vec![
+                key("\u{2191}\u{2193} "),
+                desc("navigate  "),
+                key("Enter "),
+                desc("view/edit  "),
+                key("Ins/n "),
+                desc("create  "),
+                key("Del "),
+                desc("delete  "),
+                key("Esc "),
+                desc("close"),
+            ]);
+        }
+    }
+
     pub(crate) fn status_at_query_composer(&mut self) {
         self.status_text = Line::from(vec![
             Span::styled(" Tab ", Style::default().fg(palette::FG)),

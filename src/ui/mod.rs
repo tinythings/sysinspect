@@ -18,7 +18,7 @@ use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
         CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT,
-        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN,
+        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN,
         CLUSTER_TRAITS_UPDATE,
     },
 };
@@ -47,6 +47,7 @@ mod filepicker;
 mod macts;
 mod online;
 mod palette;
+mod profiles;
 mod rawlogs;
 mod repomanager;
 mod setup;
@@ -1242,6 +1243,9 @@ impl SysInspectUX {
             || self.setup_wizard.visible
             || self.file_picker.visible
             || self.repo_manager.visible
+            || self.repo_manager.profiles.detail_visible
+            || self.repo_manager.profiles.create_visible
+            || self.repo_manager.profiles.delete_visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1763,10 +1767,20 @@ impl SysInspectUX {
                 let checked: Vec<_> = self.repo_manager.staged.iter().filter(|m| m.checked).cloned().collect();
                 if checked.is_empty() {
                     self.error_alert_visible = true;
-                    self.error_alert_message = "No modules selected".to_string();
+                    self.error_alert_message = "No items selected".to_string();
                 } else {
                     self.repo_manager.exit_staging();
-                    self.bulk_add_modules(checked);
+                    match self.repo_manager.staging_mode {
+                        repomanager::StagingMode::ProfileModuleAdd => {
+                            self.bulk_add_profile_matches(checked, false);
+                        }
+                        repomanager::StagingMode::ProfileLibraryAdd => {
+                            self.bulk_add_profile_matches(checked, true);
+                        }
+                        _ => {
+                            self.bulk_add_modules(checked);
+                        }
+                    }
                 }
             }
             if self.repo_manager.bulk_delete_triggered {
@@ -1779,6 +1793,12 @@ impl SysInspectUX {
                     self.repo_manager.exit_staging();
                     self.bulk_delete_modules(&checked);
                 }
+            }
+            if !self.repo_manager.staging
+                && matches!(self.repo_manager.staging_mode, repomanager::StagingMode::ProfileModuleAdd | repomanager::StagingMode::ProfileLibraryAdd)
+            {
+                self.repo_manager.profiles.detail_visible = true;
+                self.status_at_profiles();
             }
             return handled;
         }
@@ -1820,10 +1840,107 @@ impl SysInspectUX {
             }
             return true;
         }
-        let total_count = if self.repo_manager.active_tab == 1 { self.repo_filtered_lib_count() } else { self.repo_filtered_count() };
+        // Profile-specific overlays (tab 2)
+        if self.repo_manager.active_tab == 2 {
+            if self.repo_manager.profiles.delete_visible {
+                let handled = self.repo_manager.profiles.handle_delete_key(e.code);
+                if !handled && e.code == KeyCode::Enter {
+                    if self.repo_manager.profiles.delete_focus == profiles::ProfDeleteFocus::YesBtn {
+                        let name = self.repo_manager.profiles.delete_name.clone();
+                        let _ = self.do_profile_delete(&name);
+                        self.repo_manager.profiles.delete_visible = false;
+                        self.status_at_profiles();
+                    } else {
+                        self.repo_manager.profiles.delete_visible = false;
+                        self.status_at_profiles();
+                    }
+                }
+                return true;
+            }
+            if self.repo_manager.profiles.create_visible {
+                let handled = self.repo_manager.profiles.handle_create_key(e.code);
+                if !handled && e.code == KeyCode::Enter {
+                    match self.repo_manager.profiles.create_focus {
+                        profiles::ProfCreateFocus::CreateBtn => {
+                            let name = self.repo_manager.profiles.create_input.value().to_string();
+                            if !name.is_empty() {
+                                let _ = self.do_profile_create(&name);
+                            }
+                            self.repo_manager.profiles.create_visible = false;
+                            self.status_at_profiles();
+                        }
+                        profiles::ProfCreateFocus::CancelBtn => {
+                            self.repo_manager.profiles.create_visible = false;
+                            self.status_at_profiles();
+                        }
+                        _ => {}
+                    }
+                }
+                return true;
+            }
+            if self.repo_manager.profiles.detail_visible {
+                let handled = self.repo_manager.profiles.handle_detail_key(e.code);
+                if !handled {
+                    match e.code {
+                        KeyCode::Enter => match self.repo_manager.profiles.detail_focus {
+                            profiles::ProfDetailFocus::AddModuleBtn => {
+                                self.repo_manager.enter_profile_module_staging();
+                            }
+                            profiles::ProfDetailFocus::AddLibraryBtn => {
+                                self.repo_manager.enter_profile_library_staging();
+                            }
+                            profiles::ProfDetailFocus::CloseBtn => {
+                                self.repo_manager.profiles.detail_visible = false;
+                                self.status_at_profiles();
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Char('d') | KeyCode::Delete => {
+                            let name = self.repo_manager.profiles.detail_name.clone();
+                            match self.repo_manager.profiles.detail_focus {
+                                profiles::ProfDetailFocus::Modules => {
+                                    if let Some(m) = self.repo_manager.profiles.detail_selected_module() {
+                                        let sel = m.selector.clone();
+                                        let _ = self.do_profile_remove_match(&name, &sel, false);
+                                        if let Ok((mods, libs)) = self.load_profile_detail(&name) {
+                                            self.repo_manager.profiles.enter_detail(name, mods, libs);
+                                        }
+                                    }
+                                }
+                                profiles::ProfDetailFocus::Libraries => {
+                                    if let Some(l) = self.repo_manager.profiles.detail_selected_library() {
+                                        let sel = l.selector.clone();
+                                        let _ = self.do_profile_remove_match(&name, &sel, true);
+                                        if let Ok((mods, libs)) = self.load_profile_detail(&name) {
+                                            self.repo_manager.profiles.enter_detail(name, mods, libs);
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                            self.status_at_profiles();
+                        }
+                        _ => {}
+                    }
+                }
+                return true;
+            }
+        }
+        let total_count = if self.repo_manager.active_tab == 2 {
+            self.repo_manager.profiles.filtered_count(self.repo_manager.filter.value())
+        } else if self.repo_manager.active_tab == 1 {
+            self.repo_filtered_lib_count()
+        } else {
+            self.repo_filtered_count()
+        };
         let max_cursor = total_count.saturating_sub(1);
-        let cursor_ref: &mut usize =
-            if self.repo_manager.active_tab == 1 { &mut self.repo_manager.lib_cursor } else { &mut self.repo_manager.cursor };
+        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 2 {
+            &mut self.repo_manager.profiles.cursor
+        } else if self.repo_manager.active_tab == 1 {
+            &mut self.repo_manager.lib_cursor
+        } else {
+            &mut self.repo_manager.cursor
+        };
         let page = 10usize;
         match e.code {
             KeyCode::Esc => {
@@ -1835,32 +1952,75 @@ impl SysInspectUX {
                 self.repo_manager.active_tab = self.repo_manager.active_tab.saturating_sub(1);
                 self.repo_manager.cursor = 0;
                 self.repo_manager.lib_cursor = 0;
+                self.repo_manager.profiles.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
+                }
+                if self.repo_manager.active_tab == 2 {
+                    let _ = self.load_profile_list();
                 }
             }
             KeyCode::Right => {
                 self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(2);
                 self.repo_manager.cursor = 0;
                 self.repo_manager.lib_cursor = 0;
+                self.repo_manager.profiles.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
                 }
+                if self.repo_manager.active_tab == 2 {
+                    let _ = self.load_profile_list();
+                }
             }
             KeyCode::Up => {
-                *cursor_ref = cursor_ref.saturating_sub(1);
+                if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else {
+                    *cursor_ref = cursor_ref.saturating_sub(1);
+                }
             }
             KeyCode::Down => {
-                *cursor_ref = (*cursor_ref + 1).min(max_cursor);
+                if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else {
+                    *cursor_ref = (*cursor_ref + 1).min(max_cursor);
+                }
             }
             KeyCode::PageUp => {
-                *cursor_ref = cursor_ref.saturating_sub(page);
+                if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else {
+                    *cursor_ref = cursor_ref.saturating_sub(page);
+                }
             }
             KeyCode::PageDown => {
-                *cursor_ref = (*cursor_ref + page).min(max_cursor);
+                if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else {
+                    *cursor_ref = (*cursor_ref + page).min(max_cursor);
+                }
             }
             KeyCode::Enter => {
-                if self.repo_manager.active_tab == 1 {
+                if self.repo_manager.active_tab == 2 {
+                    let name = match self.repo_manager.profiles.selected_profile_name() {
+                        Some(n) => n.to_string(),
+                        None => return true,
+                    };
+                    match self.load_profile_detail(&name) {
+                        Ok((modules, libraries)) => {
+                            self.repo_manager.profiles.enter_detail(name, modules, libraries);
+                            self.status_at_profiles();
+                        }
+                        Err(e) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = e;
+                        }
+                    }
+                } else if self.repo_manager.active_tab == 1 {
                     if !self.repo_manager.lib_rows.is_empty() {
                         self.repo_manager.info_visible = true;
                         self.repo_manager.info_row = self.repo_manager.lib_cursor;
@@ -1879,7 +2039,12 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Delete => {
-                if !self.repo_manager.rows.is_empty() {
+                if self.repo_manager.active_tab == 2 {
+                    if let Some(name) = self.repo_manager.profiles.selected_profile_name() {
+                        self.repo_manager.profiles.open_delete(name.to_string());
+                        self.status_at_profiles();
+                    }
+                } else if !self.repo_manager.rows.is_empty() {
                     self.repo_manager.delete_mode = true;
                     self.repo_manager.staged = self
                         .repo_manager
@@ -1899,12 +2064,22 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                let mode = if self.repo_manager.active_tab == 1 { filepicker::PickerMode::LibrarySelector } else { filepicker::PickerMode::Any };
-                self.file_picker.open(&std::env::current_dir().unwrap_or_default(), mode);
+                if self.repo_manager.active_tab == 2 {
+                    self.repo_manager.profiles.open_create();
+                    self.status_at_profiles();
+                } else {
+                    let mode = if self.repo_manager.active_tab == 1 { filepicker::PickerMode::LibrarySelector } else { filepicker::PickerMode::Any };
+                    self.file_picker.open(&std::env::current_dir().unwrap_or_default(), mode);
+                }
             }
             KeyCode::Char('l') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.error_alert_visible = true;
-                self.error_alert_message = "Not implemented yet".to_string();
+                if self.repo_manager.active_tab == 2 {
+                    self.repo_manager.profiles.open_create();
+                    self.status_at_profiles();
+                } else {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Not implemented yet".to_string();
+                }
             }
             KeyCode::Tab => {
                 self.repo_manager.filter_focus = true;
@@ -1925,6 +2100,121 @@ impl SysInspectUX {
     fn repo_filtered_lib_count(&self) -> usize {
         let f = self.repo_manager.filter.value().to_lowercase();
         self.repo_manager.lib_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.kind.to_lowercase().contains(&f)).count()
+    }
+
+    fn call_profile_rpc(&self, context: &str) -> Result<ConsolePayload, String> {
+        let ctx = context.to_string();
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), "*", None, None, Some(&ctx)).await })
+        })
+        .map_err(|e| format!("Profile RPC failed: {e}"))?;
+        Ok(resp.payload)
+    }
+
+    fn load_profile_list(&mut self) -> Result<(), String> {
+        let payload = self.call_profile_rpc(r#"{"op":"list"}"#)?;
+        match payload {
+            ConsolePayload::StringList { items } => {
+                self.repo_manager.profiles.profiles = items;
+                self.repo_manager.profiles.cursor = 0;
+                Ok(())
+            }
+            _ => Err("Unexpected console payload for profile list".to_string()),
+        }
+    }
+
+    fn load_profile_detail(&mut self, name: &str) -> Result<(Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedLibrary>), String> {
+        let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
+        let payload_mods = self.call_profile_rpc(&ctx_mods)?;
+        let module_selectors = match payload_mods {
+            ConsolePayload::StringList { items } => items,
+            _ => return Err("Unexpected payload for profile module selectors".to_string()),
+        };
+
+        let ctx_libs = serde_json::json!({"op": "list", "name": name, "library": true}).to_string();
+        let payload_libs = self.call_profile_rpc(&ctx_libs)?;
+        let library_selectors = match payload_libs {
+            ConsolePayload::StringList { items } => items,
+            _ => return Err("Unexpected payload for profile library selectors".to_string()),
+        };
+
+        let resolved_modules: Vec<profiles::ResolvedModule> = module_selectors
+            .iter()
+            .flat_map(|sel| {
+                self.repo_manager
+                    .rows
+                    .iter()
+                    .filter(|r| glob::Pattern::new(sel).is_ok_and(|p| p.matches(&r.name)))
+                    .map(|r| profiles::ResolvedModule {
+                        name: r.name.clone(),
+                        version: r.version.clone().unwrap_or_default(),
+                        descr: r.descr.clone(),
+                        selector: sel.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let resolved_libraries: Vec<profiles::ResolvedLibrary> = library_selectors
+            .iter()
+            .flat_map(|sel| {
+                self.repo_manager
+                    .lib_rows
+                    .iter()
+                    .filter(|r| glob::Pattern::new(sel).is_ok_and(|p| p.matches(&r.name)))
+                    .map(|r| profiles::ResolvedLibrary {
+                        name: r.name.clone(),
+                        kind: r.kind.clone(),
+                        checksum: r.checksum.clone(),
+                        selector: sel.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        Ok((resolved_modules, resolved_libraries))
+    }
+
+    fn do_profile_create(&mut self, name: &str) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "new", "name": name}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        self.load_profile_list()?;
+        Ok(())
+    }
+
+    fn do_profile_delete(&mut self, name: &str) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "delete", "name": name}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        self.load_profile_list()?;
+        Ok(())
+    }
+
+    fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        Ok(())
+    }
+
+    fn do_profile_remove_match(&mut self, name: &str, selector: &str, library: bool) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "remove", "name": name, "matches": [selector], "library": library}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        Ok(())
+    }
+
+    fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool) {
+        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+        let _ = self.do_profile_add_matches(&self.repo_manager.profiles.detail_name.clone(), names, library);
+        let name = self.repo_manager.profiles.detail_name.clone();
+        match self.load_profile_detail(&name) {
+            Ok((modules, libraries)) => {
+                self.repo_manager.profiles.enter_detail(name, modules, libraries);
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = e;
+            }
+        }
     }
 
     fn load_library_index(&mut self) -> Result<(), String> {
