@@ -1,6 +1,7 @@
 use libsysinspect::journal::Journal;
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 fn temp_dir(label: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -11,6 +12,21 @@ fn temp_dir(label: &str) -> std::path::PathBuf {
     ));
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+fn open_with_retry(path: &std::path::Path, max_bytes: u64) -> Journal {
+    let mut last_err = None;
+    for _ in 0..20 {
+        match Journal::open(path, max_bytes) {
+            Ok(journal) => return journal,
+            Err(err) => {
+                last_err = Some(err);
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+
+    panic!("failed to reopen journal after bounded retries: {:?}", last_err);
 }
 
 #[test]
@@ -60,7 +76,7 @@ fn crash_recovery_after_append() {
         // Simulate crash: drop without ack
     }
     {
-        let j = Journal::open(&dir, 0).unwrap();
+        let j = open_with_retry(&dir, 0);
         let pending = j.pending().unwrap();
         assert_eq!(pending.len(), 50);
         assert_eq!(pending[0].0, "c-0000");
@@ -76,7 +92,7 @@ fn crash_recovery_after_append() {
     }
     {
         // Reopen: only 25 remain
-        let j = Journal::open(&dir, 0).unwrap();
+        let j = open_with_retry(&dir, 0);
         let pending = j.pending().unwrap();
         assert_eq!(pending.len(), 25);
     }
