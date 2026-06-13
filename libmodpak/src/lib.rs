@@ -1378,4 +1378,11 @@ impl SysInspectModPak {
 
         Ok(())
     }
+
+    /// Remove a single module entry for a specific platform and architecture.
+    pub fn remove_module_single(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
+        self.idx.remove_module(name, platform, arch)?;
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
+        Ok(())
+    }
 }

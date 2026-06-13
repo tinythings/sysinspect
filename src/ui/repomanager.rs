@@ -12,12 +12,13 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph, StatefulWidget, Tabs, Widget},
 };
 use ratatui_cheese::input::{Input, InputState, InputStyles};
-use ratatui_glamour::color::blend_2d;
+use ratatui_glamour::color::{blend_2d, lerp_color};
 use ratatui_glamour::rule::dashed_title;
 use std::{
     cell::Cell,
     sync::{Arc, Mutex},
 };
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone)]
 pub struct StagedModule {
@@ -102,19 +103,23 @@ impl Default for RepoManager {
     fn default() -> Self {
         Self {
             visible: false,
-            rows: Vec::new(),
-            cursor: 0,
-            scroll: Cell::new(0),
+            module_groups: IndexMap::new(),
+            group_order: Vec::new(),
+            group_cursor: 0,
+            group_cursor_row: 0,
+            group_expanded: Vec::new(),
+            group_scrolls: IndexMap::new(),
             staging: false,
             staged: Vec::new(),
             staging_cursor: 0,
             staging_scroll: Cell::new(0),
             staging_focus: StagingFocus::List,
             staging_mode: StagingMode::ModuleAdd,
+            delete_mode: false,
+            cross_platform_delete: false,
             progress: Arc::new(Mutex::new(None)),
             bulk_add_triggered: false,
             bulk_delete_triggered: false,
-            delete_mode: false,
             needs_reload: false,
             filter: InputState::new(),
             filter_focus: false,
@@ -145,19 +150,54 @@ impl RepoManager {
     pub fn exit_staging(&mut self) {
         self.staging = false;
         self.delete_mode = false;
+        self.cross_platform_delete = false;
         self.staged.clear();
+    }
+
+    pub fn focused_module(&self) -> Option<&ConsoleModuleRow> {
+        if self.group_cursor_row == 0 { return None; }
+        let key = self.group_order.get(self.group_cursor)?;
+        self.module_groups.get(key)?.get(self.group_cursor_row - 1)
+    }
+
+    pub fn focused_group_modules(&self) -> Option<&Vec<ConsoleModuleRow>> {
+        let key = self.group_order.get(self.group_cursor)?;
+        self.module_groups.get(key)
+    }
+
+    pub fn focused_group_name(&self) -> Option<&str> {
+        self.group_order.get(self.group_cursor).map(|s| s.as_str())
+    }
+
+    pub fn filtered_module_count(&self, filter_value: &str) -> usize {
+        let f = filter_value.to_lowercase();
+        self.module_groups
+            .values()
+            .flat_map(|g| g.iter())
+            .filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f))
+            .count()
+    }
+
+    pub fn focused_module_for_info(&self) -> Option<&ConsoleModuleRow> {
+        let key = self.group_order.get(self.group_cursor)?;
+        // info_row is 1-indexed (0 = header)
+        if self.info_row == 0 { return None; }
+        self.module_groups.get(key)?.get(self.info_row - 1)
     }
 
     pub fn enter_profile_module_staging(&mut self) {
         self.staged = self
-            .rows
-            .iter()
+            .module_groups
+            .values()
+            .flat_map(|g| g.iter())
             .map(|r| StagedModule {
                 name: r.name.clone(),
                 version: r.version.clone(),
                 descr: r.descr.clone(),
                 path: std::path::PathBuf::new(),
                 checked: false,
+                platform: Some(r.platform.clone()),
+                arch: Some(r.arch.clone()),
             })
             .collect();
         self.staging_cursor = 0;
@@ -179,6 +219,8 @@ impl RepoManager {
                 descr: r.checksum.clone(),
                 path: std::path::PathBuf::new(),
                 checked: false,
+                platform: None,
+                arch: None,
             })
             .collect();
         self.staging_cursor = 0;
@@ -202,7 +244,8 @@ impl RepoManager {
                 use StagingFocus::*;
                 self.staging_focus = match self.staging_focus {
                     List => AddSelected,
-                    AddSelected => Cancel,
+                    AddSelected => if self.delete_mode { CrossPlatformDelete } else { Cancel },
+                    CrossPlatformDelete => Cancel,
                     Cancel => List,
                 };
             }
@@ -211,8 +254,12 @@ impl RepoManager {
                 self.staging_focus = match self.staging_focus {
                     List => Cancel,
                     AddSelected => List,
-                    Cancel => AddSelected,
+                    Cancel => if self.delete_mode { CrossPlatformDelete } else { AddSelected },
+                    CrossPlatformDelete => AddSelected,
                 };
+            }
+            crossterm::event::KeyCode::Char(' ') if self.staging_focus == StagingFocus::CrossPlatformDelete => {
+                self.cross_platform_delete = !self.cross_platform_delete;
             }
             crossterm::event::KeyCode::Up if self.staging_focus == StagingFocus::List => {
                 self.staging_cursor = self.staging_cursor.saturating_sub(1);
@@ -385,7 +432,7 @@ impl RepoManager {
             return;
         }
 
-        let list_height = inner.height.saturating_sub(btn_height);
+        let list_height = inner.height.saturating_sub(btn_height).saturating_sub(if self.delete_mode { 1 } else { 0 });
 
         let name_w: u16 = 28;
         let ver_w: u16 = 6;
@@ -453,8 +500,30 @@ impl RepoManager {
             }
         }
 
+        // Cross-platform delete checkbox
+        if self.delete_mode {
+            let chk_y = inner.y + list_height + 1;
+            let (chk, chk_style) = if self.cross_platform_delete {
+                ("▣", Style::default().fg(palette::SUCCESS))
+            } else {
+                ("□", Style::default().fg(palette::GRAY_1))
+            };
+            let chk_text = " Delete across all platforms";
+            let sel = self.staging_focus == StagingFocus::CrossPlatformDelete;
+            if sel {
+                for cx in 0..inner.width {
+                    if let Some(cell) = buf.cell_mut(Position::new(inner.x + cx, chk_y)) {
+                        cell.set_bg(palette::HIGHLIGHT);
+                    }
+                }
+            }
+            let row_style = if sel { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::FG) };
+            buf.set_string(inner.x + 1, chk_y, chk, if sel { row_style } else { chk_style });
+            buf.set_string(inner.x + 5, chk_y, chk_text, row_style);
+        }
+
         // Buttons
-        let btn_y = inner.y + list_height + 1;
+        let btn_y = inner.y + list_height + (if self.delete_mode { 2 } else { 1 });
         let action_label = if self.delete_mode { "[ Delete ]" } else { "[ Add Selected ]" };
         let cancel_label = "[ Cancel ]";
         let action_w = action_label.len() as u16;
@@ -544,75 +613,105 @@ impl RepoManager {
             .try_into()
             .unwrap();
         Self::render_filter_row(filter_area, buf, self.filter_focus, &self.filter);
-        let name_w: u16 = 28;
-        let ver_w: u16 = 6;
-        if self.rows.is_empty() {
+
+        if self.module_groups.is_empty() {
             let msg = "(no modules found)";
             let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
             let y = list_area.y + list_area.height / 2;
             buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
             return;
         }
+
         let flt = self.filter.value().to_lowercase();
-        let filtered: Vec<(usize, &ConsoleModuleRow)> = self
-            .rows
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| flt.is_empty() || r.name.to_lowercase().contains(&flt) || r.descr.to_lowercase().contains(&flt))
-            .collect();
-        let view_h = list_area.height as usize;
-        let total = filtered.len();
-        let max_scroll = total.saturating_sub(view_h);
-        let mut s = self.scroll.get();
-        let cursor = self.cursor.min(total.saturating_sub(1));
-        if cursor < s {
-            s = cursor;
-        }
-        if cursor >= s + view_h {
-            s = cursor.saturating_sub(view_h.saturating_sub(1));
-        }
-        s = s.min(max_scroll);
-        self.scroll.set(s);
-        if total == 0 {
-            let msg = "(no matches)";
-            let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
-            let y = list_area.y + list_area.height / 2;
-            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
-            return;
-        }
-        let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
-        for i in 0..view_h.min(total.saturating_sub(s)) {
-            let fi = s + i;
-            let (_oi, row) = filtered[fi];
-            let ry = list_area.y + i as u16;
-            let sel = !self.filter_focus && fi == cursor;
-            let row_style = if sel { hl } else { Style::default().fg(palette::FG) };
-            if sel {
-                for cx in 0..list_area.width {
-                    if let Some(cell) = buf.cell_mut(Position::new(list_area.x + cx, ry)) {
-                        cell.set_bg(palette::HIGHLIGHT);
-                    }
+        let name_w: u16 = 28;
+        let ver_w: u16 = 6;
+        let mut row_y = list_area.y;
+        let preview_rows: usize = 3;
+
+        for (gi, key) in self.group_order.iter().enumerate() {
+            if row_y >= list_area.bottom() { break; }
+            let modules = match self.module_groups.get(key) { Some(m) => m, None => continue };
+            let filtered: Vec<&ConsoleModuleRow> = modules.iter()
+                .filter(|r| flt.is_empty() || r.name.to_lowercase().contains(&flt) || r.descr.to_lowercase().contains(&flt))
+                .collect();
+            let count = filtered.len();
+            let expanded = self.group_expanded.get(gi).copied().unwrap_or(false);
+            let chevron = if expanded { "▼" } else { "▶" };
+            let focused = !self.filter_focus && gi == self.group_cursor;
+            let header_fg = if focused { palette::HIGHLIGHT } else { palette::MUTED };
+            let count_text = format!(" ({count})");
+
+            // Header row
+            buf.set_string(list_area.x + 1, row_y, chevron, Style::default().fg(header_fg).add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }));
+            let label = format!(" {key}{count_text} ");
+            buf.set_string(list_area.x + 4, row_y, &label, Style::default().fg(header_fg).add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }));
+            let label_w = UnicodeWidthStr::width(label.as_str()) as u16;
+            let fill_start = list_area.x + 4 + label_w;
+            let fill_end = list_area.right().saturating_sub(1);
+            for fx in fill_start..fill_end {
+                if let Some(cell) = buf.cell_mut(Position::new(fx, row_y)) {
+                    let t = if fill_end > fill_start + 1 {
+                        (fx - fill_start) as f32 / (fill_end - fill_start).saturating_sub(1) as f32
+                    } else { 0.0 };
+                    let color = lerp_color(palette::PRIMARY, palette::PROCESSING_DIMMED, t);
+                    cell.set_char('/');
+                    cell.set_fg(color);
                 }
             }
-            buf.set_string(list_area.x + 1, ry, format!(" {}", truncate_str(&row.name, name_w as usize)), row_style);
-            let ver_style = if sel { row_style } else { Style::default().fg(palette::HIGHLIGHT) };
-            buf.set_string(list_area.x + 1 + name_w + 1, ry, truncate_str(row.version.as_deref().unwrap_or("—"), ver_w as usize), ver_style);
-            let desc_style = if sel { row_style } else { Style::default().fg(palette::GRAY_1) };
-            let desc_x = list_area.x + 1 + name_w + 1 + ver_w + 1;
-            let max_desc = (list_area.width.saturating_sub(name_w + ver_w + 3)) as usize;
-            buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
-        }
-        if total > view_h {
-            let bh = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
-            let by = ((s as f64 / total as f64) * (view_h - bh) as f64) as usize;
-            for i in 0..view_h {
-                let sx = list_area.right().saturating_sub(1);
-                let sy = list_area.y + i as u16;
-                if i >= by && i < by + bh {
-                    buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
-                } else {
-                    buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+            row_y += 1;
+            if row_y >= list_area.bottom() { break; }
+
+            if expanded {
+                // Expanded: show all rows with scrollbar
+                let remaining = (list_area.bottom().saturating_sub(row_y)) as usize;
+                if remaining == 0 { continue; }
+                let view_h = remaining.min(count);
+                let total = filtered.len();
+                let max_scroll = total.saturating_sub(view_h);
+                let mut s = self.group_scrolls.get(key).map(|c| c.get()).unwrap_or(0).min(max_scroll);
+                let cursor_in_group = if focused && gi == self.group_cursor && self.group_cursor_row > 0 {
+                    Some(self.group_cursor_row - 1)  // 1-indexed → 0-indexed
+                } else { None };
+                if let Some(c) = cursor_in_group {
+                    if c < s { s = c; }
+                    if c >= s + view_h { s = c.saturating_sub(view_h.saturating_sub(1)); }
+                    s = s.min(max_scroll);
                 }
+                if let Some(cell) = self.group_scrolls.get(key) { cell.set(s); }
+                self.render_module_rows(list_area, &filtered, s, view_h, row_y, focused, cursor_in_group, name_w, ver_w, buf);
+                if total > view_h {
+                    self.draw_scrollbar(buf, Rect { x: list_area.x, y: row_y, width: list_area.width, height: view_h as u16 }, s, total, view_h);
+                }
+                row_y += view_h as u16;
+            } else if count > 0 {
+                // Collapsed: show preview rows + summary
+                let show = preview_rows.min(count);
+                let cursor_in_group = if focused && gi == self.group_cursor && self.group_cursor_row > 0 && self.group_cursor_row <= preview_rows {
+                    Some(self.group_cursor_row - 1)
+                } else { None };
+                for i in 0..show {
+                    if row_y >= list_area.bottom() { break; }
+                    if let Some(row) = filtered.get(i) {
+                        render_module_row(list_area, row_y, row, focused && cursor_in_group == Some(i), name_w, ver_w, buf);
+                    }
+                    row_y += 1;
+                }
+                if count > preview_rows && row_y < list_area.bottom() {
+                    let more = format!("  ({more})...", more = count - preview_rows);
+                    buf.set_string(list_area.x + 1, row_y, &more, Style::default().fg(palette::MUTED));
+                    row_y += 1;
+                }
+            }
+            // Empty group with 0 modules: just the header, no rows
+        }
+    }
+
+    fn render_module_rows(&self, area: Rect, filtered: &[&ConsoleModuleRow], offset: usize, view_h: usize, start_y: u16, focused: bool, cursor: Option<usize>, name_w: u16, ver_w: u16, buf: &mut Buffer) {
+        for i in 0..view_h {
+            let idx = offset + i;
+            let ry = start_y + i as u16;
+            if let Some(row) = filtered.get(idx) {
+                render_module_row(area, ry, row, focused && cursor == Some(idx), name_w, ver_w, buf);
             }
         }
     }
@@ -781,7 +880,7 @@ impl RepoManager {
     }
 
     fn render_module_info(&self, parent: Rect, buf: &mut Buffer) {
-        let row = match self.rows.get(self.info_row) {
+        let row = match self.focused_module_for_info() {
             Some(r) => r,
             None => return,
         };
@@ -815,7 +914,7 @@ impl RepoManager {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: format!(" {} ", row.name), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
+            &[TitleSegment { text: format!(" {} ({} {}) ", row.name, row.platform, row.arch), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
         );
 
         if inner.height < 4 {
@@ -1233,6 +1332,28 @@ fn render_markup_spans(input: &str) -> ratatui::text::Line<'static> {
         spans.push(Span::raw(""));
     }
     ratatui::text::Line::from(spans)
+}
+
+fn render_module_row(area: Rect, ry: u16, row: &ConsoleModuleRow, sel: bool, name_w: u16, ver_w: u16, buf: &mut Buffer) {
+    let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
+    let fg = Style::default().fg(palette::FG);
+    let ver_fg = Style::default().fg(palette::HIGHLIGHT);
+    let desc_fg = Style::default().fg(palette::GRAY_1);
+    let row_style = if sel { hl } else { fg };
+    if sel {
+        for cx in 0..area.width {
+            if let Some(cell) = buf.cell_mut(Position::new(area.x + cx, ry)) {
+                cell.set_bg(palette::HIGHLIGHT);
+            }
+        }
+    }
+    buf.set_string(area.x + 1, ry, format!(" {}", truncate_str(&row.name, name_w as usize)), row_style);
+    let ver_style = if sel { row_style } else { ver_fg };
+    buf.set_string(area.x + 1 + name_w + 1, ry, truncate_str(row.version.as_deref().unwrap_or("—"), ver_w as usize), ver_style);
+    let desc_style = if sel { row_style } else { desc_fg };
+    let desc_x = area.x + 1 + name_w + 1 + ver_w + 1;
+    let max_desc = (area.width.saturating_sub(name_w + ver_w + 3)) as usize;
+    buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
 }
 
 fn truncate_str(s: &str, max_w: usize) -> String {

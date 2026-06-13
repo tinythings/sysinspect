@@ -1752,10 +1752,31 @@ impl SysInspectUX {
         })
         .map_err(|e| format!("Failed to get module index: {e}"))?;
         match resp.payload {
-            ConsolePayload::MasterModuleIndex { mut rows } => {
-                rows.sort_by(|a, b| a.name.cmp(&b.name));
-                self.repo_manager.rows = rows;
-                self.repo_manager.cursor = 0;
+            ConsolePayload::MasterModuleIndex { rows } => {
+                let mut groups: IndexMap<String, Vec<ConsoleModuleRow>> = IndexMap::new();
+                for row in rows {
+                    let key = format!("{} {}", row.platform, row.arch);
+                    groups.entry(key).or_default().push(row);
+                }
+                // Merge platforms with no modules from the platform build list
+                if let Ok(repo) = SysInspectModPak::new(self.cfg.fileserver_root().join("repo")) {
+                    for build in repo.minion_builds() {
+                        let key = format!("{} {}", build.platform(), build.arch());
+                        groups.entry(key).or_default();
+                    }
+                }
+                let mut keys: Vec<String> = groups.keys().cloned().collect();
+                keys.sort();
+                for rows in groups.values_mut() {
+                    rows.sort_by(|a, b| a.name.cmp(&b.name));
+                }
+                let n = groups.len();
+                self.repo_manager.module_groups = groups;
+                self.repo_manager.group_order = keys;
+                self.repo_manager.group_cursor = 0;
+                self.repo_manager.group_cursor_row = 0;
+                self.repo_manager.group_expanded = vec![false; n];
+                self.repo_manager.group_scrolls.clear();
                 Ok(())
             }
             _ => Err("Unexpected console payload for module index".to_string()),
@@ -1791,13 +1812,18 @@ impl SysInspectUX {
             }
             if self.repo_manager.bulk_delete_triggered {
                 self.repo_manager.bulk_delete_triggered = false;
-                let checked: Vec<_> = self.repo_manager.staged.iter().filter(|m| m.checked).map(|m| m.name.clone()).collect();
+                let checked: Vec<_> = self.repo_manager.staged.iter().filter(|m| m.checked).cloned().collect();
                 if checked.is_empty() {
                     self.error_alert_visible = true;
                     self.error_alert_message = "No items selected".to_string();
                 } else {
                     self.repo_manager.exit_staging();
-                    self.bulk_delete_modules(&checked);
+                    if self.repo_manager.cross_platform_delete {
+                        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                        self.bulk_delete_modules(&names);
+                    } else {
+                        self.bulk_delete_single_platform(&checked);
+                    }
                 }
             }
             if !self.repo_manager.staging
@@ -1815,11 +1841,11 @@ impl SysInspectUX {
             match e.code {
                 KeyCode::Esc => {
                     self.repo_manager.filter_focus = false;
-                    self.repo_manager.cursor = 0;
+                    self.repo_manager.group_cursor_row = 0;
                 }
                 KeyCode::Down | KeyCode::Tab | KeyCode::BackTab => {
                     self.repo_manager.filter_focus = false;
-                    self.repo_manager.cursor = 0;
+                    self.repo_manager.group_cursor_row = 0;
                 }
                 KeyCode::Backspace => {
                     self.repo_manager.filter.delete_before();
@@ -1922,6 +1948,11 @@ impl SysInspectUX {
             self.repo_manager.profiles.filtered_count(self.repo_manager.filter.value())
         } else if self.repo_manager.active_tab == 1 {
             self.repo_filtered_lib_count()
+        } else if self.repo_manager.active_tab == 0 {
+            if let Some(rows) = self.repo_manager.focused_group_modules() {
+                let f = self.repo_manager.filter.value().to_lowercase();
+                rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f)).count()
+            } else { 0 }
         } else {
             self.repo_filtered_count()
         };
@@ -1932,8 +1963,10 @@ impl SysInspectUX {
             &mut self.repo_manager.profiles.cursor
         } else if self.repo_manager.active_tab == 1 {
             &mut self.repo_manager.lib_cursor
+        } else if self.repo_manager.active_tab == 0 {
+            &mut self.repo_manager.group_cursor_row
         } else {
-            &mut self.repo_manager.cursor
+            &mut self.repo_manager.group_cursor_row  // fallback for tab 0
         };
         let page = 10usize;
         match e.code {
@@ -1944,7 +1977,8 @@ impl SysInspectUX {
             }
             KeyCode::Left => {
                 self.repo_manager.active_tab = self.repo_manager.active_tab.saturating_sub(1);
-                self.repo_manager.cursor = 0;
+                self.repo_manager.group_cursor = 0;
+                self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
@@ -1960,7 +1994,8 @@ impl SysInspectUX {
             }
             KeyCode::Right => {
                 self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(3);
-                self.repo_manager.cursor = 0;
+                self.repo_manager.group_cursor = 0;
+                self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
@@ -1975,7 +2010,9 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Up => {
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 0 {
+                    self.move_module_up();
+                } else if self.repo_manager.active_tab == 2 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
                 } else if self.repo_manager.active_tab == 3 {
@@ -1985,7 +2022,9 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Down => {
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 0 {
+                    self.move_module_down();
+                } else if self.repo_manager.active_tab == 2 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
                 } else if self.repo_manager.active_tab == 3 {
@@ -1995,7 +2034,13 @@ impl SysInspectUX {
                 }
             }
             KeyCode::PageUp => {
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 0 {
+                    let n = self.repo_manager.group_order.len();
+                    if n > 0 {
+                        self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
+                        self.repo_manager.group_cursor_row = 0;
+                    }
+                } else if self.repo_manager.active_tab == 2 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
                 } else if self.repo_manager.active_tab == 3 {
@@ -2005,7 +2050,13 @@ impl SysInspectUX {
                 }
             }
             KeyCode::PageDown => {
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 0 {
+                    let n = self.repo_manager.group_order.len();
+                    if n > 0 {
+                        self.repo_manager.group_cursor = (self.repo_manager.group_cursor + 1) % n;
+                        self.repo_manager.group_cursor_row = 0;
+                    }
+                } else if self.repo_manager.active_tab == 2 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
                 } else if self.repo_manager.active_tab == 3 {
@@ -2032,6 +2083,21 @@ impl SysInspectUX {
                             self.error_alert_message = e;
                         }
                     }
+                } else if self.repo_manager.active_tab == 0 {
+                    if self.repo_manager.group_cursor_row == 0 {
+                        // Toggle expand/collapse on header
+                        let gc = self.repo_manager.group_cursor;
+                        if let Some(e) = self.repo_manager.group_expanded.get_mut(gc) {
+                            *e = !*e;
+                        }
+                    } else if self.repo_manager.focused_module().is_some() {
+                        self.repo_manager.info_visible = true;
+                        self.repo_manager.info_row = self.repo_manager.group_cursor_row;
+                        self.repo_manager.info_tab = 0;
+                        self.repo_manager.info_scroll.set(0);
+                        self.repo_manager.info_active_tab = 0;
+                        self.status_at_repo_manager();
+                    }
                 } else if self.repo_manager.active_tab == 1 {
                     if !self.repo_manager.lib_rows.is_empty() {
                         self.repo_manager.info_visible = true;
@@ -2041,13 +2107,6 @@ impl SysInspectUX {
                         self.repo_manager.info_active_tab = 1;
                         self.status_at_repo_manager();
                     }
-                } else if !self.repo_manager.rows.is_empty() {
-                    self.repo_manager.info_visible = true;
-                    self.repo_manager.info_row = self.repo_manager.cursor;
-                    self.repo_manager.info_tab = 0;
-                    self.repo_manager.info_scroll.set(0);
-                    self.repo_manager.info_active_tab = 0;
-                    self.status_at_repo_manager();
                 }
             }
             KeyCode::Delete => {
@@ -2072,28 +2131,37 @@ impl SysInspectUX {
                             descr: r.checksum.clone(),
                             path: std::path::PathBuf::new(),
                             checked: false,
+                            platform: None,
+                            arch: None,
                         })
                         .collect();
                     self.repo_manager.staging = true;
                     self.repo_manager.staging_cursor = 0;
                     self.repo_manager.staging_focus = repomanager::StagingFocus::List;
-                } else if !self.repo_manager.rows.is_empty() {
-                    self.repo_manager.delete_mode = true;
-                    self.repo_manager.staged = self
-                        .repo_manager
-                        .rows
-                        .iter()
-                        .map(|r| repomanager::StagedModule {
-                            name: r.name.clone(),
-                            version: r.version.clone(),
-                            descr: r.descr.clone(),
-                            path: std::path::PathBuf::new(),
-                            checked: false,
+                } else if self.repo_manager.active_tab == 0 {
+                    let staged_rows: Option<Vec<repomanager::StagedModule>> = {
+                        let rm = &self.repo_manager;
+                        rm.focused_group_modules().map(|rows| {
+                            rows.iter().map(|r| repomanager::StagedModule {
+                                name: r.name.clone(),
+                                version: r.version.clone(),
+                                descr: r.descr.clone(),
+                                path: std::path::PathBuf::new(),
+                                checked: false,
+                                platform: Some(r.platform.clone()),
+                                arch: Some(r.arch.clone()),
+                            }).collect()
                         })
-                        .collect();
-                    self.repo_manager.staging = true;
-                    self.repo_manager.staging_cursor = 0;
-                    self.repo_manager.staging_focus = repomanager::StagingFocus::List;
+                    };
+                    if let Some(rows) = staged_rows {
+                        self.repo_manager.delete_mode = true;
+                        self.repo_manager.cross_platform_delete = false;
+                        self.repo_manager.staged = rows;
+                        self.repo_manager.staging_mode = repomanager::StagingMode::ModuleDelete;
+                        self.repo_manager.staging = true;
+                        self.repo_manager.staging_cursor = 0;
+                        self.repo_manager.staging_focus = repomanager::StagingFocus::List;
+                    }
                 }
             }
             KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -2117,7 +2185,15 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Tab => {
-                self.repo_manager.filter_focus = true;
+                if self.repo_manager.active_tab == 0 {
+                    let n = self.repo_manager.group_order.len().max(1);
+                    let gc = self.repo_manager.group_cursor % n;
+                    if let Some(e) = self.repo_manager.group_expanded.get_mut(gc) {
+                        *e = !*e;
+                    }
+                } else {
+                    self.repo_manager.filter_focus = true;
+                }
             }
             KeyCode::Char('/') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.repo_manager.filter_focus = true;
@@ -2127,9 +2203,43 @@ impl SysInspectUX {
         true
     }
 
+    fn move_module_up(&mut self) {
+        if self.repo_manager.group_cursor_row > 0 {
+            self.repo_manager.group_cursor_row -= 1;
+        } else {
+            let n = self.repo_manager.group_order.len();
+            if n == 0 { return; }
+            self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
+            let gc = self.repo_manager.group_cursor;
+            if self.repo_manager.group_expanded.get(gc).copied().unwrap_or(false) {
+                if let Some(rows) = self.repo_manager.focused_group_modules() {
+                    self.repo_manager.group_cursor_row = rows.len();
+                } else {
+                    self.repo_manager.group_cursor_row = 0;
+                }
+            } else {
+                self.repo_manager.group_cursor_row = 0;
+            }
+        }
+    }
+
+    fn move_module_down(&mut self) {
+        let n = self.repo_manager.group_order.len();
+        if n == 0 { return; }
+        let gc = self.repo_manager.group_cursor % n;
+        if self.repo_manager.group_expanded.get(gc).copied().unwrap_or(false)
+            && let Some(rows) = self.repo_manager.focused_group_modules()
+            && self.repo_manager.group_cursor_row < rows.len()
+        {
+            self.repo_manager.group_cursor_row += 1;
+        } else {
+            self.repo_manager.group_cursor = (self.repo_manager.group_cursor + 1) % n;
+            self.repo_manager.group_cursor_row = 0;
+        }
+    }
+
     fn repo_filtered_count(&self) -> usize {
-        let f = self.repo_manager.filter.value().to_lowercase();
-        self.repo_manager.rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f)).count()
+        self.repo_manager.filtered_module_count(self.repo_manager.filter.value())
     }
 
     fn repo_filtered_lib_count(&self) -> usize {
@@ -2179,8 +2289,9 @@ impl SysInspectUX {
             .filter_map(|s| s.split_once(": ").map(|x| x.1))
             .flat_map(|sel| {
                 self.repo_manager
-                    .rows
-                    .iter()
+                    .module_groups
+                    .values()
+                    .flatten()
                     .filter(|r| glob::Pattern::new(sel).is_ok_and(|p| p.matches(&r.name)))
                     .map(|r| profiles::ResolvedModule {
                         name: r.name.clone(),
@@ -2315,7 +2426,8 @@ impl SysInspectUX {
                 self.error_alert_message = "No .spec files found in the selected directory".to_string();
             } else {
                 let total = staged.len();
-                Self::dedup_staged_modules(&self.repo_manager.rows, &mut staged);
+                let flat_modules: Vec<ConsoleModuleRow> = self.repo_manager.module_groups.values().flatten().cloned().collect();
+                Self::dedup_staged_modules(&flat_modules, &mut staged);
                 let skipped = total - staged.len();
                 if staged.is_empty() {
                     self.error_alert_visible = true;
@@ -2335,6 +2447,8 @@ impl SysInspectUX {
                     descr,
                     path: path.to_path_buf(),
                     checked: true,
+                    platform: None,
+                    arch: None,
                 }]);
             } else {
                 self.error_alert_visible = true;
@@ -2359,7 +2473,7 @@ impl SysInspectUX {
             let module_name = Self::read_spec_name(&spec).unwrap_or_else(|| dir_name.clone());
             let (version, descr) = Self::read_spec_version_descr(&spec);
             let bin = sub.join(&dir_name);
-            staged.push(repomanager::StagedModule { name: module_name, version, descr, path: if bin.exists() { bin } else { spec }, checked: true });
+            staged.push(repomanager::StagedModule { name: module_name, version, descr, path: if bin.exists() { bin } else { spec }, checked: true, platform: None, arch: None });
         }
         staged
     }
@@ -2448,6 +2562,28 @@ impl SysInspectUX {
         } else {
             let _ = self.load_module_index();
         }
+    }
+
+    fn bulk_delete_single_platform(&mut self, checked: &[repomanager::StagedModule]) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        for m in checked {
+            if let (Some(ref platform), Some(ref arch)) = (m.platform.as_ref(), m.arch.as_ref()) {
+                if let Err(e) = repo.remove_module_single(&m.name, platform, arch) {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Cannot remove module: {e}");
+                    return;
+                }
+            }
+        }
+        let _ = self.load_module_index();
     }
 
     fn process_library_add(&mut self, path: &std::path::Path) {
