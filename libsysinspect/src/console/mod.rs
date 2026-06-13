@@ -117,6 +117,58 @@ pub struct ConsoleMinionLogSnapshot {
     pub truncated: bool,
 }
 
+/// Raw logfile snapshot for the master's own standard and error logs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleMasterLogSnapshot {
+    pub standard_log: Vec<String>,
+    pub errors_log: Vec<String>,
+    pub standard_path: String,
+    pub errors_path: String,
+}
+
+/// One library entry in the master's repository index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleLibraryRow {
+    pub name: String,
+    pub checksum: String,
+    pub kind: String,
+}
+
+/// One argument/option of a module in the repository index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleModuleArgument {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argtype: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+/// One row in the master's module repository index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleModuleRow {
+    pub name: String,
+    pub platform: String,
+    pub arch: String,
+    pub subpath: String,
+    pub descr: String,
+    #[serde(rename = "type")]
+    pub mod_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manpage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<ConsoleModuleArgument>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opts: Option<Vec<ConsoleModuleArgument>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConsolePayload {
@@ -173,6 +225,21 @@ pub enum ConsolePayload {
     MinionLogs {
         /// Snapshot payload.
         snapshot: ConsoleMinionLogSnapshot,
+    },
+    /// Raw logfile snapshot for the master's own standard and error logs.
+    MasterLogs {
+        /// Snapshot payload.
+        snapshot: ConsoleMasterLogSnapshot,
+    },
+    /// Module repository index from the master.
+    MasterModuleIndex {
+        /// One row per indexed module.
+        rows: Vec<ConsoleModuleRow>,
+    },
+    /// Library repository index from the master.
+    MasterLibraryIndex {
+        /// One row per indexed library file.
+        rows: Vec<ConsoleLibraryRow>,
     },
     /// Available models discovered by the master.
     Models {

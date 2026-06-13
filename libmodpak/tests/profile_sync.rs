@@ -30,7 +30,7 @@ fn set_script_modules(root: &Path, modules: &[&str]) {
     };
     for module in modules {
         index
-            .index_module(module, &module.replace('.', "/"), "any", "noarch", "demo module", false, "deadbeef", None, None)
+            .index_module(module, &module.replace('.', "/"), "any", "noarch", "demo module", false, "deadbeef", None, None, None, None, None)
             .expect("module should index");
     }
     fs::write(root.join("mod.index"), index.to_yaml().expect("mod.index should serialize")).expect("mod.index should write");

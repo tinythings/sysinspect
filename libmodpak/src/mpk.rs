@@ -21,26 +21,30 @@ static RUNTIME_PREFIX: &str = "runtime";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModAttrs {
-    subpath: String,
-    descr: String,
+    pub subpath: String,
+    pub descr: String,
 
     #[serde(rename = "type")]
-    mod_type: String,
+    pub mod_type: String,
 
     #[serde(rename = "sha256")]
-    checksum: String,
+    pub checksum: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    args: Option<Vec<ModPackArgument>>,
+    pub args: Option<Vec<ModPackArgument>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    opts: Option<Vec<ModPackArgument>>,
+    pub opts: Option<Vec<ModPackArgument>>,
+
+    pub version: Option<String>,
+
+    pub author: Option<String>,
+
+    pub manpage: Option<String>,
 }
 
 impl ModAttrs {
     /// Creates a new ModAttrs with the given subpath, description, and type.
     pub fn new(subpath: String, descr: String, mod_type: String, checksum: String) -> Self {
-        Self { subpath, descr, mod_type, checksum, args: None, opts: None }
+        Self { subpath, descr, mod_type, checksum, args: None, opts: None, version: None, author: None, manpage: None }
     }
 
     /// Returns the subpath of the module.
@@ -345,15 +349,14 @@ impl ModPakProfile {
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModPakRepoIndex {
-    /// Platform -> Architecture -> Module name
-    /// e.g. "linux" -> "x86_64" -> "fs.file" -> key/value (name, descr, version etc)
-    platform: IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>>,
+    // Platform -> Architecture -> Module name
+    pub platform: IndexMap<String, IndexMap<String, IndexMap<String, ModAttrs>>>,
 
     /// Simply files. They are all the same on all minions for all platforms and architectures.
     /// Usually they are meant to be just Python scripts. Possibly .so files could be also
     /// there, but they have to be unique in naming for each platform/arch and linked
     /// accordingly.
-    library: IndexMap<String, ModPakRepoLibFile>,
+    pub library: IndexMap<String, ModPakRepoLibFile>,
 
     /// Statically linked sysminion builds grouped by platform and architecture.
     #[serde(default)]
@@ -415,7 +418,7 @@ impl ModPakRepoIndex {
     #[allow(clippy::too_many_arguments)]
     pub fn index_module(
         &mut self, name: &str, subpath: &str, platform: &str, arch: &str, descr: &str, bin: bool, checksum: &str, args: Option<Vec<ModPackArgument>>,
-        opts: Option<Vec<ModPackArgument>>,
+        opts: Option<Vec<ModPackArgument>>, version: Option<String>, author: Option<String>, manpage: Option<String>,
     ) -> Result<(), SysinspectError> {
         let attrs = ModAttrs {
             subpath: subpath.to_string(),
@@ -424,6 +427,9 @@ impl ModPakRepoIndex {
             checksum: checksum.to_string(),
             args,
             opts,
+            version,
+            author,
+            manpage,
         };
 
         self.platform.entry(platform.to_string()).or_default().entry(arch.to_string()).or_default().insert(name.to_string(), attrs);
@@ -614,17 +620,17 @@ impl ModPakRepoIndex {
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ModPackArgument {
-    name: String,
-    description: String,
+    pub name: String,
+    pub description: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    argtype: Option<String>, // data type: str, int, bool, float, list etc
+    pub argtype: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    required: Option<bool>,
+    pub required: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    default: Option<String>,
+    pub default: Option<String>,
 }
 
 impl ModPackArgument {
@@ -668,6 +674,9 @@ pub struct ModPakMetadata {
     arch: String,
     arguments: Vec<ModPackArgument>,
     options: Vec<ModPackArgument>,
+    version: Option<String>,
+    author: Option<String>,
+    manpage: Option<String>,
 }
 
 impl ModPakMetadata {
@@ -811,6 +820,31 @@ impl ModPakMetadata {
             ));
         }
 
+        // Version: from spec (mandatory) or --version CLI (mandatory when no spec)
+        let spec_exists = spec.exists();
+        if spec_exists {
+            if mi.version().is_empty() {
+                return Err(SysinspectError::InvalidModuleName("version is mandatory in the spec file".to_string()));
+            }
+            mpm.version = Some(mi.version().to_string());
+        } else if let Some(v) = matches.get_one::<String>("version") {
+            mpm.version = Some(v.clone());
+        } else {
+            return Err(SysinspectError::InvalidModuleName(
+                format!("Module version is required. Either add a spec file or use the {} option.", "--version".bright_yellow()).to_string(),
+            ));
+        }
+
+        // Author: spec only, optional
+        if spec_exists && !mi.author().is_empty() {
+            mpm.author = Some(mi.author().to_string());
+        }
+
+        // Manpage: spec only, optional
+        if spec_exists {
+            mpm.manpage = mi.manpage().map(|s| s.to_string());
+        }
+
         mpm.load_args(mi.arguments().to_vec());
         mpm.load_opts(mi.options().to_vec());
 
@@ -826,8 +860,44 @@ impl ModPakMetadata {
         Ok(mpm)
     }
 
+    /// Build metadata from a parsed spec and binary path (no CLI).
+    pub fn from_spec(spec: &ModInterface, path: std::path::PathBuf) -> Result<Self, SysinspectError> {
+        let mut mpm = ModPakMetadata {
+            path,
+            name: spec.name().to_string(),
+            descr: spec.description().to_string().replace('\n', " "),
+            version: if spec.version().is_empty() { None } else { Some(spec.version().to_string()) },
+            author: if spec.author().is_empty() { None } else { Some(spec.author().to_string()) },
+            manpage: spec.manpage().map(|s| s.to_string()),
+            ..Default::default()
+        };
+        mpm.load_args(spec.arguments().to_vec());
+        mpm.load_opts(spec.options().to_vec());
+
+        if mpm.name.is_empty() {
+            return Err(SysinspectError::InvalidModuleName("Module name is empty in spec".to_string()));
+        }
+        if mpm.descr.is_empty() {
+            return Err(SysinspectError::InvalidModuleName("Module description is empty in spec".to_string()));
+        }
+        mpm.validate_namespace()?;
+        Ok(mpm)
+    }
+
     pub(crate) fn get_descr(&self) -> &str {
         &self.descr
+    }
+
+    pub(crate) fn get_version(&self) -> Option<&str> {
+        self.version.as_deref()
+    }
+
+    pub(crate) fn get_author(&self) -> Option<&str> {
+        self.author.as_deref()
+    }
+
+    pub(crate) fn get_manpage(&self) -> Option<&str> {
+        self.manpage.as_deref()
     }
 }
 

@@ -1,7 +1,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
-    style::Color,
+    style::{Color, Modifier},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -9,6 +9,7 @@ pub struct TitleSegment {
     pub text: String,
     pub bg: Color,
     pub fg: Color,
+    pub modifier: Modifier,
 }
 
 pub struct TitleStyle {
@@ -78,7 +79,7 @@ pub fn overlay_gradient_title(buf: &mut Buffer, block_rect: Rect, style: &TitleS
             let available = x_end.saturating_sub(cx) as usize;
             let text = truncate_to_width(&seg.text, available);
             if !text.is_empty() {
-                cell_set_string_style(buf, cx, row_y, &text, seg.fg, seg.bg);
+                cell_set_string_style(buf, cx, row_y, &text, seg.fg, seg.bg, seg.modifier);
                 cx += UnicodeWidthStr::width(text.as_str()) as u16;
             }
         }
@@ -251,6 +252,6 @@ fn cell_set_symbol_style(buf: &mut Buffer, x: u16, y: u16, symbol: &str, fg: Col
     }
 }
 
-fn cell_set_string_style(buf: &mut Buffer, x: u16, y: u16, text: &str, fg: Color, bg: Color) {
-    buf.set_string(x, y, text, ratatui::style::Style::default().fg(fg).bg(bg));
+fn cell_set_string_style(buf: &mut Buffer, x: u16, y: u16, text: &str, fg: Color, bg: Color, modifier: Modifier) {
+    buf.set_string(x, y, text, ratatui::style::Style::default().fg(fg).bg(bg).add_modifier(modifier));
 }

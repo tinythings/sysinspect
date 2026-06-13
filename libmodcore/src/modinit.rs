@@ -248,6 +248,11 @@ impl ModInterface {
     pub fn arguments(&self) -> &[ModArgument] {
         &self.arguments
     }
+
+    /// Get optional manpage
+    pub fn manpage(&self) -> Option<&str> {
+        self.manpage.as_deref()
+    }
 }
 
 /// Include `mod_doc.yaml` from the project and embed it.

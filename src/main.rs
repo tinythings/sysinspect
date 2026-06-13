@@ -339,12 +339,18 @@ async fn main() {
         std::process::exit(0);
     }
 
-    // Get master config
+    // Get master config — for --ui, allow missing config (setup wizard handles it)
+    let is_ui = *params.get_one::<bool>("ui").unwrap_or(&false);
+    let config_found = get_cfg(&params).is_ok();
     let cfg = match get_cfg(&params) {
         Ok(cfg) => cfg,
         Err(err) => {
-            log::error!("Unable to get master configuration: {err}");
-            std::process::exit(1);
+            if is_ui {
+                libsysinspect::cfg::mmconf::MasterConfig::default()
+            } else {
+                log::error!("Unable to get master configuration: {err}");
+                std::process::exit(1);
+            }
         }
     };
 
@@ -515,17 +521,8 @@ async fn main() {
         print_event_handlers();
         return;
     } else if *params.get_one::<bool>("ui").unwrap_or(&false) {
-        if let Err(err) = ui::run(cfg).await {
-            let x = err.kind();
-            if x == ErrorKind::InvalidData {
-                println!(
-                    "Can't start the UI: {}.\nIs {} running and reachable?\n",
-                    err.to_string().bright_red(),
-                    "SysInspect Master".bright_yellow()
-                );
-            } else {
-                println!("Unexpected error: {}", err.to_string().bright_red())
-            }
+        if let Err(err) = ui::run(cfg, config_found).await {
+            println!("Unexpected error: {}", err.to_string().bright_red());
         }
         return;
     }

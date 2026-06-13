@@ -35,6 +35,16 @@ pub fn select_config_path(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
         return Ok(cfp);
     }
 
+    // Self-contained layout: ../etc/sysinspect.conf relative to binary
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(grandparent) = exe.parent().and_then(|p| p.parent())
+    {
+        let cfp = grandparent.join("etc").join(APP_CONF);
+        if cfp.exists() {
+            return Ok(cfp);
+        }
+    }
+
     // Dot-file
     let cfp = env::var_os("HOME").map(PathBuf::from).or_else(|| {
         #[cfg(unix)]

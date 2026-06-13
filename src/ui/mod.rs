@@ -1,4 +1,4 @@
-use crate::{MEM_LOGGER, call_master_console, ui::elements::DbListItem};
+use crate::{call_master_console, ui::elements::DbListItem};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
@@ -8,28 +8,33 @@ use libeventreg::{
     ipcc::DbIPCClient,
     kvdb::{EventData, EventMinion, EventSession},
 };
+use libmodcore::modinit::ModInterface;
+use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
-    console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleOnlineMinionRow, ConsolePayload},
+    console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
+    traits::os_display_name,
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS,
-        CLUSTER_ONLINE_MINIONS, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT,
+        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN,
+        CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Direction, Layout},
-    style::Style,
-    text::Line,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
+    text::{Line, Span},
     widgets::{Paragraph, Row},
 };
 use ratatui_cheese::tree::TreeState;
 use std::{
     cell::{Cell, RefCell},
-    io::{self, Error},
+    io::{self},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -39,10 +44,15 @@ use unicode_width::UnicodeWidthStr;
 mod alert;
 mod dslbrowser;
 mod elements;
+mod filepicker;
 mod macts;
 mod online;
 mod palette;
+mod platforms;
+mod profiles;
 mod rawlogs;
+mod repomanager;
+mod setup;
 mod statusbar;
 mod title;
 mod traitsview;
@@ -50,22 +60,34 @@ mod traittag;
 mod typecolors;
 mod wgt;
 
-pub async fn run(cfg: MasterConfig) -> io::Result<()> {
+pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
+    let mut terminal = ratatui::init();
+    let result = tokio_run(cfg, config_found, &mut terminal).await;
+    ratatui::restore();
+
+    result
+}
+
+async fn tokio_run(cfg: MasterConfig, config_found: bool, term: &mut DefaultTerminal) -> io::Result<()> {
     match SysInspectUX::new(cfg.clone()).await {
-        Ok(mut app) => {
-            let mut terminal = ratatui::init();
-            let r = app.run(&mut terminal);
-            ratatui::restore();
-
-            // XXX: Temporary log dumper. Should go to its own window popup later
-            if !MEM_LOGGER.get_messages().is_empty() {
-                println!("Memory log:");
-                println!("{:#?}", MEM_LOGGER.get_messages());
+        Ok(app) => app.run_connected(term),
+        Err(_) if config_found => {
+            let mut app = SysInspectUX { cfg, offline: true, ..Default::default() };
+            if app.find_sysmaster_binary().is_some() {
+                app.master_confirm_visible = true;
+                app.master_confirm_choice = AlertResult::Default;
+                app.master_confirm_action = 1;
+                app.run_offline_loop(term)
+            } else {
+                app.setup_wizard = setup::MasterSetupWizard::from_config(&app.cfg);
+                app.setup_wizard.visible = true;
+                app.run_setup_loop(term, &mut None)
             }
-
-            r
         }
-        Err(err) => Err(Error::new(io::ErrorKind::InvalidData, err)),
+        Err(_) => {
+            let app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
+            app.run_setup_loop(term, &mut None)
+        }
     }
 }
 
@@ -89,7 +111,7 @@ pub struct SysInspectUX {
     pub event_data: IndexMap<String, String>,
     pub active_box: ActiveBox,
     saved_active_box: Option<ActiveBox>,
-    main_focus_suspended: bool,
+    no_focus: bool,
 
     pub status_text: Line<'static>,
 
@@ -101,6 +123,10 @@ pub struct SysInspectUX {
     pub error_alert_visible: bool,
     pub error_alert_message: String,
     pub error_alert_choice: AlertResult,
+
+    /// Information alert (success/info popups)
+    pub info_alert_visible: bool,
+    pub info_alert_message: String,
 
     /// Exit alert
     pub exit_alert_visible: bool,
@@ -137,6 +163,21 @@ pub struct SysInspectUX {
     pub minion_logs_last_fetch: Instant,
     pub minion_logs_viewport_rows: Cell<usize>,
 
+    // Master logs popup
+    pub master_logs_visible: bool,
+    pub master_logs_tab: usize,
+    pub master_logs_sections: Vec<rawlogs::LogSection>,
+    pub master_logs_filter: ratatui_cheese::input::InputState,
+    pub master_logs_filter_focus: bool,
+    pub master_logs_polling: bool,
+    pub master_logs_last_fetch: Instant,
+    pub master_logs_viewport_rows: Cell<usize>,
+    pub master_menu_visible: bool,
+    pub master_menu_sel: usize,
+    pub master_confirm_visible: bool,
+    pub master_confirm_choice: AlertResult,
+    pub master_confirm_action: u8, // 0=none, 1=start, 2=restart, 3=stop
+
     // Online minions action menu
     pub minions_menu_visible: bool,
     pub minions_menu_sel: usize,
@@ -144,7 +185,7 @@ pub struct SysInspectUX {
     // Cluster-wide operation confirmation
     pub cluster_confirm_visible: bool,
     pub cluster_confirm_choice: AlertResult,
-    pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all
+    pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all, 3=delete minion
 
     // Tag popup
     pub tag_visible: bool,
@@ -161,6 +202,23 @@ pub struct SysInspectUX {
     pub dsl_browser: dslbrowser::DslBrowser,
 
     pub cfg: MasterConfig,
+
+    // Master setup wizard (first-run)
+    pub setup_wizard: setup::MasterSetupWizard,
+
+    // File picker
+    pub file_picker: filepicker::FilePicker,
+
+    // Repository manager
+    pub repo_manager: repomanager::RepoManager,
+
+    // Connection state
+    pub offline: bool,
+    pub last_reconnect_attempt: Instant,
+
+    // Exit-after-popup state (for setup config-written notice)
+    pub pending_exit: bool,
+    pub pending_exit_message: Option<String>,
 
     // Buffers
     pub cycles_buf: Vec<CycleListItem>,
@@ -184,7 +242,7 @@ impl Default for SysInspectUX {
             event_data: IndexMap::new(),
             active_box: ActiveBox::default(),
             saved_active_box: None,
-            main_focus_suspended: false,
+            no_focus: false,
             status_text: Line::from(vec![]),
 
             // Alerts
@@ -195,6 +253,8 @@ impl Default for SysInspectUX {
             error_alert_visible: false,
             error_alert_choice: AlertResult::default(),
             error_alert_message: String::new(),
+            info_alert_visible: false,
+            info_alert_message: String::new(),
             help_popup_visible: false,
 
             minions_visible: false,
@@ -223,6 +283,20 @@ impl Default for SysInspectUX {
             minion_logs_last_fetch: Instant::now(),
             minion_logs_viewport_rows: Cell::new(0),
 
+            master_logs_visible: false,
+            master_logs_tab: 0,
+            master_logs_sections: Vec::new(),
+            master_logs_filter: ratatui_cheese::input::InputState::new(),
+            master_logs_filter_focus: false,
+            master_logs_polling: true,
+            master_logs_last_fetch: Instant::now(),
+            master_logs_viewport_rows: Cell::new(0),
+            master_menu_visible: false,
+            master_menu_sel: 0,
+            master_confirm_visible: false,
+            master_confirm_choice: AlertResult::default(),
+            master_confirm_action: 0,
+
             minions_menu_visible: false,
             minions_menu_sel: 0,
 
@@ -239,6 +313,14 @@ impl Default for SysInspectUX {
             evtipc: None,
             dsl_browser: dslbrowser::DslBrowser::new(),
             cfg: MasterConfig::default(),
+            setup_wizard: setup::MasterSetupWizard::default(),
+            file_picker: filepicker::FilePicker::default(),
+            repo_manager: repomanager::RepoManager::default(),
+            offline: false,
+            last_reconnect_attempt: Instant::now(),
+
+            pending_exit: false,
+            pending_exit_message: None,
             cycles_buf: Vec::new(),
             minions_buf: Vec::new(),
             events_buf: Vec::new(),
@@ -263,13 +345,231 @@ impl SysInspectUX {
         Ok(ux)
     }
 
-    pub fn run(&mut self, term: &mut DefaultTerminal) -> io::Result<()> {
-        self.cycles_buf = self.get_cycles().unwrap();
+    pub fn run_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.cycles_buf = self.get_cycles().unwrap_or_default();
+        self.run_normal_loop(term)
+    }
+
+    fn run_connected(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.cycles_buf = self.get_cycles().unwrap_or_default();
+        self.run_normal_loop(term)
+    }
+
+    pub fn run_setup_loop(mut self, term: &mut DefaultTerminal, exit_msg: &mut Option<String>) -> io::Result<()> {
+        self.last_reconnect_attempt = Instant::now();
+        self.no_focus = true;
 
         while !self.exit {
+            term.draw(|frame| self.draw(frame))?;
+            if self.setup_wizard.ok_pressed {
+                if self.setup_wizard.sysmaster_path.value().is_empty() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Sys Master binary must be selected.".to_string();
+                    self.setup_wizard.ok_pressed = false;
+                    self.setup_wizard.focus = setup::SetupFocus::SysMasterPath;
+                } else {
+                    match self.setup_wizard.write_config() {
+                        Ok(config_path) => {
+                            self.setup_wizard.ok_pressed = false;
+                            self.setup_wizard.visible = false;
+
+                            // Spawn master in daemon mode (no TUI output pollution)
+                            let master_bin = if self.setup_wizard.installation_mode == setup::InstallationMode::Custom {
+                                std::path::PathBuf::from(self.setup_wizard.custom_destination.value()).join("bin/sysmaster")
+                            } else {
+                                std::path::PathBuf::from(self.setup_wizard.sysmaster_path.value())
+                            };
+                            std::process::Command::new(&master_bin)
+                                .arg("--daemon")
+                                .arg("-c")
+                                .arg(config_path.to_string_lossy().as_ref())
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .spawn()
+                                .map(|c| {
+                                    std::thread::spawn(move || {
+                                        c.wait_with_output().ok();
+                                    });
+                                })
+                                .ok();
+
+                            // Wait for master to come up
+                            for _ in 0..10 {
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                if self.try_reconnect_silent().is_ok() {
+                                    return self.run_normal_loop(term);
+                                }
+                            }
+
+                            // Not yet up — stay in setup loop, will auto-reconnect
+                            self.info_alert_visible = true;
+                            self.info_alert_message = format!(
+                                "Config written to:\n{}\n\nMaster is starting in the background.\nThe UI will reconnect automatically.",
+                                config_path.display(),
+                            );
+                        }
+                        Err(e) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = e;
+                            self.setup_wizard.ok_pressed = false;
+                        }
+                    }
+                }
+            }
+            if !self.error_alert_visible && !self.setup_wizard.visible && self.try_reconnect_silent().is_ok() {
+                return self.run_normal_loop(term);
+            }
+            // Periodic silent reconnect in setup mode
+            if !self.setup_wizard.ok_pressed && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) && self.evtipc.is_some() {
+                self.last_reconnect_attempt = Instant::now();
+                if self.try_reconnect_silent().is_ok() {
+                    return self.run_normal_loop(term);
+                }
+            }
+            // Launch file picker for sysmaster selection
+            if self.setup_wizard.launch_file_picker {
+                self.setup_wizard.launch_file_picker = false;
+                let start_dir = std::path::Path::new(&self.setup_wizard.sysmaster_path.value())
+                    .parent()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                self.file_picker.open(&start_dir, filepicker::PickerMode::FilePicker);
+            }
+            // Launch dir picker for custom destination
+            if self.setup_wizard.launch_dir_picker {
+                self.setup_wizard.launch_dir_picker = false;
+                let start_dir = std::path::PathBuf::from(self.setup_wizard.custom_destination.value());
+                self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
+            }
+            // File/dir picker result
+            if let Some(path) = self.file_picker.selected.take() {
+                match self.file_picker.mode {
+                    filepicker::PickerMode::DirectoryPicker => {
+                        self.setup_wizard.custom_destination.set_value(path.to_string_lossy().to_string());
+                    }
+                    _ => {
+                        self.setup_wizard.sysmaster_path.set_value(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+            // File picker status bar overrides everything
+            if self.file_picker.visible {
+                self.status_text = self.file_picker.status_line();
+            }
+            if self.repo_manager.visible {
+                self.status_at_repo_manager();
+            }
+            // Status bar for sysmaster path focus
+            if self.setup_wizard.focus == setup::SetupFocus::SysMasterPath {
+                self.status_text = Line::from(vec![
+                    Span::styled(" Enter ", Style::default().fg(palette::FG)),
+                    Span::styled("to browse for sysmaster binary", Style::default().fg(palette::FAINT)),
+                ]);
+            }
+            // Status bar for custom destination focus
+            if self.setup_wizard.focus == setup::SetupFocus::CustomDest {
+                self.status_text = Line::from(vec![
+                    Span::styled(" Enter ", Style::default().fg(palette::FG)),
+                    Span::styled("to browse for directory", Style::default().fg(palette::FAINT)),
+                ]);
+            }
+            self.on_events_setup()?;
+        }
+        *exit_msg = self.pending_exit_message.take();
+        Ok(())
+    }
+
+    fn run_normal_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.last_reconnect_attempt = Instant::now();
+        while !self.exit {
             self.sync_main_focus_for_overlays();
+            if self.file_picker.visible {
+                self.status_text = self.file_picker.status_line();
+            }
+            if self.repo_manager.visible {
+                self.status_at_repo_manager();
+            }
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
+            if self.offline && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {
+                self.last_reconnect_attempt = Instant::now();
+                if self.try_reconnect_silent().is_ok() {
+                    self.offline = false;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn run_offline_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
+        self.last_reconnect_attempt = Instant::now();
+        self.no_focus = true;
+
+        while !self.exit {
+            if self.file_picker.visible {
+                self.status_text = self.file_picker.status_line();
+            }
+            if self.repo_manager.visible {
+                self.status_at_repo_manager();
+            }
+            term.draw(|frame| self.draw(frame))?;
+            // Periodic silent reconnect attempt
+            if self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {
+                self.last_reconnect_attempt = Instant::now();
+                if self.try_reconnect_silent().is_ok() {
+                    return self.run_normal_loop(term);
+                }
+            }
+            self.on_events()?;
+        }
+        Ok(())
+    }
+
+    fn try_reconnect_silent(&mut self) -> Result<(), String> {
+        let socket = self.cfg.telemetry_socket();
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async { DbIPCClient::new(socket.to_str().unwrap_or_default()).await })
+        }) {
+            Ok(ipc) => {
+                self.evtipc = Some(Arc::new(Mutex::new(ipc)));
+                self.setup_wizard.visible = false;
+                self.error_alert_visible = false;
+                self.offline = false;
+                self.cycles_buf = self.get_cycles().unwrap_or_default();
+                Ok(())
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn try_reconnect(&mut self) -> Result<(), String> {
+        self.try_reconnect_silent().map_err(|e| {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Master still not reachable: {e}");
+            e
+        })
+    }
+
+    fn on_events_setup(&mut self) -> io::Result<()> {
+        if event::poll(Duration::from_secs(1))?
+            && let Event::Key(e) = event::read()?
+            && e.kind == KeyEventKind::Press
+        {
+            if self.setup_wizard.visible
+                && !self.error_alert_visible
+                && !self.exit_alert_visible
+                && !self.info_alert_visible
+                && !self.file_picker.visible
+            {
+                self.setup_wizard.handle_key(e);
+                if self.setup_wizard.quit_requested {
+                    self.setup_wizard.quit_requested = false;
+                    self.exit_alert_visible = true;
+                    self.exit_alert_choice = AlertResult::Default;
+                }
+            } else {
+                self.on_key(e);
+            }
         }
         Ok(())
     }
@@ -284,30 +584,91 @@ impl SysInspectUX {
 
         frame.render_widget(self, main_area);
 
-        let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
-        frame.render_widget(status_paragraph, status_area);
+        if self.offline {
+            let offline_w: u16 = 14;
+            let [main_status, offline_area]: [Rect; 2] = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(offline_w)].as_ref())
+                .split(status_area)
+                .as_ref()
+                .try_into()
+                .unwrap();
+
+            let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+            frame.render_widget(status_paragraph, main_status);
+
+            let offline_paragraph = Paragraph::new(Line::from(vec![Span::styled(
+                "  Offline \u{2716} ",
+                Style::default().fg(palette::ERROR_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD),
+            )]))
+            .style(Style::default().bg(palette::BG_1));
+            frame.render_widget(offline_paragraph, offline_area);
+        } else {
+            let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+            frame.render_widget(status_paragraph, status_area);
+        }
     }
 
     fn on_events(&mut self) -> io::Result<()> {
         self.sync_main_focus_for_overlays();
-        if event::poll(Duration::from_secs(1))? {
+        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some() { Duration::from_millis(50) } else { Duration::from_secs(1) };
+        if event::poll(poll_dur)? {
             if let Event::Key(e) = event::read()?
                 && e.kind == KeyEventKind::Press
             {
                 self.on_key(e);
             }
         } else {
-            if let Ok(cycles) = self.get_cycles() {
-                self.cycles_buf = cycles;
-            }
-            if self.minions_visible {
-                self.refresh_minions();
-            }
-            if self.minion_logs_visible && self.minion_logs_polling && self.minion_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
-                match self.load_selected_minion_logs() {
-                    Ok(()) => self.minion_logs_online = true,
-                    Err(_) => self.minion_logs_online = false,
+            if !self.offline {
+                match self.get_cycles() {
+                    Ok(cycles) => self.cycles_buf = cycles,
+                    Err(_) => {
+                        self.offline = true;
+                        self.evtipc = None;
+                    }
                 }
+                if !self.offline {
+                    if self.minions_visible {
+                        self.refresh_minions();
+                    }
+                    if self.minion_logs_visible && self.minion_logs_polling && self.minion_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
+                        match self.load_selected_minion_logs() {
+                            Ok(()) => self.minion_logs_online = true,
+                            Err(_) => self.minion_logs_online = false,
+                        }
+                    }
+                    if self.master_logs_visible && self.master_logs_polling && self.master_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
+                        let _ = self.load_master_logs();
+                    }
+                }
+            }
+        }
+        // Process file picker result for repo manager
+        if self.repo_manager.visible
+            && let Some(path) = self.file_picker.selected.take()
+        {
+            match self.repo_manager.active_tab {
+                0 => self.process_module_add(&path),
+                1 => self.process_library_add(&path),
+                3 => self.process_platform_add(&path),
+                _ => {}
+            }
+        }
+        // Detect progress bar completion for bulk add
+        if self.repo_manager.visible {
+            let p = self.repo_manager.progress.lock().unwrap();
+            if p.is_none() {
+                drop(p);
+                if self.repo_manager.needs_reload {
+                    self.repo_manager.needs_reload = false;
+                    let _ = self.load_module_index();
+                    if self.repo_manager.active_tab == 3 {
+                        let _ = self.load_platforms();
+                    }
+                }
+            } else {
+                // Track that a reload is needed when progress finishes
+                self.repo_manager.needs_reload = true;
             }
         }
         Ok(())
@@ -315,7 +676,7 @@ impl SysInspectUX {
 
     /// Cycle active pan to the right (used on RIGHT or ENTER key)
     fn shift_next(&mut self) {
-        if self.main_focus_suspended {
+        if self.no_focus {
             return;
         }
         match self.active_box {
@@ -344,7 +705,7 @@ impl SysInspectUX {
 
     /// Cycle active pan to the left (used on LEFT or ESC key)
     fn shift_prev(&mut self) {
-        if self.main_focus_suspended {
+        if self.no_focus {
             return;
         }
         match self.active_box {
@@ -459,6 +820,20 @@ impl SysInspectUX {
         }
 
         stat
+    }
+
+    fn on_info_alert(&mut self, e: event::KeyEvent) -> bool {
+        if !self.info_alert_visible {
+            return false;
+        }
+        if matches!(e.code, KeyCode::Enter | KeyCode::Esc) {
+            self.info_alert_visible = false;
+            if self.pending_exit {
+                self.pending_exit = false;
+                self.exit();
+            }
+        }
+        true
     }
 
     /// Process online minions popup key events
@@ -654,11 +1029,17 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 5 {
                     self.cluster_confirm_visible = true;
                     self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 1;
+                    self.pending_cluster_action = 3;
                 } else if self.minions_menu_sel == 6 {
                     self.cluster_confirm_visible = true;
                     self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                    self.pending_cluster_action = 1;
+                } else if self.minions_menu_sel == 7 {
+                    self.cluster_confirm_visible = true;
+                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
                     self.pending_cluster_action = 2;
+                } else if self.minions_menu_sel == 8 {
+                    // TODO: do_minion_add()
                 }
             }
             _ => {
@@ -854,28 +1235,39 @@ impl SysInspectUX {
         self.purge_alert_visible
             || self.error_alert_visible
             || self.exit_alert_visible
+            || self.info_alert_visible
             || self.help_popup_visible
             || self.minions_visible
             || self.minion_traits_visible
             || self.minion_logs_visible
+            || self.master_logs_visible
             || self.minions_menu_visible
+            || self.master_menu_visible
+            || self.master_confirm_visible
             || self.tag_visible
             || self.dsl_browser.visible
+            || self.setup_wizard.visible
+            || self.file_picker.visible
+            || self.repo_manager.visible
+            || self.repo_manager.profiles.detail_visible
+            || self.repo_manager.profiles.create_visible
+            || self.repo_manager.profiles.delete_visible
+            || self.repo_manager.platforms.delete_visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
         let overlay_visible = self.any_overlay_visible();
-        if overlay_visible && !self.main_focus_suspended {
+        if overlay_visible && !self.no_focus {
             self.saved_active_box = Some(self.active_box);
-            self.main_focus_suspended = true;
-        } else if !overlay_visible && self.main_focus_suspended {
+            self.no_focus = true;
+        } else if !overlay_visible && self.no_focus {
             self.active_box = self.saved_active_box.take().unwrap_or_default();
-            self.main_focus_suspended = false;
+            self.no_focus = false;
         }
     }
 
     pub(crate) fn main_box_active(&self, hl: ActiveBox) -> bool {
-        !self.main_focus_suspended && self.active_box == hl
+        !self.no_focus && self.active_box == hl
     }
 
     fn refresh_minions(&mut self) {
@@ -1053,6 +1445,16 @@ impl SysInspectUX {
                 self.pending_cluster_action = 2;
                 true
             }
+            KeyCode::Insert => {
+                // TODO: do_minion_add()
+                true
+            }
+            KeyCode::Delete => {
+                self.cluster_confirm_visible = true;
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                self.pending_cluster_action = 3;
+                true
+            }
             _ => false,
         }
     }
@@ -1075,6 +1477,7 @@ impl SysInspectUX {
                     match self.pending_cluster_action {
                         1 => self.do_cluster_shutdown(),
                         2 => self.do_cluster_reconnect(),
+                        3 => self.do_minion_delete(),
                         _ => {}
                     }
                 }
@@ -1117,6 +1520,22 @@ impl SysInspectUX {
                 self.status_at_minions_browser();
             }
         }
+    }
+
+    fn do_minion_delete(&mut self) {
+        let row = match self.selected_popup_minion() {
+            Some(row) => row,
+            None => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No minion selected".to_string();
+                self.status_at_minions_browser();
+                return;
+            }
+        };
+        let _host = Self::online_host(&row);
+        let _mid = row.minion_id.clone();
+        // TODO: call_master_console with CLUSTER_REMOVE_MINION
+        self.status_at_minions_browser();
     }
 
     fn open_logs_popup(&mut self) {
@@ -1261,6 +1680,1363 @@ impl SysInspectUX {
             _ => {}
         }
         true
+    }
+
+    fn open_master_logs(&mut self) {
+        self.master_logs_visible = true;
+        self.master_logs_tab = 0;
+        self.master_logs_filter = ratatui_cheese::input::InputState::new();
+        self.master_logs_filter_focus = false;
+        self.master_logs_polling = true;
+        self.master_logs_last_fetch = Instant::now();
+        self.status_at_master_logs();
+        if let Err(err) = self.load_master_logs() {
+            self.master_logs_visible = false;
+            self.error_alert_visible = true;
+            self.error_alert_message = err.to_string();
+        }
+    }
+
+    fn load_master_logs(&mut self) -> Result<(), SysinspectError> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MASTER_LOGS}"), "*", None, None, None).await })
+        })?;
+        match resp.payload {
+            ConsolePayload::MasterLogs { snapshot } => {
+                self.master_logs_sections = vec![
+                    rawlogs::LogSection {
+                        title: "Standard".into(),
+                        path: snapshot.standard_path,
+                        lines: snapshot.standard_log,
+                        scroll: Cell::new(usize::MAX),
+                    },
+                    rawlogs::LogSection {
+                        title: "Errors".into(),
+                        path: snapshot.errors_path,
+                        lines: snapshot.errors_log,
+                        scroll: Cell::new(usize::MAX),
+                    },
+                ];
+                self.master_logs_last_fetch = Instant::now();
+                Ok(())
+            }
+            _ => Err(SysinspectError::ProtoError("Unexpected console payload for master logs".to_string())),
+        }
+    }
+
+    fn load_master_logs_local(&mut self) -> Result<(), String> {
+        let std = std::fs::read_to_string(self.cfg.logfile_std()).map_err(|e| format!("Cannot read standard log: {e}"))?;
+        let err = std::fs::read_to_string(self.cfg.logfile_err()).map_err(|e| format!("Cannot read error log: {e}"))?;
+        self.master_logs_sections = vec![
+            rawlogs::LogSection {
+                title: "Standard".into(),
+                path: self.cfg.logfile_std().display().to_string(),
+                lines: if std.is_empty() { vec!["(empty)".into()] } else { std.lines().map(|s| s.to_string()).collect() },
+                scroll: Cell::new(usize::MAX),
+            },
+            rawlogs::LogSection {
+                title: "Errors".into(),
+                path: self.cfg.logfile_err().display().to_string(),
+                lines: if err.is_empty() { vec!["(empty)".into()] } else { err.lines().map(|s| s.to_string()).collect() },
+                scroll: Cell::new(usize::MAX),
+            },
+        ];
+        self.master_logs_last_fetch = Instant::now();
+        Ok(())
+    }
+
+    fn load_module_index(&mut self) -> Result<(), String> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MODULE_INDEX}"), "*", None, None, None).await })
+        })
+        .map_err(|e| format!("Failed to get module index: {e}"))?;
+        match resp.payload {
+            ConsolePayload::MasterModuleIndex { rows } => {
+                let mut groups: IndexMap<String, Vec<ConsoleModuleRow>> = IndexMap::new();
+                for row in rows {
+                    let key = format!("{} {}", os_display_name(&row.platform), row.arch);
+                    groups.entry(key).or_default().push(row);
+                }
+                // Merge platforms with no modules from the platform build list
+                if let Ok(repo) = SysInspectModPak::new(self.cfg.fileserver_root().join("repo")) {
+                    for build in repo.minion_builds() {
+                        let key = format!("{} {}", os_display_name(build.platform()), build.arch());
+                        groups.entry(key).or_default();
+                    }
+                }
+                let mut keys: Vec<String> = groups.keys().cloned().collect();
+                keys.sort();
+                for rows in groups.values_mut() {
+                    rows.sort_by(|a, b| a.name.cmp(&b.name));
+                }
+                let n = groups.len();
+                self.repo_manager.module_groups = groups;
+                self.repo_manager.group_order = keys;
+                self.repo_manager.group_cursor = 0;
+                self.repo_manager.group_cursor_row = 0;
+                self.repo_manager.group_expanded = vec![false; n];
+                self.repo_manager.group_scrolls.clear();
+                Ok(())
+            }
+            _ => Err("Unexpected console payload for module index".to_string()),
+        }
+    }
+
+    fn on_repo_manager(&mut self, e: event::KeyEvent) -> bool {
+        if !self.repo_manager.visible {
+            return false;
+        }
+        if self.repo_manager.staging {
+            let handled = self.repo_manager.handle_staging_key(e);
+            if self.repo_manager.bulk_add_triggered {
+                self.repo_manager.bulk_add_triggered = false;
+                let checked: Vec<_> = self.repo_manager.staged.iter().filter(|m| m.checked).cloned().collect();
+                if checked.is_empty() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "No items selected".to_string();
+                } else {
+                    self.repo_manager.exit_staging();
+                    match self.repo_manager.staging_mode {
+                        repomanager::StagingMode::ProfileModuleAdd => {
+                            self.bulk_add_profile_matches(checked, false);
+                        }
+                        repomanager::StagingMode::ProfileLibraryAdd => {
+                            self.bulk_add_profile_matches(checked, true);
+                        }
+                        _ => {
+                            self.bulk_add_modules(checked);
+                        }
+                    }
+                }
+            }
+            if self.repo_manager.bulk_delete_triggered {
+                self.repo_manager.bulk_delete_triggered = false;
+                let checked: Vec<_> = self.repo_manager.staged.iter().filter(|m| m.checked).cloned().collect();
+                if checked.is_empty() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "No items selected".to_string();
+                } else {
+                    self.repo_manager.exit_staging();
+                    if self.repo_manager.cross_platform_delete {
+                        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                        self.bulk_delete_modules(&names);
+                    } else {
+                        self.bulk_delete_single_platform(&checked);
+                    }
+                }
+            }
+            if !self.repo_manager.staging
+                && matches!(self.repo_manager.staging_mode, repomanager::StagingMode::ProfileModuleAdd | repomanager::StagingMode::ProfileLibraryAdd)
+            {
+                self.repo_manager.profiles.detail_visible = true;
+                self.status_at_profiles();
+            }
+            return handled;
+        }
+        if self.repo_manager.info_visible {
+            return self.repo_manager.handle_info_key(e);
+        }
+        if self.repo_manager.filter_focus {
+            match e.code {
+                KeyCode::Esc => {
+                    self.repo_manager.filter_focus = false;
+                    self.repo_manager.group_cursor_row = 0;
+                }
+                KeyCode::Down | KeyCode::Tab | KeyCode::BackTab => {
+                    self.repo_manager.filter_focus = false;
+                    self.repo_manager.group_cursor_row = 0;
+                }
+                KeyCode::Backspace => {
+                    self.repo_manager.filter.delete_before();
+                }
+                KeyCode::Delete => {
+                    self.repo_manager.filter.delete_at();
+                }
+                KeyCode::Left => {
+                    self.repo_manager.filter.move_left();
+                }
+                KeyCode::Right => {
+                    self.repo_manager.filter.move_right();
+                }
+                KeyCode::Home => {
+                    self.repo_manager.filter.home();
+                }
+                KeyCode::End => {
+                    self.repo_manager.filter.end();
+                }
+                KeyCode::Char(c) => {
+                    self.repo_manager.filter.insert_char(c);
+                }
+                _ => {}
+            }
+            return true;
+        }
+        // Profile-specific overlays (tab 2)
+        if self.repo_manager.active_tab == 2 {
+            if self.repo_manager.profiles.delete_visible {
+                let handled = self.repo_manager.profiles.handle_delete_key(e.code);
+                if !handled && e.code == KeyCode::Enter {
+                    if self.repo_manager.profiles.delete_focus == profiles::ProfDeleteFocus::YesBtn {
+                        let name = self.repo_manager.profiles.delete_name.clone();
+                        let _ = self.do_profile_delete(&name);
+                        self.repo_manager.profiles.delete_visible = false;
+                        self.status_at_profiles();
+                    } else {
+                        self.repo_manager.profiles.delete_visible = false;
+                        self.status_at_profiles();
+                    }
+                }
+                return true;
+            }
+            if self.repo_manager.profiles.create_visible {
+                let handled = self.repo_manager.profiles.handle_create_key(e.code);
+                if !handled && e.code == KeyCode::Enter {
+                    match self.repo_manager.profiles.create_focus {
+                        profiles::ProfCreateFocus::CreateBtn => {
+                            let name = self.repo_manager.profiles.create_input.value().to_string();
+                            if !name.is_empty() {
+                                let _ = self.do_profile_create(&name);
+                            }
+                            self.repo_manager.profiles.create_visible = false;
+                            self.status_at_profiles();
+                        }
+                        profiles::ProfCreateFocus::CancelBtn => {
+                            self.repo_manager.profiles.create_visible = false;
+                            self.status_at_profiles();
+                        }
+                        _ => {}
+                    }
+                }
+                return true;
+            }
+            if self.repo_manager.profiles.detail_visible {
+                let handled = self.repo_manager.profiles.handle_detail_key(e.code);
+                if !handled && e.code == KeyCode::Enter {
+                    match self.repo_manager.profiles.detail_focus {
+                        profiles::ProfDetailFocus::AddModuleBtn => {
+                            self.repo_manager.enter_profile_module_staging();
+                        }
+                        profiles::ProfDetailFocus::AddLibraryBtn => {
+                            self.repo_manager.enter_profile_library_staging();
+                        }
+                        profiles::ProfDetailFocus::CloseBtn => {
+                            self.repo_manager.profiles.detail_visible = false;
+                            self.status_at_profiles();
+                        }
+                        _ => {}
+                    }
+                }
+                return true;
+            }
+        }
+        // Platform delete overlay (tab 3)
+        if self.repo_manager.active_tab == 3 && self.repo_manager.platforms.delete_visible {
+            let handled = self.repo_manager.platforms.handle_delete_key(e.code);
+            if !handled && e.code == KeyCode::Enter {
+                if self.repo_manager.platforms.delete_focus == platforms::DeleteFocus::YesBtn {
+                    let name = self.repo_manager.platforms.delete_name.clone();
+                    self.do_platform_remove(&name);
+                }
+                self.repo_manager.platforms.delete_visible = false;
+            }
+            return true;
+        }
+        let total_count = if self.repo_manager.active_tab == 3 {
+            self.repo_manager.platforms.filtered_count(self.repo_manager.filter.value())
+        } else if self.repo_manager.active_tab == 2 {
+            self.repo_manager.profiles.filtered_count(self.repo_manager.filter.value())
+        } else if self.repo_manager.active_tab == 1 {
+            self.repo_filtered_lib_count()
+        } else if self.repo_manager.active_tab == 0 {
+            if let Some(rows) = self.repo_manager.focused_group_modules() {
+                let f = self.repo_manager.filter.value().to_lowercase();
+                rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f)).count()
+            } else {
+                0
+            }
+        } else {
+            self.repo_filtered_count()
+        };
+        let max_cursor = total_count.saturating_sub(1);
+        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 3 {
+            &mut self.repo_manager.platforms.cursor
+        } else if self.repo_manager.active_tab == 2 {
+            &mut self.repo_manager.profiles.cursor
+        } else if self.repo_manager.active_tab == 1 {
+            &mut self.repo_manager.lib_cursor
+        } else {
+            &mut self.repo_manager.group_cursor_row
+        };
+        let page = 10usize;
+        match e.code {
+            KeyCode::Esc => {
+                self.repo_manager.exit_staging();
+                self.repo_manager.visible = false;
+                self.status_at_cycles();
+            }
+            KeyCode::Left => {
+                self.repo_manager.active_tab = self.repo_manager.active_tab.saturating_sub(1);
+                self.repo_manager.group_cursor = 0;
+                self.repo_manager.group_cursor_row = 0;
+                self.repo_manager.lib_cursor = 0;
+                self.repo_manager.profiles.cursor = 0;
+                self.repo_manager.platforms.cursor = 0;
+                if self.repo_manager.active_tab == 1 {
+                    let _ = self.load_library_index();
+                }
+                if self.repo_manager.active_tab == 2 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 3 {
+                    let _ = self.load_platforms();
+                }
+            }
+            KeyCode::Right => {
+                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(3);
+                self.repo_manager.group_cursor = 0;
+                self.repo_manager.group_cursor_row = 0;
+                self.repo_manager.lib_cursor = 0;
+                self.repo_manager.profiles.cursor = 0;
+                self.repo_manager.platforms.cursor = 0;
+                if self.repo_manager.active_tab == 1 {
+                    let _ = self.load_library_index();
+                }
+                if self.repo_manager.active_tab == 2 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 3 {
+                    let _ = self.load_platforms();
+                }
+            }
+            KeyCode::Up => {
+                if self.repo_manager.active_tab == 0 {
+                    self.move_module_up();
+                } else if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else if self.repo_manager.active_tab == 3 {
+                    self.repo_manager.platforms.handle_list_key(e.code);
+                } else {
+                    *cursor_ref = cursor_ref.saturating_sub(1);
+                }
+            }
+            KeyCode::Down => {
+                if self.repo_manager.active_tab == 0 {
+                    self.move_module_down();
+                } else if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else if self.repo_manager.active_tab == 3 {
+                    self.repo_manager.platforms.handle_list_key(e.code);
+                } else {
+                    *cursor_ref = (*cursor_ref + 1).min(max_cursor);
+                }
+            }
+            KeyCode::PageUp => {
+                if self.repo_manager.active_tab == 0 {
+                    let n = self.repo_manager.group_order.len();
+                    if n > 0 {
+                        self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
+                        self.repo_manager.group_cursor_row = 0;
+                    }
+                } else if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else if self.repo_manager.active_tab == 3 {
+                    self.repo_manager.platforms.handle_list_key(e.code);
+                } else {
+                    *cursor_ref = cursor_ref.saturating_sub(page);
+                }
+            }
+            KeyCode::PageDown => {
+                if self.repo_manager.active_tab == 0 {
+                    let n = self.repo_manager.group_order.len();
+                    if n > 0 {
+                        self.repo_manager.group_cursor = (self.repo_manager.group_cursor + 1) % n;
+                        self.repo_manager.group_cursor_row = 0;
+                    }
+                } else if self.repo_manager.active_tab == 2 {
+                    let fv = self.repo_manager.filter.value().to_string();
+                    self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
+                } else if self.repo_manager.active_tab == 3 {
+                    self.repo_manager.platforms.handle_list_key(e.code);
+                } else {
+                    *cursor_ref = (*cursor_ref + page).min(max_cursor);
+                }
+            }
+            KeyCode::Enter => {
+                if self.repo_manager.active_tab == 3 {
+                    // Platforms have no detail view
+                } else if self.repo_manager.active_tab == 2 {
+                    let name = match self.repo_manager.profiles.selected_profile_name() {
+                        Some(n) => n.to_string(),
+                        None => return true,
+                    };
+                    match self.load_profile_detail(&name) {
+                        Ok((modules, libraries)) => {
+                            self.repo_manager.profiles.enter_detail(name, modules, libraries);
+                            self.status_at_profiles();
+                        }
+                        Err(e) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = e;
+                        }
+                    }
+                } else if self.repo_manager.active_tab == 0 {
+                    if self.repo_manager.group_cursor_row == 0 {
+                        // Toggle expand/collapse on header
+                        let gc = self.repo_manager.group_cursor;
+                        if let Some(e) = self.repo_manager.group_expanded.get_mut(gc) {
+                            *e = !*e;
+                        }
+                    } else if self.repo_manager.focused_module().is_some() {
+                        self.repo_manager.info_visible = true;
+                        self.repo_manager.info_row = self.repo_manager.group_cursor_row;
+                        self.repo_manager.info_tab = 0;
+                        self.repo_manager.info_scroll.set(0);
+                        self.repo_manager.info_active_tab = 0;
+                        self.status_at_repo_manager();
+                    }
+                } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
+                    self.repo_manager.info_visible = true;
+                    self.repo_manager.info_row = self.repo_manager.lib_cursor;
+                    self.repo_manager.info_tab = 0;
+                    self.repo_manager.info_scroll.set(0);
+                    self.repo_manager.info_active_tab = 1;
+                    self.status_at_repo_manager();
+                }
+            }
+            KeyCode::Delete => {
+                if self.repo_manager.active_tab == 3 {
+                    if let Some(name) = self.repo_manager.platforms.selected_name() {
+                        self.repo_manager.platforms.open_delete(name);
+                    }
+                } else if self.repo_manager.active_tab == 2 {
+                    if let Some(name) = self.repo_manager.profiles.selected_profile_name() {
+                        self.repo_manager.profiles.open_delete(name.to_string());
+                        self.status_at_profiles();
+                    }
+                } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
+                    self.repo_manager.delete_mode = true;
+                    self.repo_manager.staged = self
+                        .repo_manager
+                        .lib_rows
+                        .iter()
+                        .map(|r| repomanager::StagedModule {
+                            name: r.name.clone(),
+                            version: Some(r.kind.clone()),
+                            descr: r.checksum.clone(),
+                            path: std::path::PathBuf::new(),
+                            checked: false,
+                            platform: None,
+                            arch: None,
+                        })
+                        .collect();
+                    self.repo_manager.staging = true;
+                    self.repo_manager.staging_cursor = 0;
+                    self.repo_manager.staging_focus = repomanager::StagingFocus::List;
+                } else if self.repo_manager.active_tab == 0 {
+                    let staged_rows: Option<Vec<repomanager::StagedModule>> = {
+                        let rm = &self.repo_manager;
+                        rm.focused_group_modules().map(|rows| {
+                            rows.iter()
+                                .map(|r| repomanager::StagedModule {
+                                    name: r.name.clone(),
+                                    version: r.version.clone(),
+                                    descr: r.descr.clone(),
+                                    path: std::path::PathBuf::new(),
+                                    checked: false,
+                                    platform: Some(r.platform.clone()),
+                                    arch: Some(r.arch.clone()),
+                                })
+                                .collect()
+                        })
+                    };
+                    if let Some(rows) = staged_rows {
+                        self.repo_manager.delete_mode = true;
+                        self.repo_manager.cross_platform_delete = false;
+                        self.repo_manager.staged = rows;
+                        self.repo_manager.staging_mode = repomanager::StagingMode::ModuleDelete;
+                        self.repo_manager.staging = true;
+                        self.repo_manager.staging_cursor = 0;
+                        self.repo_manager.staging_focus = repomanager::StagingFocus::List;
+                    }
+                }
+            }
+            KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.repo_manager.active_tab == 3 {
+                    self.file_picker.open(&std::env::current_dir().unwrap_or_default(), filepicker::PickerMode::MinionBuild);
+                } else if self.repo_manager.active_tab == 2 {
+                    self.repo_manager.profiles.open_create();
+                    self.status_at_profiles();
+                } else {
+                    let mode = if self.repo_manager.active_tab == 1 { filepicker::PickerMode::LibrarySelector } else { filepicker::PickerMode::Any };
+                    self.file_picker.open(&std::env::current_dir().unwrap_or_default(), mode);
+                }
+            }
+            KeyCode::Char('l') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.repo_manager.active_tab == 2 {
+                    self.repo_manager.profiles.open_create();
+                    self.status_at_profiles();
+                } else {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Not implemented yet".to_string();
+                }
+            }
+            KeyCode::Tab => {
+                if self.repo_manager.active_tab == 0 {
+                    let n = self.repo_manager.group_order.len().max(1);
+                    let gc = self.repo_manager.group_cursor % n;
+                    if let Some(e) = self.repo_manager.group_expanded.get_mut(gc) {
+                        *e = !*e;
+                    }
+                } else {
+                    self.repo_manager.filter_focus = true;
+                }
+            }
+            KeyCode::Char('/') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.repo_manager.filter_focus = true;
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn move_module_up(&mut self) {
+        if self.repo_manager.group_cursor_row > 0 {
+            self.repo_manager.group_cursor_row -= 1;
+        } else {
+            let n = self.repo_manager.group_order.len();
+            if n == 0 {
+                return;
+            }
+            self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
+            let gc = self.repo_manager.group_cursor;
+            if self.repo_manager.group_expanded.get(gc).copied().unwrap_or(false) {
+                if let Some(rows) = self.repo_manager.focused_group_modules() {
+                    self.repo_manager.group_cursor_row = rows.len();
+                } else {
+                    self.repo_manager.group_cursor_row = 0;
+                }
+            } else {
+                self.repo_manager.group_cursor_row = 0;
+            }
+        }
+    }
+
+    fn move_module_down(&mut self) {
+        let n = self.repo_manager.group_order.len();
+        if n == 0 {
+            return;
+        }
+        let gc = self.repo_manager.group_cursor % n;
+        if self.repo_manager.group_expanded.get(gc).copied().unwrap_or(false)
+            && let Some(rows) = self.repo_manager.focused_group_modules()
+            && self.repo_manager.group_cursor_row < rows.len()
+        {
+            self.repo_manager.group_cursor_row += 1;
+        } else {
+            self.repo_manager.group_cursor = (self.repo_manager.group_cursor + 1) % n;
+            self.repo_manager.group_cursor_row = 0;
+        }
+    }
+
+    fn repo_filtered_count(&self) -> usize {
+        self.repo_manager.filtered_module_count(self.repo_manager.filter.value())
+    }
+
+    fn repo_filtered_lib_count(&self) -> usize {
+        let f = self.repo_manager.filter.value().to_lowercase();
+        self.repo_manager.lib_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.kind.to_lowercase().contains(&f)).count()
+    }
+
+    fn call_profile_rpc(&self, context: &str) -> Result<ConsolePayload, String> {
+        let ctx = context.to_string();
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), "*", None, None, Some(&ctx)).await })
+        })
+        .map_err(|e| format!("Profile RPC failed: {e}"))?;
+        Ok(resp.payload)
+    }
+
+    fn load_profile_list(&mut self) -> Result<(), String> {
+        let payload = self.call_profile_rpc(r#"{"op":"list"}"#)?;
+        match payload {
+            ConsolePayload::StringList { items } => {
+                self.repo_manager.profiles.profiles = items;
+                self.repo_manager.profiles.cursor = 0;
+                Ok(())
+            }
+            _ => Err("Unexpected console payload for profile list".to_string()),
+        }
+    }
+
+    fn load_profile_detail(&mut self, name: &str) -> Result<(Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedLibrary>), String> {
+        let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
+        let payload_mods = self.call_profile_rpc(&ctx_mods)?;
+        let module_selectors: Vec<String> = match payload_mods {
+            ConsolePayload::StringList { items } => items,
+            _ => return Err("Unexpected payload for profile module selectors".to_string()),
+        };
+
+        let ctx_libs = serde_json::json!({"op": "list", "name": name, "library": true}).to_string();
+        let payload_libs = self.call_profile_rpc(&ctx_libs)?;
+        let library_selectors: Vec<String> = match payload_libs {
+            ConsolePayload::StringList { items } => items,
+            _ => return Err("Unexpected payload for profile library selectors".to_string()),
+        };
+
+        let resolved_modules: Vec<profiles::ResolvedModule> = module_selectors
+            .iter()
+            .filter_map(|s| s.split_once(": ").map(|x| x.1))
+            .flat_map(|sel| {
+                self.repo_manager
+                    .module_groups
+                    .values()
+                    .flatten()
+                    .filter(|r| glob::Pattern::new(sel).is_ok_and(|p| p.matches(&r.name)))
+                    .map(|r| profiles::ResolvedModule {
+                        name: r.name.clone(),
+                        version: r.version.clone().unwrap_or_default(),
+                        descr: r.descr.clone(),
+                        selector: sel.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let resolved_libraries: Vec<profiles::ResolvedLibrary> = library_selectors
+            .iter()
+            .filter_map(|s| s.split_once(": ").map(|x| x.1))
+            .flat_map(|sel| {
+                self.repo_manager
+                    .lib_rows
+                    .iter()
+                    .filter(|r| glob::Pattern::new(sel).is_ok_and(|p| p.matches(&r.name)))
+                    .map(|r| profiles::ResolvedLibrary {
+                        name: r.name.clone(),
+                        kind: r.kind.clone(),
+                        checksum: r.checksum.clone(),
+                        selector: sel.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        Ok((resolved_modules, resolved_libraries))
+    }
+
+    fn do_profile_create(&mut self, name: &str) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "new", "name": name}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        self.load_profile_list()?;
+        Ok(())
+    }
+
+    fn do_profile_delete(&mut self, name: &str) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "delete", "name": name}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        self.load_profile_list()?;
+        Ok(())
+    }
+
+    fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        Ok(())
+    }
+
+    fn do_profile_remove_match(&mut self, name: &str, selector: &str, library: bool) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "remove", "name": name, "matches": [selector], "library": library}).to_string();
+        self.call_profile_rpc(&ctx)?;
+        Ok(())
+    }
+
+    fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool) {
+        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+        let name = self.repo_manager.profiles.detail_name.clone();
+        if let Err(e) = self.do_profile_add_matches(&name, names, library) {
+            self.error_alert_visible = true;
+            self.error_alert_message = e;
+            return;
+        }
+        match self.load_profile_detail(&name) {
+            Ok((modules, libraries)) => {
+                self.repo_manager.profiles.enter_detail(name, modules, libraries);
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = e;
+            }
+        }
+    }
+
+    fn format_size(bytes: u64) -> String {
+        const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB"];
+        let mut size = bytes as f64;
+        let mut unit = 0;
+        while size >= 1024.0 && unit < UNITS.len() - 1 {
+            size /= 1024.0;
+            unit += 1;
+        }
+        format!("{size:.1} {}", UNITS[unit])
+    }
+
+    fn load_platforms(&mut self) -> Result<(), String> {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let repo = SysInspectModPak::new(repo_root).map_err(|e| format!("Cannot open repository: {e}"))?;
+        let builds = repo.minion_builds();
+        self.repo_manager.platforms.rows = builds
+            .into_iter()
+            .map(|r| {
+                let chk = r.checksum().to_string();
+                let size_str = std::fs::metadata(r.path()).ok().map(|m| Self::format_size(m.len())).unwrap_or_default();
+                platforms::PlatformRow {
+                    platform: r.platform().to_string(),
+                    arch: r.arch().to_string(),
+                    version: r.version().to_string(),
+                    size: size_str,
+                    checksum: if chk.len() > 12 { format!("{}…{}", &chk[..4], &chk[chk.len() - 4..]) } else { chk },
+                }
+            })
+            .collect();
+        self.repo_manager.platforms.cursor = 0;
+        Ok(())
+    }
+
+    fn load_library_index(&mut self) -> Result<(), String> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_LIBRARY_INDEX}"), "*", None, None, None).await })
+        })
+        .map_err(|e| format!("Failed to get library index: {e}"))?;
+        match resp.payload {
+            ConsolePayload::MasterLibraryIndex { rows } => {
+                self.repo_manager.lib_rows = rows;
+                self.repo_manager.lib_cursor = 0;
+                Ok(())
+            }
+            _ => Err("Unexpected console payload for library index".to_string()),
+        }
+    }
+
+    fn process_module_add(&mut self, path: &std::path::Path) {
+        if path.is_dir() {
+            let mut staged = Self::scan_dir_for_modules(path);
+            if staged.is_empty() {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No .spec files found in the selected directory".to_string();
+            } else {
+                let total = staged.len();
+                let flat_modules: Vec<ConsoleModuleRow> = self.repo_manager.module_groups.values().flatten().cloned().collect();
+                Self::dedup_staged_modules(&flat_modules, &mut staged);
+                let skipped = total - staged.len();
+                if staged.is_empty() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("No new modules found, {skipped} skipped");
+                } else {
+                    self.repo_manager.enter_staging(staged);
+                }
+            }
+        } else {
+            let spec = path.with_extension("spec");
+            if spec.exists() {
+                let module_name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                let (version, descr) = Self::read_spec_version_descr(&spec);
+                self.repo_manager.enter_staging(vec![repomanager::StagedModule {
+                    name: module_name,
+                    version,
+                    descr,
+                    path: path.to_path_buf(),
+                    checked: true,
+                    platform: None,
+                    arch: None,
+                }]);
+            } else {
+                self.error_alert_visible = true;
+                self.error_alert_message = "Module has no specfile. Add this module manually via CLI.".to_string();
+            }
+        }
+    }
+
+    fn scan_dir_for_modules(root: &std::path::Path) -> Vec<repomanager::StagedModule> {
+        let mut staged = Vec::new();
+        let Ok(entries) = std::fs::read_dir(root) else { return staged };
+        for entry in entries.flatten() {
+            let sub = entry.path();
+            if !sub.is_dir() {
+                continue;
+            }
+            let dir_name = sub.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let spec = sub.join(format!("{dir_name}.spec"));
+            if !spec.exists() {
+                continue;
+            }
+            let module_name = Self::read_spec_name(&spec).unwrap_or_else(|| dir_name.clone());
+            let (version, descr) = Self::read_spec_version_descr(&spec);
+            let bin = sub.join(&dir_name);
+            staged.push(repomanager::StagedModule {
+                name: module_name,
+                version,
+                descr,
+                path: if bin.exists() { bin } else { spec },
+                checked: true,
+                platform: None,
+                arch: None,
+            });
+        }
+        staged
+    }
+
+    fn read_spec_name(spec: &std::path::Path) -> Option<String> {
+        match std::fs::read_to_string(spec) {
+            Ok(yaml) => match serde_yaml::from_str::<serde_yaml::Value>(&yaml) {
+                Ok(v) => v.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        }
+    }
+
+    fn dedup_staged_modules(existing: &[ConsoleModuleRow], staged: &mut Vec<repomanager::StagedModule>) {
+        staged.retain(|m| !existing.iter().any(|r| r.name == m.name && r.version == m.version));
+    }
+
+    fn bulk_add_modules(&mut self, staged: Vec<repomanager::StagedModule>) {
+        let total = staged.len();
+        *self.repo_manager.progress.lock().unwrap() = Some((0, total));
+        let progress = self.repo_manager.progress.clone();
+        let repo_root = self.cfg.fileserver_root().join("repo");
+
+        std::thread::spawn(move || {
+            let mut repo = match SysInspectModPak::new(repo_root) {
+                Ok(r) => r,
+                Err(e) => {
+                    *progress.lock().unwrap() = None;
+                    // Can't access self.error_alert here — just log
+                    log::error!("Cannot open repository: {e}");
+                    return;
+                }
+            };
+            for (i, m) in staged.iter().enumerate() {
+                let spec_path = m.path.with_extension("spec");
+                let spec_yaml = match std::fs::read_to_string(&spec_path) {
+                    Ok(y) => y,
+                    Err(e) => {
+                        log::error!("Cannot read spec {}: {e}", m.name);
+                        *progress.lock().unwrap() = None;
+                        return;
+                    }
+                };
+                let mi: ModInterface = match serde_yaml::from_str(&spec_yaml) {
+                    Ok(mi) => mi,
+                    Err(e) => {
+                        log::error!("Invalid spec {}: {e}", m.name);
+                        *progress.lock().unwrap() = None;
+                        return;
+                    }
+                };
+                let meta = match ModPakMetadata::from_spec(&mi, m.path.clone()) {
+                    Ok(meta) => meta,
+                    Err(e) => {
+                        log::error!("Invalid spec data {}: {e}", m.name);
+                        *progress.lock().unwrap() = None;
+                        return;
+                    }
+                };
+                if let Err(e) = repo.add_module(meta) {
+                    log::error!("Cannot add module {}: {e}", m.name);
+                    *progress.lock().unwrap() = None;
+                    return;
+                }
+                *progress.lock().unwrap() = Some((i + 1, total));
+            }
+            *progress.lock().unwrap() = None;
+        });
+    }
+
+    fn bulk_delete_modules(&mut self, names: &[String]) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        if let Err(e) = repo.remove_module(name_refs) {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Cannot remove modules: {e}");
+        } else {
+            let _ = self.load_module_index();
+        }
+    }
+
+    fn bulk_delete_single_platform(&mut self, checked: &[repomanager::StagedModule]) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        for m in checked {
+            if let (Some(platform), Some(arch)) = (m.platform.as_ref(), m.arch.as_ref())
+                && let Err(e) = repo.remove_module_single(&m.name, platform, arch)
+            {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot remove module: {e}");
+                return;
+            }
+        }
+        let _ = self.load_module_index();
+    }
+
+    fn process_library_add(&mut self, path: &std::path::Path) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        if path.is_dir() {
+            if let Err(e) = repo.add_library(path.to_path_buf()) {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot add library: {e}");
+            } else {
+                self.load_library_index().ok();
+            }
+        } else {
+            // Single file: wrap in temp dir, use add_library
+            let tmp = std::env::temp_dir().join("sysinspect_lib_add");
+            let _ = std::fs::create_dir_all(&tmp);
+            let dest = tmp.join(path.file_name().unwrap_or_default());
+            match std::fs::copy(path, &dest) {
+                Ok(_) => {
+                    if let Err(e) = repo.add_library(tmp.clone()) {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Cannot add library file: {e}");
+                    } else {
+                        self.load_library_index().ok();
+                    }
+                    let _ = std::fs::remove_dir_all(&tmp);
+                }
+                Err(e) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Cannot copy library file: {e}");
+                }
+            }
+        }
+    }
+
+    fn process_platform_add(&mut self, path: &std::path::Path) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        match SysInspectModPak::new(repo_root) {
+            Ok(mut repo) => {
+                if let Err(e) = repo.add_minion_build(path.to_path_buf()) {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Cannot add minion build: {e}");
+                } else if let Err(e) = self.load_platforms() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to reload platforms: {e}");
+                }
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+            }
+        }
+    }
+
+    fn do_platform_remove(&mut self, name: &str) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        match SysInspectModPak::new(repo_root) {
+            Ok(mut repo) => {
+                let _ = repo.remove_minion_build(vec![name.to_string()]);
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        }
+        let _ = self.load_platforms();
+    }
+
+    fn read_spec_version_descr(spec: &std::path::Path) -> (Option<String>, String) {
+        match std::fs::read_to_string(spec) {
+            Ok(yaml) => match serde_yaml::from_str::<serde_yaml::Value>(&yaml) {
+                Ok(v) => (
+                    v.get("version").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    v.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default(),
+                ),
+                Err(_) => (None, String::new()),
+            },
+            Err(_) => (None, String::new()),
+        }
+    }
+
+    fn on_master_logs_popup(&mut self, e: event::KeyEvent) -> bool {
+        if !self.master_logs_visible {
+            return false;
+        }
+        let page = self.master_logs_viewport_rows.get().max(1);
+        let section = match self.master_logs_sections.get(self.master_logs_tab) {
+            Some(s) => s,
+            None => return true,
+        };
+        let rendered = Self::filtered_master_rendered_lines(&section.lines, &self.master_logs_filter);
+        let total_rows = rendered.len();
+        let max_top = total_rows.saturating_sub(page);
+
+        if self.master_logs_filter_focus {
+            match e.code {
+                KeyCode::Esc => {
+                    self.master_logs_filter_focus = false;
+                }
+                KeyCode::Tab => {
+                    self.master_logs_filter_focus = false;
+                }
+                KeyCode::Backspace => {
+                    self.master_logs_filter.delete_before();
+                }
+                KeyCode::Delete => {
+                    self.master_logs_filter.delete_at();
+                }
+                KeyCode::Left => {
+                    self.master_logs_filter.move_left();
+                }
+                KeyCode::Right => {
+                    self.master_logs_filter.move_right();
+                }
+                KeyCode::Home => {
+                    self.master_logs_filter.home();
+                }
+                KeyCode::End => {
+                    self.master_logs_filter.end();
+                }
+                KeyCode::Char(c) => {
+                    self.master_logs_filter.insert_char(c);
+                }
+                _ => {}
+            }
+            return true;
+        }
+
+        match e.code {
+            KeyCode::Esc => {
+                self.master_logs_visible = false;
+            }
+            KeyCode::Left => {
+                self.master_logs_tab = self.master_logs_tab.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                if self.master_logs_tab + 1 < self.master_logs_sections.len() {
+                    self.master_logs_tab += 1;
+                }
+            }
+            KeyCode::Tab => {
+                self.master_logs_filter_focus = true;
+            }
+            KeyCode::Up => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    scroll = max_top;
+                }
+                scroll = scroll.saturating_sub(1);
+                s.scroll.set(scroll);
+            }
+            KeyCode::Down => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    return true;
+                }
+                scroll = (scroll + 1).min(max_top);
+                if scroll >= max_top {
+                    scroll = usize::MAX;
+                }
+                s.scroll.set(scroll);
+            }
+            KeyCode::PageUp => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    scroll = max_top;
+                }
+                scroll = scroll.saturating_sub(page);
+                s.scroll.set(scroll);
+            }
+            KeyCode::PageDown => {
+                let s = &self.master_logs_sections[self.master_logs_tab];
+                let mut scroll = s.scroll.get();
+                if scroll == usize::MAX {
+                    return true;
+                }
+                scroll = (scroll + page).min(max_top);
+                if scroll >= max_top {
+                    scroll = usize::MAX;
+                }
+                s.scroll.set(scroll);
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                if let Err(err) = self.load_master_logs() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err.to_string();
+                }
+            }
+            KeyCode::Char('/') => {
+                self.master_logs_filter_focus = true;
+            }
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                self.master_logs_polling = !self.master_logs_polling;
+                self.status_at_master_logs();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn find_sysmaster_binary(&self) -> Option<PathBuf> {
+        // 1. Self-contained: {root}/bin/sysmaster
+        let root = self.cfg.root_dir();
+        let candidate = root.join("bin/sysmaster");
+        if candidate.exists() && candidate.is_file() {
+            return Some(candidate);
+        }
+        // 2. Same dir as current binary
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            let candidate = dir.join("sysmaster");
+            if candidate.exists() && candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn on_master_menu(&mut self, e: event::KeyEvent) -> bool {
+        if !self.master_menu_visible {
+            return false;
+        }
+        match e.code {
+            KeyCode::Esc => {
+                self.master_menu_visible = false;
+                self.status_at_cycles();
+            }
+            KeyCode::Char('o') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                if self.evtipc.is_some() {
+                    self.open_master_logs();
+                } else {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Master is not running".to_string();
+                }
+            }
+            KeyCode::Char('l') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                match self.load_master_logs_local() {
+                    Ok(()) => {
+                        self.master_logs_visible = true;
+                        self.master_logs_tab = 0;
+                        self.master_logs_polling = false;
+                        self.status_at_master_logs();
+                    }
+                    Err(e) => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = e;
+                    }
+                }
+            }
+            KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.error_alert_visible = true;
+                self.error_alert_message = "Not implemented yet".to_string();
+            }
+            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                if let Err(err) = self.load_module_index() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                } else {
+                    self.repo_manager.visible = true;
+                    self.status_at_repo_manager();
+                }
+            }
+            KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 1;
+            }
+            KeyCode::Char('s') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 3;
+            }
+            KeyCode::Char('e') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 2;
+            }
+            KeyCode::Up => {
+                self.master_menu_sel = self.master_menu_sel.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                self.master_menu_sel = (self.master_menu_sel + 1).min(macts::total_master_menu_items().saturating_sub(1));
+            }
+            KeyCode::Enter => {
+                self.master_menu_visible = false;
+                match self.master_menu_sel {
+                    0 => {
+                        if self.evtipc.is_some() {
+                            self.open_master_logs();
+                        } else {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = "Master is not running".to_string();
+                        }
+                    }
+                    1 => match self.load_master_logs_local() {
+                        Ok(()) => {
+                            self.master_logs_visible = true;
+                            self.master_logs_tab = 0;
+                            self.master_logs_polling = false;
+                            self.status_at_master_logs();
+                        }
+                        Err(e) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = e;
+                        }
+                    },
+                    2 => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = "Not implemented yet".to_string();
+                    }
+                    3 => {
+                        if let Err(err) = self.load_module_index() {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = err;
+                        } else {
+                            self.repo_manager.visible = true;
+                            self.status_at_repo_manager();
+                        }
+                    }
+                    4 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 1;
+                    }
+                    5 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 3;
+                    }
+                    6 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 2;
+                    }
+                    _ => {}
+                }
+                self.status_at_cycles();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn on_master_confirm(&mut self, e: event::KeyEvent) -> bool {
+        if !self.master_confirm_visible {
+            return false;
+        }
+        match e.code {
+            KeyCode::Tab => {
+                self.master_confirm_choice =
+                    if self.master_confirm_choice == AlertResult::Default { AlertResult::Quit } else { AlertResult::Default };
+            }
+            KeyCode::Esc => {
+                self.master_confirm_visible = false;
+                self.master_confirm_action = 0;
+            }
+            KeyCode::Enter => {
+                self.master_confirm_visible = false;
+                let action = self.master_confirm_action;
+                self.master_confirm_action = 0;
+                if self.master_confirm_choice == AlertResult::Quit {
+                    match action {
+                        1 => self.do_master_start(),
+                        2 => self.do_master_restart(),
+                        3 => self.do_master_stop(),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn do_master_start(&mut self) {
+        if let Some(bin) = self.find_sysmaster_binary() {
+            let config_path = {
+                let root = self.cfg.root_dir();
+                let etc_path = root.join("etc/sysinspect.conf");
+                if etc_path.exists() { etc_path } else { root.join("sysinspect.conf") }
+            };
+            let child = std::process::Command::new(&bin)
+                .arg("--daemon")
+                .arg("-c")
+                .arg(config_path.to_string_lossy().as_ref())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            if let Ok(c) = child {
+                std::thread::spawn(move || {
+                    c.wait_with_output().ok();
+                });
+            }
+            for _ in 0..10 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if self.try_reconnect_silent().is_ok() {
+                    return;
+                }
+            }
+            self.error_alert_visible = true;
+            self.error_alert_message = "Master started but not reachable yet.".to_string();
+        } else {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Cannot find sysmaster binary".to_string();
+        }
+    }
+
+    fn do_master_stop(&mut self) {
+        if let Err(err) = libsysinspect::util::sys::kill_process(self.cfg.pidfile(), None) {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Failed to stop master: {err}");
+        } else {
+            self.offline = true;
+            self.evtipc = None;
+        }
+    }
+
+    fn do_master_restart(&mut self) {
+        self.do_master_stop();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        self.do_master_start();
     }
 
     fn on_tag_popup(&mut self, e: event::KeyEvent) -> bool {
@@ -1437,6 +3213,45 @@ impl SysInspectUX {
             return;
         }
 
+        // Information alert is modal
+        if self.on_info_alert(e) {
+            return;
+        }
+
+        // Master operations menu is modal
+        if self.on_master_menu(e) {
+            return;
+        }
+
+        // Exit alert takes priority over setup wizard
+        if self.on_exit_alert(e) {
+            return;
+        }
+
+        // Setup wizard is modal (but not when file picker is open)
+        if self.setup_wizard.visible && !self.file_picker.visible {
+            self.setup_wizard.handle_key(e);
+            if self.setup_wizard.quit_requested {
+                self.setup_wizard.quit_requested = false;
+                self.exit_alert_visible = true;
+                self.exit_alert_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.on_error_alert(e) {
+            return;
+        }
+
+        // File picker is modal
+        if self.file_picker.visible && self.file_picker.handle_key(e) {
+            return;
+        }
+
+        // Repo manager is modal
+        if self.on_repo_manager(e) {
+            return;
+        }
+
         if self.dsl_browser.visible {
             self.dsl_browser.handle_key(e.code);
             if !self.dsl_browser.visible {
@@ -1485,11 +3300,11 @@ impl SysInspectUX {
             return;
         }
 
-        if self.on_exit_alert(e) {
+        if self.on_cluster_confirm(e) {
             return;
         }
 
-        if self.on_cluster_confirm(e) {
+        if self.on_master_confirm(e) {
             return;
         }
 
@@ -1498,6 +3313,10 @@ impl SysInspectUX {
         }
 
         if self.on_tag_popup(e) {
+            return;
+        }
+
+        if self.on_master_logs_popup(e) {
             return;
         }
 
@@ -1674,6 +3493,59 @@ impl SysInspectUX {
                     self.error_alert_message = format!("Failed to load models: {err}");
                 }
             },
+            KeyCode::Char('o') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.evtipc.is_some() {
+                    self.open_master_logs();
+                } else {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Master is not running".to_string();
+                }
+            }
+            KeyCode::Char('l') if e.modifiers.contains(KeyModifiers::CONTROL) => match self.load_master_logs_local() {
+                Ok(()) => {
+                    self.master_logs_visible = true;
+                    self.master_logs_tab = 0;
+                    self.master_logs_polling = false;
+                    self.status_at_master_logs();
+                }
+                Err(e) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = e;
+                }
+            },
+            KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "Not implemented yet".to_string();
+            }
+            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Err(err) = self.load_module_index() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                } else {
+                    self.repo_manager.visible = true;
+                    self.status_at_repo_manager();
+                }
+            }
+            KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 1;
+            }
+            KeyCode::Char('s') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 3;
+            }
+            KeyCode::Char('e') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_confirm_visible = true;
+                self.master_confirm_choice = AlertResult::Default;
+                self.master_confirm_action = 2;
+            }
+            KeyCode::Char('m') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = true;
+                self.master_menu_sel = 0;
+                self.status_at_master_menu();
+            }
             KeyCode::Char('o') if !e.modifiers.contains(KeyModifiers::CONTROL) => match self.fetch_minions() {
                 Ok(rows) if rows.is_empty() => {
                     self.error_alert_visible = true;

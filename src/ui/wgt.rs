@@ -294,6 +294,9 @@ impl Widget for &SysInspectUX {
         self._render_right_pane(events_a, buf);
 
         // Catch dialogs
+        if !self.error_alert_visible && !self.file_picker.visible {
+            self.setup_wizard.render(area, buf);
+        }
         self.dialog_purge(area, buf);
         self.dialog_exit(area, buf);
         self.dialog_help(area, buf);
@@ -301,9 +304,19 @@ impl Widget for &SysInspectUX {
         self.minion_actions_menu(area, buf);
         self.minion_traits(area, buf);
         self.dialog_minion_logs(area, buf);
+        self.dialog_master_logs(area, buf);
         self.dialog_trait_tag(area, buf);
         self.dialog_cluster_confirm(area, buf);
+        self.dialog_master_confirm(area, buf);
+        self.master_actions_menu(area, buf);
+        self.repo_manager.render(area, buf);
+        if self.file_picker.visible {
+            self.file_picker.render(area, buf);
+        }
         self.dialog_dsl_browser(area, buf);
         self.dialog_error(area, buf);
+        if self.info_alert_visible {
+            self.dialog_info(area, buf, "Setup Complete", &self.info_alert_message, true);
+        }
     }
 }

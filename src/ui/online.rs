@@ -93,10 +93,10 @@ impl SysInspectUX {
             parent,
             &title_style,
             &[
-                TitleSegment { text: " Minions ".into(), bg: bg_base, fg: fg_dim },
-                TitleSegment { text: format!(" {n_online} online "), bg: bg_glow, fg: palette::SUCCESS },
-                TitleSegment { text: format!(" {n_offline} offline "), bg: bg_heat, fg: palette::WARNING },
-                TitleSegment { text: format!(" {} total ", n_online + n_offline), bg: bg_peak, fg: fg_dim },
+                TitleSegment { text: " Minions ".into(), bg: bg_base, fg: fg_dim, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {n_online} online "), bg: bg_glow, fg: palette::SUCCESS, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {n_offline} offline "), bg: bg_heat, fg: palette::WARNING, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {} total ", n_online + n_offline), bg: bg_peak, fg: fg_dim, modifier: Modifier::empty() },
             ],
         );
 

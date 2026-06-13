@@ -39,10 +39,22 @@ help:
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
 ifeq ($(UNAME_S),Linux)
 	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Cross Build"
-	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
-	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
-	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
-	@printf '    $(C_BLD)%-20s$(C_OFF) %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-modules-dist" "Build static x86_64 Linux release modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-modules-dist-dev" "Build static x86_64 Linux debug modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist" "Build static AArch64 Linux release modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist-dev" "Build static AArch64 Linux debug modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-modules-dist" "Build static x86_64 Linux release modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-modules-dist-dev" "Build static x86_64 Linux debug modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist" "Build static AArch64 Linux release modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist-dev" "Build static AArch64 Linux debug modules distribution."
 endif
 	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Testing"
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test" "Run the full nextest suite for this platform."
@@ -151,6 +163,30 @@ musl-x86_64:
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
 endif
+
+musl-x86_64-modules-dist-dev:
+	$(call check_present,x86_64-linux-musl-gcc)
+	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	$(call stage_profile_modules,debug,x86_64-unknown-linux-musl)
+	$(call stage_modules_dist_from,debug,x86_64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,x86_64,debug))
+
+musl-x86_64-modules-dist:
+	$(call check_present,x86_64-linux-musl-gcc)
+	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
+	$(call stage_modules_dist_from,release,x86_64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,x86_64,release))
+
+musl-aarch64-modules-dist-dev:
+	$(call check_present,aarch64-linux-musl-gcc)
+	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	$(call stage_profile_modules,debug,aarch64-unknown-linux-musl)
+	$(call stage_modules_dist_from,debug,aarch64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,aarch64,debug))
+
+musl-aarch64-modules-dist:
+	$(call check_present,aarch64-linux-musl-gcc)
+	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	$(call stage_profile_modules,release,aarch64-unknown-linux-musl)
+	$(call stage_modules_dist_from,release,aarch64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,aarch64,release))
 
 all-dev:
 	@scripts/maybe-mxrun.sh all-dev || $(MAKE) _all_dev

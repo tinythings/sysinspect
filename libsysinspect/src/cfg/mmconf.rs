@@ -4,7 +4,7 @@ use libcommon::SysinspectError;
 use nix::libc;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Value, from_str, from_value};
-use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
+use std::{env, fs, os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
 
 // Network
 // -------
@@ -1057,6 +1057,9 @@ pub struct MasterConfig {
     #[serde(rename = "bind.port")]
     bind_port: Option<u32>,
 
+    #[serde(rename = "root")]
+    root: Option<String>,
+
     // Path to FIFO socket. Default: /var/run/sysinspect-master.socket
     socket: Option<String>,
 
@@ -1438,9 +1441,30 @@ impl MasterConfig {
         self.fileserver_root().join(CFG_PROFILES_ROOT)
     }
 
-    /// Get default sysinspect root. For master it is always /etc/sysinspect
+    /// Get default sysinspect root. Auto-discovered from binary location or config.
     pub fn root_dir(&self) -> PathBuf {
-        PathBuf::from(DEFAULT_SYSINSPECT_ROOT.to_string())
+        // 1. Explicit config field
+        if let Some(ref r) = self.root {
+            return PathBuf::from(r);
+        }
+        // 2. System binary → /etc/sysinspect (RPM/deb)
+        if let Ok(exe) = env::current_exe()
+            && let Some(parent) = exe.parent()
+        {
+            let parent_str = parent.to_string_lossy();
+            if parent_str == "/usr/bin" || parent_str == "/usr/sbin" || parent_str == "/bin" || parent_str == "/sbin" {
+                return PathBuf::from(DEFAULT_SYSINSPECT_ROOT);
+            }
+        }
+        // 3. Self-contained layout: ../etc/sysinspect.conf exists relative to binary
+        if let Ok(exe) = env::current_exe()
+            && let Some(grandparent) = exe.parent().and_then(|p| p.parent())
+            && grandparent.join("etc").join(APP_CONF).exists()
+        {
+            return grandparent.to_path_buf();
+        }
+        // 4. Fallback
+        PathBuf::from(DEFAULT_SYSINSPECT_ROOT)
     }
 
     /// Resolve a path under the SysInspect root unless it is already absolute.
@@ -1506,7 +1530,7 @@ impl MasterConfig {
 
     /// Return errors logfile in daemon mode
     pub fn logfile_err(&self) -> PathBuf {
-        if let Some(lfn) = &self.log_main {
+        if let Some(lfn) = &self.log_err {
             return PathBuf::from(lfn);
         }
 
@@ -1515,12 +1539,12 @@ impl MasterConfig {
 
     /// Return the path of the telemetry location
     pub fn telemetry_location(&self) -> PathBuf {
-        self.telemetry_location.as_deref().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_MASTER_TELEMETRY_DB))
+        self.telemetry_location.as_deref().map(PathBuf::from).unwrap_or_else(|| self.root_dir().join("telemetry"))
     }
 
     /// Return the path of the telemetry communication socket location
     pub fn telemetry_socket(&self) -> PathBuf {
-        self.telemetry_socket.as_deref().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_MASTER_TELEMETRY_SCK))
+        self.telemetry_socket.as_deref().map(PathBuf::from).unwrap_or_else(|| self.root_dir().join("telemetry/master.sock"))
     }
 
     /// Return the path of the telemetry communication socket location
@@ -1540,7 +1564,7 @@ impl MasterConfig {
 
     /// Get datastore path
     pub fn datastore_path(&self) -> PathBuf {
-        self.datastore_path.as_deref().map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_DATASTORE_ROOT))
+        self.datastore_path.as_deref().map(PathBuf::from).unwrap_or_else(|| self.root_dir().join("datastore"))
     }
 
     /// Get datastore max size in bytes

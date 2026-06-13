@@ -52,9 +52,10 @@ library:
 "#,
     )
     .expect("repo index should deserialize");
-    repo.index_module("runtime.lua", "runtime/lua", "any", "noarch", "lua runtime", false, "deadbeef", None, None)
+    repo.index_module("runtime.lua", "runtime/lua", "any", "noarch", "lua runtime", false, "deadbeef", None, None, None, None, None)
         .expect("runtime module should index");
-    repo.index_module("net.ping", "net/ping", "any", "noarch", "ping module", false, "cafebabe", None, None).expect("ping module should index");
+    repo.index_module("net.ping", "net/ping", "any", "noarch", "ping module", false, "cafebabe", None, None, None, None, None)
+        .expect("ping module should index");
 
     let filtered = repo.retain_profiles(&modules, &libraries);
     let modules = filtered.modules();

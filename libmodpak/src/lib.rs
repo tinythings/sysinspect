@@ -815,7 +815,21 @@ impl SysInspectModPak {
         Ok(())
     }
 
-    /// Add one statically linked sysminion build to the repository.
+    fn requires_static_minion(os: &str) -> bool {
+        matches!(os, "linux")
+    }
+
+    fn minion_platform_label(os: &str) -> &str {
+        match os {
+            "linux" => "Linux",
+            "freebsd" => "FreeBSD",
+            "netbsd" => "NetBSD",
+            "openbsd" => "OpenBSD",
+            _ => os,
+        }
+    }
+
+    /// Add one sysminion build to the repository.
     pub fn add_minion_build(&mut self, p: PathBuf) -> Result<(), SysinspectError> {
         let path = fs::canonicalize(p)?;
         let buff = fs::read(&path)?;
@@ -823,8 +837,8 @@ impl SysInspectModPak {
         if !buff.starts_with(b"\x7FELF") {
             return Err(SysinspectError::MasterGeneralError("Minion build must be an ELF executable".to_string()));
         }
-        if !Self::is_static_elf(&buff)? {
-            return Err(SysinspectError::MasterGeneralError("Minion build must be a static ELF".to_string()));
+        if Self::requires_static_minion(os) && !Self::is_static_elf(&buff)? {
+            return Err(SysinspectError::MasterGeneralError(format!("{} minion build must be a static ELF", Self::minion_platform_label(os))));
         }
         let version = Self::get_minion_version(&buff)
             .ok_or_else(|| SysinspectError::MasterGeneralError("Minion build must be a sysminion executable".to_string()))?;
@@ -899,6 +913,9 @@ impl SysInspectModPak {
                 &checksum,
                 if meta.get_args().is_empty() { None } else { Some(meta.get_args().clone()) },
                 if meta.get_opts().is_empty() { None } else { Some(meta.get_opts().clone()) },
+                meta.get_version().map(|s| s.to_string()),
+                meta.get_author().map(|s| s.to_string()),
+                meta.get_manpage().map(|s| s.to_string()),
             )
             .map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to add module to index: {e}")))?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
@@ -1356,6 +1373,13 @@ impl SysInspectModPak {
             log::error!("No module{} found: {}", if names.len() > 1 { "s" } else { "" }, names.join(", ").bright_yellow());
         }
 
+        Ok(())
+    }
+
+    /// Remove a single module entry for a specific platform and architecture.
+    pub fn remove_module_single(&mut self, name: &str, platform: &str, arch: &str) -> Result<(), SysinspectError> {
+        self.idx.remove_module(name, platform, arch)?;
+        fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?;
         Ok(())
     }
 }

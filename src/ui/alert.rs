@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Position},
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
 };
 use ratatui_glamour::color::blend_2d;
@@ -51,6 +51,32 @@ impl SysInspectUX {
             Some(palette::WHITE),
             None,
             None,
+            None,
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
+        );
+    }
+
+    pub fn dialog_info(&self, parent: Rect, buf: &mut Buffer, title: &str, text: &str, quit_button: bool) {
+        let max_w = ((parent.width * 3 / 4).max(50)) as usize;
+        let wrapped_lines = wrap_text(text, max_w);
+        let text = if wrapped_lines.is_empty() { "".to_string() } else { wrapped_lines.join("\n") };
+        Self::_popup_ex(
+            parent,
+            buf,
+            Some(title),
+            &text,
+            None,
+            Alignment::Left,
+            AlertResult::Quit,
+            if quit_button { AlertButtons::Quit } else { AlertButtons::Close },
+            Some(0),
+            Some(palette::SUCCESS_PEAK),
+            None,
+            None,
+            Some(palette::BG_1),
+            None,
+            None,
+            None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -75,6 +101,7 @@ impl SysInspectUX {
             Some(palette::WHITE),
             None,
             None,
+            None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -87,7 +114,7 @@ impl SysInspectUX {
             parent,
             buf,
             Some("Help"),
-            "\"c\" - call composer\n\"h\" - show this help\n\"o\" - registered minions popup\n\"p\" - purge all records\n\"q\" - quit the UI\n",
+            "\"c\" - call composer\n\"h\" - show this help\n\"m\" - master operations\n\"o\" - registered minions popup\n\"p\" - purge all records\n\"q\" - quit the UI\n",
             None,
             Alignment::Left,
             AlertResult::Close,
@@ -97,6 +124,7 @@ impl SysInspectUX {
             None,
             None,
             Some(palette::BG_1),
+            None,
             None,
             None,
             None,
@@ -124,6 +152,7 @@ impl SysInspectUX {
             None,
             Some("Yep!"),
             Some("Nope"),
+            None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -132,25 +161,70 @@ impl SysInspectUX {
         if !self.cluster_confirm_visible {
             return;
         }
-        let text = match self.pending_cluster_action {
-            1 => "Shut down every online minion\nin the entire cluster?",
-            2 => "Force every online minion to drop\nand re-establish its connection?",
+        let (plain_text, styled_text): (String, Option<Text<'_>>) = match self.pending_cluster_action {
+            1 => ("\nShut down every online minion\nin the entire cluster?".to_string(), None),
+            2 => ("\nForce every online minion to drop\nand re-establish its connection?".to_string(), None),
+            3 => {
+                let host = self.selected_popup_minion().map(|r| Self::online_host(&r)).unwrap_or_else(|| "unknown".to_string());
+                let plain = format!("\nDo you want to unregister {host} from this cluster?");
+                let styled = Text::from(vec![
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::raw("Do you want to unregister "),
+                        Span::styled(host.clone(), Style::default().fg(palette::SUCCESS)),
+                        Span::raw(" from this cluster?"),
+                    ]),
+                ]);
+                (plain, Some(styled))
+            }
             _ => return,
         };
         Self::_popup_ex(
             parent,
             buf,
             Some("Cluster Operation"),
-            text,
+            &plain_text,
             None,
             Alignment::Center,
             self.cluster_confirm_choice.clone(),
+            AlertButtons::YesNo,
+            Some(0),
+            Some(palette::PROCESSING_PEAK),
+            None,
+            None,
+            Some(palette::WHITE),
+            None,
+            None,
+            styled_text,
+            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
+        );
+    }
+
+    pub fn dialog_master_confirm(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.master_confirm_visible {
+            return;
+        }
+        let text = match self.master_confirm_action {
+            1 => "Start the master in daemon mode?",
+            2 => "Restart the master?\n\nThis will stop the daemon and start it again.",
+            3 => "Stop the master?\n\nThis will terminate the daemon process.",
+            _ => return,
+        };
+        Self::_popup_ex(
+            parent,
+            buf,
+            Some("Master Operation"),
+            text,
+            None,
+            Alignment::Center,
+            self.master_confirm_choice.clone(),
             AlertButtons::YesNo,
             Some(50),
             Some(palette::PROCESSING_PEAK),
             None,
             None,
-            Some(palette::WHITE),
+            Some(palette::FG),
+            None,
             None,
             None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
@@ -192,7 +266,7 @@ impl SysInspectUX {
     fn _popup_ex(
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
         buttons: AlertButtons, width: Option<u16>, border_color: Option<Color>, border_type: Option<ratatui::widgets::BorderType>,
-        text_color: Option<Color>, title_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>,
+        text_color: Option<Color>, title_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>, styled_text: Option<Text<'_>>,
         gradient: Option<(f32, &[Color])>,
     ) {
         let background = background.unwrap_or(palette::POPUP_BG_BASE);
@@ -257,12 +331,16 @@ impl SysInspectUX {
 
         let text_area = vertical_chunks[0];
         let button_area = vertical_chunks[1];
-        Paragraph::new(text).alignment(text_align).style(text_bg).render(text_area, buf);
+        if let Some(st) = styled_text {
+            Paragraph::new(st).alignment(text_align).style(text_bg).render(text_area, buf);
+        } else {
+            Paragraph::new(text).alignment(text_align).style(text_bg).render(text_area, buf);
+        }
         let (lbtn_label, rbtn_label) = match buttons {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(left_label.unwrap_or(OK_LABEL)), Self::format_button(right_label.unwrap_or(CANCEL_LABEL))),
             AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
-            AlertButtons::Quit => (Self::format_button(CLOSE_LABEL), "".to_string()),
+            AlertButtons::Quit => (Self::format_button(QUIT_LABEL), "".to_string()),
             AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 
@@ -384,7 +462,7 @@ impl SysInspectUX {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
             AlertButtons::OkCancel => (Self::format_button(OK_LABEL), Self::format_button(CANCEL_LABEL)),
             AlertButtons::Ok => (Self::format_button(OK_LABEL), "".to_string()),
-            AlertButtons::Quit => (Self::format_button(CLOSE_LABEL), "".to_string()),
+            AlertButtons::Quit => (Self::format_button(QUIT_LABEL), "".to_string()),
             AlertButtons::Close => (Self::format_button(CLOSE_LABEL), "".to_string()),
         };
 

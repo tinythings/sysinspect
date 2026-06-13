@@ -8,13 +8,13 @@
 use super::*;
 
 use crate::hopstart::{HopStartTarget, HopStarter};
-use libmodpak::{SysInspectModPak, compare_versions};
+use libmodpak::{SysInspectModPak, compare_versions, mpk::ModPakRepoIndex};
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
-        ConsoleEnvelope, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleModelRow, ConsoleOnlineMinionRow,
-        ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client,
-        load_master_private_key,
+        ConsoleEnvelope, ConsoleLibraryRow, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot,
+        ConsoleModelRow, ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse,
+        ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
@@ -453,6 +453,18 @@ impl SysMaster {
         Ok(snapshot)
     }
 
+    async fn master_log_snapshot(master: Arc<Mutex<Self>>) -> Result<ConsoleMasterLogSnapshot, SysinspectError> {
+        let guard = master.lock().await;
+        let std = std::fs::read_to_string(guard.cfg.logfile_std()).unwrap_or_default();
+        let err = std::fs::read_to_string(guard.cfg.logfile_err()).unwrap_or_default();
+        Ok(ConsoleMasterLogSnapshot {
+            standard_log: std.lines().map(|s| s.to_string()).collect(),
+            errors_log: err.lines().map(|s| s.to_string()).collect(),
+            standard_path: guard.cfg.logfile_std().display().to_string(),
+            errors_path: guard.cfg.logfile_err().display().to_string(),
+        })
+    }
+
     /// Remove a minion from registry and key storage and prepare the matching console reply.
     ///
     /// When a command message can still be constructed for the target minion it
@@ -493,6 +505,70 @@ impl SysMaster {
             }),
             msg.into_iter().collect(),
         ))
+    }
+
+    async fn module_index_data(&mut self) -> Result<Vec<ConsoleModuleRow>, SysinspectError> {
+        let idx_path = self.cfg.fileserver_root().join("repo").join("mod.index");
+        if !idx_path.exists() {
+            return Ok(Vec::new());
+        }
+        let yaml = std::fs::read_to_string(&idx_path).map_err(|e| SysinspectError::ConfigError(format!("Cannot read module index: {e}")))?;
+        let idx = ModPakRepoIndex::from_yaml(&yaml)?;
+        let mut rows = Vec::new();
+        for (platform, arch_map) in idx.platform.iter() {
+            for (arch, mod_map) in arch_map.iter() {
+                for (name, attrs) in mod_map.iter() {
+                    rows.push(ConsoleModuleRow {
+                        name: name.clone(),
+                        platform: platform.clone(),
+                        arch: arch.clone(),
+                        subpath: attrs.subpath.clone(),
+                        descr: attrs.descr.clone(),
+                        mod_type: attrs.mod_type.clone(),
+                        version: attrs.version.clone(),
+                        author: attrs.author.clone(),
+                        manpage: attrs.manpage.clone(),
+                        args: attrs.args.as_ref().map(|a| {
+                            a.iter()
+                                .map(|aa| ConsoleModuleArgument {
+                                    name: aa.name.clone(),
+                                    description: aa.description.clone(),
+                                    argtype: aa.argtype.clone(),
+                                    required: aa.required,
+                                    default: aa.default.clone(),
+                                })
+                                .collect()
+                        }),
+                        opts: attrs.opts.as_ref().map(|o| {
+                            o.iter()
+                                .map(|oo| ConsoleModuleArgument {
+                                    name: oo.name.clone(),
+                                    description: oo.description.clone(),
+                                    argtype: oo.argtype.clone(),
+                                    required: oo.required,
+                                    default: oo.default.clone(),
+                                })
+                                .collect()
+                        }),
+                    });
+                }
+            }
+        }
+        Ok(rows)
+    }
+
+    async fn library_index_data(&mut self) -> Result<Vec<ConsoleLibraryRow>, SysinspectError> {
+        let idx_path = self.cfg.fileserver_root().join("repo").join("mod.index");
+        if !idx_path.exists() {
+            return Ok(Vec::new());
+        }
+        let yaml = std::fs::read_to_string(&idx_path).map_err(|e| SysinspectError::ConfigError(format!("Cannot read module index: {e}")))?;
+        let idx = ModPakRepoIndex::from_yaml(&yaml)?;
+        let mut rows = Vec::new();
+        for (name, file) in idx.library.iter() {
+            rows.push(ConsoleLibraryRow { name: name.clone(), checksum: file.checksum().to_string(), kind: file.kind().to_string() });
+        }
+        Ok(rows)
     }
 
     async fn upsert_cmdb_console_response(&mut self, mid: &str, context: &str) -> Result<ConsoleResponse, SysinspectError> {
@@ -690,6 +766,27 @@ impl SysMaster {
                     Err(err) => ConsoleResponse::err(format!("Unable to get minion logs: {err}")),
                 },
                 Err(err) => ConsoleResponse::err(format!("Failed to parse minion logs request: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MASTER_LOGS}")) {
+            return match Self::master_log_snapshot(Arc::clone(&master)).await {
+                Ok(snapshot) => ConsoleResponse::ok(ConsolePayload::MasterLogs { snapshot }),
+                Err(err) => ConsoleResponse::err(format!("Unable to get master logs: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MODULE_INDEX}")) {
+            return match master.lock().await.module_index_data().await {
+                Ok(rows) => ConsoleResponse::ok(ConsolePayload::MasterModuleIndex { rows }),
+                Err(err) => ConsoleResponse::err(format!("Unable to get module index: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_LIBRARY_INDEX}")) {
+            return match master.lock().await.library_index_data().await {
+                Ok(rows) => ConsoleResponse::ok(ConsolePayload::MasterLibraryIndex { rows }),
+                Err(err) => ConsoleResponse::err(format!("Unable to get library index: {err}")),
             };
         }
 

@@ -152,14 +152,15 @@ define stage_profile_modules
 	if [ -f "$$build_dir/service" ]; then cp -f "$$build_dir/service" "$$stage_dir/sys/service" && chmod +x "$$stage_dir/sys/service"; fi; \
 	if [ -f "$$build_dir/pkg" ]; then cp -f "$$build_dir/pkg" "$$stage_dir/sys/pkg" && chmod +x "$$stage_dir/sys/pkg"; fi; \
 	if [ -f "$$build_dir/ipfw" ]; then cp -f "$$build_dir/ipfw" "$$stage_dir/net/ipfw" && chmod +x "$$stage_dir/net/ipfw"; fi; \
-		if [ -f "$build_dir/http-mod" ]; then cp -f "$build_dir/http-mod" "$stage_dir/net/http" && chmod +x "$stage_dir/net/http"; fi; \
-
+	if [ -f "$$build_dir/http-mod" ]; then cp -f "$$build_dir/http-mod" "$$stage_dir/net/http" && chmod +x "$$stage_dir/net/http"; fi; \
 	if [ -f "$$build_dir/file" ]; then cp -f "$$build_dir/file" "$$stage_dir/fs/file" && chmod +x "$$stage_dir/fs/file"; fi; \
 	if [ -f "$$build_dir/dir" ]; then cp -f "$$build_dir/dir" "$$stage_dir/fs/dir" && chmod +x "$$stage_dir/fs/dir"; fi; \
 	if [ -f "$$build_dir/lua-runtime" ]; then cp -f "$$build_dir/lua-runtime" "$$stage_dir/runtime/lua-runtime" && chmod +x "$$stage_dir/runtime/lua-runtime"; fi; \
 	if [ -f "$$build_dir/py3-runtime" ]; then cp -f "$$build_dir/py3-runtime" "$$stage_dir/runtime/py3-runtime" && chmod +x "$$stage_dir/runtime/py3-runtime"; fi; \
 	if [ -f "$$build_dir/wasm-runtime" ]; then cp -f "$$build_dir/wasm-runtime" "$$stage_dir/runtime/wasm-runtime" && chmod +x "$$stage_dir/runtime/wasm-runtime"; fi; \
-	if [ -f "$$build_dir/resource" ]; then cp -f "$$build_dir/resource" "$$stage_dir/cfg/resource" && chmod +x "$$stage_dir/cfg/resource"; fi
+	if [ -f "$$build_dir/resource" ]; then cp -f "$$build_dir/resource" "$$stage_dir/cfg/resource" && chmod +x "$$stage_dir/cfg/resource"; fi; \
+	if [ -f "$$build_dir/facts" ]; then cp -f "$$build_dir/facts" "$$stage_dir/facts" && chmod +x "$$stage_dir/facts"; fi; \
+	if [ -f "$$build_dir/kernel" ]; then cp -f "$$build_dir/kernel" "$$stage_dir/kernel" && chmod +x "$$stage_dir/kernel"; fi
 endef
 
 define stage_profile_minion
@@ -215,7 +216,7 @@ service) rel=sys/service ;; \
 endef
 
 define stage_modules_dist_from
-	@dist=$(MODULES_DIST_DIR); \
+	@dist=$$(if [ -n "$(4)" ]; then echo $(4); else echo $(MODULES_DIST_DIR); fi); \
 	stage_dir=$$(if [ -n "$(2)" ]; then echo $(STAGE_ROOT)/$(2)/$(1); else echo $(STAGE_ROOT)/native/$(1); fi); \
 	rm -rf "$$dist"; \
 	mkdir -p "$$dist"; \
@@ -230,6 +231,7 @@ define stage_modules_dist_from
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
+			pkg) rel=sys/pkg ;; \
 user) rel=sys/user ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
@@ -269,6 +271,7 @@ define stage_native_modules_dist
 			net) rel=sys/net ;; \
 			run) rel=sys/run ;; \
 			ssrun) rel=sys/ssrun ;; \
+			pkg) rel=sys/pkg ;; \
 user) rel=sys/user ;; \
 service) rel=sys/service ;; \
 			http-mod) rel=net/http ;; \
@@ -348,4 +351,7 @@ define refresh_current_minion_repo
 	fi; \
 	"$$sysbin" module -R -t --name $(CURRENT_MINION_SLOT) || true; \
 	"$$sysbin" module -A -t -p "$$minion"
+endef
+define musl_modules_dist_dir
+build/musl-$(1)-modules-dist$(if $(filter debug,$(2)),-dev,)
 endef
