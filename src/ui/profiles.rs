@@ -425,7 +425,7 @@ impl ProfilesManager {
                     }
                 }
             }
-            buf.set_string(list_area.x + 1, ry, &format!(" {}", name), row_style);
+            buf.set_string(list_area.x + 1, ry, format!(" {}", name), row_style);
         }
 
         if total > view_h {

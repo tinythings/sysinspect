@@ -41,7 +41,14 @@ pub enum DeleteFocus {
 
 impl Default for PlatformsManager {
     fn default() -> Self {
-        Self { rows: Vec::new(), cursor: 0, scroll: Cell::new(0), delete_visible: false, delete_name: String::new(), delete_focus: DeleteFocus::YesBtn }
+        Self {
+            rows: Vec::new(),
+            cursor: 0,
+            scroll: Cell::new(0),
+            delete_visible: false,
+            delete_name: String::new(),
+            delete_focus: DeleteFocus::YesBtn,
+        }
     }
 }
 
@@ -165,7 +172,9 @@ impl PlatformsManager {
         for idx in 0..dlg_w {
             let sx = x.saturating_add(2).saturating_add(idx);
             let sy = y.saturating_add(dlg_h);
-            if sx > max_x || sy > max_y { continue; }
+            if sx > max_x || sy > max_y {
+                continue;
+            }
             if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
                 cell.set_bg(palette::SHADOW_BG);
                 cell.set_fg(palette::SHADOW_FG);
@@ -175,7 +184,9 @@ impl PlatformsManager {
             for idx in 0..dlg_h {
                 let sx = x.saturating_add(dlg_w).saturating_add(offset);
                 let sy = y.saturating_add(idx).saturating_add(1);
-                if sx > max_x || sy > max_y { continue; }
+                if sx > max_x || sy > max_y {
+                    continue;
+                }
                 if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
                     cell.set_bg(palette::SHADOW_BG);
                     cell.set_fg(palette::SHADOW_FG);
@@ -263,12 +274,17 @@ impl PlatformsManager {
                     }
                 }
             }
-            buf.set_string(list_area.x + 1, ry, &format!(" {}", truncate_str(&display_platform, plat_w as usize)), row_style);
-            buf.set_string(list_area.x + 1 + plat_w + 1, ry, &format!(" {}", truncate_str(&row.arch, arch_w as usize)), row_style);
-            buf.set_string(list_area.x + 1 + plat_w + 1 + arch_w + 1, ry, &format!(" {}", truncate_str(&row.version, ver_w as usize)), row_style);
-            buf.set_string(list_area.x + 1 + plat_w + 1 + arch_w + 1 + ver_w + 1, ry, &format!(" {}", truncate_str(&row.size, size_w as usize)), row_style);
+            buf.set_string(list_area.x + 1, ry, format!(" {}", truncate_str(&display_platform, plat_w as usize)), row_style);
+            buf.set_string(list_area.x + 1 + plat_w + 1, ry, format!(" {}", truncate_str(&row.arch, arch_w as usize)), row_style);
+            buf.set_string(list_area.x + 1 + plat_w + 1 + arch_w + 1, ry, format!(" {}", truncate_str(&row.version, ver_w as usize)), row_style);
+            buf.set_string(
+                list_area.x + 1 + plat_w + 1 + arch_w + 1 + ver_w + 1,
+                ry,
+                format!(" {}", truncate_str(&row.size, size_w as usize)),
+                row_style,
+            );
             let sum_x = list_area.x + 1 + plat_w + 1 + arch_w + 1 + ver_w + 1 + size_w + 1;
-            buf.set_string(sum_x, ry, &format!(" {}", truncate_str(&row.checksum, sum_w as usize)), row_style);
+            buf.set_string(sum_x, ry, format!(" {}", truncate_str(&row.checksum, sum_w as usize)), row_style);
         }
 
         if total > view_h {

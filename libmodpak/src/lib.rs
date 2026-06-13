@@ -838,10 +838,7 @@ impl SysInspectModPak {
             return Err(SysinspectError::MasterGeneralError("Minion build must be an ELF executable".to_string()));
         }
         if Self::requires_static_minion(os) && !Self::is_static_elf(&buff)? {
-            return Err(SysinspectError::MasterGeneralError(format!(
-                "{} minion build must be a static ELF",
-                Self::minion_platform_label(os)
-            )));
+            return Err(SysinspectError::MasterGeneralError(format!("{} minion build must be a static ELF", Self::minion_platform_label(os))));
         }
         let version = Self::get_minion_version(&buff)
             .ok_or_else(|| SysinspectError::MasterGeneralError("Minion build must be a sysminion executable".to_string()))?;

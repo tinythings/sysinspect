@@ -13,6 +13,7 @@ use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
 use libsysinspect::{
     cfg::mmconf::MasterConfig,
     console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
+    traits::os_display_name,
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
@@ -1755,13 +1756,13 @@ impl SysInspectUX {
             ConsolePayload::MasterModuleIndex { rows } => {
                 let mut groups: IndexMap<String, Vec<ConsoleModuleRow>> = IndexMap::new();
                 for row in rows {
-                    let key = format!("{} {}", row.platform, row.arch);
+                    let key = format!("{} {}", os_display_name(&row.platform), row.arch);
                     groups.entry(key).or_default().push(row);
                 }
                 // Merge platforms with no modules from the platform build list
                 if let Ok(repo) = SysInspectModPak::new(self.cfg.fileserver_root().join("repo")) {
                     for build in repo.minion_builds() {
-                        let key = format!("{} {}", build.platform(), build.arch());
+                        let key = format!("{} {}", os_display_name(build.platform()), build.arch());
                         groups.entry(key).or_default();
                     }
                 }
@@ -1952,7 +1953,9 @@ impl SysInspectUX {
             if let Some(rows) = self.repo_manager.focused_group_modules() {
                 let f = self.repo_manager.filter.value().to_lowercase();
                 rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.descr.to_lowercase().contains(&f)).count()
-            } else { 0 }
+            } else {
+                0
+            }
         } else {
             self.repo_filtered_count()
         };
@@ -1963,10 +1966,8 @@ impl SysInspectUX {
             &mut self.repo_manager.profiles.cursor
         } else if self.repo_manager.active_tab == 1 {
             &mut self.repo_manager.lib_cursor
-        } else if self.repo_manager.active_tab == 0 {
-            &mut self.repo_manager.group_cursor_row
         } else {
-            &mut self.repo_manager.group_cursor_row  // fallback for tab 0
+            &mut self.repo_manager.group_cursor_row
         };
         let page = 10usize;
         match e.code {
@@ -2098,15 +2099,13 @@ impl SysInspectUX {
                         self.repo_manager.info_active_tab = 0;
                         self.status_at_repo_manager();
                     }
-                } else if self.repo_manager.active_tab == 1 {
-                    if !self.repo_manager.lib_rows.is_empty() {
-                        self.repo_manager.info_visible = true;
-                        self.repo_manager.info_row = self.repo_manager.lib_cursor;
-                        self.repo_manager.info_tab = 0;
-                        self.repo_manager.info_scroll.set(0);
-                        self.repo_manager.info_active_tab = 1;
-                        self.status_at_repo_manager();
-                    }
+                } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
+                    self.repo_manager.info_visible = true;
+                    self.repo_manager.info_row = self.repo_manager.lib_cursor;
+                    self.repo_manager.info_tab = 0;
+                    self.repo_manager.info_scroll.set(0);
+                    self.repo_manager.info_active_tab = 1;
+                    self.status_at_repo_manager();
                 }
             }
             KeyCode::Delete => {
@@ -2142,15 +2141,17 @@ impl SysInspectUX {
                     let staged_rows: Option<Vec<repomanager::StagedModule>> = {
                         let rm = &self.repo_manager;
                         rm.focused_group_modules().map(|rows| {
-                            rows.iter().map(|r| repomanager::StagedModule {
-                                name: r.name.clone(),
-                                version: r.version.clone(),
-                                descr: r.descr.clone(),
-                                path: std::path::PathBuf::new(),
-                                checked: false,
-                                platform: Some(r.platform.clone()),
-                                arch: Some(r.arch.clone()),
-                            }).collect()
+                            rows.iter()
+                                .map(|r| repomanager::StagedModule {
+                                    name: r.name.clone(),
+                                    version: r.version.clone(),
+                                    descr: r.descr.clone(),
+                                    path: std::path::PathBuf::new(),
+                                    checked: false,
+                                    platform: Some(r.platform.clone()),
+                                    arch: Some(r.arch.clone()),
+                                })
+                                .collect()
                         })
                     };
                     if let Some(rows) = staged_rows {
@@ -2208,7 +2209,9 @@ impl SysInspectUX {
             self.repo_manager.group_cursor_row -= 1;
         } else {
             let n = self.repo_manager.group_order.len();
-            if n == 0 { return; }
+            if n == 0 {
+                return;
+            }
             self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
             let gc = self.repo_manager.group_cursor;
             if self.repo_manager.group_expanded.get(gc).copied().unwrap_or(false) {
@@ -2225,7 +2228,9 @@ impl SysInspectUX {
 
     fn move_module_down(&mut self) {
         let n = self.repo_manager.group_order.len();
-        if n == 0 { return; }
+        if n == 0 {
+            return;
+        }
         let gc = self.repo_manager.group_cursor % n;
         if self.repo_manager.group_expanded.get(gc).copied().unwrap_or(false)
             && let Some(rows) = self.repo_manager.focused_group_modules()
@@ -2473,7 +2478,15 @@ impl SysInspectUX {
             let module_name = Self::read_spec_name(&spec).unwrap_or_else(|| dir_name.clone());
             let (version, descr) = Self::read_spec_version_descr(&spec);
             let bin = sub.join(&dir_name);
-            staged.push(repomanager::StagedModule { name: module_name, version, descr, path: if bin.exists() { bin } else { spec }, checked: true, platform: None, arch: None });
+            staged.push(repomanager::StagedModule {
+                name: module_name,
+                version,
+                descr,
+                path: if bin.exists() { bin } else { spec },
+                checked: true,
+                platform: None,
+                arch: None,
+            });
         }
         staged
     }
@@ -2575,12 +2588,12 @@ impl SysInspectUX {
             }
         };
         for m in checked {
-            if let (Some(ref platform), Some(ref arch)) = (m.platform.as_ref(), m.arch.as_ref()) {
-                if let Err(e) = repo.remove_module_single(&m.name, platform, arch) {
-                    self.error_alert_visible = true;
-                    self.error_alert_message = format!("Cannot remove module: {e}");
-                    return;
-                }
+            if let (Some(platform), Some(arch)) = (m.platform.as_ref(), m.arch.as_ref())
+                && let Err(e) = repo.remove_module_single(&m.name, platform, arch)
+            {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot remove module: {e}");
+                return;
             }
         }
         let _ = self.load_module_index();

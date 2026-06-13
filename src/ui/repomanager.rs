@@ -155,7 +155,9 @@ impl RepoManager {
     }
 
     pub fn focused_module(&self) -> Option<&ConsoleModuleRow> {
-        if self.group_cursor_row == 0 { return None; }
+        if self.group_cursor_row == 0 {
+            return None;
+        }
         let key = self.group_order.get(self.group_cursor)?;
         self.module_groups.get(key)?.get(self.group_cursor_row - 1)
     }
@@ -181,7 +183,9 @@ impl RepoManager {
     pub fn focused_module_for_info(&self) -> Option<&ConsoleModuleRow> {
         let key = self.group_order.get(self.group_cursor)?;
         // info_row is 1-indexed (0 = header)
-        if self.info_row == 0 { return None; }
+        if self.info_row == 0 {
+            return None;
+        }
         self.module_groups.get(key)?.get(self.info_row - 1)
     }
 
@@ -244,7 +248,13 @@ impl RepoManager {
                 use StagingFocus::*;
                 self.staging_focus = match self.staging_focus {
                     List => AddSelected,
-                    AddSelected => if self.delete_mode { CrossPlatformDelete } else { Cancel },
+                    AddSelected => {
+                        if self.delete_mode {
+                            CrossPlatformDelete
+                        } else {
+                            Cancel
+                        }
+                    }
                     CrossPlatformDelete => Cancel,
                     Cancel => List,
                 };
@@ -254,7 +264,13 @@ impl RepoManager {
                 self.staging_focus = match self.staging_focus {
                     List => Cancel,
                     AddSelected => List,
-                    Cancel => if self.delete_mode { CrossPlatformDelete } else { AddSelected },
+                    Cancel => {
+                        if self.delete_mode {
+                            CrossPlatformDelete
+                        } else {
+                            AddSelected
+                        }
+                    }
                     CrossPlatformDelete => AddSelected,
                 };
             }
@@ -348,15 +364,24 @@ impl RepoManager {
         let tab_names = ["Modules", "Libraries", "Profiles", "Platforms"];
         let section_name = tab_names[self.active_tab as usize];
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        title::overlay_gradient_title(
-            buf,
-            canvas,
-            &title_style,
-            &[
-                TitleSegment { text: " Artefacts ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() },
-                TitleSegment { text: format!(" {section_name} "), bg: palette::PROCESSING_HEAT, fg: palette::FG, modifier: Modifier::empty() },
-            ],
-        );
+
+        let mut segments =
+            vec![TitleSegment { text: " Artefacts ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }];
+
+        if self.active_tab == 0
+            && let Some(name) = self.focused_group_name()
+        {
+            let mut parts = name.splitn(2, ' ');
+            let platform = parts.next().unwrap_or("?");
+            let arch = parts.next().unwrap_or("?");
+            segments.push(TitleSegment { text: format!(" {platform} "), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() });
+            segments.push(TitleSegment { text: format!(" {arch} "), bg: palette::PROCESSING_HEAT, fg: palette::FG, modifier: Modifier::empty() });
+        }
+
+        let tab_bg = if segments.len() > 2 { palette::PROCESSING_PEAK } else { palette::PROCESSING_HEAT };
+        segments.push(TitleSegment { text: format!(" {section_name} "), bg: tab_bg, fg: palette::FG, modifier: Modifier::empty() });
+
+        title::overlay_gradient_title(buf, canvas, &title_style, &segments);
 
         if inner.height < 4 {
             return;
@@ -629,11 +654,15 @@ impl RepoManager {
         let preview_rows: usize = 3;
 
         for (gi, key) in self.group_order.iter().enumerate() {
-            if row_y >= list_area.bottom() { break; }
-            let modules = match self.module_groups.get(key) { Some(m) => m, None => continue };
-            let filtered: Vec<&ConsoleModuleRow> = modules.iter()
-                .filter(|r| flt.is_empty() || r.name.to_lowercase().contains(&flt) || r.descr.to_lowercase().contains(&flt))
-                .collect();
+            if row_y >= list_area.bottom() {
+                break;
+            }
+            let modules = match self.module_groups.get(key) {
+                Some(m) => m,
+                None => continue,
+            };
+            let filtered: Vec<&ConsoleModuleRow> =
+                modules.iter().filter(|r| flt.is_empty() || r.name.to_lowercase().contains(&flt) || r.descr.to_lowercase().contains(&flt)).collect();
             let count = filtered.len();
             let expanded = self.group_expanded.get(gi).copied().unwrap_or(false);
             let chevron = if expanded { "▼" } else { "▶" };
@@ -641,56 +670,76 @@ impl RepoManager {
             let header_fg = if focused { palette::HIGHLIGHT } else { palette::MUTED };
             let count_text = format!(" ({count})");
 
+            let group_start_y = row_y;
+
             // Header row
-            buf.set_string(list_area.x + 1, row_y, chevron, Style::default().fg(header_fg).add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }));
+            buf.set_string(
+                list_area.x + 2,
+                row_y,
+                chevron,
+                Style::default().fg(header_fg).add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
+            );
             let label = format!(" {key}{count_text} ");
-            buf.set_string(list_area.x + 4, row_y, &label, Style::default().fg(header_fg).add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }));
+            buf.set_string(
+                list_area.x + 3,
+                row_y,
+                &label,
+                Style::default().fg(header_fg).add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
+            );
             let label_w = UnicodeWidthStr::width(label.as_str()) as u16;
-            let fill_start = list_area.x + 4 + label_w;
-            let fill_end = list_area.right().saturating_sub(1);
+            let fill_start = list_area.x + 3 + label_w;
+            let fill_end = list_area.right().saturating_sub(2);
             for fx in fill_start..fill_end {
                 if let Some(cell) = buf.cell_mut(Position::new(fx, row_y)) {
-                    let t = if fill_end > fill_start + 1 {
-                        (fx - fill_start) as f32 / (fill_end - fill_start).saturating_sub(1) as f32
-                    } else { 0.0 };
+                    let t = if fill_end > fill_start + 1 { (fx - fill_start) as f32 / (fill_end - fill_start).saturating_sub(1) as f32 } else { 0.0 };
                     let color = lerp_color(palette::PRIMARY, palette::PROCESSING_DIMMED, t);
                     cell.set_char('/');
                     cell.set_fg(color);
                 }
             }
             row_y += 1;
-            if row_y >= list_area.bottom() { break; }
+            let mut overflow_scroll: Option<(usize, usize, usize)> = None;
 
             if expanded {
-                // Expanded: show all rows with scrollbar
                 let remaining = (list_area.bottom().saturating_sub(row_y)) as usize;
-                if remaining == 0 { continue; }
-                let view_h = remaining.min(count);
-                let total = filtered.len();
-                let max_scroll = total.saturating_sub(view_h);
-                let mut s = self.group_scrolls.get(key).map(|c| c.get()).unwrap_or(0).min(max_scroll);
-                let cursor_in_group = if focused && gi == self.group_cursor && self.group_cursor_row > 0 {
-                    Some(self.group_cursor_row - 1)  // 1-indexed → 0-indexed
-                } else { None };
-                if let Some(c) = cursor_in_group {
-                    if c < s { s = c; }
-                    if c >= s + view_h { s = c.saturating_sub(view_h.saturating_sub(1)); }
-                    s = s.min(max_scroll);
+                if remaining == 0 {
+                    row_y = group_start_y + 1;
+                } else {
+                    let view_h = remaining.min(count);
+                    let total = filtered.len();
+                    let max_scroll = total.saturating_sub(view_h);
+                    let mut s = self.group_scrolls.get(key).map(|c| c.get()).unwrap_or(0).min(max_scroll);
+                    let cursor_in_group =
+                        if focused && gi == self.group_cursor && self.group_cursor_row > 0 { Some(self.group_cursor_row - 1) } else { None };
+                    if let Some(c) = cursor_in_group {
+                        if c < s {
+                            s = c;
+                        }
+                        if c >= s + view_h {
+                            s = c.saturating_sub(view_h.saturating_sub(1));
+                        }
+                        s = s.min(max_scroll);
+                    }
+                    if let Some(cell) = self.group_scrolls.get(key) {
+                        cell.set(s);
+                    }
+                    self.render_module_rows(list_area, &filtered, s, view_h, row_y, focused, cursor_in_group, name_w, ver_w, buf);
+                    if total > view_h {
+                        overflow_scroll = Some((s, total, view_h));
+                    }
+                    row_y += view_h as u16;
                 }
-                if let Some(cell) = self.group_scrolls.get(key) { cell.set(s); }
-                self.render_module_rows(list_area, &filtered, s, view_h, row_y, focused, cursor_in_group, name_w, ver_w, buf);
-                if total > view_h {
-                    self.draw_scrollbar(buf, Rect { x: list_area.x, y: row_y, width: list_area.width, height: view_h as u16 }, s, total, view_h);
-                }
-                row_y += view_h as u16;
             } else if count > 0 {
-                // Collapsed: show preview rows + summary
                 let show = preview_rows.min(count);
                 let cursor_in_group = if focused && gi == self.group_cursor && self.group_cursor_row > 0 && self.group_cursor_row <= preview_rows {
                     Some(self.group_cursor_row - 1)
-                } else { None };
+                } else {
+                    None
+                };
                 for i in 0..show {
-                    if row_y >= list_area.bottom() { break; }
+                    if row_y >= list_area.bottom() {
+                        break;
+                    }
                     if let Some(row) = filtered.get(i) {
                         render_module_row(list_area, row_y, row, focused && cursor_in_group == Some(i), name_w, ver_w, buf);
                     }
@@ -698,15 +747,38 @@ impl RepoManager {
                 }
                 if count > preview_rows && row_y < list_area.bottom() {
                     let more = format!("  ({more})...", more = count - preview_rows);
-                    buf.set_string(list_area.x + 1, row_y, &more, Style::default().fg(palette::MUTED));
+                    let max_w = list_area.width.saturating_sub(4) as usize;
+                    buf.set_string(list_area.x + 1, row_y, truncate_str(&more, max_w), Style::default().fg(palette::MUTED));
                     row_y += 1;
                 }
             }
-            // Empty group with 0 modules: just the header, no rows
+
+            // Scrollbar track: always draw on every row of this group
+            let sb_x = list_area.right().saturating_sub(1);
+            let sb_style = Style::default().fg(palette::MUTED);
+            for ty in group_start_y..row_y {
+                buf.set_string(sb_x, ty, "│", sb_style);
+            }
+            // Thumb overlay for overflow
+            if let Some((off, total, view_h)) = overflow_scroll {
+                let bar_h = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
+                let bar_h = bar_h.min(view_h);
+                let bar_y = ((off as f64 / (total - view_h) as f64) * (view_h - bar_h) as f64) as usize;
+                for i in bar_y..bar_y + bar_h {
+                    let ty = group_start_y + 1 + i as u16;
+                    if ty < row_y {
+                        buf.set_string(sb_x, ty, "█", Style::default().fg(palette::PROCESSING_HEAT));
+                    }
+                }
+            }
         }
     }
 
-    fn render_module_rows(&self, area: Rect, filtered: &[&ConsoleModuleRow], offset: usize, view_h: usize, start_y: u16, focused: bool, cursor: Option<usize>, name_w: u16, ver_w: u16, buf: &mut Buffer) {
+    #[allow(clippy::too_many_arguments)]
+    fn render_module_rows(
+        &self, area: Rect, filtered: &[&ConsoleModuleRow], offset: usize, view_h: usize, start_y: u16, focused: bool, cursor: Option<usize>,
+        name_w: u16, ver_w: u16, buf: &mut Buffer,
+    ) {
         for i in 0..view_h {
             let idx = offset + i;
             let ry = start_y + i as u16;
@@ -914,7 +986,12 @@ impl RepoManager {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: format!(" {} ({} {}) ", row.name, row.platform, row.arch), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
+            &[TitleSegment {
+                text: format!(" {} ({} {}) ", row.name, row.platform, row.arch),
+                bg: palette::PROCESSING_BASE,
+                fg: palette::FG,
+                modifier: Modifier::empty(),
+            }],
         );
 
         if inner.height < 4 {
@@ -1341,7 +1418,7 @@ fn render_module_row(area: Rect, ry: u16, row: &ConsoleModuleRow, sel: bool, nam
     let desc_fg = Style::default().fg(palette::GRAY_1);
     let row_style = if sel { hl } else { fg };
     if sel {
-        for cx in 0..area.width {
+        for cx in 0..area.width.saturating_sub(2) {
             if let Some(cell) = buf.cell_mut(Position::new(area.x + cx, ry)) {
                 cell.set_bg(palette::HIGHLIGHT);
             }
@@ -1352,7 +1429,7 @@ fn render_module_row(area: Rect, ry: u16, row: &ConsoleModuleRow, sel: bool, nam
     buf.set_string(area.x + 1 + name_w + 1, ry, truncate_str(row.version.as_deref().unwrap_or("—"), ver_w as usize), ver_style);
     let desc_style = if sel { row_style } else { desc_fg };
     let desc_x = area.x + 1 + name_w + 1 + ver_w + 1;
-    let max_desc = (area.width.saturating_sub(name_w + ver_w + 3)) as usize;
+    let max_desc = (area.width.saturating_sub(name_w + ver_w + 5)) as usize;
     buf.set_string(desc_x, ry, truncate_str(&row.descr, max_desc), desc_style);
 }
 
