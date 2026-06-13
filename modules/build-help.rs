@@ -51,5 +51,4 @@ pub fn generate_help() {
     let path = format!("{out_dir}/help.txt");
     fs::File::create(&path).unwrap().write_all(&help).unwrap();
 
-    println!("cargo:rustc-link-lib=c");
 }
