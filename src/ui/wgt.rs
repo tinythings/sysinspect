@@ -1,7 +1,7 @@
 use super::{
     SysInspectUX, UISizes,
     elements::{ActiveBox, DbListItem, EventListItem},
-    palette, typecolors,
+    minreg, palette, typecolors,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -296,6 +296,10 @@ impl Widget for &SysInspectUX {
         // Catch dialogs
         if !self.error_alert_visible && !self.file_picker.visible {
             self.setup_wizard.render(area, buf);
+        }
+        self.registration_form.render(area, buf);
+        if let Ok(p) = self.registration_progress.lock() {
+            minreg::render_progress(&p, area, buf);
         }
         self.dialog_purge(area, buf);
         self.dialog_exit(area, buf);

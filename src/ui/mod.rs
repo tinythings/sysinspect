@@ -19,8 +19,8 @@ use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
         CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT,
-        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN,
-        CLUSTER_TRAITS_UPDATE,
+        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT,
+        CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -46,6 +46,7 @@ mod dslbrowser;
 mod elements;
 mod filepicker;
 mod macts;
+mod minreg;
 mod online;
 mod palette;
 mod platforms;
@@ -216,6 +217,11 @@ pub struct SysInspectUX {
     pub offline: bool,
     pub last_reconnect_attempt: Instant,
 
+    // Minion registration
+    pub registration_form: minreg::RegistrationForm,
+    pub registration_progress: Arc<std::sync::Mutex<minreg::RegistrationProgress>>,
+    pub registration_task: Option<tokio::task::JoinHandle<()>>,
+
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
     pub pending_exit_message: Option<String>,
@@ -318,6 +324,10 @@ impl Default for SysInspectUX {
             repo_manager: repomanager::RepoManager::default(),
             offline: false,
             last_reconnect_attempt: Instant::now(),
+
+            registration_form: minreg::RegistrationForm::default(),
+            registration_progress: Arc::new(std::sync::Mutex::new(minreg::RegistrationProgress::placeholder())),
+            registration_task: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -611,7 +621,11 @@ impl SysInspectUX {
 
     fn on_events(&mut self) -> io::Result<()> {
         self.sync_main_focus_for_overlays();
-        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some() { Duration::from_millis(50) } else { Duration::from_secs(1) };
+        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some() || self.registration_progress.lock().unwrap().visible {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_secs(1)
+        };
         if event::poll(poll_dur)? {
             if let Event::Key(e) = event::read()?
                 && e.kind == KeyEventKind::Press
@@ -669,6 +683,19 @@ impl SysInspectUX {
             } else {
                 // Track that a reload is needed when progress finishes
                 self.repo_manager.needs_reload = true;
+            }
+        }
+        // Registration completion check (only auto-dismiss on success)
+        if self.registration_progress.lock().unwrap().visible && self.registration_progress.lock().unwrap().done {
+            let p = self.registration_progress.lock().unwrap();
+            let has_error = p.error.is_some();
+            if !has_error {
+                let msg = format!("Minion registered: {}", p.minion_id.as_deref().unwrap_or("?"));
+                drop(p);
+                *self.registration_progress.lock().unwrap() = minreg::RegistrationProgress::placeholder();
+                self.restore_status();
+                self.info_alert_visible = true;
+                self.info_alert_message = msg;
             }
         }
         Ok(())
@@ -1039,7 +1066,7 @@ impl SysInspectUX {
                     self.cluster_confirm_choice = AlertResult::ClusterConfirm;
                     self.pending_cluster_action = 2;
                 } else if self.minions_menu_sel == 8 {
-                    // TODO: do_minion_add()
+                    self.registration_form.visible = true;
                 }
             }
             _ => {
@@ -1253,6 +1280,8 @@ impl SysInspectUX {
             || self.repo_manager.profiles.create_visible
             || self.repo_manager.profiles.delete_visible
             || self.repo_manager.platforms.delete_visible
+            || self.registration_form.visible
+            || self.registration_progress.lock().unwrap().visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1446,7 +1475,7 @@ impl SysInspectUX {
                 true
             }
             KeyCode::Insert => {
-                // TODO: do_minion_add()
+                self.registration_form.visible = true;
                 true
             }
             KeyCode::Delete => {
@@ -1532,9 +1561,26 @@ impl SysInspectUX {
                 return;
             }
         };
-        let _host = Self::online_host(&row);
-        let _mid = row.minion_id.clone();
-        // TODO: call_master_console with CLUSTER_REMOVE_MINION
+        let mid = row.minion_id.clone();
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "*", None, Some(&mid), None).await
+            })
+        }) {
+            Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => {
+                self.info_alert_visible = true;
+                self.info_alert_message = format!("Minion deleted: {mid}");
+                self.refresh_minions();
+            }
+            Ok(_) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "Master did not acknowledge minion removal.".to_string();
+            }
+            Err(err) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Failed to delete minion: {err}");
+            }
+        }
         self.status_at_minions_browser();
     }
 
@@ -2862,8 +2908,7 @@ impl SysInspectUX {
             }
             KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = false;
-                self.error_alert_visible = true;
-                self.error_alert_message = "Not implemented yet".to_string();
+                self.registration_form.visible = true;
             }
             KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = false;
@@ -2923,8 +2968,7 @@ impl SysInspectUX {
                         }
                     },
                     2 => {
-                        self.error_alert_visible = true;
-                        self.error_alert_message = "Not implemented yet".to_string();
+                        self.registration_form.visible = true;
                     }
                     3 => {
                         if let Err(err) = self.load_module_index() {
@@ -3242,7 +3286,40 @@ impl SysInspectUX {
             return;
         }
 
-        // File picker is modal
+        // Registration form is modal
+        if self.registration_form.visible {
+            self.status_at_registration_form();
+            self.registration_form.handle_key(e);
+            if self.registration_form.ok_pressed {
+                self.registration_form.ok_pressed = false;
+                self.registration_form.visible = false;
+                self.status_at_registration_progress();
+                let hostname = self.registration_form.hostname.value().to_string();
+                let user = self.registration_form.user.value().to_string();
+                let path = self.registration_form.path.value().to_string();
+                let use_sudo = self.registration_form.use_sudo;
+                let progress = Arc::new(std::sync::Mutex::new(minreg::RegistrationProgress::new(String::new())));
+                self.registration_progress = Arc::clone(&progress);
+                self.registration_task = Some(minreg::spawn_registration(hostname, user, path, use_sudo, self.cfg.clone(), progress));
+            }
+            return;
+        }
+
+        // Registration progress is modal
+        let progress_visible = self.registration_progress.lock().unwrap().visible;
+        if progress_visible {
+            self.status_at_registration_progress();
+            let mut progress = self.registration_progress.lock().unwrap();
+            if minreg::handle_progress_key(e, &mut progress) {
+                if progress.error.is_some() || progress.done {
+                    drop(progress);
+                    *self.registration_progress.lock().unwrap() = minreg::RegistrationProgress::placeholder();
+                    self.restore_status();
+                }
+                return;
+            }
+            return;
+        }
         if self.file_picker.visible && self.file_picker.handle_key(e) {
             return;
         }
@@ -3514,8 +3591,7 @@ impl SysInspectUX {
                 }
             },
             KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.error_alert_visible = true;
-                self.error_alert_message = "Not implemented yet".to_string();
+                self.registration_form.visible = true;
             }
             KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Err(err) = self.load_module_index() {

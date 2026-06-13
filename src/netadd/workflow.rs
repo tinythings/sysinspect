@@ -33,7 +33,7 @@ use std::{
 use tokio::{runtime::Handle, task::block_in_place};
 
 #[derive(Debug, Clone)]
-struct SetupContext {
+pub(crate) struct SetupContext {
     repo_root: std::path::PathBuf,
     cfg: MasterConfig,
     master_fp: String,
@@ -41,7 +41,7 @@ struct SetupContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RemoteLayout {
+pub(crate) struct RemoteLayout {
     root_dir: String,
     stage_bin: String,
     install_bin: String,
@@ -57,10 +57,11 @@ struct RemoteLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct HostSetup {
+pub(crate) struct HostSetup {
     target: ProbedHost,
     art: MinionArtifact,
     minion_id: Option<String>,
+    sudo_override: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,7 +74,7 @@ struct Readiness {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AddFailureStage {
+pub(crate) enum AddFailureStage {
     Upload,
     Setup,
     Register,
@@ -82,10 +83,10 @@ enum AddFailureStage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ProbedHost {
-    host: crate::netadd::types::AddHost,
-    info: ProbeInfo,
-    layout: RemoteLayout,
+pub(crate) struct ProbedHost {
+    pub(crate) host: crate::netadd::types::AddHost,
+    pub(crate) info: ProbeInfo,
+    pub(crate) layout: RemoteLayout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,9 +214,14 @@ impl NetworkAddWorkflow {
                     self.remove_host(ctx, target)?;
                 }
             }
-            return HostSetup { target: target.clone(), art: self.select_artifact(&ctx.repo_root, &target.info)?, minion_id: None }
-                .run(ctx)
-                .map(|_| AddStatus::Online);
+            return HostSetup {
+                target: target.clone(),
+                art: self.select_artifact(&ctx.repo_root, &target.info)?,
+                minion_id: None,
+                sudo_override: None,
+            }
+            .run(ctx)
+            .map(|_| AddStatus::Online);
         }
         if self.req.op == HostOp::Upgrade {
             return self.upgrade_host(ctx, target);
@@ -271,19 +277,19 @@ impl NetworkAddWorkflow {
 }
 
 impl ProbedHost {
-    fn new(host: crate::netadd::types::AddHost, info: ProbeInfo) -> Result<Self, SysinspectError> {
+    pub(crate) fn new(host: crate::netadd::types::AddHost, info: ProbeInfo) -> Result<Self, SysinspectError> {
         Ok(Self { layout: RemoteLayout::from_probe(&host, &info)?, host, info })
     }
 
-    fn outcome(&self, status: AddStatus) -> AddOutcome {
+    pub(crate) fn outcome(&self, status: AddStatus) -> AddOutcome {
         AddOutcome { display_path: self.layout.root_dir.clone(), platform: self.info.os_arch(), status, host: self.host.clone() }
     }
 
-    fn ssh(&self) -> SSHSession {
+    pub(crate) fn ssh(&self) -> SSHSession {
         SSHSession::new(SSHEndpoint::new(&self.host.host, &self.host.user))
     }
 
-    fn elevation(&self) -> Result<ElevationMode, SysinspectError> {
+    pub(crate) fn elevation(&self) -> Result<ElevationMode, SysinspectError> {
         if self.info.privilege == crate::sshprobe::detect::PrivilegeMode::Root || self.info.destination.writable {
             return Ok(ElevationMode::None);
         }
@@ -295,7 +301,7 @@ impl ProbedHost {
 }
 
 impl SetupContext {
-    fn from_cfg(cfg: &MasterConfig) -> Result<Self, SysinspectError> {
+    pub(crate) fn from_cfg(cfg: &MasterConfig) -> Result<Self, SysinspectError> {
         Ok(Self {
             repo_root: cfg.get_mod_repo_root(),
             cfg: cfg.clone(),
@@ -309,7 +315,11 @@ impl SetupContext {
         })
     }
 
-    fn master_addr_for(&self, host: &str) -> Result<String, SysinspectError> {
+    pub(crate) fn repo_root(&self) -> &Path {
+        &self.repo_root
+    }
+
+    pub(crate) fn master_addr_for(&self, host: &str) -> Result<String, SysinspectError> {
         if !matches!(self.cfg.bind_addr().split(':').next().unwrap_or_default(), "" | "0.0.0.0" | "::" | "[::]") {
             return Ok(self.cfg.bind_addr());
         }
@@ -375,15 +385,56 @@ impl RemoteLayout {
 }
 
 impl HostSetup {
+    /// Create a new host setup from a probed target and selected artefact.
+    pub(crate) fn new(target: ProbedHost, art: MinionArtifact) -> Self {
+        Self { target, art, minion_id: None, sudo_override: None }
+    }
+
+    /// Force sudo usage (Some(true)) or force no-sudo (Some(false)). None lets the probe decide.
+    pub(crate) fn set_sudo(&mut self, use_sudo: bool) {
+        self.sudo_override = Some(use_sudo);
+    }
+
+    /// Resolve the final elevation mode, respecting any manual override.
+    pub(crate) fn resolve_elevation(&self) -> Result<ElevationMode, SysinspectError> {
+        if let Some(use_sudo) = self.sudo_override {
+            if use_sudo {
+                if self.target.info.has_sudo {
+                    return Ok(ElevationMode::Sudo);
+                }
+                return Err(SysinspectError::MinionGeneralError(format!("Sudo requested but not available on {}", self.target.host.host)));
+            }
+            return Ok(ElevationMode::None);
+        }
+        self.target.elevation()
+    }
+
+    /// Return the minion ID discovered during provisioning.
+    pub(crate) fn minion_id(&self) -> &Option<String> {
+        &self.minion_id
+    }
+
+    /// Run the full provisioning flow without progress reporting.
     fn run(&self, ctx: &SetupContext) -> Result<(), SysinspectError> {
+        let _ = self.run_with_progress(ctx, |_, _| {})?;
+        Ok(())
+    }
+
+    /// Run the full provisioning flow, calling `progress(step, message)` before each step.
+    /// Returns the minion ID discovered during provisioning.
+    pub(crate) fn run_with_progress(&self, ctx: &SetupContext, mut progress: impl FnMut(usize, &str)) -> Result<Option<String>, SysinspectError> {
         let ssh = self.target.ssh();
-        let elevate = self.target.elevation()?;
+        let elevate = self.resolve_elevation()?;
+        progress(0, "Uploading binary...");
         log::info!("Auto-add {}: upload {}", self.target.host.host, self.art.path.display());
         ssh.upload(&UploadRequest::new(&self.art.path, &self.target.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))
             .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Upload, None, err))?;
+        progress(1, "Setting permissions...");
         ssh.exec(&RemoteCommand::new(format!("chmod 0755 {}", shell_quote(&self.target.layout.stage_bin))))
             .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Upload, None, err))?;
+        progress(2, "Verifying binary...");
         self.verify_stage_bin(&ssh).inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Upload, None, err))?;
+        progress(3, "Running setup...");
         log::info!("Auto-add {}: setup {}", self.target.host.host, self.target.layout.config);
         ssh.exec(
             &RemoteCommand::new(format!(
@@ -396,42 +447,52 @@ impl HostSetup {
             .elevate(elevate),
         )
         .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, None, err))?;
+        progress(4, "Reading minion ID...");
         let setup = Self {
             minion_id: self
                 .read_minion_id(&ssh)
                 .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, None, err))?,
             ..self.clone()
         };
+        progress(5, "Preparing runtime...");
         setup
             .prepare_runtime(&ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, setup.minion_id.as_deref(), err))?;
+        progress(6, "Writing onboarding traits...");
         log::info!("Auto-add {}: write onboarding traits {}", self.target.host.host, setup.target.layout.onboarding_traits);
         setup
             .write_onboarding_traits(&ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, setup.minion_id.as_deref(), err))?;
+        progress(7, "Registering with master...");
         log::info!("Auto-add {}: register", self.target.host.host);
         setup
             .register(ctx, &ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Register, setup.minion_id.as_deref(), err))?;
+        progress(8, "Starting daemon...");
         log::info!("Auto-add {}: start daemon", self.target.host.host);
         setup
             .start_runtime(&ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Start, setup.minion_id.as_deref(), err))?;
+        progress(9, "Waiting for runtime...");
         log::info!("Auto-add {}: wait for daemon pid", self.target.host.host);
         setup
             .wait_runtime(&ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Start, setup.minion_id.as_deref(), err))?;
+        progress(10, "Waiting for bootstrap...");
         log::info!("Auto-add {}: wait for bootstrap log", self.target.host.host);
         setup
             .wait_attempt(&ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Start, setup.minion_id.as_deref(), err))?;
+        progress(11, "Waiting for readiness...");
         log::info!("Auto-add {}: wait for master readiness", self.target.host.host);
         setup
             .wait_ready(ctx, &ssh, elevate)
             .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Ready, setup.minion_id.as_deref(), err))?;
+        progress(12, "Syncing CMDB...");
         log::info!("Auto-add {}: sync master CMDB", self.target.host.host);
         setup.sync_cmdb(ctx)?;
-        Ok(())
+        progress(13, "Complete");
+        Ok(setup.minion_id.clone())
     }
 
     fn sync_cmdb(&self, ctx: &SetupContext) -> Result<(), SysinspectError> {
@@ -828,6 +889,7 @@ impl NetworkAddWorkflow {
                 .into(),
             target: target.clone(),
             art: artifact,
+            sudo_override: None,
         };
         log::info!("Auto-upgrade {}: upload {}", target.host.host, setup.art.path.display());
         ssh.upload(&UploadRequest::new(&setup.art.path, &setup.target.layout.stage_bin).methods(vec![UploadMethod::Stream, UploadMethod::Scp]))?;
