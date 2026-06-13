@@ -2,6 +2,7 @@ use super::{
     dslbrowser, palette, platforms, profiles,
     title::{self, TitleSegment, TitleStyle},
 };
+use indexmap::IndexMap;
 use libsysinspect::console::{ConsoleModuleArgument, ConsoleModuleRow};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Position},
@@ -25,6 +26,8 @@ pub struct StagedModule {
     pub descr: String,
     pub path: std::path::PathBuf,
     pub checked: bool,
+    pub platform: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +35,7 @@ pub enum StagingFocus {
     List,
     AddSelected,
     Cancel,
+    CrossPlatformDelete,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,15 +44,17 @@ pub enum StagingMode {
     ModuleDelete,
     ProfileModuleAdd,
     ProfileLibraryAdd,
-    PlatformBuildAdd,
 }
 
 #[derive(Debug)]
 pub struct RepoManager {
     pub visible: bool,
-    pub rows: Vec<ConsoleModuleRow>,
-    pub cursor: usize,
-    pub scroll: Cell<usize>,
+    pub module_groups: IndexMap<String, Vec<ConsoleModuleRow>>,
+    pub group_order: Vec<String>,
+    pub group_cursor: usize,
+    pub group_cursor_row: usize,
+    pub group_expanded: Vec<bool>,
+    pub group_scrolls: IndexMap<String, Cell<usize>>,
 
     // Staging
     pub staging: bool,
@@ -57,6 +63,8 @@ pub struct RepoManager {
     pub staging_scroll: Cell<usize>,
     pub staging_focus: StagingFocus,
     pub staging_mode: StagingMode,
+    pub delete_mode: bool,
+    pub cross_platform_delete: bool,
 
     // Progress
     pub progress: Arc<Mutex<Option<(usize, usize)>>>,
@@ -64,7 +72,6 @@ pub struct RepoManager {
     // Signals
     pub bulk_add_triggered: bool,
     pub bulk_delete_triggered: bool,
-    pub delete_mode: bool,
     pub needs_reload: bool,
 
     // Filter
@@ -258,6 +265,9 @@ impl RepoManager {
         }
         if self.profiles.delete_visible {
             self.profiles.render_delete(parent, buf);
+        }
+        if self.platforms.delete_visible {
+            self.platforms.render_delete(parent, buf);
         }
     }
 

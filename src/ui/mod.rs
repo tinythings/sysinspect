@@ -1251,6 +1251,7 @@ impl SysInspectUX {
             || self.repo_manager.profiles.detail_visible
             || self.repo_manager.profiles.create_visible
             || self.repo_manager.profiles.delete_visible
+            || self.repo_manager.platforms.delete_visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1796,16 +1797,7 @@ impl SysInspectUX {
                     self.error_alert_message = "No items selected".to_string();
                 } else {
                     self.repo_manager.exit_staging();
-                    match self.repo_manager.staging_mode {
-                        repomanager::StagingMode::PlatformBuildAdd => {
-                            for name in &checked {
-                                self.do_platform_remove(name);
-                            }
-                        }
-                        _ => {
-                            self.bulk_delete_modules(&checked);
-                        }
-                    }
+                    self.bulk_delete_modules(&checked);
                 }
             }
             if !self.repo_manager.staging
@@ -1911,6 +1903,18 @@ impl SysInspectUX {
                 }
                 return true;
             }
+        }
+        // Platform delete overlay (tab 3)
+        if self.repo_manager.active_tab == 3 && self.repo_manager.platforms.delete_visible {
+            let handled = self.repo_manager.platforms.handle_delete_key(e.code);
+            if !handled && e.code == KeyCode::Enter {
+                if self.repo_manager.platforms.delete_focus == platforms::DeleteFocus::YesBtn {
+                    let name = self.repo_manager.platforms.delete_name.clone();
+                    self.do_platform_remove(&name);
+                }
+                self.repo_manager.platforms.delete_visible = false;
+            }
+            return true;
         }
         let total_count = if self.repo_manager.active_tab == 3 {
             self.repo_manager.platforms.filtered_count(self.repo_manager.filter.value())
@@ -2049,24 +2053,30 @@ impl SysInspectUX {
             KeyCode::Delete => {
                 if self.repo_manager.active_tab == 3 {
                     if let Some(name) = self.repo_manager.platforms.selected_name() {
-                        self.repo_manager.delete_mode = true;
-                        self.repo_manager.staged = vec![repomanager::StagedModule {
-                            name,
-                            version: None,
-                            descr: String::new(),
-                            path: std::path::PathBuf::new(),
-                            checked: false,
-                        }];
-                        self.repo_manager.staging_mode = repomanager::StagingMode::PlatformBuildAdd;
-                        self.repo_manager.staging = true;
-                        self.repo_manager.staging_cursor = 0;
-                        self.repo_manager.staging_focus = repomanager::StagingFocus::List;
+                        self.repo_manager.platforms.open_delete(name);
                     }
                 } else if self.repo_manager.active_tab == 2 {
                     if let Some(name) = self.repo_manager.profiles.selected_profile_name() {
                         self.repo_manager.profiles.open_delete(name.to_string());
                         self.status_at_profiles();
                     }
+                } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
+                    self.repo_manager.delete_mode = true;
+                    self.repo_manager.staged = self
+                        .repo_manager
+                        .lib_rows
+                        .iter()
+                        .map(|r| repomanager::StagedModule {
+                            name: r.name.clone(),
+                            version: Some(r.kind.clone()),
+                            descr: r.checksum.clone(),
+                            path: std::path::PathBuf::new(),
+                            checked: false,
+                        })
+                        .collect();
+                    self.repo_manager.staging = true;
+                    self.repo_manager.staging_cursor = 0;
+                    self.repo_manager.staging_focus = repomanager::StagingFocus::List;
                 } else if !self.repo_manager.rows.is_empty() {
                     self.repo_manager.delete_mode = true;
                     self.repo_manager.staged = self
@@ -2248,6 +2258,17 @@ impl SysInspectUX {
         }
     }
 
+    fn format_size(bytes: u64) -> String {
+        const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB"];
+        let mut size = bytes as f64;
+        let mut unit = 0;
+        while size >= 1024.0 && unit < UNITS.len() - 1 {
+            size /= 1024.0;
+            unit += 1;
+        }
+        format!("{size:.1} {}", UNITS[unit])
+    }
+
     fn load_platforms(&mut self) -> Result<(), String> {
         let repo_root = self.cfg.fileserver_root().join("repo");
         let repo = SysInspectModPak::new(repo_root).map_err(|e| format!("Cannot open repository: {e}"))?;
@@ -2256,11 +2277,13 @@ impl SysInspectUX {
             .into_iter()
             .map(|r| {
                 let chk = r.checksum().to_string();
+                let size_str = std::fs::metadata(r.path()).ok().map(|m| Self::format_size(m.len())).unwrap_or_default();
                 platforms::PlatformRow {
                     platform: r.platform().to_string(),
                     arch: r.arch().to_string(),
                     version: r.version().to_string(),
-                    checksum: if chk.len() > 12 { format!("{}...{}", &chk[..4], &chk[chk.len() - 4..]) } else { chk },
+                    size: size_str,
+                    checksum: if chk.len() > 12 { format!("{}…{}", &chk[..4], &chk[chk.len() - 4..]) } else { chk },
                 }
             })
             .collect();
@@ -2474,8 +2497,9 @@ impl SysInspectUX {
                 if let Err(e) = repo.add_minion_build(path.to_path_buf()) {
                     self.error_alert_visible = true;
                     self.error_alert_message = format!("Cannot add minion build: {e}");
-                } else {
-                    let _ = self.load_platforms();
+                } else if let Err(e) = self.load_platforms() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to reload platforms: {e}");
                 }
             }
             Err(e) => {

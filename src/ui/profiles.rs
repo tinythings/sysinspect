@@ -411,16 +411,21 @@ impl ProfilesManager {
             return;
         }
 
-        let hl_style = Style::default().fg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD);
+        let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
         for i in 0..view_h.min(total.saturating_sub(s)) {
             let fi = s + i;
             let (_oi, name) = filtered[fi];
             let ry = list_area.y + i as u16;
             let sel = !filter_focus && fi == cursor;
-            let row_style = if sel { hl_style } else { Style::default().fg(palette::FG) };
-            let prefix = if sel { " ✨ " } else { "    " };
-            let line = format!("{prefix}{name}");
-            buf.set_string(list_area.x + 1, ry, &line, row_style);
+            let row_style = if sel { hl } else { Style::default().fg(palette::FG) };
+            if sel {
+                for cx in 0..list_area.width {
+                    if let Some(cell) = buf.cell_mut(Position::new(list_area.x + cx, ry)) {
+                        cell.set_bg(palette::HIGHLIGHT);
+                    }
+                }
+            }
+            buf.set_string(list_area.x + 1, ry, &format!(" {}", name), row_style);
         }
 
         if total > view_h {
@@ -695,20 +700,21 @@ impl ProfilesManager {
 
         // Buttons
         let btn_y = inner.y + 3;
-        let create_lbl = "[ Create ]";
-        let cancel_lbl = "[ Cancel ]";
-        let create_w = create_lbl.len() as u16;
-        let cancel_w = cancel_lbl.len() as u16;
-        let total_btn_w = create_w + cancel_w + 2;
+        let create_lbl = "[ Create  ]";
+        let cancel_lbl = "[ Cancel  ]";
+        let create_w: u16 = 10;
+        let cancel_w: u16 = 10;
+        let gap: u16 = 3;
+        let total_btn_w = create_w + gap + cancel_w;
         let btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
 
-        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
-        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2);
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
 
         let create_style = if self.create_focus == ProfCreateFocus::CreateBtn { sel_btn } else { unsel_btn };
         let cancel_style = if self.create_focus == ProfCreateFocus::CancelBtn { sel_btn } else { unsel_btn };
         buf.set_string(btn_x, btn_y, create_lbl, create_style);
-        buf.set_string(btn_x + create_w + 2, btn_y, cancel_lbl, cancel_style);
+        buf.set_string(btn_x + create_w + gap, btn_y, cancel_lbl, cancel_style);
 
         Self::draw_shadow(buf, canvas, w, h);
     }
@@ -755,20 +761,21 @@ impl ProfilesManager {
 
         // Buttons
         let btn_y = inner.y + 3;
-        let yes_lbl = "[ Yes ]";
-        let no_lbl = "[ No ]";
-        let yes_w = yes_lbl.len() as u16;
-        let no_w = no_lbl.len() as u16;
-        let total_btn_w = yes_w + no_w + 4;
+        let yes_lbl = "[   Yes   ]";
+        let no_lbl = "[   No    ]";
+        let yes_w: u16 = 10;
+        let no_w: u16 = 10;
+        let gap: u16 = 3;
+        let total_btn_w = yes_w + gap + no_w;
         let btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
 
-        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
-        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2);
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
 
         let yes_style = if self.delete_focus == ProfDeleteFocus::YesBtn { sel_btn } else { unsel_btn };
         let no_style = if self.delete_focus == ProfDeleteFocus::NoBtn { sel_btn } else { unsel_btn };
         buf.set_string(btn_x, btn_y, yes_lbl, yes_style);
-        buf.set_string(btn_x + yes_w + 2, btn_y, no_lbl, no_style);
+        buf.set_string(btn_x + yes_w + gap, btn_y, no_lbl, no_style);
 
         Self::draw_shadow(buf, canvas, w, h);
     }

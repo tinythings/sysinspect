@@ -1,12 +1,16 @@
 use super::palette;
+use super::title::{self, TitleSegment, TitleStyle};
 use crossterm::event::KeyCode;
+use libsysinspect::traits::os_display_name;
 use ratatui::widgets::StatefulWidget;
 use ratatui::{
     layout::Position,
     prelude::{Buffer, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
+    widgets::{Block, BorderType, Borders, Clear, Widget},
 };
 use ratatui_cheese::input::{Input, InputState, InputStyles};
+use ratatui_glamour::color::blend_2d;
 use std::cell::Cell;
 
 #[derive(Debug)]
@@ -14,6 +18,7 @@ pub struct PlatformRow {
     pub platform: String,
     pub arch: String,
     pub version: String,
+    pub size: String,
     pub checksum: String,
 }
 
@@ -22,11 +27,21 @@ pub struct PlatformsManager {
     pub rows: Vec<PlatformRow>,
     pub cursor: usize,
     pub scroll: Cell<usize>,
+
+    pub delete_visible: bool,
+    pub delete_name: String,
+    pub delete_focus: DeleteFocus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeleteFocus {
+    YesBtn,
+    NoBtn,
 }
 
 impl Default for PlatformsManager {
     fn default() -> Self {
-        Self { rows: Vec::new(), cursor: 0, scroll: Cell::new(0) }
+        Self { rows: Vec::new(), cursor: 0, scroll: Cell::new(0), delete_visible: false, delete_name: String::new(), delete_focus: DeleteFocus::YesBtn }
     }
 }
 
@@ -57,6 +72,116 @@ impl PlatformsManager {
 
     pub fn selected_name(&self) -> Option<String> {
         self.rows.get(self.cursor).map(|r| format!("{}/{}", r.platform, r.arch))
+    }
+
+    pub fn open_delete(&mut self, name: String) {
+        self.delete_name = name;
+        self.delete_focus = DeleteFocus::YesBtn;
+        self.delete_visible = true;
+    }
+
+    pub fn handle_delete_key(&mut self, key: KeyCode) -> bool {
+        match key {
+            KeyCode::Esc => {
+                self.delete_visible = false;
+            }
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.delete_focus = match self.delete_focus {
+                    DeleteFocus::YesBtn => DeleteFocus::NoBtn,
+                    DeleteFocus::NoBtn => DeleteFocus::YesBtn,
+                };
+            }
+            KeyCode::Enter => return false,
+            _ => {}
+        }
+        true
+    }
+
+    pub fn render_delete(&self, parent: Rect, buf: &mut Buffer) {
+        let w = (parent.width / 2).clamp(40, 60);
+        let h: u16 = 6;
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        Clear.render(canvas, buf);
+
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_0] as &[Color]);
+        for ry in 0..canvas.height {
+            for cx in 0..canvas.width {
+                let idx = ry as usize * canvas.width as usize + cx as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + cx, canvas.y + ry)) {
+                    cell.set_bg(grad[idx]);
+                }
+            }
+        }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+            .style(Style::default());
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        title::overlay_gradient_title(
+            buf,
+            canvas,
+            &title_style,
+            &[TitleSegment { text: format!(" Delete {} ", self.delete_name), bg: palette::ERROR_BASE, fg: palette::FG, modifier: Modifier::empty() }],
+        );
+
+        let msg = format!("Delete platform \"{}\"?", self.delete_name);
+        let x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
+        buf.set_string(x, inner.y + 1, &msg, Style::default().fg(palette::FG));
+
+        let btn_y = inner.y + 3;
+        let yes_lbl = "[   Yes   ]";
+        let no_lbl = "[   No    ]";
+        let yes_w: u16 = 10;
+        let no_w: u16 = 10;
+        let gap: u16 = 3;
+        let total_btn_w = yes_w + gap + no_w;
+        let btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
+
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+
+        let yes_style = if self.delete_focus == DeleteFocus::YesBtn { sel_btn } else { unsel_btn };
+        let no_style = if self.delete_focus == DeleteFocus::NoBtn { sel_btn } else { unsel_btn };
+        buf.set_string(btn_x, btn_y, yes_lbl, yes_style);
+        buf.set_string(btn_x + yes_w + gap, btn_y, no_lbl, no_style);
+
+        Self::draw_shadow(buf, canvas, w, h);
+    }
+
+    fn draw_shadow(buf: &mut Buffer, canvas: Rect, dlg_w: u16, dlg_h: u16) {
+        let buf_area = buf.area();
+        let x = canvas.x;
+        let y = canvas.y;
+        let max_x = buf_area.right().saturating_sub(1);
+        let max_y = buf_area.bottom().saturating_sub(1);
+        for idx in 0..dlg_w {
+            let sx = x.saturating_add(2).saturating_add(idx);
+            let sy = y.saturating_add(dlg_h);
+            if sx > max_x || sy > max_y { continue; }
+            if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                cell.set_bg(palette::SHADOW_BG);
+                cell.set_fg(palette::SHADOW_FG);
+            }
+        }
+        for offset in 0..2u16 {
+            for idx in 0..dlg_h {
+                let sx = x.saturating_add(dlg_w).saturating_add(offset);
+                let sy = y.saturating_add(idx).saturating_add(1);
+                if sx > max_x || sy > max_y { continue; }
+                if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                    cell.set_bg(palette::SHADOW_BG);
+                    cell.set_fg(palette::SHADOW_FG);
+                }
+            }
+        }
     }
 
     pub fn render_list(&self, inner: Rect, buf: &mut Buffer, filter_focus: bool, filter_state: &InputState) {
@@ -117,28 +242,33 @@ impl PlatformsManager {
             return;
         }
 
-        let hl_style = Style::default().fg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD);
+        let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
         let plat_w: u16 = 12;
         let arch_w: u16 = 10;
         let ver_w: u16 = 10;
-        let sum_w = list_area.width.saturating_sub(plat_w + arch_w + ver_w + 12);
+        let size_w: u16 = 10;
+        let sum_w = list_area.width.saturating_sub(plat_w + arch_w + ver_w + size_w + 16);
 
         for i in 0..view_h.min(total.saturating_sub(s)) {
             let fi = s + i;
             let (_oi, row) = filtered[fi];
             let ry = list_area.y + i as u16;
             let sel = !filter_focus && fi == cursor;
-            let row_style = if sel { hl_style } else { Style::default().fg(palette::FG) };
-            let prefix = if sel { " ✨ " } else { "    " };
-            buf.set_string(list_area.x + 1, ry, prefix, row_style);
-            buf.set_string(list_area.x + 5, ry, truncate_str(&row.platform, plat_w as usize), row_style);
-            let arch_style = if sel { row_style } else { Style::default().fg(palette::PROCESSING) };
-            buf.set_string(list_area.x + 5 + plat_w + 1, ry, truncate_str(&row.arch, arch_w as usize), arch_style);
-            let ver_style = if sel { row_style } else { Style::default().fg(palette::HIGHLIGHT) };
-            buf.set_string(list_area.x + 5 + plat_w + 1 + arch_w + 1, ry, truncate_str(&row.version, ver_w as usize), ver_style);
-            let sum_style = if sel { row_style } else { Style::default().fg(palette::GRAY_1) };
-            let sum_x = list_area.x + 5 + plat_w + 1 + arch_w + 1 + ver_w + 1;
-            buf.set_string(sum_x, ry, truncate_str(&row.checksum, sum_w as usize), sum_style);
+            let display_platform = platform_label(&row.platform);
+            let row_style = if sel { hl } else { Style::default().fg(palette::FG) };
+            if sel {
+                for cx in 0..list_area.width {
+                    if let Some(cell) = buf.cell_mut(Position::new(list_area.x + cx, ry)) {
+                        cell.set_bg(palette::HIGHLIGHT);
+                    }
+                }
+            }
+            buf.set_string(list_area.x + 1, ry, &format!(" {}", truncate_str(&display_platform, plat_w as usize)), row_style);
+            buf.set_string(list_area.x + 1 + plat_w + 1, ry, &format!(" {}", truncate_str(&row.arch, arch_w as usize)), row_style);
+            buf.set_string(list_area.x + 1 + plat_w + 1 + arch_w + 1, ry, &format!(" {}", truncate_str(&row.version, ver_w as usize)), row_style);
+            buf.set_string(list_area.x + 1 + plat_w + 1 + arch_w + 1 + ver_w + 1, ry, &format!(" {}", truncate_str(&row.size, size_w as usize)), row_style);
+            let sum_x = list_area.x + 1 + plat_w + 1 + arch_w + 1 + ver_w + 1 + size_w + 1;
+            buf.set_string(sum_x, ry, &format!(" {}", truncate_str(&row.checksum, sum_w as usize)), row_style);
         }
 
         if total > view_h {
@@ -184,6 +314,11 @@ impl PlatformsManager {
         let inp = Input::new("").prompt("").placeholder("search platforms...").styles(styles);
         StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
+}
+
+fn platform_label(raw: &str) -> String {
+    let normalized = raw.to_lowercase();
+    os_display_name(&normalized).to_string()
 }
 
 fn truncate_str(s: &str, max_w: usize) -> String {
