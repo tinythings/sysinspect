@@ -280,6 +280,14 @@ mod tests {
     }
 
     #[test]
+    fn minion_static_requirement_is_linux_only() {
+        assert!(SysInspectModPak::requires_static_minion("linux"));
+        assert!(!SysInspectModPak::requires_static_minion("freebsd"));
+        assert!(!SysInspectModPak::requires_static_minion("netbsd"));
+        assert!(!SysInspectModPak::requires_static_minion("openbsd"));
+    }
+
+    #[test]
     fn add_minion_build_rejects_non_sysminion_static_elf() {
         let Some(src) = std::env::current_dir().ok().map(|p| p.join("target/x86_64-unknown-linux-musl/debug/sysinspect")).filter(|p| p.exists())
         else {

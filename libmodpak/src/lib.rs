@@ -815,7 +815,21 @@ impl SysInspectModPak {
         Ok(())
     }
 
-    /// Add one statically linked sysminion build to the repository.
+    fn requires_static_minion(os: &str) -> bool {
+        matches!(os, "linux")
+    }
+
+    fn minion_platform_label(os: &str) -> &str {
+        match os {
+            "linux" => "Linux",
+            "freebsd" => "FreeBSD",
+            "netbsd" => "NetBSD",
+            "openbsd" => "OpenBSD",
+            _ => os,
+        }
+    }
+
+    /// Add one sysminion build to the repository.
     pub fn add_minion_build(&mut self, p: PathBuf) -> Result<(), SysinspectError> {
         let path = fs::canonicalize(p)?;
         let buff = fs::read(&path)?;
@@ -823,8 +837,11 @@ impl SysInspectModPak {
         if !buff.starts_with(b"\x7FELF") {
             return Err(SysinspectError::MasterGeneralError("Minion build must be an ELF executable".to_string()));
         }
-        if !Self::is_static_elf(&buff)? {
-            return Err(SysinspectError::MasterGeneralError("Minion build must be a static ELF".to_string()));
+        if Self::requires_static_minion(os) && !Self::is_static_elf(&buff)? {
+            return Err(SysinspectError::MasterGeneralError(format!(
+                "{} minion build must be a static ELF",
+                Self::minion_platform_label(os)
+            )));
         }
         let version = Self::get_minion_version(&buff)
             .ok_or_else(|| SysinspectError::MasterGeneralError("Minion build must be a sysminion executable".to_string()))?;
