@@ -216,7 +216,7 @@ pub struct SysInspectUX {
     pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all, 3=delete minion
     pub delete_force_remove: bool,  // checkbox: also remove from host over SSH
     cluster_confirm_form_focus: DialogFormFocus,
-    pub popup_button_rects: Cell<Option<alert::PopupButtonRects>>,
+    pub(crate) popup_button_rects: Cell<Option<alert::PopupButtonRects>>,
 
     // Tag popup
     pub tag_visible: bool,
