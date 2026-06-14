@@ -24,6 +24,7 @@ pub enum DslFocus {
     Query,
     Minions,
     Models,
+    Checkbook,
     Target,
     State,
     ContextField(usize),
@@ -37,6 +38,7 @@ impl DslFocus {
             DslFocus::Query,
             DslFocus::Minions,
             DslFocus::Models,
+            DslFocus::Checkbook,
             DslFocus::Target,
             DslFocus::State,
             DslFocus::ContextField(0),
@@ -114,7 +116,6 @@ pub struct DslBrowser {
     pub query: String,
     pub query_state: InputState,
     pub models: ListBox,
-    pub targets: ListBox,
     pub states: ListBox,
     pub minions: ListBox,
     pub context_fields: Vec<ContextField>,
@@ -129,6 +130,8 @@ pub struct DslBrowser {
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
+    pub checkbook_labels: ListBox,
+    pub target_entities: ListBox,
 }
 
 impl DslBrowser {
@@ -142,7 +145,6 @@ impl DslBrowser {
                 s
             },
             models: ListBox::new(vec!["(press 'c' to load)".to_string()], 0),
-            targets: ListBox::new(vec!["—".to_string()], 0),
             states: ListBox::new(vec!["$".to_string()], 0),
             minions: ListBox::new((1..=100).map(|i| format!("minion-{i:03}.example.net")).collect(), 0),
             context_fields: Vec::new(),
@@ -157,6 +159,8 @@ impl DslBrowser {
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
+            checkbook_labels: ListBox::new(vec!["—".to_string()], 0),
+            target_entities: ListBox::new(vec!["—".to_string()], 0),
         }
     }
 
@@ -202,22 +206,38 @@ impl DslBrowser {
     fn update_targets_and_states(&mut self) {
         self.context_active = false;
         if let Some(row) = self.resolved_model() {
-            let mut targets = row.entrypoints.clone();
-            if targets.is_empty() {
-                targets = vec!["(none)".to_string()];
-            } else {
-                targets.insert(0, "(select)".to_string());
+            let mut checkbook: Vec<String> = Vec::new();
+            let mut entities: Vec<String> = Vec::new();
+            for (i, entrypoint) in row.entrypoints.iter().enumerate() {
+                let kind = row.entrypoint_kinds.get(i).map(|s| s.as_str()).unwrap_or("entity");
+                if kind == "checkbook" {
+                    checkbook.push(entrypoint.clone());
+                } else {
+                    entities.push(entrypoint.clone());
+                }
             }
-            self.targets = ListBox::new(targets, 0);
+            if checkbook.is_empty() {
+                checkbook = vec!["(none)".to_string()];
+            } else {
+                checkbook.insert(0, "(select)".to_string());
+            }
+            if entities.is_empty() {
+                entities = vec!["(none)".to_string()];
+            } else {
+                entities.insert(0, "(select)".to_string());
+            }
+            self.checkbook_labels = ListBox::new(checkbook, 0);
+            self.target_entities = ListBox::new(entities, 0);
             self.update_states_for_target();
         } else {
-            self.targets = ListBox::new(vec!["—".to_string()], 0);
+            self.checkbook_labels = ListBox::new(vec!["—".to_string()], 0);
+            self.target_entities = ListBox::new(vec!["—".to_string()], 0);
             self.states = ListBox::new(vec!["$".to_string()], 0);
         }
     }
 
     fn update_states_for_target(&mut self) {
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).cloned();
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).cloned();
         let entry = self.resolved_model().and_then(|row| {
             target_id.as_deref().and_then(|tid| row.target_actions.iter().find(|(id, _)| id == tid).map(|(_, actions)| actions.clone()))
         });
@@ -249,7 +269,7 @@ impl DslBrowser {
     }
 
     fn ctxfields_update(&mut self) {
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).cloned();
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).cloned();
         let entry = self.resolved_model().and_then(|row| {
             target_id.as_deref().and_then(|tid| row.target_actions.iter().find(|(id, _)| id == tid).map(|(_, actions)| actions.clone()))
         });
@@ -311,8 +331,8 @@ impl DslBrowser {
     fn column_widths(area: Rect) -> (u16, u16) {
         let ctx_req = 28u16;
         let remaining = area.width.saturating_sub(ctx_req);
-        let box_w = (remaining / 4).max(16);
-        let ctx_w = area.width.saturating_sub(box_w * 4);
+        let box_w = (remaining / 5).max(12);
+        let ctx_w = area.width.saturating_sub(box_w * 5);
         (box_w, ctx_w)
     }
 
@@ -355,7 +375,7 @@ impl DslBrowser {
     }
 
     fn build_target_description_unchecked(&self) -> Option<String> {
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str())?;
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).map(|s| s.as_str())?;
         let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
         let state_real = if state_display == "(default)" { "$" } else { state_display };
         let row = self.resolved_model()?;
@@ -380,6 +400,7 @@ impl DslBrowser {
                 Constraint::Length(box_w),
                 Constraint::Length(box_w),
                 Constraint::Length(box_w),
+                Constraint::Length(box_w),
                 Constraint::Length(ctx_w),
             ])
             .split(area);
@@ -397,9 +418,10 @@ impl DslBrowser {
         StatefulWidget::render(&inp, Rect::new(chunks[0].x + 7, chunks[0].y, chunks[0].width.saturating_sub(7), 1), buf, &mut qs);
 
         write_clipped(buf, chunks[1], chunks[1].x, chunks[1].y, " Models:", Self::s_fl());
-        write_clipped(buf, chunks[2], chunks[2].x, chunks[2].y, " Target:", Self::s_fl());
-        write_clipped(buf, chunks[3], chunks[3].x, chunks[3].y, " State:", Self::s_fl());
-        write_clipped(buf, chunks[4], chunks[4].x, chunks[4].y, " Context:", Self::s_fl());
+        write_clipped(buf, chunks[2], chunks[2].x, chunks[2].y, " Checkbook:", Self::s_fl());
+        write_clipped(buf, chunks[3], chunks[3].x, chunks[3].y, " Target:", Self::s_fl());
+        write_clipped(buf, chunks[4], chunks[4].x, chunks[4].y, " State:", Self::s_fl());
+        write_clipped(buf, chunks[5], chunks[5].x, chunks[5].y, " Context:", Self::s_fl());
     }
 
     fn render_lists(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
@@ -410,15 +432,17 @@ impl DslBrowser {
                 Constraint::Length(box_w),
                 Constraint::Length(box_w),
                 Constraint::Length(box_w),
+                Constraint::Length(box_w),
                 Constraint::Length(ctx_w),
             ])
             .split(area);
 
         self.render_list_box(&self.minions, &chunks[0], DslFocus::Minions, buf);
         self.render_list_box(&self.models, &chunks[1], DslFocus::Models, buf);
-        self.render_list_box(&self.targets, &chunks[2], DslFocus::Target, buf);
-        self.render_list_box(&self.states, &chunks[3], DslFocus::State, buf);
-        self.render_context_inline(chunks[4], buf);
+        self.render_list_box(&self.checkbook_labels, &chunks[2], DslFocus::Checkbook, buf);
+        self.render_list_box(&self.target_entities, &chunks[3], DslFocus::Target, buf);
+        self.render_list_box(&self.states, &chunks[4], DslFocus::State, buf);
+        self.render_context_inline(chunks[5], buf);
     }
 
     fn render_list_box(&self, lb: &ListBox, area: &Rect, target: DslFocus, buf: &mut Buffer) {
@@ -612,8 +636,12 @@ impl DslBrowser {
                 self.update_targets_and_states();
                 true
             }
+            DslFocus::Checkbook => {
+                handle_list_nav(code, &mut self.checkbook_labels);
+                true
+            }
             DslFocus::Target => {
-                handle_list_nav(code, &mut self.targets);
+                handle_list_nav(code, &mut self.target_entities);
                 self.update_states_for_target();
                 true
             }
@@ -675,8 +703,20 @@ impl DslBrowser {
 
     fn build_query(&self) -> Option<String> {
         let model = self.models.items.get(self.models.selected().unwrap_or(0))?;
-        let target = self.targets.items.get(self.targets.selected().unwrap_or(0))?;
-        if model == "(select)" || model == "(no models found)" || target == "(select)" || target == "(none)" || target == "—" {
+        if model == "(select)" || model == "(no models found)" {
+            return None;
+        }
+        if let Some(cb_sel) = self.checkbook_labels.selected()
+            && cb_sel > 0
+        {
+            let label = self.checkbook_labels.items.get(cb_sel)?;
+            if label == "(select)" || label == "(none)" || label == "—" {
+                return None;
+            }
+            return Some(format!("{model}:{label}"));
+        }
+        let target = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0))?;
+        if target == "(select)" || target == "(none)" || target == "—" {
             return None;
         }
         let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
@@ -701,7 +741,7 @@ impl DslBrowser {
         if let Some(row) = self.resolved_model() {
             parts.push(format!("Model: {}\n{}", row.id, row.description));
         }
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         if target_id != "(select)"
             && target_id != "(none)"
             && target_id != "—"
@@ -756,7 +796,7 @@ impl SysInspectUX {
         }
 
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
-        let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id = self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let state_display = self.dsl_browser.states.items.get(self.dsl_browser.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
 
         let has_model = !model_name.is_empty() && model_name != "(select)" && model_name != "(no models found)";
@@ -867,7 +907,7 @@ impl SysInspectUX {
         }
 
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
-        let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id = self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let has_target = target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty();
 
         let block = Block::default()

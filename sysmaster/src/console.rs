@@ -266,6 +266,7 @@ impl SysMaster {
             .into_iter()
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
+                let mut entrypoint_kinds: Vec<String> = Vec::new();
                 #[allow(clippy::type_complexity)]
                 let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
 
@@ -273,6 +274,7 @@ impl SysMaster {
                     match ep {
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
                             entrypoints.push(label.clone());
+                            entrypoint_kinds.push("checkbook".to_string());
                             #[allow(clippy::type_complexity)]
                             let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
                                 .actions
@@ -288,6 +290,7 @@ impl SysMaster {
                         }
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
                             entrypoints.push(id.clone());
+                            entrypoint_kinds.push("entity".to_string());
                             #[allow(clippy::type_complexity)]
                             let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
                                 .actions
@@ -311,6 +314,7 @@ impl SysMaster {
                     version: m.metadata.version.clone(),
                     description: m.metadata.description.clone(),
                     entrypoints,
+                    entrypoint_kinds,
                     states: m.states.clone(),
                     target_actions,
                 }

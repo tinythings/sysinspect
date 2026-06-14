@@ -2775,6 +2775,7 @@ impl SysInspectUX {
             .into_iter()
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
+                let mut entrypoint_kinds: Vec<String> = Vec::new();
                 #[allow(clippy::type_complexity)]
                 let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
 
@@ -2782,6 +2783,7 @@ impl SysInspectUX {
                     match ep {
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
                             entrypoints.push(label.clone());
+                            entrypoint_kinds.push("checkbook".to_string());
                             #[allow(clippy::type_complexity)]
                             let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
                                 .actions
@@ -2797,6 +2799,7 @@ impl SysInspectUX {
                         }
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
                             entrypoints.push(id.clone());
+                            entrypoint_kinds.push("entity".to_string());
                             #[allow(clippy::type_complexity)]
                             let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
                                 .actions
@@ -2820,6 +2823,7 @@ impl SysInspectUX {
                     version: m.metadata.version.clone(),
                     description: m.metadata.description.clone(),
                     entrypoints,
+                    entrypoint_kinds,
                     states: m.states.clone(),
                     target_actions,
                 }
@@ -3976,7 +3980,7 @@ impl SysInspectUX {
                 } else {
                     let model = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
                     let _target =
-                        self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+                        self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
                     let missing_keys = std::mem::take(&mut self.dsl_browser.error_required_key);
                     if !missing_keys.is_empty() {
                         self.error_alert_visible = true;

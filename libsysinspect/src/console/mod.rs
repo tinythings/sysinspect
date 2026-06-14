@@ -343,6 +343,9 @@ pub struct ConsoleModelRow {
     /// Entrypoint ids (checkbook labels + direct entity ids).
     #[serde(default)]
     pub entrypoints: Vec<String>,
+    /// Entrypoint kind for each entry in `entrypoints`: "checkbook" or "entity".
+    #[serde(default)]
+    pub entrypoint_kinds: Vec<String>,
     /// Declared state names across all actions.
     #[serde(default)]
     pub states: Vec<String>,
