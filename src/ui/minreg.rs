@@ -439,7 +439,7 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
             let bar_x = inner.x + 2;
             for i in 0..filled {
                 let t = if bar_w > 1 { i as f32 / (bar_w - 1) as f32 } else { 0.0 };
-                let color = lerp_color(palette::PROCESSING_DIMMED, palette::SUCCESS, t);
+                let color = lerp_color(palette::PROCESSING_DIMMED, palette::PRIMARY, t);
                 buf.set_string(bar_x + i, bar_y, "█", Style::default().fg(color));
             }
         }
@@ -506,18 +506,20 @@ pub fn spawn_registration(
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         let result = run_provision(hostname, user, path, use_sudo, &cfg, &progress);
-        let mut p = progress.lock().unwrap();
-        match result {
-            Ok(mid) => {
-                p.minion_id = mid;
-                p.message = "Complete".into();
-            }
-            Err(err) => {
-                p.error = Some(err.to_string());
+        {
+            let mut p = progress.lock().unwrap();
+            match result {
+                Ok(mid) => {
+                    p.minion_id = mid;
+                    p.message = "Complete".into();
+                }
+                Err(err) => {
+                    p.error = Some(err.to_string());
+                }
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(250));
-        p.done = true;
+        progress.lock().unwrap().done = true;
     })
 }
 
