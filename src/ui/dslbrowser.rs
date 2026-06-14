@@ -24,6 +24,7 @@ pub enum DslFocus {
     Query,
     Minions,
     Models,
+    Checkbook,
     Target,
     State,
     ContextField(usize),
@@ -37,6 +38,7 @@ impl DslFocus {
             DslFocus::Query,
             DslFocus::Minions,
             DslFocus::Models,
+            DslFocus::Checkbook,
             DslFocus::Target,
             DslFocus::State,
             DslFocus::ContextField(0),
@@ -114,7 +116,6 @@ pub struct DslBrowser {
     pub query: String,
     pub query_state: InputState,
     pub models: ListBox,
-    pub targets: ListBox,
     pub states: ListBox,
     pub minions: ListBox,
     pub context_fields: Vec<ContextField>,
@@ -129,6 +130,8 @@ pub struct DslBrowser {
     catalog_diagnostics: Vec<String>,
     model_data: Vec<libsysinspect::console::ConsoleModelRow>,
     all_minions: Vec<String>,
+    pub checkbook_labels: ListBox,
+    pub target_entities: ListBox,
 }
 
 impl DslBrowser {
@@ -142,7 +145,6 @@ impl DslBrowser {
                 s
             },
             models: ListBox::new(vec!["(press 'c' to load)".to_string()], 0),
-            targets: ListBox::new(vec!["—".to_string()], 0),
             states: ListBox::new(vec!["$".to_string()], 0),
             minions: ListBox::new((1..=100).map(|i| format!("minion-{i:03}.example.net")).collect(), 0),
             context_fields: Vec::new(),
@@ -157,6 +159,8 @@ impl DslBrowser {
             catalog_diagnostics: Vec::new(),
             model_data: Vec::new(),
             all_minions: Vec::new(),
+            checkbook_labels: ListBox::new(vec!["—".to_string()], 0),
+            target_entities: ListBox::new(vec!["—".to_string()], 0),
         }
     }
 
@@ -182,6 +186,7 @@ impl DslBrowser {
     }
 
     pub fn load_models(&mut self, rows: Vec<libsysinspect::console::ConsoleModelRow>, failures: Vec<String>) {
+        let rows: Vec<libsysinspect::console::ConsoleModelRow> = rows.into_iter().filter(|r| r.enabled).collect();
         let mut ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         if ids.is_empty() {
             ids = vec!["(no models found)".to_string()];
@@ -201,22 +206,39 @@ impl DslBrowser {
     fn update_targets_and_states(&mut self) {
         self.context_active = false;
         if let Some(row) = self.resolved_model() {
-            let mut targets = row.entrypoints.clone();
-            if targets.is_empty() {
-                targets = vec!["(none)".to_string()];
-            } else {
-                targets.insert(0, "(select)".to_string());
+            let mut checkbook: Vec<String> = Vec::new();
+            let mut entities: Vec<String> = Vec::new();
+            for (i, entrypoint) in row.entrypoints.iter().enumerate() {
+                let kind = row.entrypoint_kinds.get(i).map(|s| s.as_str()).unwrap_or("entity");
+                if kind == "checkbook" {
+                    checkbook.push(entrypoint.clone());
+                } else {
+                    entities.push(entrypoint.clone());
+                }
             }
-            self.targets = ListBox::new(targets, 0);
+            if checkbook.is_empty() {
+                checkbook = vec!["(none)".to_string()];
+            } else {
+                checkbook.insert(0, "(select)".to_string());
+            }
+            if entities.is_empty() {
+                entities = vec!["(none)".to_string()];
+            } else {
+                entities.insert(0, "(select)".to_string());
+            }
+            self.checkbook_labels = ListBox::new(checkbook, 0);
+            self.target_entities = ListBox::new(entities, 0);
+            self.states = ListBox::new(vec!["$".to_string()], 0);
             self.update_states_for_target();
         } else {
-            self.targets = ListBox::new(vec!["—".to_string()], 0);
+            self.checkbook_labels = ListBox::new(vec!["—".to_string()], 0);
+            self.target_entities = ListBox::new(vec!["—".to_string()], 0);
             self.states = ListBox::new(vec!["$".to_string()], 0);
         }
     }
 
     fn update_states_for_target(&mut self) {
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).cloned();
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).cloned();
         let entry = self.resolved_model().and_then(|row| {
             target_id.as_deref().and_then(|tid| row.target_actions.iter().find(|(id, _)| id == tid).map(|(_, actions)| actions.clone()))
         });
@@ -248,7 +270,7 @@ impl DslBrowser {
     }
 
     fn ctxfields_update(&mut self) {
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).cloned();
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).cloned();
         let entry = self.resolved_model().and_then(|row| {
             target_id.as_deref().and_then(|tid| row.target_actions.iter().find(|(id, _)| id == tid).map(|(_, actions)| actions.clone()))
         });
@@ -282,13 +304,13 @@ impl DslBrowser {
     }
 
     fn s_fg() -> Style {
-        Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
+        Style::default().fg(palette::FG)
     }
     fn s_bd() -> Style {
         Self::s_fg().add_modifier(Modifier::BOLD)
     }
     fn s_di() -> Style {
-        Style::default().fg(palette::MUTED).bg(palette::POPUP_BG_BASE)
+        Style::default().fg(palette::MUTED)
     }
     fn s_hl() -> Style {
         Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
@@ -299,15 +321,28 @@ impl DslBrowser {
     fn s_bl() -> Style {
         Style::default().fg(palette::PROCESSING).bg(palette::POPUP_BG_BASE)
     }
+    fn s_fl() -> Style {
+        Style::default().fg(palette::FORM_LABEL)
+    }
+    fn s_fl_dim() -> Style {
+        Style::default().fg(palette::FORM_LABEL_DIMMED)
+    }
 
     fn border_style(focus: DslFocus, current: DslFocus) -> Style {
+        Self::border_style_with_context(focus, current, false)
+    }
+
+    fn border_style_with_context(focus: DslFocus, current: DslFocus, dimmed: bool) -> Style {
+        if dimmed {
+            return Style::default().fg(palette::MUTED);
+        }
         if current == focus { Style::default().fg(palette::ACCENT) } else { Style::default().fg(palette::FAINT) }
     }
 
     fn column_widths(area: Rect) -> (u16, u16) {
         let ctx_req = 28u16;
         let remaining = area.width.saturating_sub(ctx_req);
-        let box_w = (remaining / 4).max(16);
+        let box_w = (remaining / 4).max(14);
         let ctx_w = area.width.saturating_sub(box_w * 4);
         (box_w, ctx_w)
     }
@@ -335,7 +370,8 @@ impl DslBrowser {
             .split(area);
 
         let (box_w, ctx_w) = Self::column_widths(area);
-        self.render_top(rows[0], box_w, ctx_w, buf);
+        let cb_active = !self.checkbook_labels_is_placeholder();
+        self.render_top(rows[0], box_w, ctx_w, cb_active, buf);
         self.render_lists(rows[1], box_w, ctx_w, buf);
         self.render_description(rows[2], &visible, has_more_desc, buf);
         self.render_bottom(rows[3], buf);
@@ -351,7 +387,7 @@ impl DslBrowser {
     }
 
     fn build_target_description_unchecked(&self) -> Option<String> {
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str())?;
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).map(|s| s.as_str())?;
         let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
         let state_real = if state_display == "(default)" { "$" } else { state_display };
         let row = self.resolved_model()?;
@@ -368,7 +404,7 @@ impl DslBrowser {
         }
     }
 
-    fn render_top(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
+    fn render_top(&self, area: Rect, box_w: u16, ctx_w: u16, cb_active: bool, buf: &mut Buffer) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -380,7 +416,7 @@ impl DslBrowser {
             ])
             .split(area);
 
-        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_bl());
+        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_fl());
         let qf = self.focus == DslFocus::Query;
         let mut qs = InputState::new();
         qs.set_value(self.query.clone());
@@ -392,10 +428,11 @@ impl DslBrowser {
         let inp = Input::new("").prompt("").placeholder("*");
         StatefulWidget::render(&inp, Rect::new(chunks[0].x + 7, chunks[0].y, chunks[0].width.saturating_sub(7), 1), buf, &mut qs);
 
-        write_clipped(buf, chunks[1], chunks[1].x, chunks[1].y, " Models:", Self::s_bl());
-        write_clipped(buf, chunks[2], chunks[2].x, chunks[2].y, " Target:", Self::s_bl());
-        write_clipped(buf, chunks[3], chunks[3].x, chunks[3].y, " State:", Self::s_bl());
-        write_clipped(buf, chunks[4], chunks[4].x, chunks[4].y, " Context:", Self::s_bl());
+        write_clipped(buf, chunks[1], chunks[1].x, chunks[1].y, " Models:", Self::s_fl());
+        write_clipped(buf, chunks[2], chunks[2].x, chunks[2].y, " Checkbook:", Self::s_fl());
+        let st_label = if cb_active { Self::s_fl_dim() } else { Self::s_fl() };
+        write_clipped(buf, chunks[3], chunks[3].x, chunks[3].y, " State:", st_label);
+        write_clipped(buf, chunks[4], chunks[4].x, chunks[4].y, " Context:", Self::s_fl());
     }
 
     fn render_lists(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
@@ -412,9 +449,177 @@ impl DslBrowser {
 
         self.render_list_box(&self.minions, &chunks[0], DslFocus::Minions, buf);
         self.render_list_box(&self.models, &chunks[1], DslFocus::Models, buf);
-        self.render_list_box(&self.targets, &chunks[2], DslFocus::Target, buf);
-        self.render_list_box(&self.states, &chunks[3], DslFocus::State, buf);
+        self.render_checkbook_target_combo(&chunks[2], buf);
+
+        let state_dimmed = !self.checkbook_labels_is_placeholder();
+        self.render_list_box_dim(&self.states, &chunks[3], DslFocus::State, state_dimmed, buf);
+
         self.render_context_inline(chunks[4], buf);
+    }
+
+    fn render_list_box_dim(&self, lb: &ListBox, area: &Rect, target: DslFocus, dimmed: bool, buf: &mut Buffer) {
+        let is_minions = matches!(target, DslFocus::Minions);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Self::border_style_with_context(self.focus, target, dimmed));
+        let inner = block.inner(*area);
+        block.render(*area, buf);
+
+        let list_h = inner.height as usize;
+        let total = lb.items.len();
+        if let Some(sel) = lb.state.selected() {
+            let mut off = lb.scroll.get();
+            if sel < off {
+                off = sel;
+            } else if sel >= off.saturating_add(list_h) {
+                off = sel.saturating_sub(list_h.saturating_sub(1));
+            }
+            lb.scroll.set(off.min(total.saturating_sub(list_h)));
+        }
+        let offset = lb.scroll.get().min(total.saturating_sub(list_h));
+
+        let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
+        let focused = self.focus == target;
+        let is_placeholder = lb.items.get(lb.state.selected().unwrap_or(0)).is_some_and(|s| s == "(select)");
+        let hl = if dimmed || (is_placeholder && !focused) {
+            Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
+        } else if is_minions {
+            if focused { Style::default().fg(palette::SECONDARY) } else { Style::default() }
+        } else if focused {
+            Self::s_hl()
+        } else {
+            Self::s_hl_dim()
+        };
+        let mut list = List::new(visible).highlight_style(hl);
+        if dimmed {
+            list = list.style(Style::default().fg(palette::MUTED));
+        }
+        let mut ls = ListState::default();
+        if focused {
+            if let Some(sel) = lb.state.selected() {
+                ls.select(Some(sel.saturating_sub(offset)));
+            }
+        } else if !is_minions
+            && !dimmed
+            && let Some(sel) = lb.state.selected()
+        {
+            ls.select(Some(sel.saturating_sub(offset)));
+        }
+        let list_area = Rect::new(inner.x, inner.y, inner.width.saturating_sub(2), inner.height);
+        StatefulWidget::render(list, list_area, buf, &mut ls);
+
+        if inner.width >= 2 && list_h > 0 {
+            let sb_x = inner.right().saturating_sub(1);
+            let mut sb_state = ScrollbarState::new(total).position(offset);
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(Some("\u{28FF}"))
+                .thumb_symbol("█")
+                .track_style(Style::default().bg(palette::BG_2))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
+                .render(Rect::new(sb_x, inner.y, 1, inner.height), buf, &mut sb_state);
+        }
+    }
+
+    fn render_checkbook_target_combo(&self, area: &Rect, buf: &mut Buffer) {
+        if area.height < 4 {
+            return;
+        }
+        let label_h = 1u16;
+        let available = area.height.saturating_sub(label_h);
+        let cb_h = available / 2;
+        let target_h = available.saturating_sub(cb_h);
+
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(cb_h), Constraint::Length(label_h), Constraint::Length(target_h)])
+            .split(*area);
+
+        let cb_focus = self.focus == DslFocus::Checkbook;
+        let tgt_focus = self.focus == DslFocus::Target;
+        let cb_active = !self.checkbook_labels_is_placeholder();
+        let tgt_active = !self.target_entities_is_placeholder();
+        let cb_blocked = tgt_active;
+        let tgt_blocked = cb_active;
+
+        // Checkbook box
+        let cb_border = if cb_blocked { Style::default().fg(palette::MUTED) } else { Self::border_style(self.focus, DslFocus::Checkbook) };
+        let cb_block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(cb_border);
+        let cb_inner = cb_block.inner(parts[0]);
+        cb_block.render(parts[0], buf);
+        self.render_list_items(&self.checkbook_labels, &cb_inner, cb_focus, cb_blocked, buf);
+
+        // "Target:" label
+        let tgt_label = if cb_active { Self::s_fl_dim() } else { Self::s_fl() };
+        write_clipped(buf, parts[1], parts[1].x, parts[1].y, " Target:", tgt_label);
+
+        // Target box
+        let tgt_border = if tgt_blocked { Style::default().fg(palette::MUTED) } else { Self::border_style(self.focus, DslFocus::Target) };
+        let tgt_block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(tgt_border);
+        let tgt_inner = tgt_block.inner(parts[2]);
+        tgt_block.render(parts[2], buf);
+        self.render_list_items(&self.target_entities, &tgt_inner, tgt_focus, tgt_blocked, buf);
+    }
+
+    fn checkbook_labels_is_placeholder(&self) -> bool {
+        self.checkbook_labels.items.get(self.checkbook_labels.selected().unwrap_or(0)).is_some_and(|s| s == "(select)" || s == "(none)" || s == "—")
+    }
+
+    fn target_entities_is_placeholder(&self) -> bool {
+        self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).is_some_and(|s| s == "(select)" || s == "(none)" || s == "—")
+    }
+
+    fn render_list_items(&self, lb: &ListBox, area: &Rect, focused: bool, dimmed: bool, buf: &mut Buffer) {
+        let list_h = area.height as usize;
+        let total = lb.items.len();
+        if let Some(sel) = lb.state.selected() {
+            let mut off = lb.scroll.get();
+            if sel < off {
+                off = sel;
+            } else if sel >= off.saturating_add(list_h) {
+                off = sel.saturating_sub(list_h.saturating_sub(1));
+            }
+            lb.scroll.set(off.min(total.saturating_sub(list_h)));
+        }
+        let offset = lb.scroll.get().min(total.saturating_sub(list_h));
+
+        let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
+        let is_placeholder = lb.items.get(lb.state.selected().unwrap_or(0)).is_some_and(|s| s == "(select)");
+        let hl = if dimmed || (is_placeholder && !focused) {
+            Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
+        } else if focused {
+            Self::s_hl()
+        } else {
+            Self::s_hl_dim()
+        };
+        let mut list = List::new(visible).highlight_style(hl);
+        if dimmed {
+            list = list.style(Style::default().fg(palette::MUTED));
+        }
+        let mut ls = ListState::default();
+        if (focused || !dimmed)
+            && let Some(sel) = lb.state.selected()
+        {
+            ls.select(Some(sel.saturating_sub(offset)));
+        }
+        StatefulWidget::render(list, *area, buf, &mut ls);
+
+        if area.width >= 2 && list_h > 0 {
+            let sb_x = area.right().saturating_sub(1);
+            let mut sb_state = ScrollbarState::new(total).position(offset);
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(Some("\u{28FF}"))
+                .thumb_symbol("█")
+                .track_style(Style::default().bg(palette::BG_2))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
+                .render(Rect::new(sb_x, area.y, 1, area.height), buf, &mut sb_state);
+        }
     }
 
     fn render_list_box(&self, lb: &ListBox, area: &Rect, target: DslFocus, buf: &mut Buffer) {
@@ -493,7 +698,7 @@ impl DslBrowser {
             let focused = matches!(self.focus, DslFocus::ContextField(idx) if idx == i);
             let req = if field.required { "*" } else { " " };
             let label = format!("{req}{:>width$}: ", field.key, width = max_label_w as usize);
-            write_clipped(buf, area, area.x + 1, y, &label, Self::s_bd());
+            write_clipped(buf, area, area.x + 1, y, &label, Self::s_fl());
             let inp = Input::new("").prompt("").placeholder(if field.desc.is_empty() { &field.key } else { &field.desc });
             let mut is = InputState::new();
             is.set_value(field.value.clone());
@@ -556,19 +761,11 @@ impl DslBrowser {
                 return true;
             }
             KeyCode::Tab => {
-                let mut next = self.focus.next();
-                if matches!(next, DslFocus::ContextField(_)) && !self.context_active {
-                    next = DslFocus::Call;
-                }
-                self.focus = next;
+                self.focus = self.next_focus();
                 return true;
             }
             KeyCode::BackTab => {
-                let mut prev = self.focus.prev();
-                if matches!(prev, DslFocus::ContextField(_)) && !self.context_active {
-                    prev = DslFocus::State;
-                }
-                self.focus = prev;
+                self.focus = self.prev_focus();
                 return true;
             }
             KeyCode::Char('d') if !matches!(self.focus, DslFocus::Query | DslFocus::ContextField(_)) && self.resolved_model().is_some() => {
@@ -608,8 +805,12 @@ impl DslBrowser {
                 self.update_targets_and_states();
                 true
             }
+            DslFocus::Checkbook => {
+                handle_list_nav(code, &mut self.checkbook_labels);
+                true
+            }
             DslFocus::Target => {
-                handle_list_nav(code, &mut self.targets);
+                handle_list_nav(code, &mut self.target_entities);
                 self.update_states_for_target();
                 true
             }
@@ -669,10 +870,58 @@ impl DslBrowser {
         self.model_data_index().and_then(|i| self.model_data.get(i))
     }
 
+    fn next_focus(&self) -> DslFocus {
+        let mut f = self.focus.next();
+        if !self.checkbook_labels_is_placeholder() {
+            while matches!(f, DslFocus::Target | DslFocus::State) {
+                f = f.next();
+            }
+        }
+        if !self.target_entities_is_placeholder() {
+            while matches!(f, DslFocus::Checkbook) {
+                f = f.next();
+            }
+        }
+        if matches!(f, DslFocus::ContextField(_)) && !self.context_active {
+            f = DslFocus::Call;
+        }
+        f
+    }
+
+    fn prev_focus(&self) -> DslFocus {
+        let mut f = self.focus.prev();
+        if !self.checkbook_labels_is_placeholder() {
+            while matches!(f, DslFocus::Target | DslFocus::State) {
+                f = f.prev();
+            }
+        }
+        if !self.target_entities_is_placeholder() {
+            while matches!(f, DslFocus::Checkbook) {
+                f = f.prev();
+            }
+        }
+        if matches!(f, DslFocus::ContextField(_)) && !self.context_active {
+            f = DslFocus::State;
+        }
+        f
+    }
+
     fn build_query(&self) -> Option<String> {
         let model = self.models.items.get(self.models.selected().unwrap_or(0))?;
-        let target = self.targets.items.get(self.targets.selected().unwrap_or(0))?;
-        if model == "(select)" || model == "(no models found)" || target == "(select)" || target == "(none)" || target == "—" {
+        if model == "(select)" || model == "(no models found)" {
+            return None;
+        }
+        if let Some(cb_sel) = self.checkbook_labels.selected()
+            && cb_sel > 0
+        {
+            let label = self.checkbook_labels.items.get(cb_sel)?;
+            if label == "(select)" || label == "(none)" || label == "—" {
+                return None;
+            }
+            return Some(format!("{model}:{label}"));
+        }
+        let target = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0))?;
+        if target == "(select)" || target == "(none)" || target == "—" {
             return None;
         }
         let state_display = self.states.items.get(self.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("$");
@@ -697,7 +946,7 @@ impl DslBrowser {
         if let Some(row) = self.resolved_model() {
             parts.push(format!("Model: {}\n{}", row.id, row.description));
         }
-        let target_id = self.targets.items.get(self.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id = self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         if target_id != "(select)"
             && target_id != "(none)"
             && target_id != "—"
@@ -741,11 +990,25 @@ impl SysInspectUX {
 
         Clear.render(popup, buf);
 
+        let grad_colors = blend_2d(popup.width as usize, popup.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[ratatui::style::Color]);
+        for row in 0..popup.height {
+            for col in 0..popup.width {
+                let idx = row as usize * popup.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(popup.x + col, popup.y + row)) {
+                    cell.set_bg(grad_colors[idx]);
+                }
+            }
+        }
+
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
-        let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let cb_label =
+            self.dsl_browser.checkbook_labels.items.get(self.dsl_browser.checkbook_labels.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id =
+            self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let state_display = self.dsl_browser.states.items.get(self.dsl_browser.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
 
         let has_model = !model_name.is_empty() && model_name != "(select)" && model_name != "(no models found)";
+        let has_checkbook = !cb_label.is_empty() && cb_label != "(select)" && cb_label != "(none)" && cb_label != "—";
         let has_target = !target_id.is_empty() && target_id != "(select)" && target_id != "(none)" && target_id != "—";
         let has_state = !state_display.is_empty() && state_display != "(select)" && state_display != "(default)" && state_display != "$";
 
@@ -772,8 +1035,11 @@ impl SysInspectUX {
                 modifier: Modifier::empty(),
             });
         }
+        if has_checkbook {
+            title_segments.push(TitleSegment { text: format!(" {cb_label} "), bg: peak_bg, fg: palette::BG_2, modifier: Modifier::empty() });
+        }
         if has_target {
-            title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: peak_bg, fg: palette::BG_2, modifier: Modifier::empty() });
+            title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: proc_bg, fg: palette::BG_3, modifier: Modifier::empty() });
         }
         if has_state {
             title_segments.push(TitleSegment { text: format!(" {state_display} "), bg: proc_bg, fg: palette::BG_3, modifier: Modifier::empty() });
@@ -785,7 +1051,7 @@ impl SysInspectUX {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(2))
-            .style(Style::default().bg(palette::POPUP_BG_BASE));
+            .style(Style::default());
         let inner = block.inner(popup);
         block.render(popup, buf);
         let title_style = TitleStyle::cyberpunk(border_color);
@@ -853,7 +1119,8 @@ impl SysInspectUX {
         }
 
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
-        let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id =
+            self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let has_target = target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty();
 
         let block = Block::default()

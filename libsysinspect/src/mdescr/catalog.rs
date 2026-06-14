@@ -26,10 +26,14 @@ impl ModelCatalog {
     /// Scan all configured model roots and attempt to load every
     /// discovered model independently.
     pub fn scan(cfg: Arc<MinionConfig>) -> Self {
-        let models_root = cfg.models_dir();
+        Self::scan_root(cfg.clone(), &cfg.models_dir())
+    }
+
+    /// Scan an explicit models root and attempt to load every discovered model independently.
+    pub fn scan_root(cfg: Arc<MinionConfig>, models_root: &std::path::Path) -> Self {
         let mut entries: Vec<ModelCatalogEntry> = Vec::new();
 
-        if let Ok(read_dir) = std::fs::read_dir(&models_root) {
+        if let Ok(read_dir) = std::fs::read_dir(models_root) {
             for entry in read_dir.flatten() {
                 let path = entry.path();
                 if !path.is_dir() {

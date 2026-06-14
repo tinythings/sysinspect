@@ -455,20 +455,41 @@ impl ModCall {
                 }
             };
 
-            match serde_json::from_str::<ActionModResponse>(&cleaned) {
-                Ok(r) => {
-                    let mut data = r.clone();
-                    data.add_data("run-uid", json!(spec.uid));
-                    data.add_data("run-gid", json!(spec.gid));
-
-                    Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), data, self.eval_constraints(&r))))
-                }
+            let v = match serde_json::from_str::<serde_json::Value>(&cleaned) {
+                Ok(v) => v,
                 Err(e) => {
                     log::debug!("STDOUT (raw): {raw_out}");
-                    log::debug!("STDOUT (cleaned): {cleaned}");
-                    Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' returned invalid JSON: {e}", self.module.display())));
+                }
+            };
+            if let Some(obj) = v.as_object() {
+                let mut missing: Vec<&str> = Vec::new();
+                if !obj.contains_key("retcode") {
+                    missing.push("retcode");
+                }
+                if !obj.contains_key("message") {
+                    missing.push("message");
+                }
+                if !missing.is_empty() {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    return Err(SysinspectError::ModuleError(format!(
+                        "Module '{}' contract violation: required keys absent — {}",
+                        self.module.display(),
+                        missing.join(", ")
+                    )));
                 }
             }
+            let r = match serde_json::from_value::<ActionModResponse>(v) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' response format error: {e}", self.module.display())));
+                }
+            };
+            let mut data = r.clone();
+            data.add_data("run-uid", json!(spec.uid));
+            data.add_data("run-gid", json!(spec.gid));
+            Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), data, self.eval_constraints(&r))))
         } else {
             log::debug!("Spawning module with default privileges");
             let mut p = Command::new(&self.module)
@@ -502,20 +523,41 @@ impl ModCall {
                 }
             };
 
-            match serde_json::from_str::<ActionModResponse>(&cleaned) {
-                Ok(r) => {
-                    let mut data = r.clone();
-                    data.add_data("run-uid", json!(muid));
-                    data.add_data("run-gid", json!(mgid));
-
-                    Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), data, self.eval_constraints(&r))))
-                }
+            let v = match serde_json::from_str::<serde_json::Value>(&cleaned) {
+                Ok(v) => v,
                 Err(e) => {
                     log::debug!("STDOUT (raw): {raw_out}");
-                    log::debug!("STDOUT (cleaned): {cleaned}");
-                    Err(SysinspectError::ModuleError(format!("JSON error: {e}")))
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' returned invalid JSON: {e}", self.module.display())));
+                }
+            };
+            if let Some(obj) = v.as_object() {
+                let mut missing: Vec<&str> = Vec::new();
+                if !obj.contains_key("retcode") {
+                    missing.push("retcode");
+                }
+                if !obj.contains_key("message") {
+                    missing.push("message");
+                }
+                if !missing.is_empty() {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    return Err(SysinspectError::ModuleError(format!(
+                        "Module '{}' contract violation: required keys absent — {}",
+                        self.module.display(),
+                        missing.join(", ")
+                    )));
                 }
             }
+            let r = match serde_json::from_value::<ActionModResponse>(v) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::debug!("STDOUT (raw): {raw_out}");
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' response format error: {e}", self.module.display())));
+                }
+            };
+            let mut data = r.clone();
+            data.add_data("run-uid", json!(muid));
+            data.add_data("run-gid", json!(mgid));
+            Ok(Some(ActionResponse::new(self.eid.to_owned(), self.aid.to_owned(), self.state.to_owned(), data, self.eval_constraints(&r))))
         }
     }
 

@@ -63,7 +63,7 @@ pub const WARNING_RAMP: [Color; 4] = [WARNING_BASE, WARNING_GLOW, WARNING_HEAT, 
 pub const SUCCESS_BASE: Color = Color::Indexed(23);
 pub const SUCCESS_GLOW: Color = Color::Indexed(29);
 pub const SUCCESS_HEAT: Color = Color::Indexed(36);
-pub const SUCCESS_PEAK: Color = Color::Indexed(44);
+pub const SUCCESS_PEAK: Color = Color::Indexed(43);
 
 pub const SUCCESS_RAMP: [Color; 4] = [SUCCESS_BASE, SUCCESS_GLOW, SUCCESS_HEAT, SUCCESS_PEAK];
 
@@ -116,6 +116,12 @@ pub const WARNING: Color = Color::Indexed(178);
 
 /// Success / confirmation / positive.
 pub const SUCCESS: Color = Color::Indexed(49);
+
+/// Form labels / structured input captions.
+pub const FORM_LABEL: Color = SUCCESS_PEAK;
+
+/// Form labels when the associated control is disabled.
+pub const FORM_LABEL_DIMMED: Color = SUCCESS_BASE;
 
 /// Work in progress / active processing.
 pub const PROCESSING: Color = Color::Indexed(171);

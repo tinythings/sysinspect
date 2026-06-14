@@ -7,7 +7,7 @@
 
 use super::*;
 
-use crate::hopstart::{HopStartTarget, HopStarter};
+use crate::hopstart::{HopStartTarget, HopStarter, shell_quote};
 use libmodpak::{SysInspectModPak, compare_versions, mpk::ModPakRepoIndex};
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
@@ -250,10 +250,11 @@ impl SysMaster {
 
     /// Build model-discovery rows from the master's fileserver models directory.
     async fn models_data(&mut self) -> Result<(Vec<ConsoleModelRow>, Vec<String>), SysinspectError> {
+        let enabled_models: std::collections::BTreeSet<String> = self.cfg.fileserver_models().iter().cloned().collect();
         let mut minion_cfg = MinionConfig::default();
         let root = self.cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
         minion_cfg.set_root_dir(&root);
-        let catalog = ModelCatalog::scan(std::sync::Arc::new(minion_cfg));
+        let catalog = ModelCatalog::scan_root(std::sync::Arc::new(minion_cfg), &self.cfg.fileserver_models_root(false));
         let failures = catalog
             .failures()
             .into_iter()
@@ -265,6 +266,7 @@ impl SysMaster {
             .into_iter()
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
+                let mut entrypoint_kinds: Vec<String> = Vec::new();
                 #[allow(clippy::type_complexity)]
                 let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
 
@@ -272,6 +274,7 @@ impl SysMaster {
                     match ep {
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
                             entrypoints.push(label.clone());
+                            entrypoint_kinds.push("checkbook".to_string());
                             #[allow(clippy::type_complexity)]
                             let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
                                 .actions
@@ -287,6 +290,7 @@ impl SysMaster {
                         }
                         libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
                             entrypoints.push(id.clone());
+                            entrypoint_kinds.push("entity".to_string());
                             #[allow(clippy::type_complexity)]
                             let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
                                 .actions
@@ -305,10 +309,12 @@ impl SysMaster {
 
                 ConsoleModelRow {
                     id: m.metadata.id.clone(),
+                    enabled: enabled_models.contains(&m.metadata.id),
                     name: m.metadata.name.clone(),
                     version: m.metadata.version.clone(),
                     description: m.metadata.description.clone(),
                     entrypoints,
+                    entrypoint_kinds,
                     states: m.states.clone(),
                     target_actions,
                 }
@@ -844,6 +850,30 @@ impl SysMaster {
         }
 
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}")) {
+            // Force cleanup: SSH into host and remove files before unregistering
+            if !query.context.is_empty()
+                && let Ok(v) = serde_json::from_str::<serde_json::Value>(&query.context)
+                && v.get("force").and_then(|f| f.as_bool()).unwrap_or(false)
+            {
+                let cmdb_opt = master.lock().await.mreg.lock().await.get_cmdb(&query.mid).ok().flatten();
+                if let Some(cmdb) = cmdb_opt
+                    && cmdb.backend.as_deref() == Some("hopstart")
+                    && let (Some(user), Some(host), Some(root), Some(bin), Some(config)) =
+                        (cmdb.user.as_deref(), cmdb.host.as_deref(), cmdb.root.as_deref(), cmdb.bin.as_deref(), cmdb.config.as_deref())
+                {
+                    let cmd = format!(
+                        "sh -lc '{} -c {} --stop >/dev/null 2>&1 || true; rm -rf {}'",
+                        shell_quote(bin),
+                        shell_quote(config),
+                        shell_quote(root)
+                    );
+                    match tokio::process::Command::new("ssh").arg(format!("{user}@{host}")).arg(&cmd).status().await {
+                        Ok(s) if s.success() => log::info!("Force-removed minion {} from host {host}", query.mid),
+                        Ok(s) => log::warn!("SSH cleanup for {} exited with {s}", query.mid),
+                        Err(e) => log::warn!("SSH cleanup for {} failed: {e}", query.mid),
+                    }
+                }
+            }
             let (response, msgs) = {
                 let mut guard = master.lock().await;
                 match guard.unregister_console_response(&query.mid).await {
@@ -866,6 +896,18 @@ impl SysMaster {
             return match master.lock().await.models_data().await {
                 Ok((rows, failures)) => ConsoleResponse::ok(ConsolePayload::Models { rows, failures }),
                 Err(err) => ConsoleResponse::err(format!("Unable to list models: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_CONFIG_RELOAD}")) {
+            return match master.lock().await.reload_config() {
+                Ok(()) => ConsoleResponse::ok(ConsolePayload::Ack {
+                    action: "reloaded_master_config".to_string(),
+                    target: query.model,
+                    count: 0,
+                    items: vec![],
+                }),
+                Err(err) => ConsoleResponse::err(format!("Unable to reload master config: {err}")),
             };
         }
 

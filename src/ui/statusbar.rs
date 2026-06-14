@@ -233,4 +233,16 @@ impl SysInspectUX {
             Span::styled("close", Style::default().fg(palette::FAINT)),
         ]);
     }
+
+    pub(crate) fn status_at_registration_form(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text = Line::from(vec![key("Tab "), desc("switch focus,  "), key("Enter "), desc("register,  "), key("Esc "), desc("cancel")]);
+    }
+
+    pub(crate) fn status_at_registration_progress(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text = Line::from(vec![key("Esc "), desc("cancel registration")]);
+    }
 }

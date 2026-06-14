@@ -269,7 +269,9 @@ impl SysInspectUX {
     }
 
     fn _render_logs_filter(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
-        buf.set_string(area.x, area.y, "Filter: ", Style::default().fg(palette::FG));
+        let label_style =
+            if focused { Style::default().fg(palette::FORM_LABEL).add_modifier(Modifier::BOLD) } else { Style::default().fg(palette::FORM_LABEL) };
+        buf.set_string(area.x, area.y, "Filter: ", label_style);
 
         let input_x = area.x + 8u16;
         let input_w = area.width.saturating_sub(8);

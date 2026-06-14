@@ -9,6 +9,7 @@ mod mmconf_ut;
 use libcommon::SysinspectError;
 use mmconf::MinionConfig;
 use nix::unistd::Uid;
+use serde_yaml::Value;
 use std::{env, path::PathBuf};
 
 pub const APP_CONF: &str = "sysinspect.conf";
@@ -72,4 +73,34 @@ pub fn select_config_path(p: Option<&str>) -> Result<PathBuf, SysinspectError> {
 pub fn get_minion_config(p: Option<&str>) -> Result<MinionConfig, SysinspectError> {
     log::debug!("Getting minion config");
     MinionConfig::new(select_config_path(p)?)
+}
+
+/// Derive the drop-in directory path alongside a config file.
+pub(crate) fn dropins_dir(config_path: &std::path::Path) -> PathBuf {
+    let fname = config_path.file_stem().unwrap_or_default();
+    let mut dot_d = fname.to_os_string();
+    dot_d.push(".d");
+    config_path.with_file_name(dot_d)
+}
+
+/// Load and parse YAML drop-in files from a directory, sorted by filename.
+pub(crate) fn load_dropins(dir: &std::path::Path) -> Vec<Value> {
+    let mut values = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return values;
+    };
+    let mut files: Vec<PathBuf> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()).map(|e| e == "yml" || e == "yaml" || e == "conf").unwrap_or(false))
+        .collect();
+    files.sort();
+    for f in &files {
+        if let Ok(s) = std::fs::read_to_string(f)
+            && let Ok(v) = serde_yaml::from_str::<Value>(&s)
+        {
+            values.push(v);
+        }
+    }
+    values
 }

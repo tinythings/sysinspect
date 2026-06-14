@@ -50,6 +50,9 @@ pub mod commands {
     // List available models on the master
     pub const CLUSTER_MODELS: &str = "cluster/models";
 
+    // Reload master configuration from disk
+    pub const CLUSTER_CONFIG_RELOAD: &str = "cluster/config/reload";
+
     // SSH-start one offline hopstart-backed minion
     pub const CLUSTER_MINION_HOPSTART: &str = "cluster/minion/hopstart";
 

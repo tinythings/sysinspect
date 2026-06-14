@@ -389,7 +389,16 @@ impl FilePicker {
             }
             KeyCode::Char(' ') => {
                 if self.mode == PickerMode::DirectoryPicker {
-                    self.selected = Some(self.current_path.clone());
+                    let idx = match self.focus {
+                        PickerFocus::Dirs => self.dir_cursor,
+                        PickerFocus::Files => self.dirs_end + self.file_cursor,
+                    };
+                    self.selected = self
+                        .entries
+                        .get(idx)
+                        .filter(|entry| entry.is_dir && !entry.is_parent)
+                        .map(|entry| entry.path.clone())
+                        .or_else(|| Some(self.current_path.clone()));
                     self.visible = false;
                 } else {
                     let idx = match self.focus {
@@ -526,7 +535,7 @@ impl FilePicker {
             buf,
             " Directories ",
             palette::PROCESSING,
-            palette::PROCESSING,
+            palette::PRIMARY,
             palette::PROCESSING_DIMMED,
         );
         row_y += 1;
@@ -550,7 +559,7 @@ impl FilePicker {
                 buf,
                 " Files ",
                 palette::PROCESSING,
-                palette::PROCESSING,
+                palette::PRIMARY,
                 palette::PROCESSING_DIMMED,
             );
             row_y += 1;

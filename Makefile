@@ -166,25 +166,25 @@ endif
 
 musl-x86_64-modules-dist-dev:
 	$(call check_present,x86_64-linux-musl-gcc)
-	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh x86_64-unknown-linux-musl x86_64-linux-musl-gcc build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call stage_profile_modules,debug,x86_64-unknown-linux-musl)
 	$(call stage_modules_dist_from,debug,x86_64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,x86_64,debug))
 
 musl-x86_64-modules-dist:
 	$(call check_present,x86_64-linux-musl-gcc)
-	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh x86_64-unknown-linux-musl x86_64-linux-musl-gcc build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_modules_dist_from,release,x86_64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,x86_64,release))
 
 musl-aarch64-modules-dist-dev:
 	$(call check_present,aarch64-linux-musl-gcc)
-	cargo build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh aarch64-unknown-linux-musl aarch64-linux-musl-gcc build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call stage_profile_modules,debug,aarch64-unknown-linux-musl)
 	$(call stage_modules_dist_from,debug,aarch64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,aarch64,debug))
 
 musl-aarch64-modules-dist:
 	$(call check_present,aarch64-linux-musl-gcc)
-	cargo build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
+	@sh scripts/run-musl-cargo.sh aarch64-unknown-linux-musl aarch64-linux-musl-gcc build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target aarch64-unknown-linux-musl
 	$(call stage_profile_modules,release,aarch64-unknown-linux-musl)
 	$(call stage_modules_dist_from,release,aarch64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,aarch64,release))
 

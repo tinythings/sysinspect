@@ -1,4 +1,8 @@
-use crate::{cfg::APP_CONF, intp::functions::get_by_namespace, util};
+use crate::{
+    cfg::APP_CONF,
+    intp::functions::{deep_merge, get_by_namespace},
+    util,
+};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use nix::libc;
@@ -575,7 +579,11 @@ impl MinionConfig {
             return Err(SysinspectError::ConfigError(format!("File not found: {cp}")));
         }
 
-        if let Some(cfgv) = get_by_namespace(Some(from_str::<Value>(&fs::read_to_string(&p)?)?), "config.minion") {
+        let mut root_val = from_str::<Value>(&fs::read_to_string(&p)?)?;
+        for dv in crate::cfg::load_dropins(&crate::cfg::dropins_dir(&p)) {
+            deep_merge(&mut root_val, &dv);
+        }
+        if let Some(cfgv) = get_by_namespace(Some(root_val), "config.minion") {
             return Ok(from_value::<MinionConfig>(cfgv)?);
         }
 
@@ -1233,7 +1241,11 @@ impl MasterConfig {
             return Err(SysinspectError::ConfigError(format!("File not found: {cp}")));
         }
 
-        if let Some(cfgv) = get_by_namespace(Some(from_str::<Value>(&fs::read_to_string(&p)?)?), "config.master") {
+        let mut root_val = from_str::<Value>(&fs::read_to_string(&p)?)?;
+        for dv in crate::cfg::load_dropins(&crate::cfg::dropins_dir(&p)) {
+            deep_merge(&mut root_val, &dv);
+        }
+        if let Some(cfgv) = get_by_namespace(Some(root_val), "config.master") {
             return Ok(from_value::<MasterConfig>(cfgv)?);
         }
 
@@ -1412,6 +1424,12 @@ impl MasterConfig {
     /// Get fileserver root
     pub fn fileserver_root(&self) -> PathBuf {
         self.root_dir().join(CFG_FILESERVER_ROOT)
+    }
+
+    /// Path to the master configuration file for this layout.
+    pub fn config_path(&self) -> PathBuf {
+        let root = self.root_dir();
+        if root == *DEFAULT_SYSINSPECT_ROOT { root.join(APP_CONF) } else { root.join(DEFAULT_MINION_CFG_DIR).join(APP_CONF) }
     }
 
     /// Get models root on the fileserver

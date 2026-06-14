@@ -1,5 +1,8 @@
 use crate::{call_master_console, ui::elements::DbListItem};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    execute,
+};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -11,26 +14,28 @@ use libeventreg::{
 use libmodcore::modinit::ModInterface;
 use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
 use libsysinspect::{
-    cfg::mmconf::MasterConfig,
+    cfg::mmconf::{MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
+    mdescr::catalog::ModelCatalog,
     traits::os_display_name,
 };
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT,
-        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_SHUTDOWN,
-        CLUSTER_TRAITS_UPDATE,
+        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS,
+        CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE,
+        CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Paragraph, Row},
 };
 use ratatui_cheese::tree::TreeState;
+use ratatui_glamour::widgets::spinner;
 use std::{
     cell::{Cell, RefCell},
     io::{self},
@@ -46,6 +51,7 @@ mod dslbrowser;
 mod elements;
 mod filepicker;
 mod macts;
+mod minreg;
 mod online;
 mod palette;
 mod platforms;
@@ -60,9 +66,13 @@ mod traittag;
 mod typecolors;
 mod wgt;
 
+use alert::DialogFormFocus;
+
 pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
     let mut terminal = ratatui::init();
+    let _ = execute!(io::stdout(), crossterm::event::EnableMouseCapture);
     let result = tokio_run(cfg, config_found, &mut terminal).await;
+    let _ = execute!(io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
 
     result
@@ -100,6 +110,23 @@ pub struct UISizes {
 }
 
 #[derive(Debug)]
+pub struct DeleteProgressState {
+    pub visible: bool,
+    pub message: String,
+    pub spinner: spinner::Model,
+    pub last_tick: Instant,
+}
+
+impl Default for DeleteProgressState {
+    fn default() -> Self {
+        let mut spinner_model = spinner::Model::new();
+        spinner_model.spinner = spinner::Spinner::mini_dot();
+        spinner_model.style = Style::default().fg(palette::PROCESSING_PEAK);
+        Self { visible: false, message: String::new(), spinner: spinner_model, last_tick: Instant::now() }
+    }
+}
+
+#[derive(Debug)]
 pub struct SysInspectUX {
     exit: bool,
     pub selected_cycle: usize,
@@ -127,6 +154,8 @@ pub struct SysInspectUX {
     /// Information alert (success/info popups)
     pub info_alert_visible: bool,
     pub info_alert_message: String,
+    pub info_alert_title: String,
+    pub info_alert_styled: Option<Text<'static>>,
 
     /// Exit alert
     pub exit_alert_visible: bool,
@@ -186,6 +215,9 @@ pub struct SysInspectUX {
     pub cluster_confirm_visible: bool,
     pub cluster_confirm_choice: AlertResult,
     pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all, 3=delete minion
+    pub delete_force_remove: bool,  // checkbox: also remove from host over SSH
+    cluster_confirm_form_focus: DialogFormFocus,
+    pub(crate) popup_button_rects: Cell<Option<alert::PopupButtonRects>>,
 
     // Tag popup
     pub tag_visible: bool,
@@ -209,12 +241,21 @@ pub struct SysInspectUX {
     // File picker
     pub file_picker: filepicker::FilePicker,
 
-    // Repository manager
+    // Artefacts manager
     pub repo_manager: repomanager::RepoManager,
 
     // Connection state
     pub offline: bool,
     pub last_reconnect_attempt: Instant,
+
+    // Minion registration
+    pub registration_form: minreg::RegistrationForm,
+    pub registration_progress: Arc<std::sync::Mutex<minreg::RegistrationProgress>>,
+    pub registration_task: Option<tokio::task::JoinHandle<()>>,
+    pub delete_progress: DeleteProgressState,
+    pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
+    pub delete_success_message: String,
+    pub delete_success_styled: Option<Text<'static>>,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -255,6 +296,8 @@ impl Default for SysInspectUX {
             error_alert_message: String::new(),
             info_alert_visible: false,
             info_alert_message: String::new(),
+            info_alert_title: String::new(),
+            info_alert_styled: None,
             help_popup_visible: false,
 
             minions_visible: false,
@@ -303,6 +346,9 @@ impl Default for SysInspectUX {
             cluster_confirm_visible: false,
             cluster_confirm_choice: AlertResult::default(),
             pending_cluster_action: 0,
+            delete_force_remove: false,
+            cluster_confirm_form_focus: DialogFormFocus::LeftButton,
+            popup_button_rects: Cell::new(None),
 
             tag_visible: false,
             tag_key_buf: String::new(),
@@ -318,6 +364,14 @@ impl Default for SysInspectUX {
             repo_manager: repomanager::RepoManager::default(),
             offline: false,
             last_reconnect_attempt: Instant::now(),
+
+            registration_form: minreg::RegistrationForm::default(),
+            registration_progress: Arc::new(std::sync::Mutex::new(minreg::RegistrationProgress::placeholder())),
+            registration_task: None,
+            delete_progress: DeleteProgressState::default(),
+            delete_task: None,
+            delete_success_message: String::new(),
+            delete_success_styled: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -403,6 +457,8 @@ impl SysInspectUX {
 
                             // Not yet up — stay in setup loop, will auto-reconnect
                             self.info_alert_visible = true;
+                            self.info_alert_title = "Setup Complete".to_string();
+                            self.info_alert_styled = None;
                             self.info_alert_message = format!(
                                 "Config written to:\n{}\n\nMaster is starting in the background.\nThe UI will reconnect automatically.",
                                 config_path.display(),
@@ -611,12 +667,25 @@ impl SysInspectUX {
 
     fn on_events(&mut self) -> io::Result<()> {
         self.sync_main_focus_for_overlays();
-        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some() { Duration::from_millis(50) } else { Duration::from_secs(1) };
+        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some()
+            || self.registration_progress.lock().unwrap().visible
+            || self.delete_progress.visible
+        {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_secs(1)
+        };
         if event::poll(poll_dur)? {
-            if let Event::Key(e) = event::read()?
-                && e.kind == KeyEventKind::Press
-            {
-                self.on_key(e);
+            match event::read()? {
+                Event::Key(e) if e.kind == KeyEventKind::Press => {
+                    self.on_key(e);
+                }
+                Event::Mouse(me) => match me.kind {
+                    MouseEventKind::Down(MouseButton::Left) => self.on_mouse_click(me),
+                    MouseEventKind::Moved => self.on_mouse_move(me),
+                    _ => {}
+                },
+                _ => {}
             }
         } else {
             if !self.offline {
@@ -643,6 +712,41 @@ impl SysInspectUX {
                 }
             }
         }
+        if self.delete_progress.visible && self.delete_progress.last_tick.elapsed() >= self.delete_progress.spinner.spinner.fps {
+            let tick = self.delete_progress.spinner.tick();
+            self.delete_progress.spinner.update(tick);
+            self.delete_progress.last_tick = Instant::now();
+        }
+        if self.delete_progress.visible
+            && self.delete_task.as_ref().is_some_and(|task| task.is_finished())
+            && let Some(task) = self.delete_task.take()
+        {
+            let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+            self.delete_progress.visible = false;
+            self.delete_progress.message.clear();
+            self.restore_status();
+            match result {
+                Ok(Ok(mid)) => {
+                    self.info_alert_visible = true;
+                    self.info_alert_title = "Minion Removal".to_string();
+                    self.info_alert_styled = self.delete_success_styled.take();
+                    self.info_alert_message = if self.delete_success_message.is_empty() {
+                        Self::format_machine_message("Minion deleted", None, None, Some(&mid))
+                    } else {
+                        std::mem::take(&mut self.delete_success_message)
+                    };
+                    self.refresh_minions();
+                }
+                Ok(Err(err)) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to join delete task: {err}");
+                }
+            }
+        }
         // Process file picker result for repo manager
         if self.repo_manager.visible
             && let Some(path) = self.file_picker.selected.take()
@@ -650,7 +754,8 @@ impl SysInspectUX {
             match self.repo_manager.active_tab {
                 0 => self.process_module_add(&path),
                 1 => self.process_library_add(&path),
-                3 => self.process_platform_add(&path),
+                2 => self.process_model_add(&path),
+                4 => self.process_platform_add(&path),
                 _ => {}
             }
         }
@@ -662,13 +767,38 @@ impl SysInspectUX {
                 if self.repo_manager.needs_reload {
                     self.repo_manager.needs_reload = false;
                     let _ = self.load_module_index();
-                    if self.repo_manager.active_tab == 3 {
+                    if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
                 }
             } else {
                 // Track that a reload is needed when progress finishes
                 self.repo_manager.needs_reload = true;
+            }
+        }
+        // Registration completion check (only auto-dismiss on success)
+        if self.registration_progress.lock().unwrap().visible && self.registration_progress.lock().unwrap().done {
+            let p = self.registration_progress.lock().unwrap();
+            let has_error = p.error.is_some();
+            if !has_error {
+                let host = p.host_label.trim();
+                let host_value = if !host.is_empty() {
+                    Some(host)
+                } else if !p.host.trim().is_empty() {
+                    Some(p.host.trim())
+                } else {
+                    None
+                };
+                let platform = (!p.platform.trim().is_empty()).then_some(p.platform.trim());
+                let msg = Self::format_machine_message("Minion registered", host_value, platform, p.minion_id.as_deref());
+                let styled = Self::format_machine_message_styled("Minion registered", host_value, platform, p.minion_id.as_deref());
+                drop(p);
+                *self.registration_progress.lock().unwrap() = minreg::RegistrationProgress::placeholder();
+                self.restore_status();
+                self.info_alert_visible = true;
+                self.info_alert_title = "Minion Registration".to_string();
+                self.info_alert_styled = Some(styled);
+                self.info_alert_message = msg;
             }
         }
         Ok(())
@@ -1009,10 +1139,25 @@ impl SysInspectUX {
                 self.status_at_minions_browser();
             }
             KeyCode::Up => {
-                self.minions_menu_sel = self.minions_menu_sel.saturating_sub(1);
+                let len = Self::minions_menu_len();
+                if len > 0 {
+                    self.minions_menu_sel = if self.minions_menu_sel == 0 { len - 1 } else { self.minions_menu_sel - 1 };
+                }
             }
             KeyCode::Down => {
-                self.minions_menu_sel = (self.minions_menu_sel + 1).min(Self::minions_menu_len().saturating_sub(1));
+                let len = Self::minions_menu_len();
+                if len > 0 {
+                    self.minions_menu_sel = if self.minions_menu_sel >= len - 1 { 0 } else { self.minions_menu_sel + 1 };
+                }
+            }
+            KeyCode::PageUp => {
+                self.minions_menu_sel = self.minions_menu_sel.saturating_sub(3);
+            }
+            KeyCode::PageDown => {
+                let len = Self::minions_menu_len();
+                if len > 0 {
+                    self.minions_menu_sel = (self.minions_menu_sel + 3).min(len - 1);
+                }
             }
             KeyCode::Enter => {
                 self.minions_menu_visible = false;
@@ -1027,19 +1172,13 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 4 {
                     self.do_minion_reconnect();
                 } else if self.minions_menu_sel == 5 {
-                    self.cluster_confirm_visible = true;
-                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 3;
+                    self.open_cluster_confirm(3);
                 } else if self.minions_menu_sel == 6 {
-                    self.cluster_confirm_visible = true;
-                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 1;
+                    self.open_cluster_confirm(1);
                 } else if self.minions_menu_sel == 7 {
-                    self.cluster_confirm_visible = true;
-                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 2;
+                    self.open_cluster_confirm(2);
                 } else if self.minions_menu_sel == 8 {
-                    // TODO: do_minion_add()
+                    self.registration_form.visible = true;
                 }
             }
             _ => {
@@ -1253,6 +1392,9 @@ impl SysInspectUX {
             || self.repo_manager.profiles.create_visible
             || self.repo_manager.profiles.delete_visible
             || self.repo_manager.platforms.delete_visible
+            || self.registration_form.visible
+            || self.registration_progress.lock().unwrap().visible
+            || self.delete_progress.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1434,25 +1576,19 @@ impl SysInspectUX {
                 true
             }
             KeyCode::Char('x') if e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cluster_confirm_visible = true;
-                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                self.pending_cluster_action = 1;
+                self.open_cluster_confirm(1);
                 true
             }
             KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cluster_confirm_visible = true;
-                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                self.pending_cluster_action = 2;
+                self.open_cluster_confirm(2);
                 true
             }
             KeyCode::Insert => {
-                // TODO: do_minion_add()
+                self.registration_form.visible = true;
                 true
             }
             KeyCode::Delete => {
-                self.cluster_confirm_visible = true;
-                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                self.pending_cluster_action = 3;
+                self.open_cluster_confirm(3);
                 true
             }
             _ => false,
@@ -1463,6 +1599,40 @@ impl SysInspectUX {
         if !self.cluster_confirm_visible {
             return false;
         }
+        if self.pending_cluster_action == 3 {
+            match e.code {
+                KeyCode::Tab => {
+                    self.cluster_confirm_form_focus = self.cluster_confirm_form_focus.next(1, true);
+                }
+                KeyCode::BackTab => {
+                    self.cluster_confirm_form_focus = self.cluster_confirm_form_focus.prev(1, true);
+                }
+                KeyCode::Char(' ') => {
+                    if matches!(self.cluster_confirm_form_focus, DialogFormFocus::Widget(0)) {
+                        self.delete_force_remove = !self.delete_force_remove;
+                    }
+                }
+                KeyCode::Enter => match self.cluster_confirm_form_focus {
+                    DialogFormFocus::Widget(0) => {
+                        self.delete_force_remove = !self.delete_force_remove;
+                    }
+                    DialogFormFocus::LeftButton => {
+                        let force = self.delete_force_remove;
+                        self.close_cluster_confirm();
+                        self.do_minion_delete(force);
+                    }
+                    DialogFormFocus::RightButton => {
+                        self.close_cluster_confirm();
+                    }
+                    DialogFormFocus::Widget(_) => {}
+                },
+                KeyCode::Esc => {
+                    self.close_cluster_confirm();
+                }
+                _ => {}
+            }
+            return true;
+        }
         match e.code {
             KeyCode::Tab => {
                 if self.cluster_confirm_choice == AlertResult::Default {
@@ -1471,27 +1641,47 @@ impl SysInspectUX {
                     self.cluster_confirm_choice = AlertResult::Default;
                 }
             }
+            KeyCode::Char(' ') => {
+                if self.pending_cluster_action == 3 {
+                    self.delete_force_remove = !self.delete_force_remove;
+                }
+            }
             KeyCode::Enter => {
                 self.cluster_confirm_visible = false;
                 if self.cluster_confirm_choice == AlertResult::ClusterConfirm {
                     match self.pending_cluster_action {
                         1 => self.do_cluster_shutdown(),
                         2 => self.do_cluster_reconnect(),
-                        3 => self.do_minion_delete(),
+                        3 => self.do_minion_delete(self.delete_force_remove),
                         _ => {}
                     }
                 }
                 self.pending_cluster_action = 0;
+                self.delete_force_remove = false;
+                self.cluster_confirm_form_focus = DialogFormFocus::LeftButton;
                 self.status_at_minions_browser();
             }
             KeyCode::Esc => {
-                self.cluster_confirm_visible = false;
-                self.pending_cluster_action = 0;
-                self.status_at_minions_browser();
+                self.close_cluster_confirm();
             }
             _ => {}
         }
         true
+    }
+
+    fn open_cluster_confirm(&mut self, action: u8) {
+        self.cluster_confirm_visible = true;
+        self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+        self.pending_cluster_action = action;
+        self.cluster_confirm_form_focus = if action == 3 { DialogFormFocus::RightButton } else { DialogFormFocus::LeftButton };
+    }
+
+    fn close_cluster_confirm(&mut self) {
+        self.cluster_confirm_visible = false;
+        self.pending_cluster_action = 0;
+        self.delete_force_remove = false;
+        self.cluster_confirm_form_focus = DialogFormFocus::LeftButton;
+        self.status_at_minions_browser();
     }
 
     fn do_cluster_shutdown(&mut self) {
@@ -1522,7 +1712,7 @@ impl SysInspectUX {
         }
     }
 
-    fn do_minion_delete(&mut self) {
+    fn do_minion_delete(&mut self, force: bool) {
         let row = match self.selected_popup_minion() {
             Some(row) => row,
             None => {
@@ -1532,10 +1722,44 @@ impl SysInspectUX {
                 return;
             }
         };
-        let _host = Self::online_host(&row);
-        let _mid = row.minion_id.clone();
-        // TODO: call_master_console with CLUSTER_REMOVE_MINION
-        self.status_at_minions_browser();
+        let mid = row.minion_id.clone();
+        let host_label = Self::online_host(&row);
+        let host = if !host_label.trim().is_empty() && host_label != "unknown" {
+            Some(host_label)
+        } else if !row.ip.trim().is_empty() {
+            Some(row.ip.clone())
+        } else {
+            None
+        };
+        let platform: Option<String> = if !row.os_name.trim().is_empty() {
+            if row.os_version.trim().is_empty() {
+                Some(os_display_name(&row.os_name).to_string())
+            } else {
+                Some(format!("{} {}", os_display_name(&row.os_name), row.os_version.trim()))
+            }
+        } else if !row.os_distribution.trim().is_empty() {
+            Some(row.os_distribution.clone())
+        } else {
+            None
+        };
+        self.delete_success_message = Self::format_machine_message("Minion deleted", host.as_deref(), platform.as_deref(), Some(&mid));
+        self.delete_success_styled = Some(Self::format_machine_message_styled("Minion deleted", host.as_deref(), platform.as_deref(), Some(&mid)));
+        let force_ctx = if force { Some(serde_json::json!({"force": true}).to_string()) } else { None };
+        self.delete_progress.visible = true;
+        self.delete_progress.message =
+            if force { "Removing client from host, please wait...".to_string() } else { "Removing client, please wait...".to_string() };
+        self.delete_progress.last_tick = Instant::now();
+        self.delete_task = Some(tokio::spawn({
+            let cfg = self.cfg.clone();
+            async move {
+                match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "*", None, Some(&mid), force_ctx.as_ref()).await
+                {
+                    Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => Ok(mid),
+                    Ok(_) => Err("Master did not acknowledge minion removal.".to_string()),
+                    Err(err) => Err(format!("Failed to delete minion: {err}")),
+                }
+            }
+        }));
     }
 
     fn open_logs_popup(&mut self) {
@@ -1838,6 +2062,29 @@ impl SysInspectUX {
         if self.repo_manager.info_visible {
             return self.repo_manager.handle_info_key(e);
         }
+        if self.repo_manager.model_delete_visible {
+            let handled = self.repo_manager.handle_model_delete_key(e);
+            if !handled && e.code == KeyCode::Enter {
+                if self.repo_manager.model_delete_focus == repomanager::ModelDeleteFocus::YesBtn {
+                    let model_id = self.repo_manager.model_delete_id.clone();
+                    match self.delete_model(&model_id) {
+                        Ok(()) => {
+                            let _ = self.load_model_list();
+                            self.info_alert_visible = true;
+                            self.info_alert_title = "Model Removal".to_string();
+                            self.info_alert_styled = None;
+                            self.info_alert_message = format!("Model removed: {model_id}");
+                        }
+                        Err(err) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = err;
+                        }
+                    }
+                }
+                self.repo_manager.model_delete_visible = false;
+            }
+            return true;
+        }
         if self.repo_manager.filter_focus {
             match e.code {
                 KeyCode::Esc => {
@@ -1873,8 +2120,8 @@ impl SysInspectUX {
             }
             return true;
         }
-        // Profile-specific overlays (tab 2)
-        if self.repo_manager.active_tab == 2 {
+        // Profile-specific overlays (tab 3)
+        if self.repo_manager.active_tab == 3 {
             if self.repo_manager.profiles.delete_visible {
                 let handled = self.repo_manager.profiles.handle_delete_key(e.code);
                 if !handled && e.code == KeyCode::Enter {
@@ -1931,8 +2178,8 @@ impl SysInspectUX {
                 return true;
             }
         }
-        // Platform delete overlay (tab 3)
-        if self.repo_manager.active_tab == 3 && self.repo_manager.platforms.delete_visible {
+        // Platform delete overlay (tab 4)
+        if self.repo_manager.active_tab == 4 && self.repo_manager.platforms.delete_visible {
             let handled = self.repo_manager.platforms.handle_delete_key(e.code);
             if !handled && e.code == KeyCode::Enter {
                 if self.repo_manager.platforms.delete_focus == platforms::DeleteFocus::YesBtn {
@@ -1943,10 +2190,12 @@ impl SysInspectUX {
             }
             return true;
         }
-        let total_count = if self.repo_manager.active_tab == 3 {
+        let total_count = if self.repo_manager.active_tab == 4 {
             self.repo_manager.platforms.filtered_count(self.repo_manager.filter.value())
-        } else if self.repo_manager.active_tab == 2 {
+        } else if self.repo_manager.active_tab == 3 {
             self.repo_manager.profiles.filtered_count(self.repo_manager.filter.value())
+        } else if self.repo_manager.active_tab == 2 {
+            self.repo_filtered_model_count()
         } else if self.repo_manager.active_tab == 1 {
             self.repo_filtered_lib_count()
         } else if self.repo_manager.active_tab == 0 {
@@ -1960,10 +2209,12 @@ impl SysInspectUX {
             self.repo_filtered_count()
         };
         let max_cursor = total_count.saturating_sub(1);
-        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 3 {
+        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 4 {
             &mut self.repo_manager.platforms.cursor
-        } else if self.repo_manager.active_tab == 2 {
+        } else if self.repo_manager.active_tab == 3 {
             &mut self.repo_manager.profiles.cursor
+        } else if self.repo_manager.active_tab == 2 {
+            &mut self.repo_manager.model_cursor
         } else if self.repo_manager.active_tab == 1 {
             &mut self.repo_manager.lib_cursor
         } else {
@@ -1972,6 +2223,14 @@ impl SysInspectUX {
         let page = 10usize;
         match e.code {
             KeyCode::Esc => {
+                if self.repo_manager.models_dirty {
+                    if let Err(err) = self.reload_master_config() {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err;
+                        return true;
+                    }
+                    self.repo_manager.models_dirty = false;
+                }
                 self.repo_manager.exit_staging();
                 self.repo_manager.visible = false;
                 self.status_at_cycles();
@@ -1981,42 +2240,50 @@ impl SysInspectUX {
                 self.repo_manager.group_cursor = 0;
                 self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
+                self.repo_manager.model_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
                 }
-                if self.repo_manager.active_tab == 2 {
-                    let _ = self.load_profile_list();
+                if self.repo_manager.active_tab == 2 && !self.repo_manager.models_dirty {
+                    let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 4 {
                     let _ = self.load_platforms();
                 }
             }
             KeyCode::Right => {
-                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(3);
+                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(4);
                 self.repo_manager.group_cursor = 0;
                 self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
+                self.repo_manager.model_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
                 }
-                if self.repo_manager.active_tab == 2 {
-                    let _ = self.load_profile_list();
+                if self.repo_manager.active_tab == 2 && !self.repo_manager.models_dirty {
+                    let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 4 {
                     let _ = self.load_platforms();
                 }
             }
             KeyCode::Up => {
                 if self.repo_manager.active_tab == 0 {
                     self.move_module_up();
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = cursor_ref.saturating_sub(1);
@@ -2025,13 +2292,25 @@ impl SysInspectUX {
             KeyCode::Down => {
                 if self.repo_manager.active_tab == 0 {
                     self.move_module_down();
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = (*cursor_ref + 1).min(max_cursor);
+                }
+            }
+            KeyCode::Char(' ') if self.repo_manager.active_tab == 2 && !self.repo_manager.model_rows.is_empty() => {
+                if let Some(model) = self.repo_manager.model_rows.get(self.repo_manager.model_cursor) {
+                    let model_id = model.id.clone();
+                    let enabled = !model.enabled;
+                    if let Err(err) = self.set_model_enabled(&model_id, enabled) {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err;
+                    } else {
+                        let _ = self.load_model_list();
+                    }
                 }
             }
             KeyCode::PageUp => {
@@ -2041,10 +2320,10 @@ impl SysInspectUX {
                         self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
                         self.repo_manager.group_cursor_row = 0;
                     }
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = cursor_ref.saturating_sub(page);
@@ -2057,19 +2336,19 @@ impl SysInspectUX {
                         self.repo_manager.group_cursor = (self.repo_manager.group_cursor + 1) % n;
                         self.repo_manager.group_cursor_row = 0;
                     }
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = (*cursor_ref + page).min(max_cursor);
                 }
             }
             KeyCode::Enter => {
-                if self.repo_manager.active_tab == 3 {
+                if self.repo_manager.active_tab == 4 {
                     // Platforms have no detail view
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let name = match self.repo_manager.profiles.selected_profile_name() {
                         Some(n) => n.to_string(),
                         None => return true,
@@ -2084,6 +2363,13 @@ impl SysInspectUX {
                             self.error_alert_message = e;
                         }
                     }
+                } else if self.repo_manager.active_tab == 2 && !self.repo_manager.model_rows.is_empty() {
+                    self.repo_manager.info_visible = true;
+                    self.repo_manager.info_row = self.repo_manager.model_cursor;
+                    self.repo_manager.info_tab = 0;
+                    self.repo_manager.info_scroll.set(0);
+                    self.repo_manager.info_active_tab = 2;
+                    self.status_at_repo_manager();
                 } else if self.repo_manager.active_tab == 0 {
                     if self.repo_manager.group_cursor_row == 0 {
                         // Toggle expand/collapse on header
@@ -2109,14 +2395,18 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Delete => {
-                if self.repo_manager.active_tab == 3 {
+                if self.repo_manager.active_tab == 4 {
                     if let Some(name) = self.repo_manager.platforms.selected_name() {
                         self.repo_manager.platforms.open_delete(name);
                     }
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     if let Some(name) = self.repo_manager.profiles.selected_profile_name() {
                         self.repo_manager.profiles.open_delete(name.to_string());
                         self.status_at_profiles();
+                    }
+                } else if self.repo_manager.active_tab == 2 {
+                    if let Some(model) = self.repo_manager.model_rows.get(self.repo_manager.model_cursor) {
+                        self.repo_manager.open_model_delete(model.id.clone());
                     }
                 } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
                     self.repo_manager.delete_mode = true;
@@ -2166,18 +2456,21 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.repo_manager.active_tab == 3 {
+                if self.repo_manager.active_tab == 4 {
                     self.file_picker.open(&std::env::current_dir().unwrap_or_default(), filepicker::PickerMode::MinionBuild);
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
+                } else if self.repo_manager.active_tab == 2 {
+                    let start_dir = std::env::current_dir().unwrap_or_default();
+                    self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
                 } else {
                     let mode = if self.repo_manager.active_tab == 1 { filepicker::PickerMode::LibrarySelector } else { filepicker::PickerMode::Any };
                     self.file_picker.open(&std::env::current_dir().unwrap_or_default(), mode);
                 }
             }
             KeyCode::Char('l') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 3 {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
                 } else {
@@ -2250,6 +2543,11 @@ impl SysInspectUX {
     fn repo_filtered_lib_count(&self) -> usize {
         let f = self.repo_manager.filter.value().to_lowercase();
         self.repo_manager.lib_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.kind.to_lowercase().contains(&f)).count()
+    }
+
+    fn repo_filtered_model_count(&self) -> usize {
+        let f = self.repo_manager.filter.value().to_lowercase();
+        self.repo_manager.model_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.id.to_lowercase().contains(&f)).count()
     }
 
     fn call_profile_rpc(&self, context: &str) -> Result<ConsolePayload, String> {
@@ -2421,6 +2719,231 @@ impl SysInspectUX {
             }
             _ => Err("Unexpected console payload for library index".to_string()),
         }
+    }
+
+    fn load_model_list(&mut self) -> Result<(), String> {
+        match self.get_models() {
+            Ok((rows, _failures)) => {
+                self.repo_manager.model_rows = rows;
+                self.repo_manager.model_cursor = 0;
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to load models: {e}")),
+        }
+    }
+
+    fn model_dropin_path(&self) -> PathBuf {
+        let cfg_path = self.cfg.config_path();
+        let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        cfg_path.with_file_name(format!("{stem}.d")).join("99-models.conf")
+    }
+
+    fn enabled_model_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.repo_manager.model_rows.iter().filter(|row| row.enabled).map(|row| row.id.clone()).collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    fn write_enabled_models_dropin(&self, mut ids: Vec<String>) -> Result<(), String> {
+        ids.sort();
+        ids.dedup();
+        let dropin = self.model_dropin_path();
+        if let Some(parent) = dropin.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Unable to create drop-in directory: {e}"))?;
+        }
+        let mut body = String::from("config:\n  master:\n    fileserver.models:");
+        if ids.is_empty() {
+            body.push_str(" []\n");
+        } else {
+            body.push('\n');
+            for id in ids {
+                body.push_str(&format!("      - {id}\n"));
+            }
+        }
+        std::fs::write(&dropin, body).map_err(|e| format!("Unable to write models drop-in: {e}"))
+    }
+
+    fn refresh_local_model_rows(&mut self, enabled_ids: &[String]) -> Result<(), String> {
+        let mut minion_cfg = MinionConfig::default();
+        let root = self.cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
+        minion_cfg.set_root_dir(&root);
+        let enabled: std::collections::BTreeSet<String> = enabled_ids.iter().cloned().collect();
+        let catalog = ModelCatalog::scan_root(Arc::new(minion_cfg), &self.cfg.fileserver_models_root(false));
+        let rows: Vec<ConsoleModelRow> = catalog
+            .successes()
+            .into_iter()
+            .map(|m| {
+                let mut entrypoints: Vec<String> = Vec::new();
+                let mut entrypoint_kinds: Vec<String> = Vec::new();
+                #[allow(clippy::type_complexity)]
+                let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
+
+                for ep in &m.entrypoints {
+                    match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
+                            entrypoints.push(label.clone());
+                            entrypoint_kinds.push("checkbook".to_string());
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.iter().any(|eid| entity_ids.contains(eid)))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    let ctx_vars: Vec<(String, String, bool)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
+                                })
+                                .collect();
+                            target_actions.push((label.clone(), actions));
+                        }
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
+                            entrypoints.push(id.clone());
+                            entrypoint_kinds.push("entity".to_string());
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.contains(id))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    let ctx_vars: Vec<(String, String, bool)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
+                                })
+                                .collect();
+                            target_actions.push((id.clone(), actions));
+                        }
+                    }
+                }
+
+                ConsoleModelRow {
+                    id: m.metadata.id.clone(),
+                    enabled: enabled.contains(&m.metadata.id),
+                    name: m.metadata.name.clone(),
+                    version: m.metadata.version.clone(),
+                    description: m.metadata.description.clone(),
+                    entrypoints,
+                    entrypoint_kinds,
+                    states: m.states.clone(),
+                    target_actions,
+                }
+            })
+            .collect();
+        let cursor = self.repo_manager.model_cursor.min(rows.len().saturating_sub(1));
+        self.repo_manager.model_rows = rows;
+        self.repo_manager.model_cursor = cursor;
+        Ok(())
+    }
+
+    fn reload_master_config(&self) -> Result<(), String> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_CONFIG_RELOAD}"), "*", None, None, None).await })
+        })
+        .map_err(|e| format!("Failed to reload master config: {e}"))?;
+        if resp.ok { Ok(()) } else { Err(if resp.error.is_empty() { "Master config reload failed".to_string() } else { resp.error }) }
+    }
+
+    fn set_model_enabled(&mut self, model_id: &str, enabled: bool) -> Result<(), String> {
+        let mut ids = self.enabled_model_ids();
+        if enabled {
+            if !ids.iter().any(|id| id == model_id) {
+                ids.push(model_id.to_string());
+            }
+        } else {
+            ids.retain(|id| id != model_id);
+        }
+        self.write_enabled_models_dropin(ids)?;
+        self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
+        self.repo_manager.models_dirty = true;
+        Ok(())
+    }
+
+    fn enabled_model_ids_with(&self, model_id: &str, enabled: bool) -> Vec<String> {
+        let mut ids = self.enabled_model_ids();
+        if enabled {
+            if !ids.iter().any(|id| id == model_id) {
+                ids.push(model_id.to_string());
+            }
+        } else {
+            ids.retain(|id| id != model_id);
+        }
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    fn process_model_add(&mut self, path: &std::path::Path) {
+        if !path.is_dir() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Select a model directory".to_string();
+            return;
+        }
+        if !path.join("model.cfg").exists() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Selected directory does not contain model.cfg".to_string();
+            return;
+        }
+        let model_id = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        if model_id.is_empty() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Unable to determine model id from directory name".to_string();
+            return;
+        }
+        let dst_root = self.cfg.fileserver_models_root(false);
+        let dst = dst_root.join(&model_id);
+        if dst.exists() {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Model already exists: {model_id}");
+            return;
+        }
+        let enabled_ids = self.enabled_model_ids_with(&model_id, true);
+        match Self::copy_dir_recursive(path, &dst)
+            .and_then(|_| self.write_enabled_models_dropin(enabled_ids.clone()))
+            .and_then(|_| self.refresh_local_model_rows(&enabled_ids))
+        {
+            Ok(()) => {
+                self.repo_manager.models_dirty = true;
+                self.info_alert_visible = true;
+                self.info_alert_title = "Model Import".to_string();
+                self.info_alert_styled = None;
+                self.info_alert_message = format!("Model added: {model_id}");
+            }
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&dst);
+                self.error_alert_visible = true;
+                self.error_alert_message = err;
+            }
+        }
+    }
+
+    fn delete_model(&mut self, model_id: &str) -> Result<(), String> {
+        let path = self.cfg.fileserver_models_root(false).join(model_id);
+        if !path.exists() {
+            return Err(format!("Model does not exist: {model_id}"));
+        }
+        std::fs::remove_dir_all(&path).map_err(|e| format!("Unable to remove model {model_id}: {e}"))?;
+        let enabled_ids = self.enabled_model_ids_with(model_id, false);
+        self.write_enabled_models_dropin(enabled_ids.clone())?;
+        self.refresh_local_model_rows(&enabled_ids)?;
+        self.repo_manager.models_dirty = true;
+        Ok(())
+    }
+
+    fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+        std::fs::create_dir_all(dst).map_err(|e| format!("Unable to create destination {}: {e}", dst.display()))?;
+        let entries = std::fs::read_dir(src).map_err(|e| format!("Unable to read {}: {e}", src.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Unable to read directory entry in {}: {e}", src.display()))?;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if src_path.is_dir() {
+                Self::copy_dir_recursive(&src_path, &dst_path)?;
+            } else {
+                std::fs::copy(&src_path, &dst_path).map_err(|e| format!("Unable to copy {} to {}: {e}", src_path.display(), dst_path.display()))?;
+            }
+        }
+        Ok(())
     }
 
     fn process_module_add(&mut self, path: &std::path::Path) {
@@ -2862,10 +3385,9 @@ impl SysInspectUX {
             }
             KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = false;
-                self.error_alert_visible = true;
-                self.error_alert_message = "Not implemented yet".to_string();
+                self.registration_form.visible = true;
             }
-            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = false;
                 if let Err(err) = self.load_module_index() {
                     self.error_alert_visible = true;
@@ -2893,11 +3415,17 @@ impl SysInspectUX {
                 self.master_confirm_choice = AlertResult::Default;
                 self.master_confirm_action = 2;
             }
-            KeyCode::Up => {
-                self.master_menu_sel = self.master_menu_sel.saturating_sub(1);
+            KeyCode::Up | KeyCode::PageUp => {
+                let total = macts::total_master_menu_items();
+                if total > 0 {
+                    self.master_menu_sel = if self.master_menu_sel == 0 { total - 1 } else { self.master_menu_sel - 1 };
+                }
             }
-            KeyCode::Down => {
-                self.master_menu_sel = (self.master_menu_sel + 1).min(macts::total_master_menu_items().saturating_sub(1));
+            KeyCode::Down | KeyCode::PageDown => {
+                let total = macts::total_master_menu_items();
+                if total > 0 {
+                    self.master_menu_sel = (self.master_menu_sel + 1) % total;
+                }
             }
             KeyCode::Enter => {
                 self.master_menu_visible = false;
@@ -2923,8 +3451,7 @@ impl SysInspectUX {
                         }
                     },
                     2 => {
-                        self.error_alert_visible = true;
-                        self.error_alert_message = "Not implemented yet".to_string();
+                        self.registration_form.visible = true;
                     }
                     3 => {
                         if let Err(err) = self.load_module_index() {
@@ -3207,6 +3734,146 @@ impl SysInspectUX {
         }
     }
 
+    fn on_mouse_move(&mut self, me: MouseEvent) {
+        let rects = match self.popup_button_rects.get() {
+            Some(r) => r,
+            None => return,
+        };
+        let (cx, cy) = (me.column, me.row);
+        let hit = |r: Rect| cx >= r.x && cx < r.x.saturating_add(r.width) && cy == r.y;
+        let on_left = rects.left_button.is_some_and(hit);
+        let on_right = hit(rects.right_button);
+
+        if self.error_alert_visible || self.info_alert_visible || self.help_popup_visible {
+            return;
+        }
+        if self.exit_alert_visible {
+            if on_left {
+                self.exit_alert_choice = AlertResult::Quit;
+            } else if on_right {
+                self.exit_alert_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.purge_alert_visible {
+            if on_left {
+                self.purge_alert_choice = AlertResult::Purge;
+            } else if on_right {
+                self.purge_alert_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.cluster_confirm_visible {
+            if self.pending_cluster_action == 3 {
+                if on_left {
+                    self.cluster_confirm_form_focus = DialogFormFocus::LeftButton;
+                } else if on_right {
+                    self.cluster_confirm_form_focus = DialogFormFocus::RightButton;
+                }
+            } else if on_left {
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+            } else if on_right {
+                self.cluster_confirm_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.master_confirm_visible {
+            if on_left {
+                self.master_confirm_choice = AlertResult::Quit;
+            } else if on_right {
+                self.master_confirm_choice = AlertResult::Default;
+            }
+        }
+    }
+
+    fn on_mouse_click(&mut self, me: MouseEvent) {
+        let rects = match self.popup_button_rects.get() {
+            Some(r) => r,
+            None => return,
+        };
+        let (cx, cy) = (me.column, me.row);
+        let hit = |r: Rect| cx >= r.x && cx < r.x.saturating_add(r.width) && cy == r.y;
+        let on_left = rects.left_button.is_some_and(hit);
+        let on_right = hit(rects.right_button);
+
+        if self.error_alert_visible {
+            self.error_alert_visible = false;
+            return;
+        }
+        if self.info_alert_visible {
+            self.info_alert_visible = false;
+            return;
+        }
+        if self.help_popup_visible {
+            self.help_popup_visible = false;
+            return;
+        }
+        if self.exit_alert_visible {
+            if on_left {
+                self.exit_alert_choice = AlertResult::Quit;
+            } else if on_right {
+                self.exit_alert_choice = AlertResult::Default;
+            } else {
+                return;
+            }
+            self.exit_alert_visible = false;
+            if self.exit_alert_choice == AlertResult::Quit {
+                self.exit = true;
+            }
+            return;
+        }
+        if self.purge_alert_visible {
+            if !on_left && !on_right {
+                return;
+            }
+            if on_left {
+                self.purge_alert_choice = AlertResult::Purge;
+                let _ = self.purge_database();
+            }
+            self.purge_alert_visible = false;
+            self.status_text = Line::from(Span::styled("", Style::default().fg(palette::FG)));
+            return;
+        }
+        if self.cluster_confirm_visible {
+            if self.pending_cluster_action == 3 {
+                if on_left {
+                    let force = self.delete_force_remove;
+                    self.close_cluster_confirm();
+                    self.do_minion_delete(force);
+                } else if on_right {
+                    self.close_cluster_confirm();
+                }
+            } else if on_left {
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                self.cluster_confirm_visible = false;
+                match self.pending_cluster_action {
+                    1 => self.do_cluster_shutdown(),
+                    2 => self.do_cluster_reconnect(),
+                    _ => {}
+                }
+                self.pending_cluster_action = 0;
+                self.status_at_minions_browser();
+            } else if on_right {
+                self.close_cluster_confirm();
+            }
+            return;
+        }
+        if self.master_confirm_visible {
+            if on_left {
+                self.master_confirm_choice = AlertResult::Quit;
+                self.master_confirm_visible = false;
+                match self.master_confirm_action {
+                    1 => self.do_master_start(),
+                    2 => self.do_master_restart(),
+                    3 => self.do_master_stop(),
+                    _ => {}
+                }
+            } else if on_right {
+                self.master_confirm_visible = false;
+            }
+        }
+    }
+
     fn on_key(&mut self, e: event::KeyEvent) {
         // Error alert is modal — always checked first
         if self.on_error_alert(e) {
@@ -3215,6 +3882,10 @@ impl SysInspectUX {
 
         // Information alert is modal
         if self.on_info_alert(e) {
+            return;
+        }
+
+        if self.delete_progress.visible {
             return;
         }
 
@@ -3242,7 +3913,40 @@ impl SysInspectUX {
             return;
         }
 
-        // File picker is modal
+        // Registration form is modal
+        if self.registration_form.visible {
+            self.status_at_registration_form();
+            self.registration_form.handle_key(e);
+            if self.registration_form.ok_pressed {
+                self.registration_form.ok_pressed = false;
+                self.registration_form.visible = false;
+                self.status_at_registration_progress();
+                let hostname = self.registration_form.hostname.value().to_string();
+                let user = self.registration_form.user.value().to_string();
+                let path = self.registration_form.path.value().to_string();
+                let use_sudo = self.registration_form.use_sudo;
+                let progress = Arc::new(std::sync::Mutex::new(minreg::RegistrationProgress::new(String::new())));
+                self.registration_progress = Arc::clone(&progress);
+                self.registration_task = Some(minreg::spawn_registration(hostname, user, path, use_sudo, self.cfg.clone(), progress));
+            }
+            return;
+        }
+
+        // Registration progress is modal
+        let progress_visible = self.registration_progress.lock().unwrap().visible;
+        if progress_visible {
+            self.status_at_registration_progress();
+            let mut progress = self.registration_progress.lock().unwrap();
+            if minreg::handle_progress_key(e, &mut progress) {
+                if progress.error.is_some() || progress.done {
+                    drop(progress);
+                    *self.registration_progress.lock().unwrap() = minreg::RegistrationProgress::placeholder();
+                    self.restore_status();
+                }
+                return;
+            }
+            return;
+        }
         if self.file_picker.visible && self.file_picker.handle_key(e) {
             return;
         }
@@ -3275,8 +3979,13 @@ impl SysInspectUX {
                     });
                 } else {
                     let model = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
-                    let _target =
-                        self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+                    let _target = self
+                        .dsl_browser
+                        .target_entities
+                        .items
+                        .get(self.dsl_browser.target_entities.selected().unwrap_or(0))
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
                     let missing_keys = std::mem::take(&mut self.dsl_browser.error_required_key);
                     if !missing_keys.is_empty() {
                         self.error_alert_visible = true;
@@ -3514,10 +4223,9 @@ impl SysInspectUX {
                 }
             },
             KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.error_alert_visible = true;
-                self.error_alert_message = "Not implemented yet".to_string();
+                self.registration_form.visible = true;
             }
-            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Err(err) = self.load_module_index() {
                     self.error_alert_visible = true;
                     self.error_alert_message = err;
@@ -3778,6 +4486,52 @@ impl SysInspectUX {
                 })
             })
         })
+    }
+
+    fn format_machine_message(action: &str, primary_value: Option<&str>, platform: Option<&str>, minion_id: Option<&str>) -> String {
+        let mut rows = Vec::new();
+        if let Some(value) = primary_value.filter(|v| !v.trim().is_empty()) {
+            rows.push((format!("{action}:"), value.trim().to_string()));
+        } else {
+            rows.push((format!("{action}:"), "OK".to_string()));
+        }
+        if let Some(value) = platform.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Platform:".to_string(), value.trim().to_string()));
+        }
+        if let Some(value) = minion_id.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Machine ID:".to_string(), Self::short_machine_id(value)));
+        }
+        let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+        rows.into_iter().map(|(label, value)| format!("{label:<width$}  {value}")).collect::<Vec<_>>().join("\n")
+    }
+
+    fn format_machine_message_styled(action: &str, primary_value: Option<&str>, platform: Option<&str>, minion_id: Option<&str>) -> Text<'static> {
+        let mut rows = Vec::new();
+        if let Some(value) = primary_value.filter(|v| !v.trim().is_empty()) {
+            rows.push((format!("{action}:"), value.trim().to_string()));
+        } else {
+            rows.push((format!("{action}:"), "OK".to_string()));
+        }
+        if let Some(value) = platform.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Platform:".to_string(), value.trim().to_string()));
+        }
+        if let Some(value) = minion_id.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Machine ID:".to_string(), Self::short_machine_id(value)));
+        }
+        let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+        let mut lines: Vec<Line<'static>> = vec![Line::from("")];
+        lines.extend(rows.into_iter().map(|(label, value)| {
+            Line::from(vec![
+                Span::styled(format!("{label:<width$}"), Style::default().fg(palette::SUCCESS_PEAK)),
+                Span::styled(format!("  {value}"), Style::default().fg(palette::FG)),
+            ])
+        }));
+        Text::from(lines)
+    }
+
+    fn short_machine_id(mid: &str) -> String {
+        let trimmed = mid.trim();
+        if trimmed.chars().count() <= 8 { trimmed.to_string() } else { format!("{}...", trimmed.chars().take(8).collect::<String>()) }
     }
 
     /// Count the vertical space for the alert display, plus three empty lines

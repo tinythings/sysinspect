@@ -1,5 +1,5 @@
 name: "os.facts"
-version: "0.1.0"
+version: "0.1.1"
 author: "Bo Maryniuk"
 description: |
   Gather system facts: OS, kernel, architecture, hostname, memory, CPU,

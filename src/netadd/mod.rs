@@ -1,10 +1,10 @@
 //! CLI-facing planning types for `sysinspect network --add`.
 
-mod artifact;
-mod parser;
+pub(crate) mod artifact;
+pub(crate) mod parser;
 mod render;
-mod types;
-mod workflow;
+pub(crate) mod types;
+pub(crate) mod workflow;
 
 #[cfg(test)]
 pub(crate) use artifact::{ArtifactArch, ArtifactFamily, MinionCatalogue, PlatformId};

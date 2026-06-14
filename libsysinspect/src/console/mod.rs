@@ -331,6 +331,9 @@ pub struct ConsoleMinionInfoRow {
 pub struct ConsoleModelRow {
     /// Directory-name identifier used to address the model.
     pub id: String,
+    /// Whether this model is currently exported to the cluster.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// Human-readable model name from the header.
     pub name: String,
     /// Model version from the header.
@@ -340,6 +343,9 @@ pub struct ConsoleModelRow {
     /// Entrypoint ids (checkbook labels + direct entity ids).
     #[serde(default)]
     pub entrypoints: Vec<String>,
+    /// Entrypoint kind for each entry in `entrypoints`: "checkbook" or "entity".
+    #[serde(default)]
+    pub entrypoint_kinds: Vec<String>,
     /// Declared state names across all actions.
     #[serde(default)]
     pub states: Vec<String>,
@@ -347,6 +353,10 @@ pub struct ConsoleModelRow {
     #[serde(default)]
     #[allow(clippy::type_complexity)]
     pub target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl ConsoleResponse {
