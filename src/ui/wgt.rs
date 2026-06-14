@@ -309,6 +309,7 @@ impl Widget for &SysInspectUX {
         self.minion_traits(area, buf);
         self.dialog_minion_logs(area, buf);
         self.dialog_master_logs(area, buf);
+        self.popup_button_rects.set(None);
         self.dialog_trait_tag(area, buf);
         self.dialog_cluster_confirm(area, buf);
         self.dialog_delete_progress(area, buf);

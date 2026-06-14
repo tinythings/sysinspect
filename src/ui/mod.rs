@@ -1,5 +1,8 @@
 use crate::{call_master_console, ui::elements::DbListItem};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    execute,
+};
 use elements::{ActiveBox, AlertResult, CycleListItem, EventListItem, MinionListItem};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
@@ -66,7 +69,9 @@ use alert::DialogFormFocus;
 
 pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
     let mut terminal = ratatui::init();
+    let _ = execute!(io::stdout(), crossterm::event::EnableMouseCapture);
     let result = tokio_run(cfg, config_found, &mut terminal).await;
+    let _ = execute!(io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
 
     result
@@ -211,6 +216,7 @@ pub struct SysInspectUX {
     pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all, 3=delete minion
     pub delete_force_remove: bool,  // checkbox: also remove from host over SSH
     cluster_confirm_form_focus: DialogFormFocus,
+    pub popup_button_rects: Cell<Option<alert::PopupButtonRects>>,
 
     // Tag popup
     pub tag_visible: bool,
@@ -341,6 +347,7 @@ impl Default for SysInspectUX {
             pending_cluster_action: 0,
             delete_force_remove: false,
             cluster_confirm_form_focus: DialogFormFocus::LeftButton,
+            popup_button_rects: Cell::new(None),
 
             tag_visible: false,
             tag_key_buf: String::new(),
@@ -668,10 +675,14 @@ impl SysInspectUX {
             Duration::from_secs(1)
         };
         if event::poll(poll_dur)? {
-            if let Event::Key(e) = event::read()?
-                && e.kind == KeyEventKind::Press
-            {
-                self.on_key(e);
+            match event::read()? {
+                Event::Key(e) if e.kind == KeyEventKind::Press => {
+                    self.on_key(e);
+                }
+                Event::Mouse(me) if me.kind == MouseEventKind::Down(MouseButton::Left) => {
+                    self.on_mouse(me);
+                }
+                _ => {}
             }
         } else {
             if !self.offline {
@@ -3416,6 +3427,94 @@ impl SysInspectUX {
             Err(err) => {
                 self.error_alert_visible = true;
                 self.error_alert_message = err.to_string();
+            }
+        }
+    }
+
+    fn on_mouse(&mut self, me: MouseEvent) {
+        let rects = match self.popup_button_rects.get() {
+            Some(r) => r,
+            None => return,
+        };
+        let (cx, cy) = (me.column, me.row);
+        let hit = |r: Rect| cx >= r.x && cx < r.x.saturating_add(r.width) && cy == r.y;
+        let on_left = rects.left_button.is_some_and(hit);
+        let on_right = hit(rects.right_button);
+
+        if self.error_alert_visible {
+            self.error_alert_visible = false;
+            return;
+        }
+        if self.info_alert_visible {
+            self.info_alert_visible = false;
+            return;
+        }
+        if self.help_popup_visible {
+            self.help_popup_visible = false;
+            return;
+        }
+        if self.exit_alert_visible {
+            if on_left {
+                self.exit_alert_choice = AlertResult::Quit;
+            } else if on_right {
+                self.exit_alert_choice = AlertResult::Default;
+            } else {
+                return;
+            }
+            self.exit_alert_visible = false;
+            if self.exit_alert_choice == AlertResult::Quit {
+                self.exit = true;
+            }
+            return;
+        }
+        if self.purge_alert_visible {
+            if !on_left && !on_right {
+                return;
+            }
+            if on_left {
+                self.purge_alert_choice = AlertResult::Purge;
+                let _ = self.purge_database();
+            }
+            self.purge_alert_visible = false;
+            self.status_text = Line::from(Span::styled("", Style::default().fg(palette::FG)));
+            return;
+        }
+        if self.cluster_confirm_visible {
+            if self.pending_cluster_action == 3 {
+                if on_left {
+                    let force = self.delete_force_remove;
+                    self.close_cluster_confirm();
+                    self.do_minion_delete(force);
+                } else if on_right {
+                    self.close_cluster_confirm();
+                }
+            } else if on_left {
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+                self.cluster_confirm_visible = false;
+                match self.pending_cluster_action {
+                    1 => self.do_cluster_shutdown(),
+                    2 => self.do_cluster_reconnect(),
+                    _ => {}
+                }
+                self.pending_cluster_action = 0;
+                self.status_at_minions_browser();
+            } else if on_right {
+                self.close_cluster_confirm();
+            }
+            return;
+        }
+        if self.master_confirm_visible {
+            if on_left {
+                self.master_confirm_choice = AlertResult::Quit;
+                self.master_confirm_visible = false;
+                match self.master_confirm_action {
+                    1 => self.do_master_start(),
+                    2 => self.do_master_restart(),
+                    3 => self.do_master_stop(),
+                    _ => {}
+                }
+            } else if on_right {
+                self.master_confirm_visible = false;
             }
         }
     }

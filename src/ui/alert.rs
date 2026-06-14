@@ -67,6 +67,12 @@ enum AlertButtons {
     Close,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct PopupButtonRects {
+    pub left_button: Option<Rect>,
+    pub right_button: Rect,
+}
+
 static YES_LABEL: &str = "Yes";
 static NO_LABEL: &str = "No";
 static OK_LABEL: &str = "OK";
@@ -84,7 +90,7 @@ impl SysInspectUX {
         let max_w = ((parent.width * 3 / 4).max(50)) as usize;
         let wrapped_lines = wrap_text(&self.error_alert_message, max_w);
         let text = if wrapped_lines.is_empty() { "".to_string() } else { wrapped_lines.join("\n") };
-        Self::_popup_ex(
+        let rects = Self::_popup_ex(
             parent,
             buf,
             Some("Error"),
@@ -103,10 +109,11 @@ impl SysInspectUX {
             None,
             Some((15.0, &[palette::BG_2, palette::BG_1] as &[Color])),
         );
+        self.popup_button_rects.set(Some(rects));
     }
 
     pub fn dialog_info(&self, parent: Rect, buf: &mut Buffer, title: &str, text: &str, styled_text: Option<Text<'static>>, quit_button: bool) {
-        Self::_popup_ex(
+        let rects = Self::_popup_ex(
             parent,
             buf,
             Some(title),
@@ -125,13 +132,14 @@ impl SysInspectUX {
             styled_text,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
+        self.popup_button_rects.set(Some(rects));
     }
 
     pub fn dialog_purge(&self, parent: Rect, buf: &mut Buffer) {
         if !self.purge_alert_visible {
             return;
         }
-        Self::_popup_ex(
+        let rects = Self::_popup_ex(
             parent,
             buf,
             Some("Delete everything?"),
@@ -150,13 +158,14 @@ impl SysInspectUX {
             None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
+        self.popup_button_rects.set(Some(rects));
     }
 
     pub fn dialog_help(&self, parent: Rect, buf: &mut Buffer) {
         if !self.help_popup_visible {
             return;
         }
-        Self::_popup_ex(
+        let rects = Self::_popup_ex(
             parent,
             buf,
             Some("Help"),
@@ -175,6 +184,7 @@ impl SysInspectUX {
             None,
             None,
         );
+        self.popup_button_rects.set(Some(rects));
     }
 
     pub fn dialog_exit(&self, parent: Rect, buf: &mut Buffer) {
@@ -182,7 +192,7 @@ impl SysInspectUX {
             return;
         }
 
-        Self::_popup_ex(
+        let rects = Self::_popup_ex(
             parent,
             buf,
             None,
@@ -201,13 +211,14 @@ impl SysInspectUX {
             None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
+        self.popup_button_rects.set(Some(rects));
     }
 
     pub fn dialog_cluster_confirm(&self, parent: Rect, buf: &mut Buffer) {
         if !self.cluster_confirm_visible {
             return;
         }
-        match self.pending_cluster_action {
+        let rects = match self.pending_cluster_action {
             1 => Self::_popup_ex(
                 parent,
                 buf,
@@ -267,8 +278,9 @@ impl SysInspectUX {
                     Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
                 )
             }
-            _ => {}
-        }
+            _ => return,
+        };
+        self.popup_button_rects.set(Some(rects));
     }
 
     pub fn dialog_delete_progress(&self, parent: Rect, buf: &mut Buffer) {
@@ -319,7 +331,7 @@ impl SysInspectUX {
             3 => "Stop the master?\n\nThis will terminate the daemon process.",
             _ => return,
         };
-        Self::_popup_ex(
+        let rects = Self::_popup_ex(
             parent,
             buf,
             Some("Master Operation"),
@@ -338,6 +350,7 @@ impl SysInspectUX {
             None,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
+        self.popup_button_rects.set(Some(rects));
     }
 
     /// Draws a button in MS-DOS style (no shadow)
@@ -377,7 +390,7 @@ impl SysInspectUX {
         buttons: AlertButtons, width: Option<u16>, border_color: Option<Color>, border_type: Option<ratatui::widgets::BorderType>,
         text_color: Option<Color>, title_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>, styled_text: Option<Text<'_>>,
         gradient: Option<(f32, &[Color])>,
-    ) {
+    ) -> PopupButtonRects {
         let background = background.unwrap_or(palette::POPUP_BG_BASE);
         let border_color = border_color.unwrap_or(palette::BORDER);
         let border_type = border_type.unwrap_or(ratatui::widgets::BorderType::Rounded);
@@ -458,16 +471,15 @@ impl SysInspectUX {
         let b_selected = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
         let b_unselected = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
 
-        if rbtn_label.is_empty() {
-            Paragraph::new(lbtn_label.clone()).style(b_selected).render(
-                Rect {
-                    x: button_area.x + (btn_w.saturating_sub(lbtn_label.len() as u16)) / 2,
-                    y: button_area.y,
-                    width: lbtn_label.len() as u16,
-                    height: 1,
-                },
-                buf,
-            );
+        let popup_rects = if rbtn_label.is_empty() {
+            let rect = Rect {
+                x: button_area.x + (btn_w.saturating_sub(lbtn_label.len() as u16)) / 2,
+                y: button_area.y,
+                width: lbtn_label.len() as u16,
+                height: 1,
+            };
+            Paragraph::new(lbtn_label.clone()).style(b_selected).render(rect, buf);
+            PopupButtonRects { left_button: None, right_button: rect }
         } else {
             let button_splits = Layout::default()
                 .direction(Direction::Horizontal)
@@ -483,7 +495,8 @@ impl SysInspectUX {
 
             Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
             Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
-        }
+            PopupButtonRects { left_button: Some(button_splits[1]), right_button: button_splits[3] }
+        };
 
         // MS-DOS style shadows
         let buf_area = buf.area();
@@ -515,13 +528,15 @@ impl SysInspectUX {
                 }
             }
         }
+
+        popup_rects
     }
 
     fn _popup_widgets(
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: Text<'_>, widgets: &[DialogFormWidget], focus: Option<DialogFormFocus>,
         text_align: Alignment, widget_align: DialogFormAlignment, border_color: Option<Color>, title_color: Option<Color>,
         gradient: Option<(f32, &[Color])>,
-    ) {
+    ) -> PopupButtonRects {
         let background = palette::POPUP_BG_BASE;
         let border_color = border_color.unwrap_or(palette::BORDER);
         let title_color = title_color.unwrap_or(palette::BLACK);
@@ -605,6 +620,7 @@ impl SysInspectUX {
         Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
 
         Self::draw_popup_shadow(buf, canvas, height);
+        PopupButtonRects { left_button: Some(button_splits[1]), right_button: button_splits[3] }
     }
 
     /// Draws a popup area
