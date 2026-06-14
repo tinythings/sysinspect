@@ -250,12 +250,11 @@ impl SysMaster {
 
     /// Build model-discovery rows from the master's fileserver models directory.
     async fn models_data(&mut self) -> Result<(Vec<ConsoleModelRow>, Vec<String>), SysinspectError> {
-        let fresh_cfg = libsysinspect::cfg::mmconf::MasterConfig::new(self.cfg.config_path()).unwrap_or_else(|_| self.cfg.clone());
-        let enabled_models: std::collections::BTreeSet<String> = fresh_cfg.fileserver_models().iter().cloned().collect();
+        let enabled_models: std::collections::BTreeSet<String> = self.cfg.fileserver_models().iter().cloned().collect();
         let mut minion_cfg = MinionConfig::default();
-        let root = fresh_cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
+        let root = self.cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
         minion_cfg.set_root_dir(&root);
-        let catalog = ModelCatalog::scan_root(std::sync::Arc::new(minion_cfg), &fresh_cfg.fileserver_models_root(false));
+        let catalog = ModelCatalog::scan_root(std::sync::Arc::new(minion_cfg), &self.cfg.fileserver_models_root(false));
         let failures = catalog
             .failures()
             .into_iter()

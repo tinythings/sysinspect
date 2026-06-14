@@ -326,7 +326,10 @@ impl SysMaster {
     }
 
     pub fn reload_config(&mut self) -> Result<(), SysinspectError> {
-        self.cfg = MasterConfig::new(self.cfg.config_path())?;
+        let path = self.cfg.config_path();
+        log::info!("Reloading master configuration from {}", path.display());
+        self.cfg = MasterConfig::new(path)?;
+        log::info!("Master configuration reloaded successfully");
         Ok(())
     }
 

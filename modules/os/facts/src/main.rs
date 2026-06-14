@@ -35,7 +35,7 @@ fn bytes_contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 fn gather_facts(out: &mut [u8; 8192]) -> usize {
     let mut p = 0usize;
-    p += wb(out, p, b"{\"retcode\":0,\"data\":{");
+    p += wb(out, p, b"{\"retcode\":0,\"message\":\"System facts gathered\",\"data\":{");
     p += wkv(out, p, b"os", current_os().as_bytes());
     p += w1(out, p, b',');
     p += wkv(out, p, b"arch", current_arch().as_bytes());
@@ -70,7 +70,7 @@ fn gather_facts(out: &mut [u8; 8192]) -> usize {
 }
 
 fn list_keys(out: &mut [u8; 8192]) -> usize {
-    let keys = b"{\"retcode\":0,\"data\":[\"os\",\"arch\",\"hostname\",\"kernel\",\"uptime_seconds\",\"memory_total_kb\",\"memory_free_kb\",\"swap_total_kb\",\"swap_free_kb\",\"cpu_model\",\"cpu_cores\",\"load_1m\",\"load_5m\"]}\n";
+    let keys = b"{\"retcode\":0,\"message\":\"Available fact keys listed\",\"data\":[\"os\",\"arch\",\"hostname\",\"kernel\",\"uptime_seconds\",\"memory_total_kb\",\"memory_free_kb\",\"swap_total_kb\",\"swap_free_kb\",\"cpu_model\",\"cpu_cores\",\"load_1m\",\"load_5m\"]}\n";
     let mut p = 0usize;
     p += wb(out, p, keys);
     p
@@ -79,7 +79,7 @@ fn list_keys(out: &mut [u8; 8192]) -> usize {
 fn get_fact(input: &[u8], out: &mut [u8; 8192]) -> usize {
     let key = find_arg(input, b"key");
     let mut p = 0usize;
-    p += wb(out, p, b"{\"retcode\":0,\"data\":{");
+    p += wb(out, p, b"{\"retcode\":0,\"message\":\"Fact retrieved\",\"data\":{");
     match key {
         Some(b"os") => p += wkv(out, p, b"os", current_os().as_bytes()),
         Some(b"arch") => p += wkv(out, p, b"arch", current_arch().as_bytes()),

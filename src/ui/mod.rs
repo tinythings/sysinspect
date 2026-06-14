@@ -14,8 +14,9 @@ use libeventreg::{
 use libmodcore::modinit::ModInterface;
 use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
 use libsysinspect::{
-    cfg::mmconf::MasterConfig,
+    cfg::mmconf::{MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
+    mdescr::catalog::ModelCatalog,
     traits::os_display_name,
 };
 use libsysproto::query::{
@@ -2222,6 +2223,14 @@ impl SysInspectUX {
         let page = 10usize;
         match e.code {
             KeyCode::Esc => {
+                if self.repo_manager.models_dirty {
+                    if let Err(err) = self.reload_master_config() {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err;
+                        return true;
+                    }
+                    self.repo_manager.models_dirty = false;
+                }
                 self.repo_manager.exit_staging();
                 self.repo_manager.visible = false;
                 self.status_at_cycles();
@@ -2237,7 +2246,7 @@ impl SysInspectUX {
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
                 }
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 2 && !self.repo_manager.models_dirty {
                     let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
@@ -2258,7 +2267,7 @@ impl SysInspectUX {
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
                 }
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 2 && !self.repo_manager.models_dirty {
                     let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
@@ -2755,6 +2764,73 @@ impl SysInspectUX {
         std::fs::write(&dropin, body).map_err(|e| format!("Unable to write models drop-in: {e}"))
     }
 
+    fn refresh_local_model_rows(&mut self, enabled_ids: &[String]) -> Result<(), String> {
+        let mut minion_cfg = MinionConfig::default();
+        let root = self.cfg.fileserver_root().to_str().unwrap_or("/etc/sysinspect").to_string();
+        minion_cfg.set_root_dir(&root);
+        let enabled: std::collections::BTreeSet<String> = enabled_ids.iter().cloned().collect();
+        let catalog = ModelCatalog::scan_root(Arc::new(minion_cfg), &self.cfg.fileserver_models_root(false));
+        let rows: Vec<ConsoleModelRow> = catalog
+            .successes()
+            .into_iter()
+            .map(|m| {
+                let mut entrypoints: Vec<String> = Vec::new();
+                #[allow(clippy::type_complexity)]
+                let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
+
+                for ep in &m.entrypoints {
+                    match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, entity_ids, .. } => {
+                            entrypoints.push(label.clone());
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.iter().any(|eid| entity_ids.contains(eid)))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    let ctx_vars: Vec<(String, String, bool)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
+                                })
+                                .collect();
+                            target_actions.push((label.clone(), actions));
+                        }
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
+                            entrypoints.push(id.clone());
+                            #[allow(clippy::type_complexity)]
+                            let actions: Vec<(String, Vec<String>, Vec<(String, String, bool)>)> = m
+                                .actions
+                                .iter()
+                                .filter(|a| a.binds_to.contains(id))
+                                .map(|a| {
+                                    let states: Vec<String> = a.states.iter().map(|s| s.state.clone()).collect();
+                                    let ctx_vars: Vec<(String, String, bool)> = a.states.iter().flat_map(|s| s.context_vars.clone()).collect();
+                                    (a.description.clone(), states, ctx_vars)
+                                })
+                                .collect();
+                            target_actions.push((id.clone(), actions));
+                        }
+                    }
+                }
+
+                ConsoleModelRow {
+                    id: m.metadata.id.clone(),
+                    enabled: enabled.contains(&m.metadata.id),
+                    name: m.metadata.name.clone(),
+                    version: m.metadata.version.clone(),
+                    description: m.metadata.description.clone(),
+                    entrypoints,
+                    states: m.states.clone(),
+                    target_actions,
+                }
+            })
+            .collect();
+        let cursor = self.repo_manager.model_cursor.min(rows.len().saturating_sub(1));
+        self.repo_manager.model_rows = rows;
+        self.repo_manager.model_cursor = cursor;
+        Ok(())
+    }
+
     fn reload_master_config(&self) -> Result<(), String> {
         let resp = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
@@ -2774,13 +2850,23 @@ impl SysInspectUX {
             ids.retain(|id| id != model_id);
         }
         self.write_enabled_models_dropin(ids)?;
-        self.reload_master_config()?;
-        for row in &mut self.repo_manager.model_rows {
-            if row.id == model_id {
-                row.enabled = enabled;
-            }
-        }
+        self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
+        self.repo_manager.models_dirty = true;
         Ok(())
+    }
+
+    fn enabled_model_ids_with(&self, model_id: &str, enabled: bool) -> Vec<String> {
+        let mut ids = self.enabled_model_ids();
+        if enabled {
+            if !ids.iter().any(|id| id == model_id) {
+                ids.push(model_id.to_string());
+            }
+        } else {
+            ids.retain(|id| id != model_id);
+        }
+        ids.sort();
+        ids.dedup();
+        ids
     }
 
     fn process_model_add(&mut self, path: &std::path::Path) {
@@ -2807,9 +2893,13 @@ impl SysInspectUX {
             self.error_alert_message = format!("Model already exists: {model_id}");
             return;
         }
-        match Self::copy_dir_recursive(path, &dst).and_then(|_| self.set_model_enabled(&model_id, true)) {
+        let enabled_ids = self.enabled_model_ids_with(&model_id, true);
+        match Self::copy_dir_recursive(path, &dst)
+            .and_then(|_| self.write_enabled_models_dropin(enabled_ids.clone()))
+            .and_then(|_| self.refresh_local_model_rows(&enabled_ids))
+        {
             Ok(()) => {
-                let _ = self.load_model_list();
+                self.repo_manager.models_dirty = true;
                 self.info_alert_visible = true;
                 self.info_alert_title = "Model Import".to_string();
                 self.info_alert_styled = None;
@@ -2829,7 +2919,11 @@ impl SysInspectUX {
             return Err(format!("Model does not exist: {model_id}"));
         }
         std::fs::remove_dir_all(&path).map_err(|e| format!("Unable to remove model {model_id}: {e}"))?;
-        self.set_model_enabled(model_id, false)
+        let enabled_ids = self.enabled_model_ids_with(model_id, false);
+        self.write_enabled_models_dropin(enabled_ids.clone())?;
+        self.refresh_local_model_rows(&enabled_ids)?;
+        self.repo_manager.models_dirty = true;
+        Ok(())
     }
 
     fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
