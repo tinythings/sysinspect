@@ -187,6 +187,7 @@ pub struct SysInspectUX {
     pub cluster_confirm_visible: bool,
     pub cluster_confirm_choice: AlertResult,
     pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all, 3=delete minion
+    pub delete_force_remove: bool,  // checkbox: also remove from host over SSH
 
     // Tag popup
     pub tag_visible: bool,
@@ -309,6 +310,7 @@ impl Default for SysInspectUX {
             cluster_confirm_visible: false,
             cluster_confirm_choice: AlertResult::default(),
             pending_cluster_action: 0,
+            delete_force_remove: false,
 
             tag_visible: false,
             tag_key_buf: String::new(),
@@ -1500,22 +1502,29 @@ impl SysInspectUX {
                     self.cluster_confirm_choice = AlertResult::Default;
                 }
             }
+            KeyCode::Char(' ') => {
+                if self.pending_cluster_action == 3 {
+                    self.delete_force_remove = !self.delete_force_remove;
+                }
+            }
             KeyCode::Enter => {
                 self.cluster_confirm_visible = false;
                 if self.cluster_confirm_choice == AlertResult::ClusterConfirm {
                     match self.pending_cluster_action {
                         1 => self.do_cluster_shutdown(),
                         2 => self.do_cluster_reconnect(),
-                        3 => self.do_minion_delete(),
+                        3 => self.do_minion_delete(self.delete_force_remove),
                         _ => {}
                     }
                 }
                 self.pending_cluster_action = 0;
+                self.delete_force_remove = false;
                 self.status_at_minions_browser();
             }
             KeyCode::Esc => {
                 self.cluster_confirm_visible = false;
                 self.pending_cluster_action = 0;
+                self.delete_force_remove = false;
                 self.status_at_minions_browser();
             }
             _ => {}
@@ -1551,7 +1560,7 @@ impl SysInspectUX {
         }
     }
 
-    fn do_minion_delete(&mut self) {
+    fn do_minion_delete(&mut self, force: bool) {
         let row = match self.selected_popup_minion() {
             Some(row) => row,
             None => {
@@ -1562,9 +1571,10 @@ impl SysInspectUX {
             }
         };
         let mid = row.minion_id.clone();
+        let force_ctx = if force { Some(serde_json::json!({"force": true}).to_string()) } else { None };
         match tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "*", None, Some(&mid), None).await
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "*", None, Some(&mid), force_ctx.as_ref()).await
             })
         }) {
             Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => {

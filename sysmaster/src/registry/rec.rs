@@ -25,26 +25,26 @@ pub struct MinionCmdbStartup {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct MinionCmdbRecord {
-    mid: String,
+    pub(crate) mid: String,
     #[serde(default)]
-    user: Option<String>,
+    pub(crate) user: Option<String>,
     #[serde(default)]
-    host: Option<String>,
+    pub(crate) host: Option<String>,
     #[serde(default)]
-    hostname: Option<String>,
+    pub(crate) hostname: Option<String>,
     #[serde(default)]
-    fqdn: Option<String>,
+    pub(crate) fqdn: Option<String>,
     #[serde(default)]
-    ip: Option<String>,
+    pub(crate) ip: Option<String>,
     #[serde(default)]
-    root: Option<String>,
+    pub(crate) root: Option<String>,
     #[serde(default)]
-    bin: Option<String>,
+    pub(crate) bin: Option<String>,
     #[serde(default)]
-    config: Option<String>,
+    pub(crate) config: Option<String>,
     #[serde(default)]
-    backend: Option<String>,
-    updated_at: DateTime<Utc>,
+    pub(crate) backend: Option<String>,
+    pub(crate) updated_at: DateTime<Utc>,
 }
 
 impl MinionCmdbStartup {

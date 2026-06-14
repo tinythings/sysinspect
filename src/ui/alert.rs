@@ -166,7 +166,8 @@ impl SysInspectUX {
             2 => ("\nForce every online minion to drop\nand re-establish its connection?".to_string(), None),
             3 => {
                 let host = self.selected_popup_minion().map(|r| Self::online_host(&r)).unwrap_or_else(|| "unknown".to_string());
-                let plain = format!("\nDo you want to unregister {host} from this cluster?");
+                let chk = if self.delete_force_remove { "[x] Also remove from host over SSH" } else { "[ ] Also remove from host over SSH" };
+                let plain = format!("\nDo you want to unregister {host} from this cluster?\n\n{chk}");
                 let styled = Text::from(vec![
                     Line::from(""),
                     Line::from(vec![
@@ -174,6 +175,8 @@ impl SysInspectUX {
                         Span::styled(host.clone(), Style::default().fg(palette::SUCCESS)),
                         Span::raw(" from this cluster?"),
                     ]),
+                    Line::from(""),
+                    Line::from(vec![Span::styled(chk, Style::default().fg(palette::MUTED))]),
                 ]);
                 (plain, Some(styled))
             }
