@@ -31,6 +31,7 @@ use ratatui::{
     widgets::{Paragraph, Row},
 };
 use ratatui_cheese::tree::TreeState;
+use ratatui_glamour::widgets::spinner;
 use std::{
     cell::{Cell, RefCell},
     io::{self},
@@ -100,6 +101,23 @@ pub struct UISizes {
     pub table_minions: usize,
     pub table_events: usize,
     pub table_info: usize,
+}
+
+#[derive(Debug)]
+pub struct DeleteProgressState {
+    pub visible: bool,
+    pub message: String,
+    pub spinner: spinner::Model,
+    pub last_tick: Instant,
+}
+
+impl Default for DeleteProgressState {
+    fn default() -> Self {
+        let mut spinner_model = spinner::Model::new();
+        spinner_model.spinner = spinner::Spinner::mini_dot();
+        spinner_model.style = Style::default().fg(palette::PROCESSING_PEAK);
+        Self { visible: false, message: String::new(), spinner: spinner_model, last_tick: Instant::now() }
+    }
 }
 
 #[derive(Debug)]
@@ -225,6 +243,8 @@ pub struct SysInspectUX {
     pub registration_form: minreg::RegistrationForm,
     pub registration_progress: Arc<std::sync::Mutex<minreg::RegistrationProgress>>,
     pub registration_task: Option<tokio::task::JoinHandle<()>>,
+    pub delete_progress: DeleteProgressState,
+    pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -334,6 +354,8 @@ impl Default for SysInspectUX {
             registration_form: minreg::RegistrationForm::default(),
             registration_progress: Arc::new(std::sync::Mutex::new(minreg::RegistrationProgress::placeholder())),
             registration_task: None,
+            delete_progress: DeleteProgressState::default(),
+            delete_task: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -627,7 +649,10 @@ impl SysInspectUX {
 
     fn on_events(&mut self) -> io::Result<()> {
         self.sync_main_focus_for_overlays();
-        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some() || self.registration_progress.lock().unwrap().visible {
+        let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some()
+            || self.registration_progress.lock().unwrap().visible
+            || self.delete_progress.visible
+        {
             Duration::from_millis(50)
         } else {
             Duration::from_secs(1)
@@ -660,6 +685,35 @@ impl SysInspectUX {
                     if self.master_logs_visible && self.master_logs_polling && self.master_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
                         let _ = self.load_master_logs();
                     }
+                }
+            }
+        }
+        if self.delete_progress.visible && self.delete_progress.last_tick.elapsed() >= self.delete_progress.spinner.spinner.fps {
+            let tick = self.delete_progress.spinner.tick();
+            self.delete_progress.spinner.update(tick);
+            self.delete_progress.last_tick = Instant::now();
+        }
+        if self.delete_progress.visible
+            && self.delete_task.as_ref().is_some_and(|task| task.is_finished())
+            && let Some(task) = self.delete_task.take()
+        {
+            let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+            self.delete_progress.visible = false;
+            self.delete_progress.message.clear();
+            self.restore_status();
+            match result {
+                Ok(Ok(mid)) => {
+                    self.info_alert_visible = true;
+                    self.info_alert_message = format!("Minion deleted: {mid}");
+                    self.refresh_minions();
+                }
+                Ok(Err(err)) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to join delete task: {err}");
                 }
             }
         }
@@ -1282,6 +1336,7 @@ impl SysInspectUX {
             || self.repo_manager.platforms.delete_visible
             || self.registration_form.visible
             || self.registration_progress.lock().unwrap().visible
+            || self.delete_progress.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1560,7 +1615,7 @@ impl SysInspectUX {
         self.cluster_confirm_visible = true;
         self.cluster_confirm_choice = AlertResult::ClusterConfirm;
         self.pending_cluster_action = action;
-        self.cluster_confirm_form_focus = if action == 3 { DialogFormFocus::Widget(0) } else { DialogFormFocus::LeftButton };
+        self.cluster_confirm_form_focus = if action == 3 { DialogFormFocus::RightButton } else { DialogFormFocus::LeftButton };
     }
 
     fn close_cluster_confirm(&mut self) {
@@ -1611,26 +1666,21 @@ impl SysInspectUX {
         };
         let mid = row.minion_id.clone();
         let force_ctx = if force { Some(serde_json::json!({"force": true}).to_string()) } else { None };
-        match tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "*", None, Some(&mid), force_ctx.as_ref()).await
-            })
-        }) {
-            Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => {
-                self.info_alert_visible = true;
-                self.info_alert_message = format!("Minion deleted: {mid}");
-                self.refresh_minions();
+        self.delete_progress.visible = true;
+        self.delete_progress.message =
+            if force { "Removing client from host, please wait...".to_string() } else { "Removing client, please wait...".to_string() };
+        self.delete_progress.last_tick = Instant::now();
+        self.delete_task = Some(tokio::spawn({
+            let cfg = self.cfg.clone();
+            async move {
+                match call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_REMOVE_MINION}"), "*", None, Some(&mid), force_ctx.as_ref()).await
+                {
+                    Ok(rsp) if matches!(rsp.payload, ConsolePayload::Ack { .. }) => Ok(mid),
+                    Ok(_) => Err("Master did not acknowledge minion removal.".to_string()),
+                    Err(err) => Err(format!("Failed to delete minion: {err}")),
+                }
             }
-            Ok(_) => {
-                self.error_alert_visible = true;
-                self.error_alert_message = "Master did not acknowledge minion removal.".to_string();
-            }
-            Err(err) => {
-                self.error_alert_visible = true;
-                self.error_alert_message = format!("Failed to delete minion: {err}");
-            }
-        }
-        self.status_at_minions_browser();
+        }));
     }
 
     fn open_logs_popup(&mut self) {
@@ -3308,6 +3358,10 @@ impl SysInspectUX {
 
         // Information alert is modal
         if self.on_info_alert(e) {
+            return;
+        }
+
+        if self.delete_progress.visible {
             return;
         }
 

@@ -7,6 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
 };
 use ratatui_glamour::color::blend_2d;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone)]
 pub(crate) enum DialogFormWidget {
@@ -100,9 +101,6 @@ impl SysInspectUX {
             None,
             None,
             None,
-            None,
-            None,
-            DialogFormAlignment::Left,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -128,9 +126,6 @@ impl SysInspectUX {
             None,
             None,
             None,
-            None,
-            None,
-            DialogFormAlignment::Left,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -156,9 +151,6 @@ impl SysInspectUX {
             None,
             None,
             None,
-            None,
-            None,
-            DialogFormAlignment::Left,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -185,9 +177,6 @@ impl SysInspectUX {
             None,
             None,
             None,
-            None,
-            DialogFormAlignment::Left,
-            None,
         );
     }
 
@@ -213,9 +202,6 @@ impl SysInspectUX {
             Some("Yep!"),
             Some("Nope"),
             None,
-            None,
-            None,
-            DialogFormAlignment::Left,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -224,71 +210,106 @@ impl SysInspectUX {
         if !self.cluster_confirm_visible {
             return;
         }
-        let (plain_text, styled_text, widgets, form_focus, text_align, widget_align): (
-            String,
-            Option<Text<'_>>,
-            Option<Vec<DialogFormWidget>>,
-            Option<DialogFormFocus>,
-            Alignment,
-            DialogFormAlignment,
-        ) = match self.pending_cluster_action {
-            1 => (
-                "\nShut down every online minion\nin the entire cluster?".to_string(),
-                None,
-                None,
+        match self.pending_cluster_action {
+            1 => Self::_popup_ex(
+                parent,
+                buf,
+                Some("Cluster Operation"),
+                "\nShut down every online minion\nin the entire cluster?",
                 None,
                 Alignment::Center,
-                DialogFormAlignment::Left,
+                self.cluster_confirm_choice.clone(),
+                AlertButtons::YesNo,
+                Some(0),
+                Some(palette::PROCESSING_PEAK),
+                None,
+                None,
+                Some(palette::WHITE),
+                None,
+                None,
+                None,
+                Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
             ),
-            2 => (
-                "\nForce every online minion to drop\nand re-establish its connection?".to_string(),
-                None,
-                None,
+            2 => Self::_popup_ex(
+                parent,
+                buf,
+                Some("Cluster Operation"),
+                "\nForce every online minion to drop\nand re-establish its connection?",
                 None,
                 Alignment::Center,
-                DialogFormAlignment::Left,
+                self.cluster_confirm_choice.clone(),
+                AlertButtons::YesNo,
+                Some(0),
+                Some(palette::PROCESSING_PEAK),
+                None,
+                None,
+                Some(palette::WHITE),
+                None,
+                None,
+                None,
+                Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
             ),
             3 => {
                 let host = self.selected_popup_minion().map(|r| Self::online_host(&r)).unwrap_or_else(|| "unknown".to_string());
-                let plain = format!("Do you want to unregister {host} from this cluster?");
                 let styled = Text::from(vec![Line::from(vec![
                     Span::raw("Do you want to unregister "),
-                    Span::styled(host.clone(), Style::default().fg(palette::SUCCESS)),
+                    Span::styled(host, Style::default().fg(palette::SUCCESS)),
                     Span::raw(" from this cluster?"),
                 ])]);
-                (
-                    plain,
-                    Some(styled),
-                    Some(vec![DialogFormWidget::Checkbox { label: "Remove client from the host".to_string(), checked: self.delete_force_remove }]),
+                Self::_popup_widgets(
+                    parent,
+                    buf,
+                    Some("Cluster Operation"),
+                    styled,
+                    &[DialogFormWidget::Checkbox { label: "Remove client from the host".to_string(), checked: self.delete_force_remove }],
                     Some(self.cluster_confirm_form_focus),
                     Alignment::Center,
                     DialogFormAlignment::Center,
+                    Some(palette::PROCESSING_PEAK),
+                    Some(palette::WHITE),
+                    Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
                 )
             }
-            _ => return,
-        };
-        Self::_popup_ex(
-            parent,
-            buf,
-            Some("Cluster Operation"),
-            &plain_text,
-            None,
-            text_align,
-            self.cluster_confirm_choice.clone(),
-            AlertButtons::YesNo,
-            Some(0),
-            Some(palette::PROCESSING_PEAK),
-            None,
-            None,
-            Some(palette::WHITE),
-            None,
-            None,
-            styled_text,
-            widgets.as_deref(),
-            form_focus,
-            widget_align,
-            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
-        );
+            _ => {}
+        }
+    }
+
+    pub fn dialog_delete_progress(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.delete_progress.visible {
+            return;
+        }
+
+        let text = Line::from(vec![Span::styled(
+            format!("{} {}", self.delete_progress.spinner.view(), self.delete_progress.message),
+            Style::default().fg(palette::FG),
+        )]);
+        let width = (UnicodeWidthStr::width(self.delete_progress.message.as_str()) as u16 + 12).max(38);
+        let height = 5u16;
+        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
+        let canvas = Rect { x, y, width, height };
+
+        Clear.render(canvas, buf);
+
+        let popup_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_PEAK))
+            .padding(Padding::horizontal(2))
+            .style(Style::default().bg(palette::POPUP_BG_BASE));
+        let popup_inner = popup_block.inner(canvas);
+        popup_block.render(canvas, buf);
+
+        let [_, text_area, _]: [Rect; 3] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(0)])
+            .split(popup_inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+        Paragraph::new(text).alignment(Alignment::Center).render(text_area, buf);
+
+        Self::draw_popup_shadow(buf, canvas, height);
     }
 
     pub fn dialog_master_confirm(&self, parent: Rect, buf: &mut Buffer) {
@@ -318,9 +339,6 @@ impl SysInspectUX {
             None,
             None,
             None,
-            None,
-            None,
-            DialogFormAlignment::Left,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -361,7 +379,6 @@ impl SysInspectUX {
         parent: Rect, buf: &mut Buffer, title: Option<&str>, text: &str, background: Option<Color>, text_align: Alignment, choice: AlertResult,
         buttons: AlertButtons, width: Option<u16>, border_color: Option<Color>, border_type: Option<ratatui::widgets::BorderType>,
         text_color: Option<Color>, title_color: Option<Color>, left_label: Option<&str>, right_label: Option<&str>, styled_text: Option<Text<'_>>,
-        form_widgets: Option<&[DialogFormWidget]>, form_focus: Option<DialogFormFocus>, form_alignment: DialogFormAlignment,
         gradient: Option<(f32, &[Color])>,
     ) {
         let background = background.unwrap_or(palette::POPUP_BG_BASE);
@@ -370,18 +387,15 @@ impl SysInspectUX {
         let text_color = text_color.unwrap_or(palette::FG);
         let title_color = title_color.unwrap_or(palette::BLACK);
         let has_gradient = gradient.is_some();
-        let form_widgets = form_widgets.unwrap_or(&[]);
-        let has_form_widgets = !form_widgets.is_empty();
 
-        let text = if has_form_widgets { text.to_string() } else { format!("\n{text}") };
+        let text = format!("\n{text}");
         let text_lines = Self::get_text_lines(&text);
-        let widget_rows = form_widgets.len() as u16;
-        let height = text_lines + widget_rows + if has_form_widgets { 5 } else { 3 };
+        let height = text_lines + 3;
 
         #[allow(clippy::unnecessary_unwrap)]
         let mut width = if width.is_none() { (parent.width / 4).max(20) } else { width.unwrap() };
         if width == 0 {
-            width = Self::get_max_width_lines(&text).max(Self::get_max_width_widgets(form_widgets)) + 6;
+            width = Self::get_max_width_lines(&text) + 6;
         }
 
         let x = parent.x + (parent.width.saturating_sub(width)) / 2;
@@ -424,32 +438,15 @@ impl SysInspectUX {
         popup_block.render(canvas, buf);
 
         let text_bg = if has_gradient { Style::default().fg(text_color) } else { Style::default().fg(text_color).bg(background) };
-        let vertical_chunks = if has_form_widgets {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(1),
-                    Constraint::Length(text_lines),
-                    Constraint::Length(1),
-                    Constraint::Length(widget_rows),
-                    Constraint::Length(1),
-                    Constraint::Length(1),
-                ])
-                .split(popup_inner)
-        } else {
-            Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_lines), Constraint::Length(1)]).split(popup_inner)
-        };
+        let vertical_chunks =
+            Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(text_lines), Constraint::Length(1)]).split(popup_inner);
 
-        let text_area = if has_form_widgets { vertical_chunks[1] } else { vertical_chunks[0] };
-        let widget_area = if has_form_widgets { Some(vertical_chunks[3]) } else { None };
-        let button_area = if has_form_widgets { vertical_chunks[5] } else { vertical_chunks[1] };
+        let text_area = vertical_chunks[0];
+        let button_area = vertical_chunks[1];
         if let Some(st) = styled_text {
             Paragraph::new(st).alignment(text_align).style(text_bg).render(text_area, buf);
         } else {
             Paragraph::new(text).alignment(text_align).style(text_bg).render(text_area, buf);
-        }
-        if let Some(area) = widget_area {
-            Self::render_form_widgets(buf, area, background, form_widgets, form_focus, form_alignment);
         }
         let (lbtn_label, rbtn_label) = match buttons {
             AlertButtons::YesNo => (Self::format_button(YES_LABEL), Self::format_button(NO_LABEL)),
@@ -485,17 +482,7 @@ impl SysInspectUX {
                 ])
                 .split(button_area);
 
-            let (left_style, right_style) = if has_form_widgets {
-                match form_focus.unwrap_or(DialogFormFocus::LeftButton) {
-                    DialogFormFocus::LeftButton => (b_selected, b_unselected),
-                    DialogFormFocus::RightButton => (b_unselected, b_selected),
-                    DialogFormFocus::Widget(_) => (b_unselected, b_unselected),
-                }
-            } else if choice == AlertResult::Default {
-                (b_unselected, b_selected)
-            } else {
-                (b_selected, b_unselected)
-            };
+            let (left_style, right_style) = if choice == AlertResult::Default { (b_unselected, b_selected) } else { (b_selected, b_unselected) };
 
             Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
             Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
@@ -531,6 +518,96 @@ impl SysInspectUX {
                 }
             }
         }
+    }
+
+    fn _popup_widgets(
+        parent: Rect, buf: &mut Buffer, title: Option<&str>, text: Text<'_>, widgets: &[DialogFormWidget], focus: Option<DialogFormFocus>,
+        text_align: Alignment, widget_align: DialogFormAlignment, border_color: Option<Color>, title_color: Option<Color>,
+        gradient: Option<(f32, &[Color])>,
+    ) {
+        let background = palette::POPUP_BG_BASE;
+        let border_color = border_color.unwrap_or(palette::BORDER);
+        let title_color = title_color.unwrap_or(palette::BLACK);
+        let has_gradient = gradient.is_some();
+        let text_lines = text.lines.len() as u16;
+        let widget_rows = widgets.len() as u16;
+        let height = text_lines + widget_rows + 6;
+        let mut width = Self::get_max_width_text(&text).max(Self::get_max_width_widgets(widgets)) + 6;
+        width = width.max((parent.width / 4).max(20));
+
+        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
+        let canvas = Rect { x, y, width, height };
+        Clear.render(canvas, buf);
+
+        let popup_block = Block::default()
+            .title(if let Some(t) = title {
+                Line::from(vec![
+                    Span::styled("\u{E0B2}", Style::default().fg(border_color)),
+                    Span::styled(t.to_string(), Style::default().fg(title_color).bg(border_color)),
+                    Span::styled("\u{E0B0}", Style::default().fg(border_color)),
+                ])
+            } else {
+                Line::from("")
+            })
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
+            .padding(Padding::horizontal(2))
+            .style(if has_gradient { Style::default() } else { Style::default().bg(background) });
+        let popup_inner = popup_block.inner(canvas);
+
+        if let Some((angle, stops)) = gradient {
+            let colors = blend_2d(canvas.width as usize, canvas.height as usize, angle, stops);
+            for row in 0..canvas.height {
+                for col in 0..canvas.width {
+                    let idx = row as usize * canvas.width as usize + col as usize;
+                    if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                        cell.set_bg(colors[idx]);
+                    }
+                }
+            }
+        }
+
+        popup_block.render(canvas, buf);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(text_lines),
+                Constraint::Length(1),
+                Constraint::Length(widget_rows),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
+            .split(popup_inner);
+
+        Paragraph::new(text).alignment(text_align).style(Style::default().fg(palette::FG)).render(chunks[1], buf);
+        Self::render_form_widgets(buf, chunks[3], background, widgets, focus, widget_align);
+
+        let lbtn_label = Self::format_button(YES_LABEL);
+        let rbtn_label = Self::format_button(NO_LABEL);
+        let button_splits = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length((chunks[5].width.saturating_sub(lbtn_label.len() as u16 + 3 + rbtn_label.len() as u16)) / 2),
+                Constraint::Length(lbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+                Constraint::Length(3),
+                Constraint::Length(rbtn_label.len().try_into().unwrap_or(DEFAULT_BUTTON_WIDTH)),
+            ])
+            .split(chunks[5]);
+        let b_selected = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let b_unselected = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+        let (left_style, right_style) = match focus.unwrap_or(DialogFormFocus::LeftButton) {
+            DialogFormFocus::LeftButton => (b_selected, b_unselected),
+            DialogFormFocus::RightButton => (b_unselected, b_selected),
+            DialogFormFocus::Widget(_) => (b_unselected, b_unselected),
+        };
+        Paragraph::new(lbtn_label).style(left_style).render(button_splits[1], buf);
+        Paragraph::new(rbtn_label).style(right_style).render(button_splits[3], buf);
+
+        Self::draw_popup_shadow(buf, canvas, height);
     }
 
     /// Draws a popup area
@@ -656,7 +733,8 @@ impl SysInspectUX {
     }
 
     fn render_form_widgets(
-        buf: &mut Buffer, area: Rect, background: Color, widgets: &[DialogFormWidget], focus: Option<DialogFormFocus>, alignment: DialogFormAlignment,
+        buf: &mut Buffer, area: Rect, _background: Color, widgets: &[DialogFormWidget], focus: Option<DialogFormFocus>,
+        alignment: DialogFormAlignment,
     ) {
         for (idx, widget) in widgets.iter().enumerate() {
             let y = area.y + idx as u16;
@@ -672,16 +750,16 @@ impl SysInspectUX {
                         DialogFormAlignment::Center => area.x + area.width.saturating_sub(row_width) / 2,
                     };
                     let row_style = if is_focused {
-                        Style::default().fg(palette::HIGHLIGHT).bg(background).add_modifier(Modifier::BOLD)
+                        Style::default().fg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(palette::FG).bg(background)
+                        Style::default().fg(palette::FG)
                     };
                     let checkbox_style = if is_focused {
                         row_style
                     } else if *checked {
-                        Style::default().fg(palette::SUCCESS).bg(background)
+                        Style::default().fg(palette::SUCCESS)
                     } else {
-                        Style::default().fg(palette::GRAY_1).bg(background)
+                        Style::default().fg(palette::GRAY_1)
                     };
                     buf.set_string(start_x, y, checkbox, checkbox_style);
                     buf.set_string(start_x + 3, y, label, row_style);
@@ -698,6 +776,40 @@ impl SysInspectUX {
             })
             .max()
             .unwrap_or(0)
+    }
+
+    fn get_max_width_text(text: &Text<'_>) -> u16 {
+        text.lines.iter().map(|l| UnicodeWidthStr::width(l.to_string().as_str()) as u16).max().unwrap_or(0)
+    }
+
+    fn draw_popup_shadow(buf: &mut Buffer, canvas: Rect, height: u16) {
+        let buf_area = buf.area();
+        let max_x = buf_area.right().saturating_sub(1);
+        let max_y = buf_area.bottom().saturating_sub(1);
+        for idx in 0..canvas.width {
+            let sx = canvas.x.saturating_add(2).saturating_add(idx);
+            let sy = canvas.y.saturating_add(height);
+            if sx > max_x || sy > max_y {
+                continue;
+            }
+            if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                cell.set_bg(palette::SHADOW_BG);
+                cell.set_fg(palette::SHADOW_FG);
+            }
+        }
+        for offset in 0..2 {
+            for idx in 0..height {
+                let sx = canvas.x.saturating_add(canvas.width).saturating_add(offset);
+                let sy = canvas.y.saturating_add(idx).saturating_add(1);
+                if sx > max_x || sy > max_y {
+                    continue;
+                }
+                if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                    cell.set_bg(palette::SHADOW_BG);
+                    cell.set_fg(palette::SHADOW_FG);
+                }
+            }
+        }
     }
 }
 
