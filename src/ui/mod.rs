@@ -61,6 +61,8 @@ mod traittag;
 mod typecolors;
 mod wgt;
 
+use alert::DialogFormFocus;
+
 pub async fn run(cfg: MasterConfig, config_found: bool) -> io::Result<()> {
     let mut terminal = ratatui::init();
     let result = tokio_run(cfg, config_found, &mut terminal).await;
@@ -188,6 +190,7 @@ pub struct SysInspectUX {
     pub cluster_confirm_choice: AlertResult,
     pub pending_cluster_action: u8, // 0=none, 1=shutdown all, 2=reconnect all, 3=delete minion
     pub delete_force_remove: bool,  // checkbox: also remove from host over SSH
+    cluster_confirm_form_focus: DialogFormFocus,
 
     // Tag popup
     pub tag_visible: bool,
@@ -311,6 +314,7 @@ impl Default for SysInspectUX {
             cluster_confirm_choice: AlertResult::default(),
             pending_cluster_action: 0,
             delete_force_remove: false,
+            cluster_confirm_form_focus: DialogFormFocus::LeftButton,
 
             tag_visible: false,
             tag_key_buf: String::new(),
@@ -1056,17 +1060,11 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 4 {
                     self.do_minion_reconnect();
                 } else if self.minions_menu_sel == 5 {
-                    self.cluster_confirm_visible = true;
-                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 3;
+                    self.open_cluster_confirm(3);
                 } else if self.minions_menu_sel == 6 {
-                    self.cluster_confirm_visible = true;
-                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 1;
+                    self.open_cluster_confirm(1);
                 } else if self.minions_menu_sel == 7 {
-                    self.cluster_confirm_visible = true;
-                    self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                    self.pending_cluster_action = 2;
+                    self.open_cluster_confirm(2);
                 } else if self.minions_menu_sel == 8 {
                     self.registration_form.visible = true;
                 }
@@ -1465,15 +1463,11 @@ impl SysInspectUX {
                 true
             }
             KeyCode::Char('x') if e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cluster_confirm_visible = true;
-                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                self.pending_cluster_action = 1;
+                self.open_cluster_confirm(1);
                 true
             }
             KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cluster_confirm_visible = true;
-                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                self.pending_cluster_action = 2;
+                self.open_cluster_confirm(2);
                 true
             }
             KeyCode::Insert => {
@@ -1481,9 +1475,7 @@ impl SysInspectUX {
                 true
             }
             KeyCode::Delete => {
-                self.cluster_confirm_visible = true;
-                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
-                self.pending_cluster_action = 3;
+                self.open_cluster_confirm(3);
                 true
             }
             _ => false,
@@ -1493,6 +1485,40 @@ impl SysInspectUX {
     fn on_cluster_confirm(&mut self, e: event::KeyEvent) -> bool {
         if !self.cluster_confirm_visible {
             return false;
+        }
+        if self.pending_cluster_action == 3 {
+            match e.code {
+                KeyCode::Tab => {
+                    self.cluster_confirm_form_focus = self.cluster_confirm_form_focus.next(1, true);
+                }
+                KeyCode::BackTab => {
+                    self.cluster_confirm_form_focus = self.cluster_confirm_form_focus.prev(1, true);
+                }
+                KeyCode::Char(' ') => {
+                    if matches!(self.cluster_confirm_form_focus, DialogFormFocus::Widget(0)) {
+                        self.delete_force_remove = !self.delete_force_remove;
+                    }
+                }
+                KeyCode::Enter => match self.cluster_confirm_form_focus {
+                    DialogFormFocus::Widget(0) => {
+                        self.delete_force_remove = !self.delete_force_remove;
+                    }
+                    DialogFormFocus::LeftButton => {
+                        let force = self.delete_force_remove;
+                        self.close_cluster_confirm();
+                        self.do_minion_delete(force);
+                    }
+                    DialogFormFocus::RightButton => {
+                        self.close_cluster_confirm();
+                    }
+                    DialogFormFocus::Widget(_) => {}
+                },
+                KeyCode::Esc => {
+                    self.close_cluster_confirm();
+                }
+                _ => {}
+            }
+            return true;
         }
         match e.code {
             KeyCode::Tab => {
@@ -1519,17 +1545,30 @@ impl SysInspectUX {
                 }
                 self.pending_cluster_action = 0;
                 self.delete_force_remove = false;
+                self.cluster_confirm_form_focus = DialogFormFocus::LeftButton;
                 self.status_at_minions_browser();
             }
             KeyCode::Esc => {
-                self.cluster_confirm_visible = false;
-                self.pending_cluster_action = 0;
-                self.delete_force_remove = false;
-                self.status_at_minions_browser();
+                self.close_cluster_confirm();
             }
             _ => {}
         }
         true
+    }
+
+    fn open_cluster_confirm(&mut self, action: u8) {
+        self.cluster_confirm_visible = true;
+        self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+        self.pending_cluster_action = action;
+        self.cluster_confirm_form_focus = if action == 3 { DialogFormFocus::Widget(0) } else { DialogFormFocus::LeftButton };
+    }
+
+    fn close_cluster_confirm(&mut self) {
+        self.cluster_confirm_visible = false;
+        self.pending_cluster_action = 0;
+        self.delete_force_remove = false;
+        self.cluster_confirm_form_focus = DialogFormFocus::LeftButton;
+        self.status_at_minions_browser();
     }
 
     fn do_cluster_shutdown(&mut self) {
