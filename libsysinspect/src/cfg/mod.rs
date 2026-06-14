@@ -92,7 +92,7 @@ pub(crate) fn load_dropins(dir: &std::path::Path) -> Vec<Value> {
     let mut files: Vec<PathBuf> = rd
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()).map(|e| e == "yml" || e == "yaml").unwrap_or(false))
+        .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()).map(|e| e == "yml" || e == "yaml" || e == "conf").unwrap_or(false))
         .collect();
     files.sort();
     for f in &files {

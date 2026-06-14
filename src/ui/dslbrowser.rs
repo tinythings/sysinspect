@@ -182,6 +182,7 @@ impl DslBrowser {
     }
 
     pub fn load_models(&mut self, rows: Vec<libsysinspect::console::ConsoleModelRow>, failures: Vec<String>) {
+        let rows: Vec<libsysinspect::console::ConsoleModelRow> = rows.into_iter().filter(|r| r.enabled).collect();
         let mut ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         if ids.is_empty() {
             ids = vec!["(no models found)".to_string()];

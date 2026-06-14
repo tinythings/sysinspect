@@ -753,6 +753,7 @@ impl SysInspectUX {
             match self.repo_manager.active_tab {
                 0 => self.process_module_add(&path),
                 1 => self.process_library_add(&path),
+                2 => self.process_model_add(&path),
                 4 => self.process_platform_add(&path),
                 _ => {}
             }
@@ -2060,6 +2061,29 @@ impl SysInspectUX {
         if self.repo_manager.info_visible {
             return self.repo_manager.handle_info_key(e);
         }
+        if self.repo_manager.model_delete_visible {
+            let handled = self.repo_manager.handle_model_delete_key(e);
+            if !handled && e.code == KeyCode::Enter {
+                if self.repo_manager.model_delete_focus == repomanager::ModelDeleteFocus::YesBtn {
+                    let model_id = self.repo_manager.model_delete_id.clone();
+                    match self.delete_model(&model_id) {
+                        Ok(()) => {
+                            let _ = self.load_model_list();
+                            self.info_alert_visible = true;
+                            self.info_alert_title = "Model Removal".to_string();
+                            self.info_alert_styled = None;
+                            self.info_alert_message = format!("Model removed: {model_id}");
+                        }
+                        Err(err) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = err;
+                        }
+                    }
+                }
+                self.repo_manager.model_delete_visible = false;
+            }
+            return true;
+        }
         if self.repo_manager.filter_focus {
             match e.code {
                 KeyCode::Esc => {
@@ -2268,6 +2292,18 @@ impl SysInspectUX {
                     *cursor_ref = (*cursor_ref + 1).min(max_cursor);
                 }
             }
+            KeyCode::Char(' ') if self.repo_manager.active_tab == 2 && !self.repo_manager.model_rows.is_empty() => {
+                if let Some(model) = self.repo_manager.model_rows.get(self.repo_manager.model_cursor) {
+                    let model_id = model.id.clone();
+                    let enabled = !model.enabled;
+                    if let Err(err) = self.set_model_enabled(&model_id, enabled) {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err;
+                    } else {
+                        let _ = self.load_model_list();
+                    }
+                }
+            }
             KeyCode::PageUp => {
                 if self.repo_manager.active_tab == 0 {
                     let n = self.repo_manager.group_order.len();
@@ -2360,8 +2396,9 @@ impl SysInspectUX {
                         self.status_at_profiles();
                     }
                 } else if self.repo_manager.active_tab == 2 {
-                    self.error_alert_visible = true;
-                    self.error_alert_message = "Model deletion is not supported yet".to_string();
+                    if let Some(model) = self.repo_manager.model_rows.get(self.repo_manager.model_cursor) {
+                        self.repo_manager.open_model_delete(model.id.clone());
+                    }
                 } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
                     self.repo_manager.delete_mode = true;
                     self.repo_manager.staged = self
@@ -2416,8 +2453,8 @@ impl SysInspectUX {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
                 } else if self.repo_manager.active_tab == 2 {
-                    self.error_alert_visible = true;
-                    self.error_alert_message = "Model addition is not supported yet".to_string();
+                    let start_dir = std::env::current_dir().unwrap_or_default();
+                    self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
                 } else {
                     let mode = if self.repo_manager.active_tab == 1 { filepicker::PickerMode::LibrarySelector } else { filepicker::PickerMode::Any };
                     self.file_picker.open(&std::env::current_dir().unwrap_or_default(), mode);
@@ -2684,6 +2721,121 @@ impl SysInspectUX {
             }
             Err(e) => Err(format!("Failed to load models: {e}")),
         }
+    }
+
+    fn model_dropin_path(&self) -> PathBuf {
+        let cfg_path = self.cfg.config_path();
+        let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        cfg_path.with_file_name(format!("{stem}.d")).join("99-models.conf")
+    }
+
+    fn enabled_model_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.repo_manager.model_rows.iter().filter(|row| row.enabled).map(|row| row.id.clone()).collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    fn write_enabled_models_dropin(&self, mut ids: Vec<String>) -> Result<(), String> {
+        ids.sort();
+        ids.dedup();
+        let dropin = self.model_dropin_path();
+        if let Some(parent) = dropin.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Unable to create drop-in directory: {e}"))?;
+        }
+        let mut body = String::from("config:\n  master:\n    fileserver.models:");
+        if ids.is_empty() {
+            body.push_str(" []\n");
+        } else {
+            body.push('\n');
+            for id in ids {
+                body.push_str(&format!("      - {id}\n"));
+            }
+        }
+        std::fs::write(&dropin, body).map_err(|e| format!("Unable to write models drop-in: {e}"))
+    }
+
+    fn set_model_enabled(&mut self, model_id: &str, enabled: bool) -> Result<(), String> {
+        let mut ids = self.enabled_model_ids();
+        if enabled {
+            if !ids.iter().any(|id| id == model_id) {
+                ids.push(model_id.to_string());
+            }
+        } else {
+            ids.retain(|id| id != model_id);
+        }
+        self.write_enabled_models_dropin(ids)?;
+        for row in &mut self.repo_manager.model_rows {
+            if row.id == model_id {
+                row.enabled = enabled;
+            }
+        }
+        Ok(())
+    }
+
+    fn process_model_add(&mut self, path: &std::path::Path) {
+        if !path.is_dir() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Select a model directory".to_string();
+            return;
+        }
+        if !path.join("model.cfg").exists() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Selected directory does not contain model.cfg".to_string();
+            return;
+        }
+        let model_id = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        if model_id.is_empty() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Unable to determine model id from directory name".to_string();
+            return;
+        }
+        let dst_root = self.cfg.fileserver_models_root(false);
+        let dst = dst_root.join(&model_id);
+        if dst.exists() {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Model already exists: {model_id}");
+            return;
+        }
+        match Self::copy_dir_recursive(path, &dst).and_then(|_| self.set_model_enabled(&model_id, true)) {
+            Ok(()) => {
+                let _ = self.load_model_list();
+                self.info_alert_visible = true;
+                self.info_alert_title = "Model Import".to_string();
+                self.info_alert_styled = None;
+                self.info_alert_message = format!("Model added: {model_id}");
+            }
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&dst);
+                self.error_alert_visible = true;
+                self.error_alert_message = err;
+            }
+        }
+    }
+
+    fn delete_model(&mut self, model_id: &str) -> Result<(), String> {
+        let path = self.cfg.fileserver_models_root(false).join(model_id);
+        if !path.exists() {
+            return Err(format!("Model does not exist: {model_id}"));
+        }
+        std::fs::remove_dir_all(&path).map_err(|e| format!("Unable to remove model {model_id}: {e}"))?;
+        self.set_model_enabled(model_id, false)
+    }
+
+    fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+        std::fs::create_dir_all(dst).map_err(|e| format!("Unable to create destination {}: {e}", dst.display()))?;
+        let entries = std::fs::read_dir(src).map_err(|e| format!("Unable to read {}: {e}", src.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Unable to read directory entry in {}: {e}", src.display()))?;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if src_path.is_dir() {
+                Self::copy_dir_recursive(&src_path, &dst_path)?;
+            } else {
+                std::fs::copy(&src_path, &dst_path).map_err(|e| format!("Unable to copy {} to {}: {e}", src_path.display(), dst_path.display()))?;
+            }
+        }
+        Ok(())
     }
 
     fn process_module_add(&mut self, path: &std::path::Path) {

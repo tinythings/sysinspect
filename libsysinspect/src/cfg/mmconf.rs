@@ -1426,6 +1426,12 @@ impl MasterConfig {
         self.root_dir().join(CFG_FILESERVER_ROOT)
     }
 
+    /// Path to the master configuration file for this layout.
+    pub fn config_path(&self) -> PathBuf {
+        let root = self.root_dir();
+        if root == *DEFAULT_SYSINSPECT_ROOT { root.join(APP_CONF) } else { root.join(DEFAULT_MINION_CFG_DIR).join(APP_CONF) }
+    }
+
     /// Get models root on the fileserver
     pub fn fileserver_models_root(&self, uri_only: bool) -> PathBuf {
         if uri_only {
