@@ -273,6 +273,7 @@ impl Widget for &SysInspectUX {
     {
         // Fill main background
         Block::default().style(Style::default().bg(palette::BG_1)).render(area, buf);
+        self.popup_button_rects.set(None);
 
         let cycles_max = self.cycles_buf.iter().map(|c| c.get_list_line(false).width()).max().unwrap_or(10);
         let minions_max = self.li_minions.iter().map(|m| m.get_list_line(false).width()).max().unwrap_or(8);
@@ -309,7 +310,6 @@ impl Widget for &SysInspectUX {
         self.minion_traits(area, buf);
         self.dialog_minion_logs(area, buf);
         self.dialog_master_logs(area, buf);
-        self.popup_button_rects.set(None);
         self.dialog_trait_tag(area, buf);
         self.dialog_cluster_confirm(area, buf);
         self.dialog_delete_progress(area, buf);

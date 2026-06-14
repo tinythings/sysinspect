@@ -679,9 +679,11 @@ impl SysInspectUX {
                 Event::Key(e) if e.kind == KeyEventKind::Press => {
                     self.on_key(e);
                 }
-                Event::Mouse(me) if me.kind == MouseEventKind::Down(MouseButton::Left) => {
-                    self.on_mouse(me);
-                }
+                Event::Mouse(me) => match me.kind {
+                    MouseEventKind::Down(MouseButton::Left) => self.on_mouse_click(me),
+                    MouseEventKind::Moved => self.on_mouse_move(me),
+                    _ => {}
+                },
                 _ => {}
             }
         } else {
@@ -3431,7 +3433,59 @@ impl SysInspectUX {
         }
     }
 
-    fn on_mouse(&mut self, me: MouseEvent) {
+    fn on_mouse_move(&mut self, me: MouseEvent) {
+        let rects = match self.popup_button_rects.get() {
+            Some(r) => r,
+            None => return,
+        };
+        let (cx, cy) = (me.column, me.row);
+        let hit = |r: Rect| cx >= r.x && cx < r.x.saturating_add(r.width) && cy == r.y;
+        let on_left = rects.left_button.is_some_and(hit);
+        let on_right = hit(rects.right_button);
+
+        if self.error_alert_visible || self.info_alert_visible || self.help_popup_visible {
+            return;
+        }
+        if self.exit_alert_visible {
+            if on_left {
+                self.exit_alert_choice = AlertResult::Quit;
+            } else if on_right {
+                self.exit_alert_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.purge_alert_visible {
+            if on_left {
+                self.purge_alert_choice = AlertResult::Purge;
+            } else if on_right {
+                self.purge_alert_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.cluster_confirm_visible {
+            if self.pending_cluster_action == 3 {
+                if on_left {
+                    self.cluster_confirm_form_focus = DialogFormFocus::LeftButton;
+                } else if on_right {
+                    self.cluster_confirm_form_focus = DialogFormFocus::RightButton;
+                }
+            } else if on_left {
+                self.cluster_confirm_choice = AlertResult::ClusterConfirm;
+            } else if on_right {
+                self.cluster_confirm_choice = AlertResult::Default;
+            }
+            return;
+        }
+        if self.master_confirm_visible {
+            if on_left {
+                self.master_confirm_choice = AlertResult::Quit;
+            } else if on_right {
+                self.master_confirm_choice = AlertResult::Default;
+            }
+        }
+    }
+
+    fn on_mouse_click(&mut self, me: MouseEvent) {
         let rects = match self.popup_button_rects.get() {
             Some(r) => r,
             None => return,
