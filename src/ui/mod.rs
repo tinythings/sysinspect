@@ -240,7 +240,7 @@ pub struct SysInspectUX {
     // File picker
     pub file_picker: filepicker::FilePicker,
 
-    // Repository manager
+    // Artefacts manager
     pub repo_manager: repomanager::RepoManager,
 
     // Connection state

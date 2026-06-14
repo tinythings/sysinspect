@@ -299,6 +299,9 @@ impl DslBrowser {
     fn s_bl() -> Style {
         Style::default().fg(palette::PROCESSING).bg(palette::POPUP_BG_BASE)
     }
+    fn s_fl() -> Style {
+        Style::default().fg(palette::FORM_LABEL)
+    }
 
     fn border_style(focus: DslFocus, current: DslFocus) -> Style {
         if current == focus { Style::default().fg(palette::ACCENT) } else { Style::default().fg(palette::FAINT) }
@@ -380,7 +383,7 @@ impl DslBrowser {
             ])
             .split(area);
 
-        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_bl());
+        write_clipped(buf, chunks[0], chunks[0].x, chunks[0].y, "Query: ", Self::s_fl());
         let qf = self.focus == DslFocus::Query;
         let mut qs = InputState::new();
         qs.set_value(self.query.clone());
@@ -392,10 +395,10 @@ impl DslBrowser {
         let inp = Input::new("").prompt("").placeholder("*");
         StatefulWidget::render(&inp, Rect::new(chunks[0].x + 7, chunks[0].y, chunks[0].width.saturating_sub(7), 1), buf, &mut qs);
 
-        write_clipped(buf, chunks[1], chunks[1].x, chunks[1].y, " Models:", Self::s_bl());
-        write_clipped(buf, chunks[2], chunks[2].x, chunks[2].y, " Target:", Self::s_bl());
-        write_clipped(buf, chunks[3], chunks[3].x, chunks[3].y, " State:", Self::s_bl());
-        write_clipped(buf, chunks[4], chunks[4].x, chunks[4].y, " Context:", Self::s_bl());
+        write_clipped(buf, chunks[1], chunks[1].x, chunks[1].y, " Models:", Self::s_fl());
+        write_clipped(buf, chunks[2], chunks[2].x, chunks[2].y, " Target:", Self::s_fl());
+        write_clipped(buf, chunks[3], chunks[3].x, chunks[3].y, " State:", Self::s_fl());
+        write_clipped(buf, chunks[4], chunks[4].x, chunks[4].y, " Context:", Self::s_fl());
     }
 
     fn render_lists(&self, area: Rect, box_w: u16, ctx_w: u16, buf: &mut Buffer) {
@@ -493,7 +496,7 @@ impl DslBrowser {
             let focused = matches!(self.focus, DslFocus::ContextField(idx) if idx == i);
             let req = if field.required { "*" } else { " " };
             let label = format!("{req}{:>width$}: ", field.key, width = max_label_w as usize);
-            write_clipped(buf, area, area.x + 1, y, &label, Self::s_bd());
+            write_clipped(buf, area, area.x + 1, y, &label, Self::s_fl());
             let inp = Input::new("").prompt("").placeholder(if field.desc.is_empty() { &field.key } else { &field.desc });
             let mut is = InputState::new();
             is.set_value(field.value.clone());
@@ -741,6 +744,16 @@ impl SysInspectUX {
 
         Clear.render(popup, buf);
 
+        let grad_colors = blend_2d(popup.width as usize, popup.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[ratatui::style::Color]);
+        for row in 0..popup.height {
+            for col in 0..popup.width {
+                let idx = row as usize * popup.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(popup.x + col, popup.y + row)) {
+                    cell.set_bg(grad_colors[idx]);
+                }
+            }
+        }
+
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let target_id = self.dsl_browser.targets.items.get(self.dsl_browser.targets.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let state_display = self.dsl_browser.states.items.get(self.dsl_browser.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
@@ -785,7 +798,7 @@ impl SysInspectUX {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color))
             .padding(Padding::horizontal(2))
-            .style(Style::default().bg(palette::POPUP_BG_BASE));
+            .style(Style::default());
         let inner = block.inner(popup);
         block.render(popup, buf);
         let title_style = TitleStyle::cyberpunk(border_color);
