@@ -12,6 +12,7 @@ use ratatui::{
         Block, BorderType, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget,
     },
 };
+use ratatui_glamour::color::lerp_color;
 
 impl SysInspectUX {
     /// Render information box where data from the selected event is displayed
@@ -25,6 +26,8 @@ impl SysInspectUX {
 
         let rule_fill = Style::default().fg(palette::PROCESSING_BASE);
         let rule_title = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
+        let grad_start = palette::PRIMARY;
+        let grad_end = palette::PROCESSING_DIMMED;
 
         let evt = match self.get_selected_event() {
             Some(eli) => eli,
@@ -53,7 +56,7 @@ impl SysInspectUX {
                 .as_ref()
                 .try_into()
                 .unwrap();
-            render_rule_line(gen_title_area, buf, "General", rule_title, rule_fill);
+            render_rule_line(gen_title_area, buf, "General", rule_title, grad_start, grad_end);
             Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), gen_table_area, buf);
 
             let [_, det_title_area, det_content_area]: [Rect; 3] = Layout::default()
@@ -91,7 +94,7 @@ impl SysInspectUX {
                 .as_ref()
                 .try_into()
                 .unwrap();
-            render_rule_line(gen_title_area, buf, "General", rule_title, rule_fill);
+            render_rule_line(gen_title_area, buf, "General", rule_title, grad_start, grad_end);
             Widget::render(Table::new(info_rows, &[Constraint::Length(15), Constraint::Min(0)]).column_spacing(1), gen_table_area, buf);
         }
     }

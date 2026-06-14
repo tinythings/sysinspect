@@ -120,6 +120,9 @@ pub const SUCCESS: Color = Color::Indexed(49);
 /// Form labels / structured input captions.
 pub const FORM_LABEL: Color = SUCCESS_PEAK;
 
+/// Form labels when the associated control is disabled.
+pub const FORM_LABEL_DIMMED: Color = SUCCESS_BASE;
+
 /// Work in progress / active processing.
 pub const PROCESSING: Color = Color::Indexed(171);
 
