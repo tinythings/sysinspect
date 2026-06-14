@@ -282,13 +282,13 @@ impl DslBrowser {
     }
 
     fn s_fg() -> Style {
-        Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
+        Style::default().fg(palette::FG)
     }
     fn s_bd() -> Style {
         Self::s_fg().add_modifier(Modifier::BOLD)
     }
     fn s_di() -> Style {
-        Style::default().fg(palette::MUTED).bg(palette::POPUP_BG_BASE)
+        Style::default().fg(palette::MUTED)
     }
     fn s_hl() -> Style {
         Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
