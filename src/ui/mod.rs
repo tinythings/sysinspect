@@ -3979,8 +3979,13 @@ impl SysInspectUX {
                     });
                 } else {
                     let model = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
-                    let _target =
-                        self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+                    let _target = self
+                        .dsl_browser
+                        .target_entities
+                        .items
+                        .get(self.dsl_browser.target_entities.selected().unwrap_or(0))
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
                     let missing_keys = std::mem::take(&mut self.dsl_browser.error_required_key);
                     if !missing_keys.is_empty() {
                         self.error_alert_visible = true;

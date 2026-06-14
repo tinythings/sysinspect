@@ -482,9 +482,7 @@ impl DslBrowser {
         let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
         let focused = self.focus == target;
         let is_placeholder = lb.items.get(lb.state.selected().unwrap_or(0)).is_some_and(|s| s == "(select)");
-        let hl = if dimmed {
-            Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
-        } else if is_placeholder && !focused {
+        let hl = if dimmed || (is_placeholder && !focused) {
             Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
         } else if is_minions {
             if focused { Style::default().fg(palette::SECONDARY) } else { Style::default() }
@@ -502,7 +500,10 @@ impl DslBrowser {
             if let Some(sel) = lb.state.selected() {
                 ls.select(Some(sel.saturating_sub(offset)));
             }
-        } else if !is_minions && !dimmed && let Some(sel) = lb.state.selected() {
+        } else if !is_minions
+            && !dimmed
+            && let Some(sel) = lb.state.selected()
+        {
             ls.select(Some(sel.saturating_sub(offset)));
         }
         let list_area = Rect::new(inner.x, inner.y, inner.width.saturating_sub(2), inner.height);
@@ -545,11 +546,7 @@ impl DslBrowser {
         let tgt_blocked = cb_active;
 
         // Checkbook box
-        let cb_border = if cb_blocked {
-            Style::default().fg(palette::MUTED)
-        } else {
-            Self::border_style(self.focus, DslFocus::Checkbook)
-        };
+        let cb_border = if cb_blocked { Style::default().fg(palette::MUTED) } else { Self::border_style(self.focus, DslFocus::Checkbook) };
         let cb_block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(cb_border);
         let cb_inner = cb_block.inner(parts[0]);
         cb_block.render(parts[0], buf);
@@ -560,11 +557,7 @@ impl DslBrowser {
         write_clipped(buf, parts[1], parts[1].x, parts[1].y, " Target:", tgt_label);
 
         // Target box
-        let tgt_border = if tgt_blocked {
-            Style::default().fg(palette::MUTED)
-        } else {
-            Self::border_style(self.focus, DslFocus::Target)
-        };
+        let tgt_border = if tgt_blocked { Style::default().fg(palette::MUTED) } else { Self::border_style(self.focus, DslFocus::Target) };
         let tgt_block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(tgt_border);
         let tgt_inner = tgt_block.inner(parts[2]);
         tgt_block.render(parts[2], buf);
@@ -572,13 +565,11 @@ impl DslBrowser {
     }
 
     fn checkbook_labels_is_placeholder(&self) -> bool {
-        self.checkbook_labels.items.get(self.checkbook_labels.selected().unwrap_or(0))
-            .is_some_and(|s| s == "(select)" || s == "(none)" || s == "—")
+        self.checkbook_labels.items.get(self.checkbook_labels.selected().unwrap_or(0)).is_some_and(|s| s == "(select)" || s == "(none)" || s == "—")
     }
 
     fn target_entities_is_placeholder(&self) -> bool {
-        self.target_entities.items.get(self.target_entities.selected().unwrap_or(0))
-            .is_some_and(|s| s == "(select)" || s == "(none)" || s == "—")
+        self.target_entities.items.get(self.target_entities.selected().unwrap_or(0)).is_some_and(|s| s == "(select)" || s == "(none)" || s == "—")
     }
 
     fn render_list_items(&self, lb: &ListBox, area: &Rect, focused: bool, dimmed: bool, buf: &mut Buffer) {
@@ -597,9 +588,7 @@ impl DslBrowser {
 
         let visible: Vec<ListItem> = lb.items.iter().skip(offset).take(list_h).map(|s| ListItem::new(s.as_str())).collect();
         let is_placeholder = lb.items.get(lb.state.selected().unwrap_or(0)).is_some_and(|s| s == "(select)");
-        let hl = if dimmed {
-            Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
-        } else if is_placeholder && !focused {
+        let hl = if dimmed || (is_placeholder && !focused) {
             Style::default().fg(palette::MUTED).bg(palette::GRAY_0)
         } else if focused {
             Self::s_hl()
@@ -611,10 +600,10 @@ impl DslBrowser {
             list = list.style(Style::default().fg(palette::MUTED));
         }
         let mut ls = ListState::default();
-        if focused || (!focused && !dimmed) {
-            if let Some(sel) = lb.state.selected() {
-                ls.select(Some(sel.saturating_sub(offset)));
-            }
+        if (focused || !dimmed)
+            && let Some(sel) = lb.state.selected()
+        {
+            ls.select(Some(sel.saturating_sub(offset)));
         }
         StatefulWidget::render(list, *area, buf, &mut ls);
 
@@ -1012,14 +1001,10 @@ impl SysInspectUX {
         }
 
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
-        let cb_label = self
-            .dsl_browser
-            .checkbook_labels
-            .items
-            .get(self.dsl_browser.checkbook_labels.selected().unwrap_or(0))
-            .map(|s| s.as_str())
-            .unwrap_or("");
-        let target_id = self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let cb_label =
+            self.dsl_browser.checkbook_labels.items.get(self.dsl_browser.checkbook_labels.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id =
+            self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let state_display = self.dsl_browser.states.items.get(self.dsl_browser.states.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
 
         let has_model = !model_name.is_empty() && model_name != "(select)" && model_name != "(no models found)";
@@ -1051,12 +1036,7 @@ impl SysInspectUX {
             });
         }
         if has_checkbook {
-            title_segments.push(TitleSegment {
-                text: format!(" {cb_label} "),
-                bg: peak_bg,
-                fg: palette::BG_2,
-                modifier: Modifier::empty(),
-            });
+            title_segments.push(TitleSegment { text: format!(" {cb_label} "), bg: peak_bg, fg: palette::BG_2, modifier: Modifier::empty() });
         }
         if has_target {
             title_segments.push(TitleSegment { text: format!(" {target_id} "), bg: proc_bg, fg: palette::BG_3, modifier: Modifier::empty() });
@@ -1139,7 +1119,8 @@ impl SysInspectUX {
         }
 
         let model_name = self.dsl_browser.models.items.get(self.dsl_browser.models.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("?");
-        let target_id = self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
+        let target_id =
+            self.dsl_browser.target_entities.items.get(self.dsl_browser.target_entities.selected().unwrap_or(0)).map(|s| s.as_str()).unwrap_or("");
         let has_target = target_id != "(select)" && target_id != "(none)" && target_id != "—" && !target_id.is_empty();
 
         let block = Block::default()

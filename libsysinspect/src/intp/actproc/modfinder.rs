@@ -459,10 +459,7 @@ impl ModCall {
                 Ok(v) => v,
                 Err(e) => {
                     log::debug!("STDOUT (raw): {raw_out}");
-                    return Err(SysinspectError::ModuleError(format!(
-                        "Module '{}' returned invalid JSON: {e}",
-                        self.module.display()
-                    )));
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' returned invalid JSON: {e}", self.module.display())));
                 }
             };
             if let Some(obj) = v.as_object() {
@@ -486,10 +483,7 @@ impl ModCall {
                 Ok(r) => r,
                 Err(e) => {
                     log::debug!("STDOUT (raw): {raw_out}");
-                    return Err(SysinspectError::ModuleError(format!(
-                        "Module '{}' response format error: {e}",
-                        self.module.display()
-                    )));
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' response format error: {e}", self.module.display())));
                 }
             };
             let mut data = r.clone();
@@ -533,10 +527,7 @@ impl ModCall {
                 Ok(v) => v,
                 Err(e) => {
                     log::debug!("STDOUT (raw): {raw_out}");
-                    return Err(SysinspectError::ModuleError(format!(
-                        "Module '{}' returned invalid JSON: {e}",
-                        self.module.display()
-                    )));
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' returned invalid JSON: {e}", self.module.display())));
                 }
             };
             if let Some(obj) = v.as_object() {
@@ -560,10 +551,7 @@ impl ModCall {
                 Ok(r) => r,
                 Err(e) => {
                     log::debug!("STDOUT (raw): {raw_out}");
-                    return Err(SysinspectError::ModuleError(format!(
-                        "Module '{}' response format error: {e}",
-                        self.module.display()
-                    )));
+                    return Err(SysinspectError::ModuleError(format!("Module '{}' response format error: {e}", self.module.display())));
                 }
             };
             let mut data = r.clone();

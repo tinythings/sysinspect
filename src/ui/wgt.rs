@@ -24,7 +24,6 @@ impl SysInspectUX {
         Widget::render(&block, rect, buf);
         let inner = block.inner(rect);
 
-        let rule_fill = Style::default().fg(palette::PROCESSING_BASE);
         let rule_title = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
         let grad_start = palette::PRIMARY;
         let grad_end = palette::PROCESSING_DIMMED;
@@ -66,7 +65,7 @@ impl SysInspectUX {
                 .as_ref()
                 .try_into()
                 .unwrap();
-            render_rule_line(det_title_area, buf, "Details", rule_title, rule_fill);
+            render_rule_line(det_title_area, buf, "Details", rule_title, grad_start, grad_end);
 
             let ex_nfo_parts =
                 Layout::default().direction(Direction::Horizontal).constraints([Constraint::Min(0), Constraint::Length(1)]).split(det_content_area);
@@ -254,7 +253,9 @@ impl SysInspectUX {
 
 /// Render a decorated rule line: ` Title ////////////////////////////////`
 /// with one leading space and dash fill to end of area, minus one trailing space.
-pub(crate) fn render_rule_line(area: Rect, buf: &mut Buffer, title: &str, title_style: Style, fill_style: Style) {
+pub(crate) fn render_rule_line(
+    area: Rect, buf: &mut Buffer, title: &str, title_style: Style, grad_start: ratatui::style::Color, grad_end: ratatui::style::Color,
+) {
     if area.width < 6 {
         return;
     }
@@ -264,8 +265,11 @@ pub(crate) fn render_rule_line(area: Rect, buf: &mut Buffer, title: &str, title_
 
     let fill_start = area.x.saturating_add(label_w);
     let fill_end = area.right().saturating_sub(1);
+    let fill_len = (fill_end.saturating_sub(fill_start)).max(1) as f64;
     for x in fill_start..fill_end.min(fill_start.saturating_add(area.width)) {
-        buf.set_string(x, area.y, "/", fill_style);
+        let t = (x.saturating_sub(fill_start)) as f64 / fill_len;
+        let color = lerp_color(grad_start, grad_end, t as f32);
+        buf.set_string(x, area.y, "/", Style::default().fg(color));
     }
 }
 
