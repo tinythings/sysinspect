@@ -151,3 +151,73 @@ impl ModArgFunction {
         &self.fid
     }
 }
+
+/// Deep-merge two serde_yaml or serde_json `Value` trees.
+///
+/// Scalars are replaced, mappings are recursively merged,
+/// and sequences are appended.
+pub(crate) fn deep_merge(base: &mut serde_yaml::Value, overlay: &serde_yaml::Value) {
+    use serde_yaml::Value;
+
+    match (base, overlay) {
+        (Value::Mapping(b), Value::Mapping(o)) => {
+            for (k, v) in o {
+                match b.get_mut(k) {
+                    Some(existing) => deep_merge(existing, v),
+                    None => {
+                        b.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        (Value::Sequence(b), Value::Sequence(o)) => {
+            b.extend(o.iter().cloned());
+        }
+        (b, o) => {
+            *b = o.clone();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scalar_replace() {
+        let mut base = serde_yaml::from_str::<serde_yaml::Value>("port: 4200").unwrap();
+        let overlay = serde_yaml::from_str::<serde_yaml::Value>("port: 9999").unwrap();
+        deep_merge(&mut base, &overlay);
+        assert_eq!(base["port"].as_u64().unwrap(), 9999);
+    }
+
+    #[test]
+    fn map_deep_merge() {
+        let mut base = serde_yaml::from_str::<serde_yaml::Value>("a: {x: 1, y: 2}").unwrap();
+        let overlay = serde_yaml::from_str::<serde_yaml::Value>("a: {y: 99, z: 3}").unwrap();
+        deep_merge(&mut base, &overlay);
+        assert_eq!(base["a"]["x"].as_u64().unwrap(), 1);
+        assert_eq!(base["a"]["y"].as_u64().unwrap(), 99);
+        assert_eq!(base["a"]["z"].as_u64().unwrap(), 3);
+    }
+
+    #[test]
+    fn sequence_append() {
+        let mut base = serde_yaml::from_str::<serde_yaml::Value>("items: [a, b]").unwrap();
+        let overlay = serde_yaml::from_str::<serde_yaml::Value>("items: [c, d]").unwrap();
+        deep_merge(&mut base, &overlay);
+        let seq = base["items"].as_sequence().unwrap();
+        assert_eq!(seq.len(), 4);
+        assert_eq!(seq[0].as_str().unwrap(), "a");
+        assert_eq!(seq[2].as_str().unwrap(), "c");
+    }
+
+    #[test]
+    fn new_key_added() {
+        let mut base = serde_yaml::from_str::<serde_yaml::Value>("a: 1").unwrap();
+        let overlay = serde_yaml::from_str::<serde_yaml::Value>("b: 2").unwrap();
+        deep_merge(&mut base, &overlay);
+        assert_eq!(base["a"].as_u64().unwrap(), 1);
+        assert_eq!(base["b"].as_u64().unwrap(), 2);
+    }
+}
