@@ -507,7 +507,7 @@ impl ProfilesManager {
             buf,
             " Modules ",
             palette::PROCESSING,
-            palette::PROCESSING_PEAK,
+            palette::PRIMARY,
             palette::PROCESSING_DIMMED,
         );
         row_y += 1;
@@ -525,7 +525,7 @@ impl ProfilesManager {
                 buf,
                 " Libraries ",
                 palette::PROCESSING,
-                palette::PROCESSING_PEAK,
+                palette::PRIMARY,
                 palette::PROCESSING_DIMMED,
             );
             row_y += 1;

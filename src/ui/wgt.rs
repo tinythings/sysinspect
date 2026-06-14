@@ -321,7 +321,7 @@ impl Widget for &SysInspectUX {
         self.dialog_dsl_browser(area, buf);
         self.dialog_error(area, buf);
         if self.info_alert_visible {
-            self.dialog_info(area, buf, "Setup Complete", &self.info_alert_message, true);
+            self.dialog_info(area, buf, &self.info_alert_title, &self.info_alert_message, self.info_alert_styled.clone(), true);
         }
     }
 }

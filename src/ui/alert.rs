@@ -105,27 +105,24 @@ impl SysInspectUX {
         );
     }
 
-    pub fn dialog_info(&self, parent: Rect, buf: &mut Buffer, title: &str, text: &str, quit_button: bool) {
-        let max_w = ((parent.width * 3 / 4).max(50)) as usize;
-        let wrapped_lines = wrap_text(text, max_w);
-        let text = if wrapped_lines.is_empty() { "".to_string() } else { wrapped_lines.join("\n") };
+    pub fn dialog_info(&self, parent: Rect, buf: &mut Buffer, title: &str, text: &str, styled_text: Option<Text<'static>>, quit_button: bool) {
         Self::_popup_ex(
             parent,
             buf,
             Some(title),
-            &text,
+            text,
             None,
             Alignment::Left,
             AlertResult::Quit,
             if quit_button { AlertButtons::Quit } else { AlertButtons::Close },
             Some(0),
-            Some(palette::SUCCESS_PEAK),
+            Some(palette::SUCCESS),
             None,
             None,
             Some(palette::BG_1),
             None,
             None,
-            None,
+            styled_text,
             Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
         );
     }
@@ -169,7 +166,7 @@ impl SysInspectUX {
             AlertResult::Close,
             AlertButtons::Close,
             Some(0),
-            Some(palette::SUCCESS_PEAK),
+            Some(palette::SUCCESS),
             None,
             None,
             Some(palette::BG_1),

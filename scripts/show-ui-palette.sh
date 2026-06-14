@@ -52,7 +52,7 @@ show_group '-- Success' \
   'SUCCESS_BASE' 23 \
   'SUCCESS_GLOW' 29 \
   'SUCCESS_HEAT' 36 \
-  'SUCCESS_PEAK' 44 \
+  'SUCCESS_PEAK' 43 \
   'SUCCESS' 49 \
   'ACCENT' 36
 

@@ -17,7 +17,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, StatefulWidget, Widget},
 };
 use ratatui_cheese::input::{Input, InputState};
-use ratatui_glamour::color::blend_2d;
+use ratatui_glamour::color::{blend_2d, lerp_color};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -337,7 +337,7 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
     }
     let has_error = progress.error.is_some();
     let dlg_w = (parent.width * 3 / 4).clamp(52, 72);
-    let dlg_h = if has_error { 11u16 } else { 10u16 };
+    let dlg_h = if has_error { 12u16 } else { 11u16 };
     let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
     let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
     let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
@@ -436,7 +436,12 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
         let filled = (bar_w as usize * progress.step).checked_div(progress.total.max(1)).unwrap_or(0) as u16;
 
         if filled > 0 {
-            buf.set_string(inner.x + 2, bar_y, "█".repeat(filled as usize), Style::default().fg(palette::PROCESSING_PEAK));
+            let bar_x = inner.x + 2;
+            for i in 0..filled {
+                let t = if bar_w > 1 { i as f32 / (bar_w - 1) as f32 } else { 0.0 };
+                let color = lerp_color(palette::PROCESSING_DIMMED, palette::SUCCESS, t);
+                buf.set_string(bar_x + i, bar_y, "█", Style::default().fg(color));
+            }
         }
         if filled < bar_w {
             let unfilled = (bar_w - filled) as usize;
@@ -444,11 +449,11 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
         }
         let pct_text = format!("{pct}%");
         let pct_x = inner.x + (inner.width.saturating_sub(pct_text.len() as u16)) / 2;
-        buf.set_string(pct_x, bar_y, &pct_text, Style::default().fg(palette::FG).add_modifier(Modifier::BOLD));
+        buf.set_string(pct_x, bar_y + 1, &pct_text, Style::default().fg(palette::FG).add_modifier(Modifier::BOLD));
 
         let cancel = SysInspectUX::format_button("Cancel");
         let btn_x = inner.x + (inner.width.saturating_sub(cancel.len() as u16)) / 2;
-        buf.set_string(btn_x, bar_y + 2, &cancel, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
+        buf.set_string(btn_x, bar_y + 3, &cancel, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
     }
 
     draw_shadow(buf, canvas, dlg_w, dlg_h);
@@ -511,6 +516,7 @@ pub fn spawn_registration(
                 p.error = Some(err.to_string());
             }
         }
+        std::thread::sleep(std::time::Duration::from_millis(250));
         p.done = true;
     })
 }

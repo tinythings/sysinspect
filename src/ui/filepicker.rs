@@ -526,7 +526,7 @@ impl FilePicker {
             buf,
             " Directories ",
             palette::PROCESSING,
-            palette::PROCESSING,
+            palette::PRIMARY,
             palette::PROCESSING_DIMMED,
         );
         row_y += 1;
@@ -550,7 +550,7 @@ impl FilePicker {
                 buf,
                 " Files ",
                 palette::PROCESSING,
-                palette::PROCESSING,
+                palette::PRIMARY,
                 palette::PROCESSING_DIMMED,
             );
             row_y += 1;

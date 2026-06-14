@@ -317,7 +317,7 @@ impl MasterSetupWizard {
             buf,
             " Installation ",
             palette::PROCESSING,
-            palette::PROCESSING,
+            palette::PRIMARY,
             palette::PROCESSING_DIMMED,
         );
         row_y += 1;
@@ -372,7 +372,7 @@ impl MasterSetupWizard {
             buf,
             " Configuration ",
             palette::PROCESSING,
-            palette::PROCESSING,
+            palette::PRIMARY,
             palette::PROCESSING_DIMMED,
         );
         row_y += 1;

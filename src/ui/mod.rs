@@ -27,7 +27,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Paragraph, Row},
 };
 use ratatui_cheese::tree::TreeState;
@@ -148,6 +148,8 @@ pub struct SysInspectUX {
     /// Information alert (success/info popups)
     pub info_alert_visible: bool,
     pub info_alert_message: String,
+    pub info_alert_title: String,
+    pub info_alert_styled: Option<Text<'static>>,
 
     /// Exit alert
     pub exit_alert_visible: bool,
@@ -246,6 +248,7 @@ pub struct SysInspectUX {
     pub delete_progress: DeleteProgressState,
     pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
     pub delete_success_message: String,
+    pub delete_success_styled: Option<Text<'static>>,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -286,6 +289,8 @@ impl Default for SysInspectUX {
             error_alert_message: String::new(),
             info_alert_visible: false,
             info_alert_message: String::new(),
+            info_alert_title: String::new(),
+            info_alert_styled: None,
             help_popup_visible: false,
 
             minions_visible: false,
@@ -358,6 +363,7 @@ impl Default for SysInspectUX {
             delete_progress: DeleteProgressState::default(),
             delete_task: None,
             delete_success_message: String::new(),
+            delete_success_styled: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -443,6 +449,8 @@ impl SysInspectUX {
 
                             // Not yet up — stay in setup loop, will auto-reconnect
                             self.info_alert_visible = true;
+                            self.info_alert_title = "Setup Complete".to_string();
+                            self.info_alert_styled = None;
                             self.info_alert_message = format!(
                                 "Config written to:\n{}\n\nMaster is starting in the background.\nThe UI will reconnect automatically.",
                                 config_path.display(),
@@ -706,6 +714,8 @@ impl SysInspectUX {
             match result {
                 Ok(Ok(mid)) => {
                     self.info_alert_visible = true;
+                    self.info_alert_title = "Minion Removal".to_string();
+                    self.info_alert_styled = self.delete_success_styled.take();
                     self.info_alert_message = if self.delete_success_message.is_empty() {
                         Self::format_machine_message("Minion deleted", None, None, Some(&mid))
                     } else {
@@ -766,10 +776,13 @@ impl SysInspectUX {
                 };
                 let platform = (!p.platform.trim().is_empty()).then_some(p.platform.trim());
                 let msg = Self::format_machine_message("Minion registered", host_value, platform, p.minion_id.as_deref());
+                let styled = Self::format_machine_message_styled("Minion registered", host_value, platform, p.minion_id.as_deref());
                 drop(p);
                 *self.registration_progress.lock().unwrap() = minreg::RegistrationProgress::placeholder();
                 self.restore_status();
                 self.info_alert_visible = true;
+                self.info_alert_title = "Minion Registration".to_string();
+                self.info_alert_styled = Some(styled);
                 self.info_alert_message = msg;
             }
         }
@@ -1111,10 +1124,25 @@ impl SysInspectUX {
                 self.status_at_minions_browser();
             }
             KeyCode::Up => {
-                self.minions_menu_sel = self.minions_menu_sel.saturating_sub(1);
+                let len = Self::minions_menu_len();
+                if len > 0 {
+                    self.minions_menu_sel = if self.minions_menu_sel == 0 { len - 1 } else { self.minions_menu_sel - 1 };
+                }
             }
             KeyCode::Down => {
-                self.minions_menu_sel = (self.minions_menu_sel + 1).min(Self::minions_menu_len().saturating_sub(1));
+                let len = Self::minions_menu_len();
+                if len > 0 {
+                    self.minions_menu_sel = if self.minions_menu_sel >= len - 1 { 0 } else { self.minions_menu_sel + 1 };
+                }
+            }
+            KeyCode::PageUp => {
+                self.minions_menu_sel = self.minions_menu_sel.saturating_sub(3);
+            }
+            KeyCode::PageDown => {
+                let len = Self::minions_menu_len();
+                if len > 0 {
+                    self.minions_menu_sel = (self.minions_menu_sel + 3).min(len - 1);
+                }
             }
             KeyCode::Enter => {
                 self.minions_menu_visible = false;
@@ -1700,6 +1728,7 @@ impl SysInspectUX {
             None
         };
         self.delete_success_message = Self::format_machine_message("Minion deleted", host.as_deref(), platform.as_deref(), Some(&mid));
+        self.delete_success_styled = Some(Self::format_machine_message_styled("Minion deleted", host.as_deref(), platform.as_deref(), Some(&mid)));
         let force_ctx = if force { Some(serde_json::json!({"force": true}).to_string()) } else { None };
         self.delete_progress.visible = true;
         self.delete_progress.message =
@@ -4015,6 +4044,30 @@ impl SysInspectUX {
         }
         let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
         rows.into_iter().map(|(label, value)| format!("{label:<width$}  {value}")).collect::<Vec<_>>().join("\n")
+    }
+
+    fn format_machine_message_styled(action: &str, primary_value: Option<&str>, platform: Option<&str>, minion_id: Option<&str>) -> Text<'static> {
+        let mut rows = Vec::new();
+        if let Some(value) = primary_value.filter(|v| !v.trim().is_empty()) {
+            rows.push((format!("{action}:"), value.trim().to_string()));
+        } else {
+            rows.push((format!("{action}:"), "OK".to_string()));
+        }
+        if let Some(value) = platform.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Platform:".to_string(), value.trim().to_string()));
+        }
+        if let Some(value) = minion_id.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Machine ID:".to_string(), Self::short_machine_id(value)));
+        }
+        let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+        let mut lines: Vec<Line<'static>> = vec![Line::from("")];
+        lines.extend(rows.into_iter().map(|(label, value)| {
+            Line::from(vec![
+                Span::styled(format!("{label:<width$}"), Style::default().fg(palette::SUCCESS_PEAK)),
+                Span::styled(format!("  {value}"), Style::default().fg(palette::FG)),
+            ])
+        }));
+        Text::from(lines)
     }
 
     fn short_machine_id(mid: &str) -> String {
