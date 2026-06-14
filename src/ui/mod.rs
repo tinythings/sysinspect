@@ -21,9 +21,9 @@ use libsysinspect::{
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT,
-        CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT,
-        CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS,
+        CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE,
+        CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -2755,6 +2755,15 @@ impl SysInspectUX {
         std::fs::write(&dropin, body).map_err(|e| format!("Unable to write models drop-in: {e}"))
     }
 
+    fn reload_master_config(&self) -> Result<(), String> {
+        let resp = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_CONFIG_RELOAD}"), "*", None, None, None).await })
+        })
+        .map_err(|e| format!("Failed to reload master config: {e}"))?;
+        if resp.ok { Ok(()) } else { Err(if resp.error.is_empty() { "Master config reload failed".to_string() } else { resp.error }) }
+    }
+
     fn set_model_enabled(&mut self, model_id: &str, enabled: bool) -> Result<(), String> {
         let mut ids = self.enabled_model_ids();
         if enabled {
@@ -2765,6 +2774,7 @@ impl SysInspectUX {
             ids.retain(|id| id != model_id);
         }
         self.write_enabled_models_dropin(ids)?;
+        self.reload_master_config()?;
         for row in &mut self.repo_manager.model_rows {
             if row.id == model_id {
                 row.enabled = enabled;

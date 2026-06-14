@@ -39,9 +39,9 @@ use libsysproto::{
     query::{
         SCHEME_COMMAND,
         commands::{
-            CLUSTER_CMDB_UPSERT, CLUSTER_HOPSTART, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO,
-            CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS,
-            CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
+            CLUSTER_CMDB_UPSERT, CLUSTER_CONFIG_RELOAD, CLUSTER_HOPSTART, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
+            CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX,
+            CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_TRAITS_UPDATE, CLUSTER_TRANSPORT_STATUS,
         },
     },
     replay::{ReplayIdentity, replay_identity_for_master_command_cycle, replay_identity_from_minion_message},
@@ -323,6 +323,11 @@ impl SysMaster {
 
     pub fn cfg_ref(&self) -> &MasterConfig {
         &self.cfg
+    }
+
+    pub fn reload_config(&mut self) -> Result<(), SysinspectError> {
+        self.cfg = MasterConfig::new(self.cfg.config_path())?;
+        Ok(())
     }
 
     async fn backfill_cmdb(&mut self) -> Result<(), SysinspectError> {

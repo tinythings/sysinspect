@@ -896,6 +896,18 @@ impl SysMaster {
             };
         }
 
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_CONFIG_RELOAD}")) {
+            return match master.lock().await.reload_config() {
+                Ok(()) => ConsoleResponse::ok(ConsolePayload::Ack {
+                    action: "reloaded_master_config".to_string(),
+                    target: query.model,
+                    count: 0,
+                    items: vec![],
+                }),
+                Err(err) => ConsoleResponse::err(format!("Unable to reload master config: {err}")),
+            };
+        }
+
         if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}")) {
             let (response, msgs) = match ProfileConsoleRequest::from_context(&query.context) {
                 Ok(request) => {
