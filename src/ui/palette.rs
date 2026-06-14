@@ -117,6 +117,9 @@ pub const WARNING: Color = Color::Indexed(178);
 /// Success / confirmation / positive.
 pub const SUCCESS: Color = Color::Indexed(49);
 
+/// Form labels / structured input captions.
+pub const FORM_LABEL: Color = SUCCESS_PEAK;
+
 /// Work in progress / active processing.
 pub const PROCESSING: Color = Color::Indexed(171);
 

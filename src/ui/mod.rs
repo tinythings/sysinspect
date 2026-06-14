@@ -245,6 +245,7 @@ pub struct SysInspectUX {
     pub registration_task: Option<tokio::task::JoinHandle<()>>,
     pub delete_progress: DeleteProgressState,
     pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
+    pub delete_success_message: String,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -356,6 +357,7 @@ impl Default for SysInspectUX {
             registration_task: None,
             delete_progress: DeleteProgressState::default(),
             delete_task: None,
+            delete_success_message: String::new(),
 
             pending_exit: false,
             pending_exit_message: None,
@@ -704,7 +706,11 @@ impl SysInspectUX {
             match result {
                 Ok(Ok(mid)) => {
                     self.info_alert_visible = true;
-                    self.info_alert_message = format!("Minion deleted: {mid}");
+                    self.info_alert_message = if self.delete_success_message.is_empty() {
+                        Self::format_machine_message("Minion deleted", None, None, Some(&mid))
+                    } else {
+                        std::mem::take(&mut self.delete_success_message)
+                    };
                     self.refresh_minions();
                 }
                 Ok(Err(err)) => {
@@ -750,7 +756,16 @@ impl SysInspectUX {
             let p = self.registration_progress.lock().unwrap();
             let has_error = p.error.is_some();
             if !has_error {
-                let msg = format!("Minion registered: {}", p.minion_id.as_deref().unwrap_or("?"));
+                let host = p.host_label.trim();
+                let host_value = if !host.is_empty() {
+                    Some(host)
+                } else if !p.host.trim().is_empty() {
+                    Some(p.host.trim())
+                } else {
+                    None
+                };
+                let platform = (!p.platform.trim().is_empty()).then_some(p.platform.trim());
+                let msg = Self::format_machine_message("Minion registered", host_value, platform, p.minion_id.as_deref());
                 drop(p);
                 *self.registration_progress.lock().unwrap() = minreg::RegistrationProgress::placeholder();
                 self.restore_status();
@@ -1665,6 +1680,26 @@ impl SysInspectUX {
             }
         };
         let mid = row.minion_id.clone();
+        let host_label = Self::online_host(&row);
+        let host = if !host_label.trim().is_empty() && host_label != "unknown" {
+            Some(host_label)
+        } else if !row.ip.trim().is_empty() {
+            Some(row.ip.clone())
+        } else {
+            None
+        };
+        let platform: Option<String> = if !row.os_name.trim().is_empty() {
+            if row.os_version.trim().is_empty() {
+                Some(os_display_name(&row.os_name).to_string())
+            } else {
+                Some(format!("{} {}", os_display_name(&row.os_name), row.os_version.trim()))
+            }
+        } else if !row.os_distribution.trim().is_empty() {
+            Some(row.os_distribution.clone())
+        } else {
+            None
+        };
+        self.delete_success_message = Self::format_machine_message("Minion deleted", host.as_deref(), platform.as_deref(), Some(&mid));
         let force_ctx = if force { Some(serde_json::json!({"force": true}).to_string()) } else { None };
         self.delete_progress.visible = true;
         self.delete_progress.message =
@@ -3037,11 +3072,17 @@ impl SysInspectUX {
                 self.master_confirm_choice = AlertResult::Default;
                 self.master_confirm_action = 2;
             }
-            KeyCode::Up => {
-                self.master_menu_sel = self.master_menu_sel.saturating_sub(1);
+            KeyCode::Up | KeyCode::PageUp => {
+                let total = macts::total_master_menu_items();
+                if total > 0 {
+                    self.master_menu_sel = if self.master_menu_sel == 0 { total - 1 } else { self.master_menu_sel - 1 };
+                }
             }
-            KeyCode::Down => {
-                self.master_menu_sel = (self.master_menu_sel + 1).min(macts::total_master_menu_items().saturating_sub(1));
+            KeyCode::Down | KeyCode::PageDown => {
+                let total = macts::total_master_menu_items();
+                if total > 0 {
+                    self.master_menu_sel = (self.master_menu_sel + 1) % total;
+                }
             }
             KeyCode::Enter => {
                 self.master_menu_visible = false;
@@ -3957,6 +3998,28 @@ impl SysInspectUX {
                 })
             })
         })
+    }
+
+    fn format_machine_message(action: &str, primary_value: Option<&str>, platform: Option<&str>, minion_id: Option<&str>) -> String {
+        let mut rows = Vec::new();
+        if let Some(value) = primary_value.filter(|v| !v.trim().is_empty()) {
+            rows.push((format!("{action}:"), value.trim().to_string()));
+        } else {
+            rows.push((format!("{action}:"), "OK".to_string()));
+        }
+        if let Some(value) = platform.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Platform:".to_string(), value.trim().to_string()));
+        }
+        if let Some(value) = minion_id.filter(|v| !v.trim().is_empty()) {
+            rows.push(("Machine ID:".to_string(), Self::short_machine_id(value)));
+        }
+        let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+        rows.into_iter().map(|(label, value)| format!("{label:<width$}  {value}")).collect::<Vec<_>>().join("\n")
+    }
+
+    fn short_machine_id(mid: &str) -> String {
+        let trimmed = mid.trim();
+        if trimmed.chars().count() <= 8 { trimmed.to_string() } else { format!("{}...", trimmed.chars().take(8).collect::<String>()) }
     }
 
     /// Count the vertical space for the alert display, plus three empty lines

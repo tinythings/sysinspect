@@ -303,7 +303,8 @@ impl PlatformsManager {
     }
 
     fn render_filter_row(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
-        let label_style = if focused { Style::default().fg(palette::ACCENT) } else { Style::default().fg(palette::MUTED) };
+        let label_style =
+            if focused { Style::default().fg(palette::FORM_LABEL).add_modifier(Modifier::BOLD) } else { Style::default().fg(palette::FORM_LABEL) };
         buf.set_string(area.x + 2, area.y, "filter: ", label_style);
 
         let input_x = area.x + 10;

@@ -454,6 +454,9 @@ impl HostSetup {
                 .inspect_err(|err| self.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, None, err))?,
             ..self.clone()
         };
+        setup
+            .ensure_not_already_registered(ctx)
+            .inspect_err(|err| setup.recover_add_failure(ctx, &ssh, elevate, AddFailureStage::Setup, setup.minion_id.as_deref(), err))?;
         progress(5, "Preparing runtime...");
         setup
             .prepare_runtime(&ssh, elevate)
@@ -727,6 +730,26 @@ impl HostSetup {
             return Err(SysinspectError::MasterGeneralError("Master returned an unexpected payload while checking minion traits".to_string()));
         };
         Ok(rows_have_traits(&rows))
+    }
+
+    fn ensure_not_already_registered(&self, ctx: &SetupContext) -> Result<(), SysinspectError> {
+        let Some(mid) = self.minion_id.as_deref() else {
+            return Ok(());
+        };
+        let rsp = match call_console(&ctx.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_INFO}"), "*", Some(mid), None) {
+            Ok(rsp) => rsp,
+            Err(err) if is_waitable_console_miss(&err) => return Ok(()),
+            Err(err) => return Err(err),
+        };
+        let ConsolePayload::MinionInfo { rows } = rsp.payload else {
+            return Err(SysinspectError::MasterGeneralError(
+                "Master returned an unexpected payload while checking existing minion registration".to_string(),
+            ));
+        };
+        if rows.is_empty() {
+            return Ok(());
+        }
+        Err(SysinspectError::MinionGeneralError("Minion is already registered. Please unregister it first.".to_string()))
     }
 
     fn has_transport(&self, ctx: &SetupContext) -> Result<bool, SysinspectError> {

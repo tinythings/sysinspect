@@ -101,7 +101,7 @@ impl SysInspectUX {
             None,
             None,
             None,
-            Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
+            Some((15.0, &[palette::BG_2, palette::BG_1] as &[Color])),
         );
     }
 

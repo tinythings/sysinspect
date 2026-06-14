@@ -1,5 +1,5 @@
 use super::{
-    palette,
+    SysInspectUX, palette,
     title::{self, TitleSegment, TitleStyle},
 };
 use crate::netadd::{
@@ -134,26 +134,27 @@ impl RegistrationForm {
         }
 
         let label_w = 14u16;
-        let focus_style = Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD);
-        let muted = Style::default().fg(palette::MUTED);
+        let checkbox_focus_style = Style::default().fg(palette::HIGHLIGHT);
+        let form_label = Style::default().fg(palette::FORM_LABEL);
 
         let mut row_y = inner.y + 1;
 
-        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, " Hostname:", &self.hostname, self.focus == FormFocus::Hostname, label_w);
-        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, " SSH User:", &self.user, self.focus == FormFocus::User, label_w);
-        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, " Path:", &self.path, self.focus == FormFocus::Path, label_w);
+        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, "Hostname:", &self.hostname, self.focus == FormFocus::Hostname, label_w);
+        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, "SSH User:", &self.user, self.focus == FormFocus::User, label_w);
+        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, "Path:", &self.path, self.focus == FormFocus::Path, label_w);
 
         row_y += 1;
 
         // Sudo checkbox
-        let sudo_chk = if self.use_sudo { "[x] Use sudo (wheel)" } else { "[ ] Use sudo (wheel)" };
-        let sudo_style = if self.focus == FormFocus::SudoCheck { focus_style } else { muted };
-        buf.set_string(inner.x + 3, row_y, sudo_chk, sudo_style);
+        let sudo_chk = if self.use_sudo { "▣  Use sudo (wheel)" } else { "□  Use sudo (wheel)" };
+        let sudo_style = if self.focus == FormFocus::SudoCheck { checkbox_focus_style } else { form_label };
+        buf.set_string(inner.x + 2, row_y, sudo_chk, sudo_style);
 
         row_y += 1;
+        row_y += 1;
 
-        let ok_label = "  [   OK   ]  ";
-        let cancel_label = "  [ Cancel ]  ";
+        let ok_label = SysInspectUX::format_button("OK");
+        let cancel_label = SysInspectUX::format_button("Cancel");
         let btn_w = ok_label.width() as u16 + cancel_label.width() as u16 + 6;
         let btn_x = inner.x + (inner.width.saturating_sub(btn_w)) / 2;
 
@@ -168,8 +169,8 @@ impl RegistrationForm {
             Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD)
         };
 
-        buf.set_string(btn_x, row_y, ok_label, ok_style);
-        buf.set_string(btn_x + ok_label.width() as u16 + 4, row_y, cancel_label, cancel_style);
+        buf.set_string(btn_x, row_y, &ok_label, ok_style);
+        buf.set_string(btn_x + ok_label.width() as u16 + 4, row_y, &cancel_label, cancel_style);
 
         draw_shadow(buf, canvas, dlg_w, dlg_h);
     }
@@ -258,12 +259,12 @@ impl RegistrationForm {
         base_x: u16, row_y: &mut u16, inner_width: u16, buf: &mut ratatui::prelude::Buffer, label: &str, state: &InputState, focused: bool,
         label_w: u16,
     ) {
-        let muted = Style::default().fg(palette::MUTED);
-        let focus_style = Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD);
-        let lstyle = if focused { focus_style } else { muted };
+        let label_style = Style::default().fg(palette::FORM_LABEL);
+        let focus_style = Style::default().fg(palette::FORM_LABEL);
+        let lstyle = if focused { focus_style } else { label_style };
         let label_padded = format!("{:width$}", label, width = label_w as usize);
-        buf.set_string(base_x + 3, *row_y, &label_padded, lstyle);
-        let input_x = base_x + 3 + label_w;
+        buf.set_string(base_x + 2, *row_y, &label_padded, lstyle);
+        let input_x = base_x + 2 + label_w + 1;
         let input_w = inner_width.saturating_sub(label_w + 6);
         if input_w > 0 {
             let mut is = copy_input_state(state, focused);
@@ -282,6 +283,7 @@ pub struct RegistrationProgress {
     pub total: usize,
     pub message: String,
     pub host: String,
+    pub host_label: String,
     pub platform: String,
     pub minion_id: Option<String>,
     pub done: bool,
@@ -299,6 +301,7 @@ impl RegistrationProgress {
             total: STEP_LABELS.len(),
             message: "Connecting...".into(),
             host,
+            host_label: String::new(),
             platform: String::new(),
             minion_id: None,
             done: false,
@@ -316,6 +319,7 @@ impl RegistrationProgress {
             total: STEP_LABELS.len(),
             message: String::new(),
             host: String::new(),
+            host_label: String::new(),
             platform: String::new(),
             minion_id: None,
             done: false,
@@ -333,14 +337,14 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
     }
     let has_error = progress.error.is_some();
     let dlg_w = (parent.width * 3 / 4).clamp(52, 72);
-    let dlg_h = if has_error { 16u16 } else { 10u16 };
+    let dlg_h = if has_error { 11u16 } else { 10u16 };
     let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
     let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
     let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
 
     Clear.render(canvas, buf);
 
-    let grad = blend_2d(canvas.width as usize, canvas.height as usize, 13.0, &[palette::GRAY_0, palette::PROCESSING_GLOW] as &[Color]);
+    let grad = blend_2d(canvas.width as usize, canvas.height as usize, 15.0, &[palette::BG_2, palette::BG_1] as &[Color]);
     for row in 0..canvas.height {
         for col in 0..canvas.width {
             let idx = row as usize * canvas.width as usize + col as usize;
@@ -350,20 +354,23 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
         }
     }
 
+    let border_color = if has_error { palette::ERROR_PEAK } else { palette::PROCESSING_GLOW };
+    let title_bg = if has_error { palette::ERROR_PEAK } else { palette::PROCESSING_BASE };
+
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+        .border_style(Style::default().fg(border_color))
         .style(Style::default());
     let inner = block.inner(canvas);
     block.render(canvas, buf);
 
-    let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+    let title_style = TitleStyle::cyberpunk(border_color);
     title::overlay_gradient_title(
         buf,
         canvas,
         &title_style,
-        &[TitleSegment { text: " Minion Registration ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
+        &[TitleSegment { text: " Minion Registration ".into(), bg: title_bg, fg: palette::FG, modifier: Modifier::empty() }],
     );
 
     if inner.height < 3 {
@@ -373,29 +380,30 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
     let mut row_y = inner.y;
 
     let host_label = format!(" Registering: {}", progress.host);
-    buf.set_string(inner.x + 2, row_y, truncate_str(&host_label, (inner.width.saturating_sub(4)) as usize), Style::default().fg(palette::FG));
+    buf.set_string(inner.x + 1, row_y, truncate_str(&host_label, (inner.width.saturating_sub(3)) as usize), Style::default().fg(palette::FG));
     row_y += 1;
 
     if !progress.platform.is_empty() {
         let plat_label = format!(" Detected: {}", progress.platform);
-        buf.set_string(inner.x + 2, row_y, truncate_str(&plat_label, (inner.width.saturating_sub(4)) as usize), Style::default().fg(palette::MUTED));
+        buf.set_string(inner.x + 1, row_y, truncate_str(&plat_label, (inner.width.saturating_sub(3)) as usize), Style::default().fg(palette::MUTED));
         row_y += 1;
     }
 
     row_y += 1;
 
     if let Some(ref err) = progress.error {
-        buf.set_string(inner.x + 2, row_y, "Registration failed:", Style::default().fg(palette::ERROR_PEAK).add_modifier(Modifier::BOLD));
+        buf.set_string(inner.x + 1, row_y, "Registration failed:", Style::default().fg(palette::ERROR).add_modifier(Modifier::BOLD));
         row_y += 1;
-        let log_w = inner.width.saturating_sub(5);
+        let log_w = inner.width.saturating_sub(4);
         let lines = wrap_text(err, log_w);
-        let view_h = (inner.bottom().saturating_sub(row_y + 1)) as usize;
+        let close_y = inner.bottom().saturating_sub(2);
+        let view_h = close_y.saturating_sub(row_y + 1) as usize;
         let max_scroll = lines.len().saturating_sub(view_h);
         let s = progress.error_scroll.min(max_scroll);
         if view_h > 0 {
             let log_start_y = row_y;
             for line in lines.iter().skip(s).take(view_h) {
-                buf.set_string(inner.x + 2, row_y, truncate_str(line, log_w as usize), Style::default().fg(palette::MUTED));
+                buf.set_string(inner.x + 1, row_y, truncate_str(line, log_w as usize), Style::default().fg(palette::ERROR_GLOW));
                 row_y += 1;
             }
             if lines.len() > view_h {
@@ -407,21 +415,16 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
                 buf.set_string(sb_x, log_start_y + thumb_y, "█", Style::default().fg(palette::PROCESSING_HEAT));
             }
         }
-        let close = "[ Close ]";
+        let close = SysInspectUX::format_button("Close");
         let btn_x = inner.x + (inner.width.saturating_sub(close.len() as u16)) / 2;
-        buf.set_string(
-            btn_x,
-            inner.bottom().saturating_sub(1),
-            close,
-            Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD),
-        );
+        buf.set_string(btn_x, close_y, &close, Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD));
     } else if progress.done {
         let done_msg = if let Some(ref mid) = progress.minion_id { format!(" Registered: {mid}") } else { " Complete".into() };
         buf.set_string(inner.x + 2, row_y, &done_msg, Style::default().fg(palette::SUCCESS_PEAK).add_modifier(Modifier::BOLD));
         row_y += 1;
-        let close = "[ Close ]";
+        let close = SysInspectUX::format_button("Close");
         let btn_x = inner.x + (inner.width.saturating_sub(close.len() as u16)) / 2;
-        buf.set_string(btn_x, row_y + 1, close, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
+        buf.set_string(btn_x, row_y + 1, &close, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
     } else {
         let msg = progress.message.clone();
         buf.set_string(inner.x + 2, row_y, truncate_str(&msg, (inner.width.saturating_sub(4)) as usize), Style::default().fg(palette::FG));
@@ -443,9 +446,9 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
         let pct_x = inner.x + (inner.width.saturating_sub(pct_text.len() as u16)) / 2;
         buf.set_string(pct_x, bar_y, &pct_text, Style::default().fg(palette::FG).add_modifier(Modifier::BOLD));
 
-        let cancel = "[ Cancel ]";
+        let cancel = SysInspectUX::format_button("Cancel");
         let btn_x = inner.x + (inner.width.saturating_sub(cancel.len() as u16)) / 2;
-        buf.set_string(btn_x, bar_y + 2, cancel, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
+        buf.set_string(btn_x, bar_y + 2, &cancel, Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD));
     }
 
     draw_shadow(buf, canvas, dlg_w, dlg_h);
@@ -520,6 +523,7 @@ fn run_provision(
     {
         let mut p = progress.lock().unwrap();
         p.host = host_display.clone();
+        p.host_label = hostname.clone();
     }
 
     if progress.lock().unwrap().cancelled.load(Ordering::SeqCst) {
