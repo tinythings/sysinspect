@@ -753,7 +753,7 @@ impl SysInspectUX {
             match self.repo_manager.active_tab {
                 0 => self.process_module_add(&path),
                 1 => self.process_library_add(&path),
-                3 => self.process_platform_add(&path),
+                4 => self.process_platform_add(&path),
                 _ => {}
             }
         }
@@ -765,7 +765,7 @@ impl SysInspectUX {
                 if self.repo_manager.needs_reload {
                     self.repo_manager.needs_reload = false;
                     let _ = self.load_module_index();
-                    if self.repo_manager.active_tab == 3 {
+                    if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
                 }
@@ -2095,8 +2095,8 @@ impl SysInspectUX {
             }
             return true;
         }
-        // Profile-specific overlays (tab 2)
-        if self.repo_manager.active_tab == 2 {
+        // Profile-specific overlays (tab 3)
+        if self.repo_manager.active_tab == 3 {
             if self.repo_manager.profiles.delete_visible {
                 let handled = self.repo_manager.profiles.handle_delete_key(e.code);
                 if !handled && e.code == KeyCode::Enter {
@@ -2153,8 +2153,8 @@ impl SysInspectUX {
                 return true;
             }
         }
-        // Platform delete overlay (tab 3)
-        if self.repo_manager.active_tab == 3 && self.repo_manager.platforms.delete_visible {
+        // Platform delete overlay (tab 4)
+        if self.repo_manager.active_tab == 4 && self.repo_manager.platforms.delete_visible {
             let handled = self.repo_manager.platforms.handle_delete_key(e.code);
             if !handled && e.code == KeyCode::Enter {
                 if self.repo_manager.platforms.delete_focus == platforms::DeleteFocus::YesBtn {
@@ -2165,10 +2165,12 @@ impl SysInspectUX {
             }
             return true;
         }
-        let total_count = if self.repo_manager.active_tab == 3 {
+        let total_count = if self.repo_manager.active_tab == 4 {
             self.repo_manager.platforms.filtered_count(self.repo_manager.filter.value())
-        } else if self.repo_manager.active_tab == 2 {
+        } else if self.repo_manager.active_tab == 3 {
             self.repo_manager.profiles.filtered_count(self.repo_manager.filter.value())
+        } else if self.repo_manager.active_tab == 2 {
+            self.repo_filtered_model_count()
         } else if self.repo_manager.active_tab == 1 {
             self.repo_filtered_lib_count()
         } else if self.repo_manager.active_tab == 0 {
@@ -2182,10 +2184,12 @@ impl SysInspectUX {
             self.repo_filtered_count()
         };
         let max_cursor = total_count.saturating_sub(1);
-        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 3 {
+        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 4 {
             &mut self.repo_manager.platforms.cursor
-        } else if self.repo_manager.active_tab == 2 {
+        } else if self.repo_manager.active_tab == 3 {
             &mut self.repo_manager.profiles.cursor
+        } else if self.repo_manager.active_tab == 2 {
+            &mut self.repo_manager.model_cursor
         } else if self.repo_manager.active_tab == 1 {
             &mut self.repo_manager.lib_cursor
         } else {
@@ -2203,42 +2207,50 @@ impl SysInspectUX {
                 self.repo_manager.group_cursor = 0;
                 self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
+                self.repo_manager.model_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
                 }
                 if self.repo_manager.active_tab == 2 {
-                    let _ = self.load_profile_list();
+                    let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 4 {
                     let _ = self.load_platforms();
                 }
             }
             KeyCode::Right => {
-                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(3);
+                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(4);
                 self.repo_manager.group_cursor = 0;
                 self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
+                self.repo_manager.model_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
                     let _ = self.load_library_index();
                 }
                 if self.repo_manager.active_tab == 2 {
-                    let _ = self.load_profile_list();
+                    let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 4 {
                     let _ = self.load_platforms();
                 }
             }
             KeyCode::Up => {
                 if self.repo_manager.active_tab == 0 {
                     self.move_module_up();
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = cursor_ref.saturating_sub(1);
@@ -2247,10 +2259,10 @@ impl SysInspectUX {
             KeyCode::Down => {
                 if self.repo_manager.active_tab == 0 {
                     self.move_module_down();
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = (*cursor_ref + 1).min(max_cursor);
@@ -2263,10 +2275,10 @@ impl SysInspectUX {
                         self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
                         self.repo_manager.group_cursor_row = 0;
                     }
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = cursor_ref.saturating_sub(page);
@@ -2279,19 +2291,19 @@ impl SysInspectUX {
                         self.repo_manager.group_cursor = (self.repo_manager.group_cursor + 1) % n;
                         self.repo_manager.group_cursor_row = 0;
                     }
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = (*cursor_ref + page).min(max_cursor);
                 }
             }
             KeyCode::Enter => {
-                if self.repo_manager.active_tab == 3 {
+                if self.repo_manager.active_tab == 4 {
                     // Platforms have no detail view
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     let name = match self.repo_manager.profiles.selected_profile_name() {
                         Some(n) => n.to_string(),
                         None => return true,
@@ -2306,6 +2318,13 @@ impl SysInspectUX {
                             self.error_alert_message = e;
                         }
                     }
+                } else if self.repo_manager.active_tab == 2 && !self.repo_manager.model_rows.is_empty() {
+                    self.repo_manager.info_visible = true;
+                    self.repo_manager.info_row = self.repo_manager.model_cursor;
+                    self.repo_manager.info_tab = 0;
+                    self.repo_manager.info_scroll.set(0);
+                    self.repo_manager.info_active_tab = 2;
+                    self.status_at_repo_manager();
                 } else if self.repo_manager.active_tab == 0 {
                     if self.repo_manager.group_cursor_row == 0 {
                         // Toggle expand/collapse on header
@@ -2331,15 +2350,18 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Delete => {
-                if self.repo_manager.active_tab == 3 {
+                if self.repo_manager.active_tab == 4 {
                     if let Some(name) = self.repo_manager.platforms.selected_name() {
                         self.repo_manager.platforms.open_delete(name);
                     }
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     if let Some(name) = self.repo_manager.profiles.selected_profile_name() {
                         self.repo_manager.profiles.open_delete(name.to_string());
                         self.status_at_profiles();
                     }
+                } else if self.repo_manager.active_tab == 2 {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Model deletion is not supported yet".to_string();
                 } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
                     self.repo_manager.delete_mode = true;
                     self.repo_manager.staged = self
@@ -2388,18 +2410,21 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.repo_manager.active_tab == 3 {
+                if self.repo_manager.active_tab == 4 {
                     self.file_picker.open(&std::env::current_dir().unwrap_or_default(), filepicker::PickerMode::MinionBuild);
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
+                } else if self.repo_manager.active_tab == 2 {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = "Model addition is not supported yet".to_string();
                 } else {
                     let mode = if self.repo_manager.active_tab == 1 { filepicker::PickerMode::LibrarySelector } else { filepicker::PickerMode::Any };
                     self.file_picker.open(&std::env::current_dir().unwrap_or_default(), mode);
                 }
             }
             KeyCode::Char('l') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.repo_manager.active_tab == 2 {
+                if self.repo_manager.active_tab == 3 {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
                 } else {
@@ -2472,6 +2497,11 @@ impl SysInspectUX {
     fn repo_filtered_lib_count(&self) -> usize {
         let f = self.repo_manager.filter.value().to_lowercase();
         self.repo_manager.lib_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.kind.to_lowercase().contains(&f)).count()
+    }
+
+    fn repo_filtered_model_count(&self) -> usize {
+        let f = self.repo_manager.filter.value().to_lowercase();
+        self.repo_manager.model_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.id.to_lowercase().contains(&f)).count()
     }
 
     fn call_profile_rpc(&self, context: &str) -> Result<ConsolePayload, String> {
@@ -2642,6 +2672,17 @@ impl SysInspectUX {
                 Ok(())
             }
             _ => Err("Unexpected console payload for library index".to_string()),
+        }
+    }
+
+    fn load_model_list(&mut self) -> Result<(), String> {
+        match self.get_models() {
+            Ok((rows, _failures)) => {
+                self.repo_manager.model_rows = rows;
+                self.repo_manager.model_cursor = 0;
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to load models: {e}")),
         }
     }
 
@@ -3086,7 +3127,7 @@ impl SysInspectUX {
                 self.master_menu_visible = false;
                 self.registration_form.visible = true;
             }
-            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = false;
                 if let Err(err) = self.load_module_index() {
                     self.error_alert_visible = true;
@@ -3919,7 +3960,7 @@ impl SysInspectUX {
             KeyCode::Char('r') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.registration_form.visible = true;
             }
-            KeyCode::Char('g') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Err(err) = self.load_module_index() {
                     self.error_alert_visible = true;
                     self.error_alert_message = err;

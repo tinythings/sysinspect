@@ -32,7 +32,7 @@ const MENU_SECTIONS: &[MenuSection] = &[
 const MASTER_MENU_SECTIONS: &[MenuSection] = &[
     MenuSection {
         title: "Operations",
-        items: &[("View master logs online", "^O"), ("View local logs", "^L"), ("Register a minion", "^R"), ("Artefacts Manager", "^G")],
+        items: &[("View master logs online", "^O"), ("View local logs", "^L"), ("Register a minion", "^R"), ("Artefacts Manager", "^A")],
     },
     MenuSection { title: "System", items: &[("Start", "^T"), ("Stop", "^S"), ("Restart", "^E")] },
 ];
