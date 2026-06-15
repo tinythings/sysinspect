@@ -286,7 +286,7 @@ impl SysMaster {
                     let (fqdn, hostname, ip) = Self::preferred_host(&minion, cmdb.as_ref());
                     let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let current_sha = minion.get_traits().get("minion.binary.sha256").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                    let os_dist = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let os_dist = minion.get_traits().get("system.os.name").and_then(|v| v.as_str()).unwrap_or_default().to_lowercase();
                     let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let target_sha = repo_checksums.get(&(os_dist.clone(), arch.clone())).cloned().unwrap_or_default();
                     let target_version = repo_versions.get(&(os_dist.clone(), arch)).cloned().unwrap_or_default();
@@ -325,7 +325,7 @@ impl SysMaster {
             let Some(minion) = self.mreg.lock().await.get(&mid)? else {
                 continue;
             };
-            let platform = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let platform = minion.get_traits().get("system.os.name").and_then(|v| v.as_str()).unwrap_or_default().to_lowercase();
             let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let current_sha = minion.get_traits().get("minion.binary.sha256").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             if let Some(build) = repo_builds.get(&(platform, arch)) {
@@ -421,7 +421,7 @@ impl SysMaster {
                 continue;
             };
 
-            let platform = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let platform = minion.get_traits().get("system.os.name").and_then(|v| v.as_str()).unwrap_or_default().to_lowercase();
             let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let Some(build) = repo_builds.get(&(platform, arch)) else {
                 skipped += 1;

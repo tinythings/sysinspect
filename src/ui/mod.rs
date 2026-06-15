@@ -285,6 +285,7 @@ pub struct SysInspectUX {
     pub cluster_upgrade_task: Option<tokio::task::JoinHandle<ClusterUpgradeTaskResult>>,
     pub cluster_upgrade_required_count: usize,
     pub cluster_upgrade_unreachable_count: usize,
+    pub cluster_upgrade_check_message: Option<String>,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -407,6 +408,7 @@ impl Default for SysInspectUX {
             cluster_upgrade_task: None,
             cluster_upgrade_required_count: 0,
             cluster_upgrade_unreachable_count: 0,
+            cluster_upgrade_check_message: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -589,6 +591,13 @@ impl SysInspectUX {
             }
             if self.repo_manager.visible {
                 self.status_at_repo_manager();
+            }
+            if let Some(ref msg) = self.cluster_upgrade_check_message
+                && self.cluster_upgrade_required_count == 0
+            {
+                let mut spans: Vec<Span> = self.status_text.clone().spans.to_vec();
+                spans.push(Span::styled(format!("  {}", msg), Style::default().fg(palette::MUTED)));
+                self.status_text = Line::from(spans);
             }
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
@@ -1586,21 +1595,38 @@ impl SysInspectUX {
     }
 
     fn refresh_cluster_upgrade_status(&mut self) {
-        if let Ok((required, unreachable)) = self.fetch_cluster_upgrade_status() {
-            self.cluster_upgrade_required_count = required;
-            self.cluster_upgrade_unreachable_count = unreachable;
+        match self.fetch_cluster_upgrade_status() {
+            Ok((required, unreachable)) => {
+                self.cluster_upgrade_required_count = required;
+                self.cluster_upgrade_unreachable_count = unreachable;
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot fetch upgrade status: {e}");
+            }
         }
     }
 
     fn mark_cluster_upgrade_required(&mut self) {
-        let _ = tokio::task::block_in_place(|| {
+        match tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MARK_UPGRADE_REQUIRED}"), "*", None, None, None).await
             })
-        });
-        self.refresh_cluster_upgrade_status();
-        if self.minions_visible {
-            self.refresh_minions();
+        }) {
+            Ok(resp) => {
+                self.refresh_cluster_upgrade_status();
+                if self.minions_visible {
+                    self.refresh_minions();
+                }
+                if let ConsolePayload::Ack { count, items, .. } = &resp.payload {
+                    self.cluster_upgrade_check_message =
+                        Some(format!("{} marked, {}", count, items.first().map(|s| s.as_str()).unwrap_or("no response")));
+                }
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot mark cluster upgrade: {e}");
+            }
         }
     }
 

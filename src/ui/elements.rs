@@ -64,6 +64,14 @@ impl CycleListItem {
             return vec![Span::styled(display, Style::default().fg(palette::FG))];
         }
 
+        if let Some((model, label)) = display.split_once(':') {
+            return vec![
+                Span::styled(model.to_string(), Style::default().fg(palette::PROCESSING_BASE)),
+                Span::styled(":", Style::default().fg(palette::FG)),
+                Span::styled(label.to_string(), Style::default().fg(palette::PROCESSING_PEAK)),
+            ];
+        }
+
         let parts: Vec<&str> = display.split('/').collect();
         match parts.as_slice() {
             [model, target] => vec![
@@ -76,7 +84,7 @@ impl CycleListItem {
                 Span::styled("/", Style::default().fg(palette::FG)),
                 Span::styled((*target).to_string(), Style::default().fg(palette::PROCESSING_HEAT)),
                 Span::styled("/", Style::default().fg(palette::FG)),
-                Span::styled((*state).to_string(), Style::default().fg(palette::PROCESSING_PEAK)),
+                Span::styled((*state).to_string(), Style::default().fg(palette::PRIMARY)),
             ],
             _ => vec![Span::styled(display, Style::default().fg(palette::FG))],
         }
