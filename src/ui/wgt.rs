@@ -316,6 +316,7 @@ impl Widget for &SysInspectUX {
         self.minion_actions_menu(area, buf);
         self.minion_traits(area, buf);
         self.dialog_minion_logs(area, buf);
+        self.systop.render(area, buf);
         self.dialog_master_logs(area, buf);
         self.dialog_trait_tag(area, buf);
         self.dialog_cluster_confirm(area, buf);

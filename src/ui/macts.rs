@@ -18,7 +18,7 @@ struct MenuSection {
 }
 
 const MENU_SECTIONS: &[MenuSection] = &[
-    MenuSection { title: "Tools", items: &[("System logs", "^L"), ("Defined traits", "^T")] },
+    MenuSection { title: "Tools", items: &[("System logs", "^L"), ("Defined traits", "^T"), ("System top", "^P")] },
     MenuSection {
         title: "Minion Operations",
         items: &[("Remote start", "^S"), ("Shutdown minion", "^D"), ("Force re-connect", "^F"), ("Delete minion", "DEL")],
@@ -192,7 +192,7 @@ impl SysInspectUX {
         let max_item_w = max_label_w + 34;
 
         let mut title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        let is_cluster = self.minions_menu_sel >= 6;
+        let is_cluster = self.minions_menu_sel >= 7;
         let mut segments =
             vec![TitleSegment { text: " Actions on ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() }];
         if is_cluster {

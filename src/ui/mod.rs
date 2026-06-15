@@ -23,8 +23,8 @@ use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
         CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS,
-        CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE,
-        CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS,
+        CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -60,6 +60,7 @@ mod rawlogs;
 mod repomanager;
 mod setup;
 mod statusbar;
+mod systop;
 mod title;
 mod traitsview;
 mod traittag;
@@ -191,6 +192,8 @@ pub struct SysInspectUX {
     pub minion_logs_online: bool,
     pub minion_logs_last_fetch: Instant,
     pub minion_logs_viewport_rows: Cell<usize>,
+
+    pub systop: systop::SystemTopState,
 
     // Master logs popup
     pub master_logs_visible: bool,
@@ -325,6 +328,8 @@ impl Default for SysInspectUX {
             minion_logs_online: true,
             minion_logs_last_fetch: Instant::now(),
             minion_logs_viewport_rows: Cell::new(0),
+
+            systop: systop::SystemTopState::default(),
 
             master_logs_visible: false,
             master_logs_tab: 0,
@@ -706,6 +711,15 @@ impl SysInspectUX {
                             Err(_) => self.minion_logs_online = false,
                         }
                     }
+                    if self.systop.visible
+                        && self.systop.last_fetch.is_none_or(|last| last.elapsed() >= Duration::from_secs(1))
+                        && let Err(err) = self.load_selected_minion_top()
+                    {
+                        self.systop.close();
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err.to_string();
+                        self.status_at_minions_browser();
+                    }
                     if self.master_logs_visible && self.master_logs_polling && self.master_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
                         let _ = self.load_master_logs();
                     }
@@ -972,6 +986,10 @@ impl SysInspectUX {
             return false;
         }
 
+        if self.systop.visible {
+            return self.on_systop_popup(e);
+        }
+
         if self.minion_logs_visible {
             return self.on_minion_logs_popup(e);
         }
@@ -1166,18 +1184,20 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 1 {
                     self.open_traits_popup();
                 } else if self.minions_menu_sel == 2 {
-                    self.do_minion_start();
+                    self.open_systop_popup();
                 } else if self.minions_menu_sel == 3 {
-                    self.do_minion_shutdown();
+                    self.do_minion_start();
                 } else if self.minions_menu_sel == 4 {
-                    self.do_minion_reconnect();
+                    self.do_minion_shutdown();
                 } else if self.minions_menu_sel == 5 {
-                    self.open_cluster_confirm(3);
+                    self.do_minion_reconnect();
                 } else if self.minions_menu_sel == 6 {
-                    self.open_cluster_confirm(1);
+                    self.open_cluster_confirm(3);
                 } else if self.minions_menu_sel == 7 {
-                    self.open_cluster_confirm(2);
+                    self.open_cluster_confirm(1);
                 } else if self.minions_menu_sel == 8 {
+                    self.open_cluster_confirm(2);
+                } else if self.minions_menu_sel == 9 {
                     self.registration_form.visible = true;
                 }
             }
@@ -1379,6 +1399,7 @@ impl SysInspectUX {
             || self.minions_visible
             || self.minion_traits_visible
             || self.minion_logs_visible
+            || self.systop.visible
             || self.master_logs_visible
             || self.minions_menu_visible
             || self.master_menu_visible
@@ -1561,6 +1582,10 @@ impl SysInspectUX {
             }
             KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.open_traits_popup();
+                true
+            }
+            KeyCode::Char('p') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_systop_popup();
                 true
             }
             KeyCode::Char('s') if e.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -1786,6 +1811,25 @@ impl SysInspectUX {
         self.load_selected_minion_info();
     }
 
+    fn open_systop_popup(&mut self) {
+        let row = match self.selected_popup_minion() {
+            Some(row) => row,
+            None => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No minion is currently selected".to_string();
+                return;
+            }
+        };
+        self.systop.open(row.minion_id.clone(), Self::online_host(&row));
+        self.status_at_systop();
+        if let Err(err) = self.load_selected_minion_top() {
+            self.systop.close();
+            self.error_alert_visible = true;
+            self.error_alert_message = err.to_string();
+            self.status_at_minions_browser();
+        }
+    }
+
     fn load_selected_minion_logs(&mut self) -> Result<(), SysinspectError> {
         let row = self.selected_popup_minion().ok_or_else(|| SysinspectError::InvalidQuery("No minion is currently selected".to_string()))?;
         let context = serde_json::json!({"stream": "merged", "lines": 200usize}).to_string();
@@ -1808,6 +1852,52 @@ impl SysInspectUX {
         self.minion_logs_online = true;
         self.minion_logs_last_fetch = Instant::now();
         Ok(())
+    }
+
+    fn load_selected_minion_top(&mut self) -> Result<(), SysinspectError> {
+        let row = self.selected_popup_minion().ok_or_else(|| SysinspectError::InvalidQuery("No minion is currently selected".to_string()))?;
+        let context = serde_json::json!({"process_limit": 24usize}).to_string();
+        let mid = row.minion_id.clone();
+        let snapshot = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_TOP}"), "*", None, Some(&mid), Some(&context)).await
+            })
+        })
+        .and_then(|resp| match resp.payload {
+            ConsolePayload::MinionTop { snapshot } => Ok(snapshot),
+            _ => Err(SysinspectError::ProtoError("Unexpected console payload for minion system top".to_string())),
+        })?;
+        self.systop.apply_snapshot(snapshot);
+        Ok(())
+    }
+
+    fn on_systop_popup(&mut self, e: event::KeyEvent) -> bool {
+        if !self.systop.visible {
+            return false;
+        }
+        let page = self.systop.process_viewport_rows.get().max(1);
+        let total_rows = self.systop.snapshot.as_ref().map(|s| s.processes.len()).unwrap_or(0);
+        let max_top = total_rows.saturating_sub(page);
+        match e.code {
+            KeyCode::Esc => {
+                self.systop.close();
+                self.status_at_minions_browser();
+            }
+            KeyCode::Up => {
+                self.systop.processes_scroll = self.systop.processes_scroll.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                self.systop.processes_scroll = (self.systop.processes_scroll + 1).min(max_top);
+            }
+            KeyCode::PageUp => {
+                self.systop.processes_scroll = self.systop.processes_scroll.saturating_sub(page);
+            }
+            KeyCode::PageDown => {
+                self.systop.processes_scroll = (self.systop.processes_scroll + page).min(max_top);
+            }
+            _ => {}
+        }
+        true
     }
 
     fn on_minion_logs_popup(&mut self, e: event::KeyEvent) -> bool {

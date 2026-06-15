@@ -1,6 +1,7 @@
 pub mod dataconv;
 pub mod iofs;
 pub mod sys;
+pub mod top;
 pub mod tty;
 
 #[cfg(test)]

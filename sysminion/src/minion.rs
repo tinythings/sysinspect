@@ -26,7 +26,7 @@ use libsysinspect::{
         get_minion_config,
         mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, MinionOfflineMode, SysInspectConfig},
     },
-    console::{ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, MinionCommandReply},
+    console::{ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleMinionTopRequest, MinionCommandReply},
     context,
     inspector::SysInspectRunner,
     intp::{
@@ -52,7 +52,7 @@ use libsysinspect::{
         secure_bootstrap::SecureBootstrapSession,
         secure_channel::{SECURE_MAX_FRAME_SIZE, SecureChannel, SecurePeerRole},
     },
-    util::{self, dataconv},
+    util::{self, dataconv, top::collect_top_snapshot},
 };
 use libsysproto::{
     MasterMessage, MinionMessage, ProtoConversion,
@@ -61,8 +61,8 @@ use libsysproto::{
     query::{
         MinionQuery, SCHEME_COMMAND,
         commands::{
-            CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_REBOOT, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION,
-            CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+            CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_REBOOT, CLUSTER_RECONNECT,
+            CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
         },
     },
     replay::{ReplayIdentity, replay_identity_from_minion_bytes},
@@ -1853,6 +1853,16 @@ impl SysMinion {
                             serde_json::to_value(snapshot)
                                 .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion log snapshot: {err}")))
                         })
+                    });
+                self.as_ptr().send_command_reply(cycle_id, payload).await;
+            }
+            CLUSTER_MINION_TOP => {
+                let minion_id = self.get_minion_id();
+                let payload = serde_json::from_str::<ConsoleMinionTopRequest>(context)
+                    .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion top request: {err}")))
+                    .and_then(|request| {
+                        serde_json::to_value(collect_top_snapshot(minion_id, &request))
+                            .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion top snapshot: {err}")))
                     });
                 self.as_ptr().send_command_reply(cycle_id, payload).await;
             }

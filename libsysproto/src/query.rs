@@ -38,6 +38,9 @@ pub mod commands {
     // Read recent raw log snapshot from one minion
     pub const CLUSTER_MINION_LOGS: &str = "cluster/minion/logs";
 
+    // Read one live system-top snapshot from one minion
+    pub const CLUSTER_MINION_TOP: &str = "cluster/minion/top";
+
     // Update master-managed static traits on minions
     pub const CLUSTER_TRAITS_UPDATE: &str = "cluster/traits/update";
 

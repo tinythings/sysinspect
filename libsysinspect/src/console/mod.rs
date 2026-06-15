@@ -105,6 +105,17 @@ pub struct ConsoleMinionLogRequest {
     pub lines: usize,
 }
 
+/// Request parameters for one system-top snapshot from a minion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleMinionTopRequest {
+    #[serde(default = "default_top_process_limit")]
+    pub process_limit: usize,
+}
+
+fn default_top_process_limit() -> usize {
+    24
+}
+
 /// Snapshot of one selected raw minion logfile.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConsoleMinionLogSnapshot {
@@ -115,6 +126,51 @@ pub struct ConsoleMinionLogSnapshot {
     pub lines: Vec<String>,
     #[serde(default)]
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsoleMinionTopProcess {
+    pub pid: u32,
+    pub name: String,
+    pub command: String,
+    pub user: String,
+    pub threads: usize,
+    pub cpu_percent: f32,
+    pub memory_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsoleMinionTopDisk {
+    pub name: String,
+    pub mount_point: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+    pub used_bytes: u64,
+    pub used_percent: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsoleMinionTopSnapshot {
+    pub minion_id: String,
+    pub hostname: String,
+    pub uptime_secs: u64,
+    pub load_avg_one: f32,
+    pub load_avg_five: f32,
+    pub load_avg_fifteen: f32,
+    pub cpu_percent: f32,
+    #[serde(default)]
+    pub cpu_per_core: Vec<f32>,
+    pub memory_total_bytes: u64,
+    pub memory_used_bytes: u64,
+    pub memory_available_bytes: u64,
+    pub swap_total_bytes: u64,
+    pub swap_used_bytes: u64,
+    pub network_rx_total_bytes: u64,
+    pub network_tx_total_bytes: u64,
+    #[serde(default)]
+    pub disks: Vec<ConsoleMinionTopDisk>,
+    #[serde(default)]
+    pub processes: Vec<ConsoleMinionTopProcess>,
 }
 
 /// Raw logfile snapshot for the master's own standard and error logs.
@@ -225,6 +281,11 @@ pub enum ConsolePayload {
     MinionLogs {
         /// Snapshot payload.
         snapshot: ConsoleMinionLogSnapshot,
+    },
+    /// Live system-top snapshot for one selected minion.
+    MinionTop {
+        /// Snapshot payload.
+        snapshot: ConsoleMinionTopSnapshot,
     },
     /// Raw logfile snapshot for the master's own standard and error logs.
     MasterLogs {

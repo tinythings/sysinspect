@@ -13,13 +13,15 @@ use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
         ConsoleEnvelope, ConsoleLibraryRow, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot,
-        ConsoleModelRow, ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse,
-        ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client, load_master_private_key,
+        ConsoleMinionTopRequest, ConsoleMinionTopSnapshot, ConsoleModelRow, ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow,
+        ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client,
+        load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
     traits::TraitSource,
 };
+use libsysproto::query::commands::CLUSTER_MINION_TOP;
 use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::oneshot;
 use tokio::time;
@@ -66,6 +68,11 @@ struct MinionLogsConsoleRequest {
     lines: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct MinionTopConsoleRequest {
+    process_limit: Option<usize>,
+}
+
 impl MinionLogsConsoleRequest {
     fn from_context(context: &str) -> Result<Self, SysinspectError> {
         if context.trim().is_empty() {
@@ -89,6 +96,21 @@ impl MinionLogsConsoleRequest {
 
     fn to_minion_request(&self) -> ConsoleMinionLogRequest {
         ConsoleMinionLogRequest { stream: self.stream().to_string(), lines: self.lines() }
+    }
+}
+
+impl MinionTopConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Ok(Self { process_limit: Some(24) });
+        }
+
+        serde_json::from_str(context)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion top request context: {err}")))
+    }
+
+    fn to_minion_request(&self) -> ConsoleMinionTopRequest {
+        ConsoleMinionTopRequest { process_limit: self.process_limit.unwrap_or(24).clamp(1, 64) }
     }
 }
 
@@ -459,6 +481,36 @@ impl SysMaster {
         Ok(snapshot)
     }
 
+    async fn minion_top_snapshot(
+        master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str, request: &MinionTopConsoleRequest,
+    ) -> Result<ConsoleMinionTopSnapshot, SysinspectError> {
+        let (minion_id, _alive, msg) = {
+            let mut guard = master.lock().await;
+            let (minion_id, alive) = guard.selected_console_minion(query, traits, mid).await?;
+            if !alive {
+                return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} is offline; system top is only available for online minions")));
+            }
+            let context = serde_json::to_string(&request.to_minion_request())
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion top request: {err}")))?;
+            let msg = guard
+                .msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_TOP}"), "", "", &minion_id, &context)
+                .await
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct direct minion top request for {minion_id}")))?;
+            (minion_id, alive, msg)
+        };
+
+        let reply = Self::await_minion_console_reply(master, &minion_id, msg).await?;
+        if !reply.ok {
+            return Err(SysinspectError::ProtoError(if reply.error.is_empty() {
+                format!("Minion {minion_id} returned an unspecified system top error")
+            } else {
+                reply.error
+            }));
+        }
+        serde_json::from_value::<ConsoleMinionTopSnapshot>(reply.payload)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion top snapshot: {err}")))
+    }
+
     async fn master_log_snapshot(master: Arc<Mutex<Self>>) -> Result<ConsoleMasterLogSnapshot, SysinspectError> {
         let guard = master.lock().await;
         let std = std::fs::read_to_string(guard.cfg.logfile_std()).unwrap_or_default();
@@ -772,6 +824,16 @@ impl SysMaster {
                     Err(err) => ConsoleResponse::err(format!("Unable to get minion logs: {err}")),
                 },
                 Err(err) => ConsoleResponse::err(format!("Failed to parse minion logs request: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_TOP}")) {
+            return match MinionTopConsoleRequest::from_context(&query.context) {
+                Ok(request) => match Self::minion_top_snapshot(Arc::clone(&master), &query.query, &query.traits, &query.mid, &request).await {
+                    Ok(snapshot) => ConsoleResponse::ok(ConsolePayload::MinionTop { snapshot }),
+                    Err(err) => ConsoleResponse::err(format!("Unable to get minion system top: {err}")),
+                },
+                Err(err) => ConsoleResponse::err(format!("Failed to parse minion system top request: {err}")),
             };
         }
 
