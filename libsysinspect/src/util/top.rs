@@ -1,17 +1,46 @@
 use crate::console::{ConsoleMinionTopDisk, ConsoleMinionTopInterface, ConsoleMinionTopProcess, ConsoleMinionTopRequest, ConsoleMinionTopSnapshot};
-use sysinfo::{Disks, Networks, ProcessesToUpdate, System};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
+use sysinfo::{Components, Disks, Networks, ProcessesToUpdate, System};
+
+#[derive(Debug, Default, Clone, Copy)]
+struct InterfaceCounters {
+    rx_total_bytes: u64,
+    tx_total_bytes: u64,
+}
+
+#[derive(Debug, Default)]
+struct NetworkCounters {
+    rx_total_bytes: u64,
+    tx_total_bytes: u64,
+    interfaces: BTreeMap<String, InterfaceCounters>,
+}
 
 pub fn collect_top_snapshot(minion_id: &str, request: &ConsoleMinionTopRequest) -> ConsoleMinionTopSnapshot {
+    let sample_interval = Duration::from_millis(200);
     let mut system = System::new_all();
     system.refresh_memory();
     system.refresh_cpu_all();
     system.refresh_processes(ProcessesToUpdate::All, true);
 
-    let mut disks = Disks::new();
-    disks.refresh(true);
-
     let mut networks = Networks::new_with_refreshed_list();
     networks.refresh(true);
+    let network_before = collect_network_counters(&networks);
+    let network_sample_started = Instant::now();
+
+    std::thread::sleep(sample_interval);
+    system.refresh_cpu_all();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    networks.refresh(true);
+    let network_elapsed = network_sample_started.elapsed().max(Duration::from_millis(1));
+    let network_after = collect_network_counters(&networks);
+
+    let components = Components::new_with_refreshed_list();
+
+    let mut disks = Disks::new();
+    disks.refresh(true);
 
     let mut processes: Vec<ConsoleMinionTopProcess> = system
         .processes()
@@ -61,20 +90,38 @@ pub fn collect_top_snapshot(minion_id: &str, request: &ConsoleMinionTopRequest) 
         .collect();
     disk_rows.sort_by(|a, b| b.used_percent.partial_cmp(&a.used_percent).unwrap_or(std::cmp::Ordering::Equal));
 
-    let network_rx_total_bytes = networks.values().map(|net| net.total_received()).sum();
-    let network_tx_total_bytes = networks.values().map(|net| net.total_transmitted()).sum();
-    let mut network_interfaces: Vec<ConsoleMinionTopInterface> = networks
+    let network_rx_total_bytes = network_after.rx_total_bytes;
+    let network_tx_total_bytes = network_after.tx_total_bytes;
+    let network_rx_rate_bytes_per_sec =
+        rate_bytes_per_sec(network_after.rx_total_bytes.saturating_sub(network_before.rx_total_bytes), network_elapsed);
+    let network_tx_rate_bytes_per_sec =
+        rate_bytes_per_sec(network_after.tx_total_bytes.saturating_sub(network_before.tx_total_bytes), network_elapsed);
+    let mut network_interfaces: Vec<ConsoleMinionTopInterface> = network_after
+        .interfaces
         .iter()
-        .map(|(name, net)| ConsoleMinionTopInterface {
-            name: name.to_string(),
-            rx_total_bytes: net.total_received(),
-            tx_total_bytes: net.total_transmitted(),
+        .map(|(name, counters)| {
+            let before = network_before.interfaces.get(name).copied().unwrap_or_default();
+            ConsoleMinionTopInterface {
+                name: name.to_string(),
+                rx_total_bytes: counters.rx_total_bytes,
+                tx_total_bytes: counters.tx_total_bytes,
+                rx_rate_bytes_per_sec: rate_bytes_per_sec(counters.rx_total_bytes.saturating_sub(before.rx_total_bytes), network_elapsed),
+                tx_rate_bytes_per_sec: rate_bytes_per_sec(counters.tx_total_bytes.saturating_sub(before.tx_total_bytes), network_elapsed),
+            }
         })
         .collect();
     network_interfaces.sort_by(|a, b| {
         b.rx_total_bytes.saturating_add(b.tx_total_bytes).cmp(&a.rx_total_bytes.saturating_add(a.tx_total_bytes)).then_with(|| a.name.cmp(&b.name))
     });
     let load_avg = System::load_average();
+    let cpu_temp_celsius = components
+        .list()
+        .iter()
+        .filter_map(|component| {
+            let label = component.label().to_ascii_lowercase();
+            (label.contains("cpu") || label.contains("core")).then(|| component.temperature()).flatten()
+        })
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     ConsoleMinionTopSnapshot {
         minion_id: minion_id.to_string(),
@@ -84,6 +131,7 @@ pub fn collect_top_snapshot(minion_id: &str, request: &ConsoleMinionTopRequest) 
         load_avg_five: load_avg.five as f32,
         load_avg_fifteen: load_avg.fifteen as f32,
         cpu_percent: system.global_cpu_usage(),
+        cpu_temp_celsius,
         cpu_per_core: system.cpus().iter().map(|cpu| cpu.cpu_usage()).collect(),
         memory_total_bytes: system.total_memory(),
         memory_used_bytes: system.used_memory(),
@@ -92,8 +140,28 @@ pub fn collect_top_snapshot(minion_id: &str, request: &ConsoleMinionTopRequest) 
         swap_used_bytes: system.used_swap(),
         network_rx_total_bytes,
         network_tx_total_bytes,
+        network_rx_rate_bytes_per_sec,
+        network_tx_rate_bytes_per_sec,
         network_interfaces,
         disks: disk_rows,
         processes,
     }
+}
+
+fn collect_network_counters(networks: &Networks) -> NetworkCounters {
+    let mut snapshot = NetworkCounters::default();
+    for (name, net) in networks.iter() {
+        let counters = InterfaceCounters { rx_total_bytes: net.total_received(), tx_total_bytes: net.total_transmitted() };
+        snapshot.rx_total_bytes = snapshot.rx_total_bytes.saturating_add(counters.rx_total_bytes);
+        snapshot.tx_total_bytes = snapshot.tx_total_bytes.saturating_add(counters.tx_total_bytes);
+        snapshot.interfaces.insert(name.to_string(), counters);
+    }
+    snapshot
+}
+
+fn rate_bytes_per_sec(delta_bytes: u64, elapsed: Duration) -> u64 {
+    if delta_bytes == 0 {
+        return 0;
+    }
+    (delta_bytes as f64 / elapsed.as_secs_f64()) as u64
 }

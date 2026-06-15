@@ -154,6 +154,10 @@ pub struct ConsoleMinionTopInterface {
     pub name: String,
     pub rx_total_bytes: u64,
     pub tx_total_bytes: u64,
+    #[serde(default)]
+    pub rx_rate_bytes_per_sec: u64,
+    #[serde(default)]
+    pub tx_rate_bytes_per_sec: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -166,6 +170,8 @@ pub struct ConsoleMinionTopSnapshot {
     pub load_avg_fifteen: f32,
     pub cpu_percent: f32,
     #[serde(default)]
+    pub cpu_temp_celsius: Option<f32>,
+    #[serde(default)]
     pub cpu_per_core: Vec<f32>,
     pub memory_total_bytes: u64,
     pub memory_used_bytes: u64,
@@ -174,6 +180,10 @@ pub struct ConsoleMinionTopSnapshot {
     pub swap_used_bytes: u64,
     pub network_rx_total_bytes: u64,
     pub network_tx_total_bytes: u64,
+    #[serde(default)]
+    pub network_rx_rate_bytes_per_sec: u64,
+    #[serde(default)]
+    pub network_tx_rate_bytes_per_sec: u64,
     #[serde(default)]
     pub network_interfaces: Vec<ConsoleMinionTopInterface>,
     #[serde(default)]

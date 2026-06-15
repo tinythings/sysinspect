@@ -715,10 +715,7 @@ impl SysInspectUX {
                         && self.systop.last_fetch.is_none_or(|last| last.elapsed() >= Duration::from_secs(1))
                         && let Err(err) = self.load_selected_minion_top()
                     {
-                        self.systop.close();
-                        self.error_alert_visible = true;
-                        self.error_alert_message = err.to_string();
-                        self.status_at_minions_browser();
+                        self.log_systop_refresh_error(&err);
                     }
                     if self.master_logs_visible && self.master_logs_polling && self.master_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
                         let _ = self.load_master_logs();
@@ -1508,6 +1505,11 @@ impl SysInspectUX {
         self.status_at_minions_browser();
     }
 
+    fn log_systop_refresh_error(&self, err: &SysinspectError) {
+        let base = if err.to_string().contains("exceeds") { "System Top exceeded frame size" } else { "System Top refresh failed" };
+        log::warn!("{base} for {} ({}): {err}; skipping this frame", self.systop.minion_id, self.systop.host);
+    }
+
     fn do_minion_start(&mut self) {
         let row = match self.selected_popup_minion() {
             Some(row) => row,
@@ -1856,7 +1858,7 @@ impl SysInspectUX {
 
     fn load_selected_minion_top(&mut self) -> Result<(), SysinspectError> {
         let row = self.selected_popup_minion().ok_or_else(|| SysinspectError::InvalidQuery("No minion is currently selected".to_string()))?;
-        let context = serde_json::json!({"process_limit": 24usize}).to_string();
+        let context = serde_json::json!({"process_limit": 64usize}).to_string();
         let mid = row.minion_id.clone();
         let snapshot = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
@@ -1894,6 +1896,24 @@ impl SysInspectUX {
             }
             KeyCode::PageDown => {
                 self.systop.processes_scroll = (self.systop.processes_scroll + page).min(max_top);
+            }
+            KeyCode::Tab => {
+                self.systop.cycle_network_interface(true);
+            }
+            KeyCode::BackTab => {
+                self.systop.cycle_network_interface(false);
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') => {
+                self.systop.apply_sort_key('c');
+            }
+            KeyCode::Char('m') | KeyCode::Char('M') => {
+                self.systop.apply_sort_key('m');
+            }
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                self.systop.apply_sort_key('p');
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.systop.apply_sort_key('n');
             }
             _ => {}
         }

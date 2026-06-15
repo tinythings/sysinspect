@@ -49,7 +49,7 @@ static LOGGER: OnceLock<logger::STDOUTLogger> = OnceLock::new();
 static MEM_LOGGER: MemoryLogger = MemoryLogger { messages: Mutex::new(Vec::new()) };
 pub(crate) const CONSOLE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const CONSOLE_READ_TIMEOUT: Duration = Duration::from_secs(5);
-pub(crate) const MAX_CONSOLE_RESPONSE_SIZE: u64 = 64 * 1024;
+pub(crate) const MAX_CONSOLE_RESPONSE_SIZE: u64 = 256 * 1024;
 
 /// Display event handlers
 fn print_event_handlers() {

@@ -30,7 +30,7 @@ use tokio::time;
 ///
 /// Requests are newline-delimited JSON frames, so the limit is applied before
 /// parsing and before any cryptographic work is attempted.
-const MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
+const MAX_CONSOLE_FRAME_SIZE: usize = 256 * 1024;
 
 /// Upper bound for reading one console request frame from a connected client.
 ///
@@ -1055,11 +1055,83 @@ impl SysMaster {
             Err(err) => return Self::console_error_json(format!("Failed to open console query: {err}")),
         };
 
-        let response = Self::dispatch_console_query(master, bcast, cfg, query).await;
-        match ConsoleSealed::seal(&response, &key)
-            .and_then(|sealed| serde_json::to_string(&sealed).map_err(|e| SysinspectError::SerializationError(e.to_string())))
-        {
-            Ok(reply) => Some(reply),
+        let mut response = Self::dispatch_console_query(master, bcast, cfg, query).await;
+        let seal_response = |response: &ConsoleResponse| {
+            ConsoleSealed::seal(response, &key)
+                .and_then(|sealed| serde_json::to_string(&sealed).map_err(|e| SysinspectError::SerializationError(e.to_string())))
+        };
+        match seal_response(&response) {
+            Ok(reply) if reply.len() < MAX_CONSOLE_FRAME_SIZE => Some(reply),
+            Ok(mut reply) => {
+                if matches!(response.payload, ConsolePayload::MinionTop { .. }) {
+                    while reply.len() >= MAX_CONSOLE_FRAME_SIZE {
+                        let Some((minion_id, before, after)) = ({
+                            match &mut response.payload {
+                                ConsolePayload::MinionTop { snapshot } if !snapshot.processes.is_empty() => {
+                                    let before = snapshot.processes.len();
+                                    let after = before / 2;
+                                    snapshot.processes.truncate(after);
+                                    Some((snapshot.minion_id.clone(), before, after))
+                                }
+                                _ => None,
+                            }
+                        }) else {
+                            break;
+                        };
+                        log::warn!(
+                            "System Top response for {} exceeds {} bytes ({} bytes); trimming process list from {} to {}",
+                            minion_id,
+                            MAX_CONSOLE_FRAME_SIZE,
+                            reply.len() + 1,
+                            before,
+                            after
+                        );
+                        reply = match seal_response(&response) {
+                            Ok(reply) => reply,
+                            Err(err) => {
+                                log::error!("Failed to reseal trimmed System Top response: {err}");
+                                return Self::console_error_json(format!("Failed to seal console response: {err}"));
+                            }
+                        };
+                    }
+                    if reply.len() < MAX_CONSOLE_FRAME_SIZE {
+                        return Some(reply);
+                    }
+
+                    let minion_id = match &response.payload {
+                        ConsolePayload::MinionTop { snapshot } => snapshot.minion_id.clone(),
+                        _ => String::new(),
+                    };
+
+                    log::warn!(
+                        "AAAA!!! System Top response for {} still exceeds {} bytes ({} bytes) after trimming all processes; returning error response",
+                        minion_id,
+                        MAX_CONSOLE_FRAME_SIZE,
+                        reply.len() + 1
+                    );
+                    let error_response = ConsoleResponse::err(format!(
+                        "System Top snapshot for {} still exceeds {} bytes after trimming; skipping frame",
+                        minion_id, MAX_CONSOLE_FRAME_SIZE
+                    ));
+                    return match seal_response(&error_response) {
+                        Ok(reply) => Some(reply),
+                        Err(err) => {
+                            log::error!("Failed to seal fallback System Top error response: {err}");
+                            Self::console_error_json(format!("Failed to seal console response: {err}"))
+                        }
+                    };
+                }
+
+                log::warn!("Console response exceeds {} bytes ({} bytes); returning compact error response", MAX_CONSOLE_FRAME_SIZE, reply.len() + 1);
+                let error_response = ConsoleResponse::err(format!("Console response exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE));
+                match seal_response(&error_response) {
+                    Ok(reply) => Some(reply),
+                    Err(err) => {
+                        log::error!("Failed to seal compact oversize response error: {err}");
+                        Self::console_error_json(format!("Failed to seal console response: {err}"))
+                    }
+                }
+            }
             Err(err) => {
                 log::error!("Failed to seal console response: {err}");
                 Self::console_error_json(format!("Failed to seal console response: {err}"))
