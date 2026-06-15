@@ -23,8 +23,8 @@ use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
         CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS,
-        CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS,
-        CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX,
+        CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -1883,60 +1883,181 @@ impl SysInspectUX {
         Ok(())
     }
 
+    fn signal_selected_systop_process(&mut self, pid: u32, signal: i32) -> Result<(), SysinspectError> {
+        let context = serde_json::json!({"pid": pid, "signal": signal}).to_string();
+        let mid = self.systop.minion_id.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_PROCESS_SIGNAL}"), "*", None, Some(&mid), Some(&context))
+                    .await
+            })
+        })?;
+        self.load_selected_minion_top()?;
+        Ok(())
+    }
+
     fn on_systop_popup(&mut self, e: event::KeyEvent) -> bool {
         if !self.systop.visible {
             return false;
         }
-        let page = self.systop.process_viewport_rows.get().max(1);
-        let total_rows = self.systop.snapshot.as_ref().map(|s| s.processes.len()).unwrap_or(0);
-        let max_top = total_rows.saturating_sub(page);
+        if self.systop.process_shootout_visible {
+            match e.code {
+                KeyCode::Esc => {
+                    self.systop.close_process_shootout();
+                }
+                KeyCode::Up => {
+                    self.systop.process_shootout_sel = self.systop.process_shootout_sel.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.systop.process_shootout_sel = (self.systop.process_shootout_sel + 1).min(2);
+                }
+                KeyCode::Enter => {
+                    if let Some((pid, signal, _)) = self.systop.selected_process_action() {
+                        match self.signal_selected_systop_process(pid, signal) {
+                            Ok(()) => self.systop.close_process_shootout(),
+                            Err(err) => {
+                                self.systop.close_process_shootout();
+                                let _ = self.load_selected_minion_top();
+                                self.error_alert_visible = true;
+                                self.error_alert_message = err.to_string();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return true;
+        }
+
         match e.code {
             KeyCode::Esc => {
+                if self.systop.process_filter_active {
+                    self.systop.clear_process_filter();
+                    return true;
+                }
                 self.persist_system_top_preferences();
                 self.systop.close();
                 self.status_at_minions_browser();
             }
             KeyCode::Up => {
-                self.systop.processes_scroll = self.systop.processes_scroll.saturating_sub(1);
+                self.systop.move_process_selection(-1);
             }
             KeyCode::Down => {
-                self.systop.processes_scroll = (self.systop.processes_scroll + 1).min(max_top);
+                self.systop.move_process_selection(1);
             }
             KeyCode::PageUp => {
-                self.systop.processes_scroll = self.systop.processes_scroll.saturating_sub(page);
+                self.systop.page_process_selection(-1);
             }
             KeyCode::PageDown => {
-                self.systop.processes_scroll = (self.systop.processes_scroll + page).min(max_top);
+                self.systop.page_process_selection(1);
             }
             KeyCode::Left => {
-                self.systop.set_chart_mode(crate::ui::systop::ChartMode::Blocks);
-                self.persist_system_top_preferences();
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Left);
+                } else {
+                    self.systop.set_chart_mode(crate::ui::systop::ChartMode::Blocks);
+                    self.persist_system_top_preferences();
+                }
             }
             KeyCode::Right => {
-                self.systop.set_chart_mode(crate::ui::systop::ChartMode::Line);
-                self.persist_system_top_preferences();
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Right);
+                } else {
+                    self.systop.set_chart_mode(crate::ui::systop::ChartMode::Line);
+                    self.persist_system_top_preferences();
+                }
             }
             KeyCode::Tab => {
-                self.systop.cycle_network_interface(true);
+                if self.systop.process_filter_active {
+                    self.systop.cycle_process_filter_focus(true);
+                } else {
+                    self.systop.cycle_network_interface(true);
+                }
             }
             KeyCode::BackTab => {
-                self.systop.cycle_network_interface(false);
+                if self.systop.process_filter_active {
+                    self.systop.cycle_process_filter_focus(false);
+                } else {
+                    self.systop.cycle_network_interface(false);
+                }
+            }
+            KeyCode::Enter => {
+                if self.systop.snapshot.is_some() {
+                    self.systop.open_process_shootout();
+                }
+            }
+            KeyCode::Backspace => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Backspace);
+                    self.systop.move_process_selection(0);
+                }
+            }
+            KeyCode::Delete => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Delete);
+                    self.systop.move_process_selection(0);
+                }
+            }
+            KeyCode::Home => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Home);
+                } else {
+                    self.systop.process_selected = 0;
+                    self.systop.move_process_selection(0);
+                }
+            }
+            KeyCode::End => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::End);
+                } else {
+                    if let Some(snapshot) = &self.systop.snapshot {
+                        self.systop.process_selected = self.systop.filtered_processes(snapshot).len().saturating_sub(1);
+                        self.systop.move_process_selection(0);
+                    }
+                }
             }
             KeyCode::Char('c') | KeyCode::Char('C') => {
-                self.systop.apply_sort_key('c');
-                self.persist_system_top_preferences();
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('c'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('c');
+                    self.persist_system_top_preferences();
+                }
             }
             KeyCode::Char('m') | KeyCode::Char('M') => {
-                self.systop.apply_sort_key('m');
-                self.persist_system_top_preferences();
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('m'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('m');
+                    self.persist_system_top_preferences();
+                }
             }
             KeyCode::Char('p') | KeyCode::Char('P') => {
-                self.systop.apply_sort_key('p');
-                self.persist_system_top_preferences();
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('p'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('p');
+                    self.persist_system_top_preferences();
+                }
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
-                self.systop.apply_sort_key('n');
-                self.persist_system_top_preferences();
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('n'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('n');
+                    self.persist_system_top_preferences();
+                }
+            }
+            KeyCode::Char('/') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.systop.activate_process_filter();
+            }
+            KeyCode::Char(c) if self.systop.process_filter_active => {
+                self.systop.edit_process_filter(KeyCode::Char(c));
+                self.systop.move_process_selection(0);
             }
             _ => {}
         }

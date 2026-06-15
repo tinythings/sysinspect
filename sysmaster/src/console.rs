@@ -13,9 +13,9 @@ use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
         ConsoleEnvelope, ConsoleLibraryRow, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot,
-        ConsoleMinionTopRequest, ConsoleMinionTopSnapshot, ConsoleModelRow, ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow,
-        ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client,
-        load_master_private_key,
+        ConsoleMinionProcessSignalRequest, ConsoleMinionTopRequest, ConsoleMinionTopSnapshot, ConsoleModelRow, ConsoleModuleArgument,
+        ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow,
+        MinionCommandReply, authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
@@ -73,6 +73,12 @@ struct MinionTopConsoleRequest {
     process_limit: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct MinionProcessSignalConsoleRequest {
+    pid: Option<u32>,
+    signal: Option<i32>,
+}
+
 impl MinionLogsConsoleRequest {
     fn from_context(context: &str) -> Result<Self, SysinspectError> {
         if context.trim().is_empty() {
@@ -111,6 +117,29 @@ impl MinionTopConsoleRequest {
 
     fn to_minion_request(&self) -> ConsoleMinionTopRequest {
         ConsoleMinionTopRequest { process_limit: self.process_limit.unwrap_or(24).clamp(1, 64) }
+    }
+}
+
+impl MinionProcessSignalConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Err(SysinspectError::InvalidQuery("Process signal requires pid and signal context".to_string()));
+        }
+
+        serde_json::from_str(context)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion process signal request context: {err}")))
+    }
+
+    fn to_minion_request(&self) -> Result<ConsoleMinionProcessSignalRequest, SysinspectError> {
+        let pid = self.pid.ok_or_else(|| SysinspectError::InvalidQuery("Process signal request is missing pid".to_string()))?;
+        let signal = self.signal.ok_or_else(|| SysinspectError::InvalidQuery("Process signal request is missing signal".to_string()))?;
+        if pid == 0 {
+            return Err(SysinspectError::InvalidQuery("Process signal pid must be greater than zero".to_string()));
+        }
+        if signal <= 0 {
+            return Err(SysinspectError::InvalidQuery("Process signal value must be greater than zero".to_string()));
+        }
+        Ok(ConsoleMinionProcessSignalRequest { pid, signal })
     }
 }
 
@@ -767,6 +796,48 @@ impl SysMaster {
         Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_reconnect".to_string(), target: minion_id, count: 1, items: vec![] }))
     }
 
+    async fn minion_process_signal(
+        master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str, request: &MinionProcessSignalConsoleRequest,
+    ) -> Result<ConsoleResponse, SysinspectError> {
+        let minion_request = request.to_minion_request()?;
+        let (minion_id, _alive, msg) = {
+            let mut guard = master.lock().await;
+            let (minion_id, alive) = guard.selected_console_minion(query, traits, mid).await?;
+            if !alive {
+                return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} is offline")));
+            }
+            let context = serde_json::to_string(&minion_request)
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion process signal request: {err}")))?;
+            let msg = guard
+                .msg_query_data(
+                    &format!("{SCHEME_COMMAND}{}", libsysproto::query::commands::CLUSTER_MINION_PROCESS_SIGNAL),
+                    "",
+                    "",
+                    &minion_id,
+                    &context,
+                )
+                .await
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct process signal request for {minion_id}")))?;
+            (minion_id, alive, msg)
+        };
+
+        let reply = Self::await_minion_console_reply(master, &minion_id, msg).await?;
+        if !reply.ok {
+            return Err(SysinspectError::ProtoError(if reply.error.is_empty() {
+                format!("Minion {minion_id} process signal failed")
+            } else {
+                reply.error
+            }));
+        }
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack {
+            action: format!("process_signal:{}", minion_request.signal),
+            target: format!("{minion_id}:{}", minion_request.pid),
+            count: 1,
+            items: vec![],
+        }))
+    }
+
     /// Register the concrete minion ids targeted by one outbound console message.
     ///
     /// This keeps task tracking aligned with console-initiated broadcasts so the
@@ -908,6 +979,16 @@ impl SysMaster {
             return match Self::minion_reconnect(Arc::clone(&master), &query.query, &query.traits, &query.mid).await {
                 Ok(response) => response,
                 Err(err) => ConsoleResponse::err(err.to_string()),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{}", libsysproto::query::commands::CLUSTER_MINION_PROCESS_SIGNAL)) {
+            return match MinionProcessSignalConsoleRequest::from_context(&query.context) {
+                Ok(request) => match Self::minion_process_signal(Arc::clone(&master), &query.query, &query.traits, &query.mid, &request).await {
+                    Ok(response) => response,
+                    Err(err) => ConsoleResponse::err(err.to_string()),
+                },
+                Err(err) => ConsoleResponse::err(format!("Failed to parse minion process signal request: {err}")),
             };
         }
 

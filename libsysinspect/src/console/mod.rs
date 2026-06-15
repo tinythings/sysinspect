@@ -112,6 +112,13 @@ pub struct ConsoleMinionTopRequest {
     pub process_limit: usize,
 }
 
+/// Request parameters for signalling one process on a minion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleMinionProcessSignalRequest {
+    pub pid: u32,
+    pub signal: i32,
+}
+
 fn default_top_process_limit() -> usize {
     24
 }

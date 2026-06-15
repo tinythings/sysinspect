@@ -26,7 +26,7 @@ use libsysinspect::{
         get_minion_config,
         mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, MinionOfflineMode, SysInspectConfig},
     },
-    console::{ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleMinionTopRequest, MinionCommandReply},
+    console::{ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleMinionProcessSignalRequest, ConsoleMinionTopRequest, MinionCommandReply},
     context,
     inspector::SysInspectRunner,
     intp::{
@@ -61,8 +61,8 @@ use libsysproto::{
     query::{
         MinionQuery, SCHEME_COMMAND,
         commands::{
-            CLUSTER_MINION_LOGS, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_REBOOT, CLUSTER_RECONNECT,
-            CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+            CLUSTER_MINION_LOGS, CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP,
+            CLUSTER_REBOOT, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
         },
     },
     replay::{ReplayIdentity, replay_identity_from_minion_bytes},
@@ -1863,6 +1863,31 @@ impl SysMinion {
                     .and_then(|request| {
                         serde_json::to_value(collect_top_snapshot(minion_id, &request))
                             .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion top snapshot: {err}")))
+                    });
+                self.as_ptr().send_command_reply(cycle_id, payload).await;
+            }
+            CLUSTER_MINION_PROCESS_SIGNAL => {
+                let payload = serde_json::from_str::<ConsoleMinionProcessSignalRequest>(context)
+                    .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion process signal request: {err}")))
+                    .and_then(|request| {
+                        if request.pid == 0 {
+                            return Err(SysinspectError::InvalidQuery("Process signal pid must be greater than zero".to_string()));
+                        }
+                        if request.signal <= 0 {
+                            return Err(SysinspectError::InvalidQuery("Process signal value must be greater than zero".to_string()));
+                        }
+                        // SAFETY: libc::kill is called with the caller-provided pid and signal values after basic validation.
+                        let rc = unsafe { libc::kill(request.pid as libc::pid_t, request.signal) };
+                        if rc == 0 {
+                            Ok(json!({"pid": request.pid, "signal": request.signal, "status": "sent"}))
+                        } else {
+                            Err(SysinspectError::MasterGeneralError(format!(
+                                "Failed to send signal {} to pid {}: {}",
+                                request.signal,
+                                request.pid,
+                                std::io::Error::last_os_error()
+                            )))
+                        }
                     });
                 self.as_ptr().send_command_reply(cycle_id, payload).await;
             }

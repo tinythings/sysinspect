@@ -8494,6 +8494,7 @@ dependencies = [
  "glob",
  "indexmap 2.14.0",
  "jsonpath_lib",
+ "libc",
  "libcommon",
  "libeventreg",
  "libmodcore",

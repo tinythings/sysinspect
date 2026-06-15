@@ -65,6 +65,9 @@ pub mod commands {
     // Force one minion to drop and re-establish its transport connection
     pub const CLUSTER_MINION_RECONNECT: &str = "cluster/minion/reconnect";
 
+    // Send a Unix signal to one process on one specific minion
+    pub const CLUSTER_MINION_PROCESS_SIGNAL: &str = "cluster/minion/process/signal";
+
     // Force all online minions to reconnect (cluster-wide broadcast)
     pub const CLUSTER_RECONNECT: &str = "cluster/reconnect";
 

@@ -9,18 +9,22 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarState},
 };
+use ratatui_cheese::input::{Input, InputState, InputStyles};
 use std::{
     cell::Cell,
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     time::Instant,
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const HISTORY_LEN: usize = 96;
 const METER_CELL: &str = "■";
 const CPU_FLAME_PALETTE: [Color; 6] =
     [Color::Indexed(198), Color::Indexed(204), Color::Indexed(210), Color::Indexed(216), Color::Indexed(222), Color::Indexed(228)];
 const CPU_AVG_LINE_COLOR: Color = Color::Indexed(193);
+const PROCESS_SHOOTOUT_ITEMS: [(&str, i32); 3] =
+    [("💀  Kill it softly", libc::SIGHUP), ("🪦  Kill it politely", libc::SIGTERM), ("☠️  Kill it and ignore consequences", libc::SIGKILL)];
 
 #[derive(Debug, Default, Clone)]
 struct NetworkHistory {
@@ -66,9 +70,19 @@ pub struct SystemTopState {
     pub last_fetch: Option<Instant>,
     pub processes_scroll: usize,
     pub process_viewport_rows: Cell<usize>,
+    pub process_selected: usize,
     process_sort: ProcessSort,
     default_process_sort: ProcessSort,
     process_sort_asc: bool,
+    pub process_filter_active: bool,
+    pub process_filter_focus: usize,
+    pub process_filter_pid: InputState,
+    pub process_filter_name: InputState,
+    pub process_filter_user: InputState,
+    pub process_shootout_visible: bool,
+    pub process_shootout_sel: usize,
+    process_shootout_selected_pid: Option<u32>,
+    process_shootout_frozen_rows: Vec<libsysinspect::console::ConsoleMinionTopProcess>,
 }
 
 impl SystemTopState {
@@ -86,14 +100,25 @@ impl SystemTopState {
         self.interface_networks.clear();
         self.last_fetch = None;
         self.processes_scroll = 0;
+        self.process_selected = 0;
         self.process_sort = self.default_process_sort;
         self.process_sort_asc = matches!(self.process_sort, ProcessSort::Name | ProcessSort::Pid);
         self.chart_mode = self.default_chart_mode;
+        self.process_filter_active = false;
+        self.process_filter_focus = 0;
+        self.process_filter_pid = InputState::new();
+        self.process_filter_name = InputState::new();
+        self.process_filter_user = InputState::new();
+        self.process_shootout_visible = false;
+        self.process_shootout_sel = 0;
+        self.process_shootout_selected_pid = None;
+        self.process_shootout_frozen_rows.clear();
     }
 
     /// Close the popup.
     pub fn close(&mut self) {
         self.visible = false;
+        self.close_process_shootout();
     }
 
     /// Apply one fresh snapshot.
@@ -133,6 +158,7 @@ impl SystemTopState {
         self.interface_networks.retain(|name, _| present.contains(name));
         self.last_fetch = Some(Instant::now());
         self.snapshot = Some(snapshot);
+        self.clamp_process_selection();
     }
 
     /// Cycle the selected network interface.
@@ -153,6 +179,132 @@ impl SystemTopState {
             .unwrap_or(0);
         let next_idx = if forward { (current_idx + 1) % names.len() } else { current_idx.checked_sub(1).unwrap_or(names.len() - 1) };
         self.network_interface = Some(names[next_idx].clone());
+    }
+
+    pub fn activate_process_filter(&mut self) {
+        self.process_filter_active = true;
+        self.process_filter_focus = 1;
+    }
+
+    pub fn clear_process_filter(&mut self) {
+        self.process_filter_active = false;
+        self.process_filter_focus = 0;
+        self.process_filter_pid = InputState::new();
+        self.process_filter_name = InputState::new();
+        self.process_filter_user = InputState::new();
+        self.clamp_process_selection();
+    }
+
+    pub fn cycle_process_filter_focus(&mut self, forward: bool) {
+        self.process_filter_active = true;
+        self.process_filter_focus = if forward { (self.process_filter_focus + 1) % 3 } else { self.process_filter_focus.checked_sub(1).unwrap_or(2) };
+    }
+
+    pub fn focused_process_filter_mut(&mut self) -> &mut InputState {
+        match self.process_filter_focus {
+            0 => &mut self.process_filter_pid,
+            1 => &mut self.process_filter_name,
+            _ => &mut self.process_filter_user,
+        }
+    }
+
+    pub fn open_process_shootout(&mut self) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        let rows = self.filtered_processes(snapshot);
+        let Some(selected_pid) = rows.get(self.process_selected).map(|proc_row| proc_row.pid) else {
+            return;
+        };
+        self.process_shootout_frozen_rows = rows.into_iter().cloned().collect();
+        self.process_shootout_selected_pid = Some(selected_pid);
+        self.process_shootout_visible = true;
+        self.process_shootout_sel = 0;
+    }
+
+    pub fn close_process_shootout(&mut self) {
+        self.process_shootout_visible = false;
+        self.process_shootout_selected_pid = None;
+        self.process_shootout_frozen_rows.clear();
+    }
+
+    pub fn selected_process_action(&self) -> Option<(u32, i32, String)> {
+        let (label, signal) = PROCESS_SHOOTOUT_ITEMS.get(self.process_shootout_sel).copied()?;
+        Some((self.process_shootout_selected_pid?, signal, label.to_string()))
+    }
+
+    pub fn move_process_selection(&mut self, delta: isize) {
+        let total = self.snapshot.as_ref().map(|snapshot| self.filtered_processes(snapshot).len()).unwrap_or(0);
+        if total == 0 {
+            self.process_selected = 0;
+            self.processes_scroll = 0;
+            return;
+        }
+        let next = self.process_selected as isize + delta;
+        self.process_selected = next.clamp(0, total.saturating_sub(1) as isize) as usize;
+        self.ensure_process_selection_visible(total);
+    }
+
+    pub fn page_process_selection(&mut self, delta: isize) {
+        let step = self.process_viewport_rows.get().max(1) as isize;
+        self.move_process_selection(delta * step);
+    }
+
+    fn clamp_process_selection(&mut self) {
+        let total = self.snapshot.as_ref().map(|snapshot| self.filtered_processes(snapshot).len()).unwrap_or(0);
+        if total == 0 {
+            self.process_selected = 0;
+            self.processes_scroll = 0;
+            return;
+        }
+        self.process_selected = self.process_selected.min(total - 1);
+        self.ensure_process_selection_visible(total);
+    }
+
+    fn ensure_process_selection_visible(&mut self, total: usize) {
+        let view_h = self.process_viewport_rows.get().max(1);
+        let max_scroll = total.saturating_sub(view_h);
+        if self.process_selected < self.processes_scroll {
+            self.processes_scroll = self.process_selected;
+        } else if self.process_selected >= self.processes_scroll + view_h {
+            self.processes_scroll = self.process_selected.saturating_add(1).saturating_sub(view_h);
+        }
+        self.processes_scroll = self.processes_scroll.min(max_scroll);
+    }
+
+    pub fn edit_process_filter(&mut self, code: crossterm::event::KeyCode) -> bool {
+        let filter = self.focused_process_filter_mut();
+        match code {
+            crossterm::event::KeyCode::Backspace => {
+                filter.delete_before();
+                true
+            }
+            crossterm::event::KeyCode::Delete => {
+                filter.delete_at();
+                true
+            }
+            crossterm::event::KeyCode::Left => {
+                filter.move_left();
+                true
+            }
+            crossterm::event::KeyCode::Right => {
+                filter.move_right();
+                true
+            }
+            crossterm::event::KeyCode::Home => {
+                filter.home();
+                true
+            }
+            crossterm::event::KeyCode::End => {
+                filter.end();
+                true
+            }
+            crossterm::event::KeyCode::Char(c) => {
+                filter.insert_char(c);
+                true
+            }
+            _ => false,
+        }
     }
 
     pub(crate) fn set_chart_mode(&mut self, mode: ChartMode) {
@@ -212,6 +364,7 @@ impl SystemTopState {
             }
             self.default_process_sort = self.process_sort;
             self.processes_scroll = 0;
+            self.process_selected = 0;
         }
     }
 
@@ -286,6 +439,7 @@ impl SystemTopState {
         self.render_disks(disks_area, buf);
         self.render_network(net_area, buf);
         self.render_processes(right_area, buf);
+        self.render_process_shootout(canvas, buf);
         render_shadow(buf, canvas);
     }
 
@@ -585,10 +739,11 @@ impl SystemTopState {
             return;
         };
         let body = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(1) };
-        if body.height < 3 || body.width < 32 {
+        let header_rows = if self.process_filter_active { 2u16 } else { 1u16 };
+        if body.height < header_rows + 2u16 || body.width < 32 {
             return;
         }
-        self.process_viewport_rows.set(body.height.saturating_sub(1) as usize);
+        self.process_viewport_rows.set(body.height.saturating_sub(header_rows) as usize);
         let pid_w = 7usize;
         let user_w = if body.width >= 58 { 10usize } else { 0usize };
         let cpu_w = 6usize;
@@ -636,23 +791,43 @@ impl SystemTopState {
             true,
         );
 
-        let rows = self.sorted_processes(snapshot);
-        let view_h = body.height.saturating_sub(1) as usize;
-        let max_scroll = rows.len().saturating_sub(view_h);
-        let start = self.processes_scroll.min(max_scroll);
-        for (idx, proc_row) in rows.iter().skip(start).take(view_h).enumerate() {
-            let y = body.y + 1 + idx as u16;
-            render_value_cell(buf, pid_x, y, pid_w, &format!("{:>pid_w$}", proc_row.pid), self.process_sort == ProcessSort::Pid);
-            render_value_cell(
+        if self.process_filter_active {
+            self.render_process_filter_row(
+                Rect { x: pid_x, y: body.y + 1, width: pid_w as u16, height: 1 },
+                Rect { x: name_x, y: body.y + 1, width: name_w as u16, height: 1 },
+                user_x.map(|x| Rect { x, y: body.y + 1, width: user_w as u16, height: 1 }),
                 buf,
-                name_x,
-                y,
-                name_w,
-                &format!("{:<name_w$}", truncate(&proc_row.name, name_w)),
-                self.process_sort == ProcessSort::Name,
             );
+        }
+
+        let live_rows = self.filtered_processes(snapshot);
+        let row_count = if self.process_shootout_visible { self.process_shootout_frozen_rows.len() } else { live_rows.len() };
+        let view_h = body.height.saturating_sub(header_rows) as usize;
+        let max_scroll = row_count.saturating_sub(view_h);
+        let start = self.processes_scroll.min(max_scroll);
+        let selected_pid = if self.process_shootout_visible {
+            self.process_shootout_selected_pid
+        } else {
+            live_rows.get(self.process_selected).map(|proc_row| proc_row.pid)
+        };
+        let rows: Vec<&libsysinspect::console::ConsoleMinionTopProcess> =
+            if self.process_shootout_visible { self.process_shootout_frozen_rows.iter().collect() } else { live_rows };
+        for (idx, proc_row) in rows.iter().skip(start).take(view_h).enumerate() {
+            let y = body.y + header_rows + idx as u16;
+            let selected = selected_pid == Some(proc_row.pid);
+            if selected {
+                fill_row(buf, Rect { x: body.x, y, width: body.width, height: 1 }, palette::BG_3);
+            }
+            render_value_cell(buf, pid_x, y, pid_w, &format!("{:>pid_w$}", proc_row.pid), self.process_sort == ProcessSort::Pid, selected);
+            let program_style = if selected {
+                Style::default().fg(process_name_color(proc_row.cpu_percent)).bg(palette::BG_3)
+            } else {
+                Style::default().fg(process_name_color(proc_row.cpu_percent))
+            };
+            buf.set_string(name_x, y, format!("{:<name_w$}", truncate(&proc_row.name, name_w)), program_style);
             if let Some(user_x) = user_x {
-                buf.set_string(user_x, y, format!("{:<user_w$}", truncate(&proc_row.user, user_w)), Style::default().fg(palette::GRAY_1));
+                let style = if selected { Style::default().fg(palette::FG).bg(palette::BG_3) } else { Style::default().fg(palette::GRAY_1) };
+                buf.set_string(user_x, y, format!("{:<user_w$}", truncate(&proc_row.user, user_w)), style);
             }
             render_value_cell(
                 buf,
@@ -661,11 +836,13 @@ impl SystemTopState {
                 mem_w,
                 &format!("{:>mem_w$}", format_bytes(proc_row.memory_bytes)),
                 self.process_sort == ProcessSort::Mem,
+                selected,
             );
-            render_value_cell(buf, cpu_x, y, cpu_w, &format!("{:>cpu_w$.1}", proc_row.cpu_percent), self.process_sort == ProcessSort::Cpu);
+            render_value_cell(buf, cpu_x, y, cpu_w, &format!("{:>cpu_w$.1}", proc_row.cpu_percent), self.process_sort == ProcessSort::Cpu, selected);
         }
-        let scroll_area = Rect { x: area.right().saturating_sub(1), y: body.y + 1, width: 1, height: body.height.saturating_sub(1) };
-        let mut scroll = ScrollbarState::default().content_length(rows.len().max(1)).position(start);
+        let scroll_area =
+            Rect { x: area.right().saturating_sub(1), y: body.y + header_rows, width: 1, height: body.height.saturating_sub(header_rows) };
+        let mut scroll = ScrollbarState::default().content_length(row_count.max(1)).position(start);
         Scrollbar::default()
             .begin_symbol(None)
             .end_symbol(None)
@@ -674,6 +851,85 @@ impl SystemTopState {
             .track_style(Style::default().fg(palette::BG_3))
             .thumb_style(Style::default().fg(palette::GRAY_1))
             .render(scroll_area, buf, &mut scroll);
+    }
+
+    fn render_process_filter_row(&self, pid_area: Rect, name_area: Rect, user_area: Option<Rect>, buf: &mut Buffer) {
+        self.render_process_filter_field(pid_area, buf, 0, &self.process_filter_pid, "pid");
+        self.render_process_filter_field(name_area, buf, 1, &self.process_filter_name, "program");
+        if let Some(user_area) = user_area {
+            self.render_process_filter_field(user_area, buf, 2, &self.process_filter_user, "user");
+        }
+    }
+
+    fn render_process_filter_field(&self, area: Rect, buf: &mut Buffer, idx: usize, state: &InputState, placeholder: &str) {
+        if area.width == 0 {
+            return;
+        }
+        let mut is = InputState::new();
+        is.set_value(state.value().to_string());
+        is.set_focused(self.process_filter_active && self.process_filter_focus == idx);
+        while is.cursor_pos() < state.cursor_pos() {
+            is.move_right();
+        }
+        fill_row(buf, area, if self.process_filter_focus == idx { palette::BG_3 } else { palette::BG_1 });
+        let styles = InputStyles { text: Style::default().fg(palette::FG), ..Default::default() };
+        let input = Input::new("").prompt("").placeholder(placeholder).styles(styles);
+        StatefulWidget::render(&input, area, buf, &mut is);
+    }
+
+    fn render_process_shootout(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.process_shootout_visible {
+            return;
+        }
+        let Some(pid) = self.process_shootout_selected_pid else {
+            return;
+        };
+        let Some(proc_row) = self.process_shootout_frozen_rows.iter().find(|proc_row| proc_row.pid == pid) else {
+            return;
+        };
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        let segments = vec![
+            TitleSegment { text: " Shootout ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() },
+            TitleSegment {
+                text: format!(" {}:{} ", proc_row.name, proc_row.pid),
+                bg: palette::PROCESSING_HEAT,
+                fg: palette::SUCCESS,
+                modifier: Modifier::empty(),
+            },
+        ];
+        let max_label = PROCESS_SHOOTOUT_ITEMS.iter().map(|(label, _)| UnicodeWidthStr::width(*label)).max().unwrap_or(24);
+        let inner_w = title::ensure_inner_width(max_label as u16 + 4, &title_style, &segments);
+        let w = (inner_w + 2).min(parent.width.saturating_sub(10)).max(28);
+        let h = (PROCESS_SHOOTOUT_ITEMS.len() as u16 + 4).min(parent.height.saturating_sub(8)).max(6);
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        Clear.render(canvas, buf);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+            .style(Style::default().bg(palette::BG_2));
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+        title::overlay_gradient_title(buf, canvas, &title_style, &segments);
+        for (idx, (label, _)) in PROCESS_SHOOTOUT_ITEMS.iter().enumerate() {
+            let y = inner.y + idx as u16 + 1;
+            if y >= inner.bottom() {
+                break;
+            }
+            let selected = idx == self.process_shootout_sel;
+            let style = if selected {
+                Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette::FG)
+            };
+            fill_row(buf, Rect { x: inner.x, y, width: inner.width, height: 1 }, if selected { palette::HIGHLIGHT } else { palette::BG_2 });
+            let line = format!(" {} ", truncate(label, inner.width.saturating_sub(2) as usize));
+            buf.set_string(inner.x, y, line, style);
+        }
     }
 
     fn primary_interface_name(&self, snapshot: &libsysinspect::console::ConsoleMinionTopSnapshot) -> Option<String> {
@@ -724,6 +980,14 @@ impl SystemTopState {
         &self, snapshot: &'a libsysinspect::console::ConsoleMinionTopSnapshot,
     ) -> Vec<&'a libsysinspect::console::ConsoleMinionTopProcess> {
         let mut rows: Vec<_> = snapshot.processes.iter().collect();
+        let pid_filter = self.process_filter_pid.value().trim();
+        let name_filter = self.process_filter_name.value().trim().to_ascii_lowercase();
+        let user_filter = self.process_filter_user.value().trim().to_ascii_lowercase();
+        rows.retain(|row| {
+            (pid_filter.is_empty() || row.pid.to_string().contains(pid_filter))
+                && (name_filter.is_empty() || row.name.to_ascii_lowercase().contains(&name_filter))
+                && (user_filter.is_empty() || row.user.to_ascii_lowercase().contains(&user_filter))
+        });
         rows.sort_by(|a, b| {
             let ord = match self.process_sort {
                 ProcessSort::Cpu => a.cpu_percent.partial_cmp(&b.cpu_percent).unwrap_or(Ordering::Equal),
@@ -735,6 +999,12 @@ impl SystemTopState {
             ord.then_with(|| a.pid.cmp(&b.pid))
         });
         rows
+    }
+
+    pub(crate) fn filtered_processes<'a>(
+        &self, snapshot: &'a libsysinspect::console::ConsoleMinionTopSnapshot,
+    ) -> Vec<&'a libsysinspect::console::ConsoleMinionTopProcess> {
+        self.sorted_processes(snapshot)
     }
 }
 
@@ -826,7 +1096,26 @@ fn cpu_core_layout(core_count: usize, area_width: u16, body_rows: usize) -> (usi
 }
 
 fn truncate(text: &str, width: usize) -> String {
-    if text.chars().count() <= width { text.to_string() } else { format!("{}…", text.chars().take(width.saturating_sub(1)).collect::<String>()) }
+    if width == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(text) <= width {
+        return text.to_string();
+    }
+
+    let mut out = String::new();
+    let mut used = 0usize;
+    let max_used = width.saturating_sub(1);
+    for ch in text.chars() {
+        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_w > max_used {
+            break;
+        }
+        out.push(ch);
+        used += ch_w;
+    }
+    out.push('…');
+    out
 }
 
 fn cpu_chart_color(value: f32) -> ratatui::style::Color {
@@ -854,6 +1143,22 @@ fn meter_band_color(value: f32) -> ratatui::style::Color {
         v if v < 40.0 => palette::PROCESSING_PEAK,
         v if v < 60.0 => palette::WARNING_HEAT,
         v if v < 80.0 => palette::ERROR_HEAT,
+        _ => palette::ERROR,
+    }
+}
+
+fn process_name_color(cpu_percent: f32) -> ratatui::style::Color {
+    match cpu_percent.max(0.0) {
+        v if v > 100.0 => CPU_AVG_LINE_COLOR,
+        v if v < 10.0 => palette::PROCESSING_DIMMED,
+        v if v < 20.0 => palette::PROCESSING_BASE,
+        v if v < 30.0 => palette::PROCESSING_GLOW,
+        v if v < 40.0 => palette::PROCESSING_HEAT,
+        v if v < 50.0 => palette::WARNING_GLOW,
+        v if v < 60.0 => palette::WARNING_HEAT,
+        v if v < 70.0 => palette::WARNING,
+        v if v < 80.0 => palette::ERROR_HEAT,
+        v if v < 90.0 => palette::ERROR_PEAK,
         _ => palette::ERROR,
     }
 }
@@ -921,9 +1226,23 @@ fn render_header_cell(buf: &mut Buffer, area: Rect, label: &str, active: bool, a
     }
 }
 
-fn render_value_cell(buf: &mut Buffer, x: u16, y: u16, width: usize, text: &str, active: bool) {
-    let style = if active { Style::default().fg(palette::FG) } else { Style::default().fg(palette::GRAY_1) };
+fn render_value_cell(buf: &mut Buffer, x: u16, y: u16, width: usize, text: &str, active: bool, selected: bool) {
+    let style = if selected {
+        Style::default().fg(palette::FG).bg(palette::BG_3)
+    } else if active {
+        Style::default().fg(palette::FG)
+    } else {
+        Style::default().fg(palette::GRAY_1)
+    };
     buf.set_string(x, y, truncate(text, width), style);
+}
+
+fn fill_row(buf: &mut Buffer, area: Rect, bg: Color) {
+    for x in area.x..area.right() {
+        if let Some(cell) = buf.cell_mut(Position::new(x, area.y)) {
+            cell.set_bg(bg);
+        }
+    }
 }
 
 fn render_rule_line_parts(area: Rect, buf: &mut Buffer, parts: &[(&str, Style)], grad_start: ratatui::style::Color, grad_end: ratatui::style::Color) {
