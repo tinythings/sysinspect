@@ -411,6 +411,7 @@ pub fn render_console_payload(payload: &ConsolePayload) -> String {
             out.extend(snapshot.lines.clone());
             out.join("\n")
         }
+        ConsolePayload::MinionTop { snapshot } => serde_json::to_string_pretty(snapshot).unwrap_or_default(),
         ConsolePayload::Models { .. } => String::new(),
         ConsolePayload::MasterLogs { snapshot: _ } => String::new(),
         ConsolePayload::MasterModuleIndex { .. } => String::new(),

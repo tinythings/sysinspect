@@ -140,6 +140,29 @@ impl SysInspectUX {
         self.status_text = Line::from(spans);
     }
 
+    pub(crate) fn status_at_systop(&mut self) {
+        let key = |s| Span::styled(s, Style::default().fg(palette::FG));
+        let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
+        self.status_text = Line::from(vec![
+            key("↑↓ "),
+            desc("select,  "),
+            key("PgUp/PgDn "),
+            desc("jump,  "),
+            key("Enter "),
+            desc("shootout,  "),
+            key("/ "),
+            desc("filter,  "),
+            key("←→ "),
+            desc("graph,  "),
+            key("Tab/Shift+Tab "),
+            desc("iface/fields,  "),
+            key("c/m/p/n "),
+            desc("sort,  "),
+            key("Esc "),
+            desc("close"),
+        ]);
+    }
+
     pub(crate) fn status_at_master_logs(&mut self) {
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));

@@ -13,13 +13,15 @@ use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
         ConsoleEnvelope, ConsoleLibraryRow, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot,
-        ConsoleModelRow, ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse,
-        ConsoleSealed, ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client, load_master_private_key,
+        ConsoleMinionProcessSignalRequest, ConsoleMinionTopRequest, ConsoleMinionTopSnapshot, ConsoleModelRow, ConsoleModuleArgument,
+        ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow,
+        MinionCommandReply, authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
     traits::TraitSource,
 };
+use libsysproto::query::commands::CLUSTER_MINION_TOP;
 use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::oneshot;
 use tokio::time;
@@ -28,7 +30,7 @@ use tokio::time;
 ///
 /// Requests are newline-delimited JSON frames, so the limit is applied before
 /// parsing and before any cryptographic work is attempted.
-const MAX_CONSOLE_FRAME_SIZE: usize = 64 * 1024;
+const MAX_CONSOLE_FRAME_SIZE: usize = 256 * 1024;
 
 /// Upper bound for reading one console request frame from a connected client.
 ///
@@ -66,6 +68,17 @@ struct MinionLogsConsoleRequest {
     lines: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct MinionTopConsoleRequest {
+    process_limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MinionProcessSignalConsoleRequest {
+    pid: Option<u32>,
+    signal: Option<i32>,
+}
+
 impl MinionLogsConsoleRequest {
     fn from_context(context: &str) -> Result<Self, SysinspectError> {
         if context.trim().is_empty() {
@@ -89,6 +102,44 @@ impl MinionLogsConsoleRequest {
 
     fn to_minion_request(&self) -> ConsoleMinionLogRequest {
         ConsoleMinionLogRequest { stream: self.stream().to_string(), lines: self.lines() }
+    }
+}
+
+impl MinionTopConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Ok(Self { process_limit: Some(24) });
+        }
+
+        serde_json::from_str(context)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion top request context: {err}")))
+    }
+
+    fn to_minion_request(&self) -> ConsoleMinionTopRequest {
+        ConsoleMinionTopRequest { process_limit: self.process_limit.unwrap_or(24).clamp(1, 64) }
+    }
+}
+
+impl MinionProcessSignalConsoleRequest {
+    fn from_context(context: &str) -> Result<Self, SysinspectError> {
+        if context.trim().is_empty() {
+            return Err(SysinspectError::InvalidQuery("Process signal requires pid and signal context".to_string()));
+        }
+
+        serde_json::from_str(context)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion process signal request context: {err}")))
+    }
+
+    fn to_minion_request(&self) -> Result<ConsoleMinionProcessSignalRequest, SysinspectError> {
+        let pid = self.pid.ok_or_else(|| SysinspectError::InvalidQuery("Process signal request is missing pid".to_string()))?;
+        let signal = self.signal.ok_or_else(|| SysinspectError::InvalidQuery("Process signal request is missing signal".to_string()))?;
+        if pid == 0 {
+            return Err(SysinspectError::InvalidQuery("Process signal pid must be greater than zero".to_string()));
+        }
+        if signal <= 0 {
+            return Err(SysinspectError::InvalidQuery("Process signal value must be greater than zero".to_string()));
+        }
+        Ok(ConsoleMinionProcessSignalRequest { pid, signal })
     }
 }
 
@@ -459,6 +510,36 @@ impl SysMaster {
         Ok(snapshot)
     }
 
+    async fn minion_top_snapshot(
+        master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str, request: &MinionTopConsoleRequest,
+    ) -> Result<ConsoleMinionTopSnapshot, SysinspectError> {
+        let (minion_id, _alive, msg) = {
+            let mut guard = master.lock().await;
+            let (minion_id, alive) = guard.selected_console_minion(query, traits, mid).await?;
+            if !alive {
+                return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} is offline; system top is only available for online minions")));
+            }
+            let context = serde_json::to_string(&request.to_minion_request())
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion top request: {err}")))?;
+            let msg = guard
+                .msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_TOP}"), "", "", &minion_id, &context)
+                .await
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct direct minion top request for {minion_id}")))?;
+            (minion_id, alive, msg)
+        };
+
+        let reply = Self::await_minion_console_reply(master, &minion_id, msg).await?;
+        if !reply.ok {
+            return Err(SysinspectError::ProtoError(if reply.error.is_empty() {
+                format!("Minion {minion_id} returned an unspecified system top error")
+            } else {
+                reply.error
+            }));
+        }
+        serde_json::from_value::<ConsoleMinionTopSnapshot>(reply.payload)
+            .map_err(|err| SysinspectError::DeserializationError(format!("Failed to parse minion top snapshot: {err}")))
+    }
+
     async fn master_log_snapshot(master: Arc<Mutex<Self>>) -> Result<ConsoleMasterLogSnapshot, SysinspectError> {
         let guard = master.lock().await;
         let std = std::fs::read_to_string(guard.cfg.logfile_std()).unwrap_or_default();
@@ -715,6 +796,48 @@ impl SysMaster {
         Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_reconnect".to_string(), target: minion_id, count: 1, items: vec![] }))
     }
 
+    async fn minion_process_signal(
+        master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str, request: &MinionProcessSignalConsoleRequest,
+    ) -> Result<ConsoleResponse, SysinspectError> {
+        let minion_request = request.to_minion_request()?;
+        let (minion_id, _alive, msg) = {
+            let mut guard = master.lock().await;
+            let (minion_id, alive) = guard.selected_console_minion(query, traits, mid).await?;
+            if !alive {
+                return Err(SysinspectError::InvalidQuery(format!("Minion {minion_id} is offline")));
+            }
+            let context = serde_json::to_string(&minion_request)
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode minion process signal request: {err}")))?;
+            let msg = guard
+                .msg_query_data(
+                    &format!("{SCHEME_COMMAND}{}", libsysproto::query::commands::CLUSTER_MINION_PROCESS_SIGNAL),
+                    "",
+                    "",
+                    &minion_id,
+                    &context,
+                )
+                .await
+                .ok_or_else(|| SysinspectError::ProtoError(format!("Unable to construct process signal request for {minion_id}")))?;
+            (minion_id, alive, msg)
+        };
+
+        let reply = Self::await_minion_console_reply(master, &minion_id, msg).await?;
+        if !reply.ok {
+            return Err(SysinspectError::ProtoError(if reply.error.is_empty() {
+                format!("Minion {minion_id} process signal failed")
+            } else {
+                reply.error
+            }));
+        }
+
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack {
+            action: format!("process_signal:{}", minion_request.signal),
+            target: format!("{minion_id}:{}", minion_request.pid),
+            count: 1,
+            items: vec![],
+        }))
+    }
+
     /// Register the concrete minion ids targeted by one outbound console message.
     ///
     /// This keeps task tracking aligned with console-initiated broadcasts so the
@@ -772,6 +895,16 @@ impl SysMaster {
                     Err(err) => ConsoleResponse::err(format!("Unable to get minion logs: {err}")),
                 },
                 Err(err) => ConsoleResponse::err(format!("Failed to parse minion logs request: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_TOP}")) {
+            return match MinionTopConsoleRequest::from_context(&query.context) {
+                Ok(request) => match Self::minion_top_snapshot(Arc::clone(&master), &query.query, &query.traits, &query.mid, &request).await {
+                    Ok(snapshot) => ConsoleResponse::ok(ConsolePayload::MinionTop { snapshot }),
+                    Err(err) => ConsoleResponse::err(format!("Unable to get minion system top: {err}")),
+                },
+                Err(err) => ConsoleResponse::err(format!("Failed to parse minion system top request: {err}")),
             };
         }
 
@@ -846,6 +979,16 @@ impl SysMaster {
             return match Self::minion_reconnect(Arc::clone(&master), &query.query, &query.traits, &query.mid).await {
                 Ok(response) => response,
                 Err(err) => ConsoleResponse::err(err.to_string()),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{}", libsysproto::query::commands::CLUSTER_MINION_PROCESS_SIGNAL)) {
+            return match MinionProcessSignalConsoleRequest::from_context(&query.context) {
+                Ok(request) => match Self::minion_process_signal(Arc::clone(&master), &query.query, &query.traits, &query.mid, &request).await {
+                    Ok(response) => response,
+                    Err(err) => ConsoleResponse::err(err.to_string()),
+                },
+                Err(err) => ConsoleResponse::err(format!("Failed to parse minion process signal request: {err}")),
             };
         }
 
@@ -993,11 +1136,83 @@ impl SysMaster {
             Err(err) => return Self::console_error_json(format!("Failed to open console query: {err}")),
         };
 
-        let response = Self::dispatch_console_query(master, bcast, cfg, query).await;
-        match ConsoleSealed::seal(&response, &key)
-            .and_then(|sealed| serde_json::to_string(&sealed).map_err(|e| SysinspectError::SerializationError(e.to_string())))
-        {
-            Ok(reply) => Some(reply),
+        let mut response = Self::dispatch_console_query(master, bcast, cfg, query).await;
+        let seal_response = |response: &ConsoleResponse| {
+            ConsoleSealed::seal(response, &key)
+                .and_then(|sealed| serde_json::to_string(&sealed).map_err(|e| SysinspectError::SerializationError(e.to_string())))
+        };
+        match seal_response(&response) {
+            Ok(reply) if reply.len() < MAX_CONSOLE_FRAME_SIZE => Some(reply),
+            Ok(mut reply) => {
+                if matches!(response.payload, ConsolePayload::MinionTop { .. }) {
+                    while reply.len() >= MAX_CONSOLE_FRAME_SIZE {
+                        let Some((minion_id, before, after)) = ({
+                            match &mut response.payload {
+                                ConsolePayload::MinionTop { snapshot } if !snapshot.processes.is_empty() => {
+                                    let before = snapshot.processes.len();
+                                    let after = before / 2;
+                                    snapshot.processes.truncate(after);
+                                    Some((snapshot.minion_id.clone(), before, after))
+                                }
+                                _ => None,
+                            }
+                        }) else {
+                            break;
+                        };
+                        log::warn!(
+                            "System Top response for {} exceeds {} bytes ({} bytes); trimming process list from {} to {}",
+                            minion_id,
+                            MAX_CONSOLE_FRAME_SIZE,
+                            reply.len() + 1,
+                            before,
+                            after
+                        );
+                        reply = match seal_response(&response) {
+                            Ok(reply) => reply,
+                            Err(err) => {
+                                log::error!("Failed to reseal trimmed System Top response: {err}");
+                                return Self::console_error_json(format!("Failed to seal console response: {err}"));
+                            }
+                        };
+                    }
+                    if reply.len() < MAX_CONSOLE_FRAME_SIZE {
+                        return Some(reply);
+                    }
+
+                    let minion_id = match &response.payload {
+                        ConsolePayload::MinionTop { snapshot } => snapshot.minion_id.clone(),
+                        _ => String::new(),
+                    };
+
+                    log::warn!(
+                        "AAAA!!! System Top response for {} still exceeds {} bytes ({} bytes) after trimming all processes; returning error response",
+                        minion_id,
+                        MAX_CONSOLE_FRAME_SIZE,
+                        reply.len() + 1
+                    );
+                    let error_response = ConsoleResponse::err(format!(
+                        "System Top snapshot for {} still exceeds {} bytes after trimming; skipping frame",
+                        minion_id, MAX_CONSOLE_FRAME_SIZE
+                    ));
+                    return match seal_response(&error_response) {
+                        Ok(reply) => Some(reply),
+                        Err(err) => {
+                            log::error!("Failed to seal fallback System Top error response: {err}");
+                            Self::console_error_json(format!("Failed to seal console response: {err}"))
+                        }
+                    };
+                }
+
+                log::warn!("Console response exceeds {} bytes ({} bytes); returning compact error response", MAX_CONSOLE_FRAME_SIZE, reply.len() + 1);
+                let error_response = ConsoleResponse::err(format!("Console response exceeds {} bytes", MAX_CONSOLE_FRAME_SIZE));
+                match seal_response(&error_response) {
+                    Ok(reply) => Some(reply),
+                    Err(err) => {
+                        log::error!("Failed to seal compact oversize response error: {err}");
+                        Self::console_error_json(format!("Failed to seal console response: {err}"))
+                    }
+                }
+            }
             Err(err) => {
                 log::error!("Failed to seal console response: {err}");
                 Self::console_error_json(format!("Failed to seal console response: {err}"))

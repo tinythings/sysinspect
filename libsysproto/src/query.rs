@@ -38,6 +38,9 @@ pub mod commands {
     // Read recent raw log snapshot from one minion
     pub const CLUSTER_MINION_LOGS: &str = "cluster/minion/logs";
 
+    // Read one live system-top snapshot from one minion
+    pub const CLUSTER_MINION_TOP: &str = "cluster/minion/top";
+
     // Update master-managed static traits on minions
     pub const CLUSTER_TRAITS_UPDATE: &str = "cluster/traits/update";
 
@@ -61,6 +64,9 @@ pub mod commands {
 
     // Force one minion to drop and re-establish its transport connection
     pub const CLUSTER_MINION_RECONNECT: &str = "cluster/minion/reconnect";
+
+    // Send a Unix signal to one process on one specific minion
+    pub const CLUSTER_MINION_PROCESS_SIGNAL: &str = "cluster/minion/process/signal";
 
     // Force all online minions to reconnect (cluster-wide broadcast)
     pub const CLUSTER_RECONNECT: &str = "cluster/reconnect";

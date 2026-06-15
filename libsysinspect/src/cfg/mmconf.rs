@@ -1055,6 +1055,91 @@ impl ClusteredMinionScope {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConsoleSystemTopSort {
+    #[default]
+    Cpu,
+    Mem,
+    Pid,
+    Name,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConsoleSystemTopGraph {
+    #[default]
+    Blocks,
+    Line,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum ConsoleSystemTopGraphCpu {
+    Flame,
+    Average,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ConsoleSystemTopConfig {
+    #[serde(default)]
+    pub sort: ConsoleSystemTopSort,
+
+    #[serde(default)]
+    pub graph: Option<ConsoleSystemTopGraph>,
+
+    #[serde(default, rename = "graph.cpu")]
+    legacy_graph_cpu: Option<ConsoleSystemTopGraphCpu>,
+}
+
+impl ConsoleSystemTopConfig {
+    pub fn graph(&self) -> ConsoleSystemTopGraph {
+        self.graph
+            .or(match self.legacy_graph_cpu {
+                Some(ConsoleSystemTopGraphCpu::Flame) => Some(ConsoleSystemTopGraph::Blocks),
+                Some(ConsoleSystemTopGraphCpu::Average) => Some(ConsoleSystemTopGraph::Line),
+                None => None,
+            })
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+pub struct ConsoleToolsConfig {
+    #[serde(default, rename = "system-top")]
+    pub system_top: ConsoleSystemTopConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+pub struct ConsoleConfig {
+    #[serde(default)]
+    pub tools: ConsoleToolsConfig,
+}
+
+impl ConsoleConfig {
+    pub fn new(p: PathBuf) -> Result<Self, SysinspectError> {
+        let cp = p.as_os_str().to_str().unwrap_or_default();
+        if !p.exists() {
+            return Ok(Self::default());
+        }
+
+        let mut root_val = from_str::<Value>(&fs::read_to_string(&p)?)?;
+        for dv in crate::cfg::load_dropins(&crate::cfg::dropins_dir(&p)) {
+            deep_merge(&mut root_val, &dv);
+        }
+        if let Some(cfgv) = get_by_namespace(Some(root_val), "config.console") {
+            return Ok(from_value::<ConsoleConfig>(cfgv)?);
+        }
+
+        let _ = cp;
+        Ok(Self::default())
+    }
+
+    pub fn system_top(&self) -> ConsoleSystemTopConfig {
+        self.tools.system_top
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct MasterConfig {
     // Bind IP listener. Default "the world", i.e. 0.0.0.0

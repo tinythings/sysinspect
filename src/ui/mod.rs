@@ -14,7 +14,7 @@ use libeventreg::{
 use libmodcore::modinit::ModInterface;
 use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
 use libsysinspect::{
-    cfg::mmconf::{MasterConfig, MinionConfig},
+    cfg::mmconf::{ConsoleConfig, MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
     mdescr::catalog::ModelCatalog,
     traits::os_display_name,
@@ -23,8 +23,8 @@ use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
         CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS,
-        CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE,
-        CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX,
+        CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
     },
 };
 use ratatui::{
@@ -60,6 +60,7 @@ mod rawlogs;
 mod repomanager;
 mod setup;
 mod statusbar;
+mod systop;
 mod title;
 mod traitsview;
 mod traittag;
@@ -83,6 +84,7 @@ async fn tokio_run(cfg: MasterConfig, config_found: bool, term: &mut DefaultTerm
         Ok(app) => app.run_connected(term),
         Err(_) if config_found => {
             let mut app = SysInspectUX { cfg, offline: true, ..Default::default() };
+            let _ = app.load_console_tool_preferences();
             if app.find_sysmaster_binary().is_some() {
                 app.master_confirm_visible = true;
                 app.master_confirm_choice = AlertResult::Default;
@@ -95,7 +97,8 @@ async fn tokio_run(cfg: MasterConfig, config_found: bool, term: &mut DefaultTerm
             }
         }
         Err(_) => {
-            let app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
+            let mut app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
+            let _ = app.load_console_tool_preferences();
             app.run_setup_loop(term, &mut None)
         }
     }
@@ -191,6 +194,8 @@ pub struct SysInspectUX {
     pub minion_logs_online: bool,
     pub minion_logs_last_fetch: Instant,
     pub minion_logs_viewport_rows: Cell<usize>,
+
+    pub systop: systop::SystemTopState,
 
     // Master logs popup
     pub master_logs_visible: bool,
@@ -326,6 +331,8 @@ impl Default for SysInspectUX {
             minion_logs_last_fetch: Instant::now(),
             minion_logs_viewport_rows: Cell::new(0),
 
+            systop: systop::SystemTopState::default(),
+
             master_logs_visible: false,
             master_logs_tab: 0,
             master_logs_sections: Vec::new(),
@@ -395,8 +402,16 @@ impl SysInspectUX {
 
         ux.evtipc = Some(Arc::new(Mutex::new(DbIPCClient::new(cfg.telemetry_socket().to_str().unwrap_or_default()).await?)));
         ux.cfg = cfg;
+        ux.load_console_tool_preferences()?;
 
         Ok(ux)
+    }
+
+    fn load_console_tool_preferences(&mut self) -> Result<(), SysinspectError> {
+        let console_cfg = ConsoleConfig::new(self.cfg.config_path())?;
+        let systop = console_cfg.system_top();
+        self.systop.set_persisted_preferences(systop.sort, systop.graph());
+        Ok(())
     }
 
     pub fn run_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
@@ -706,6 +721,12 @@ impl SysInspectUX {
                             Err(_) => self.minion_logs_online = false,
                         }
                     }
+                    if self.systop.visible
+                        && self.systop.last_fetch.is_none_or(|last| last.elapsed() >= Duration::from_secs(1))
+                        && let Err(err) = self.load_selected_minion_top()
+                    {
+                        self.log_systop_refresh_error(&err);
+                    }
                     if self.master_logs_visible && self.master_logs_polling && self.master_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
                         let _ = self.load_master_logs();
                     }
@@ -972,6 +993,10 @@ impl SysInspectUX {
             return false;
         }
 
+        if self.systop.visible {
+            return self.on_systop_popup(e);
+        }
+
         if self.minion_logs_visible {
             return self.on_minion_logs_popup(e);
         }
@@ -1166,18 +1191,20 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 1 {
                     self.open_traits_popup();
                 } else if self.minions_menu_sel == 2 {
-                    self.do_minion_start();
+                    self.open_systop_popup();
                 } else if self.minions_menu_sel == 3 {
-                    self.do_minion_shutdown();
+                    self.do_minion_start();
                 } else if self.minions_menu_sel == 4 {
-                    self.do_minion_reconnect();
+                    self.do_minion_shutdown();
                 } else if self.minions_menu_sel == 5 {
-                    self.open_cluster_confirm(3);
+                    self.do_minion_reconnect();
                 } else if self.minions_menu_sel == 6 {
-                    self.open_cluster_confirm(1);
+                    self.open_cluster_confirm(3);
                 } else if self.minions_menu_sel == 7 {
-                    self.open_cluster_confirm(2);
+                    self.open_cluster_confirm(1);
                 } else if self.minions_menu_sel == 8 {
+                    self.open_cluster_confirm(2);
+                } else if self.minions_menu_sel == 9 {
                     self.registration_form.visible = true;
                 }
             }
@@ -1379,6 +1406,7 @@ impl SysInspectUX {
             || self.minions_visible
             || self.minion_traits_visible
             || self.minion_logs_visible
+            || self.systop.visible
             || self.master_logs_visible
             || self.minions_menu_visible
             || self.master_menu_visible
@@ -1487,6 +1515,11 @@ impl SysInspectUX {
         self.status_at_minions_browser();
     }
 
+    fn log_systop_refresh_error(&self, err: &SysinspectError) {
+        let base = if err.to_string().contains("exceeds") { "System Top exceeded frame size" } else { "System Top refresh failed" };
+        log::warn!("{base} for {} ({}): {err}; skipping this frame", self.systop.minion_id, self.systop.host);
+    }
+
     fn do_minion_start(&mut self) {
         let row = match self.selected_popup_minion() {
             Some(row) => row,
@@ -1561,6 +1594,10 @@ impl SysInspectUX {
             }
             KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.open_traits_popup();
+                true
+            }
+            KeyCode::Char('p') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_systop_popup();
                 true
             }
             KeyCode::Char('s') if e.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -1786,6 +1823,25 @@ impl SysInspectUX {
         self.load_selected_minion_info();
     }
 
+    fn open_systop_popup(&mut self) {
+        let row = match self.selected_popup_minion() {
+            Some(row) => row,
+            None => {
+                self.error_alert_visible = true;
+                self.error_alert_message = "No minion is currently selected".to_string();
+                return;
+            }
+        };
+        self.systop.open(row.minion_id.clone(), Self::online_host(&row));
+        self.status_at_systop();
+        if let Err(err) = self.load_selected_minion_top() {
+            self.systop.close();
+            self.error_alert_visible = true;
+            self.error_alert_message = err.to_string();
+            self.status_at_minions_browser();
+        }
+    }
+
     fn load_selected_minion_logs(&mut self) -> Result<(), SysinspectError> {
         let row = self.selected_popup_minion().ok_or_else(|| SysinspectError::InvalidQuery("No minion is currently selected".to_string()))?;
         let context = serde_json::json!({"stream": "merged", "lines": 200usize}).to_string();
@@ -1808,6 +1864,204 @@ impl SysInspectUX {
         self.minion_logs_online = true;
         self.minion_logs_last_fetch = Instant::now();
         Ok(())
+    }
+
+    fn load_selected_minion_top(&mut self) -> Result<(), SysinspectError> {
+        let row = self.selected_popup_minion().ok_or_else(|| SysinspectError::InvalidQuery("No minion is currently selected".to_string()))?;
+        let context = serde_json::json!({"process_limit": 64usize}).to_string();
+        let mid = row.minion_id.clone();
+        let snapshot = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_TOP}"), "*", None, Some(&mid), Some(&context)).await
+            })
+        })
+        .and_then(|resp| match resp.payload {
+            ConsolePayload::MinionTop { snapshot } => Ok(snapshot),
+            _ => Err(SysinspectError::ProtoError("Unexpected console payload for minion system top".to_string())),
+        })?;
+        self.systop.apply_snapshot(snapshot);
+        Ok(())
+    }
+
+    fn signal_selected_systop_process(&mut self, pid: u32, signal: i32) -> Result<(), SysinspectError> {
+        let context = serde_json::json!({"pid": pid, "signal": signal}).to_string();
+        let mid = self.systop.minion_id.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MINION_PROCESS_SIGNAL}"), "*", None, Some(&mid), Some(&context))
+                    .await
+            })
+        })?;
+        self.load_selected_minion_top()?;
+        Ok(())
+    }
+
+    fn on_systop_popup(&mut self, e: event::KeyEvent) -> bool {
+        if !self.systop.visible {
+            return false;
+        }
+        if self.systop.process_shootout_visible {
+            match e.code {
+                KeyCode::Esc => {
+                    self.systop.close_process_shootout();
+                }
+                KeyCode::Up => {
+                    self.systop.process_shootout_sel = self.systop.process_shootout_sel.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.systop.process_shootout_sel = (self.systop.process_shootout_sel + 1).min(2);
+                }
+                KeyCode::Enter => {
+                    if let Some((pid, signal, _)) = self.systop.selected_process_action() {
+                        match self.signal_selected_systop_process(pid, signal) {
+                            Ok(()) => self.systop.close_process_shootout(),
+                            Err(err) => {
+                                self.systop.close_process_shootout();
+                                let _ = self.load_selected_minion_top();
+                                self.error_alert_visible = true;
+                                self.error_alert_message = err.to_string();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return true;
+        }
+
+        match e.code {
+            KeyCode::Esc => {
+                if self.systop.process_filter_active {
+                    self.systop.clear_process_filter();
+                    return true;
+                }
+                self.persist_system_top_preferences();
+                self.systop.close();
+                self.status_at_minions_browser();
+            }
+            KeyCode::Up => {
+                self.systop.move_process_selection(-1);
+            }
+            KeyCode::Down => {
+                self.systop.move_process_selection(1);
+            }
+            KeyCode::PageUp => {
+                self.systop.page_process_selection(-1);
+            }
+            KeyCode::PageDown => {
+                self.systop.page_process_selection(1);
+            }
+            KeyCode::Left => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Left);
+                } else {
+                    self.systop.set_chart_mode(crate::ui::systop::ChartMode::Blocks);
+                    self.persist_system_top_preferences();
+                }
+            }
+            KeyCode::Right => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Right);
+                } else {
+                    self.systop.set_chart_mode(crate::ui::systop::ChartMode::Line);
+                    self.persist_system_top_preferences();
+                }
+            }
+            KeyCode::Tab => {
+                if self.systop.process_filter_active {
+                    self.systop.cycle_process_filter_focus(true);
+                } else {
+                    self.systop.cycle_network_interface(true);
+                }
+            }
+            KeyCode::BackTab => {
+                if self.systop.process_filter_active {
+                    self.systop.cycle_process_filter_focus(false);
+                } else {
+                    self.systop.cycle_network_interface(false);
+                }
+            }
+            KeyCode::Enter => {
+                if self.systop.snapshot.is_some() {
+                    self.systop.open_process_shootout();
+                }
+            }
+            KeyCode::Backspace => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Backspace);
+                    self.systop.move_process_selection(0);
+                }
+            }
+            KeyCode::Delete => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Delete);
+                    self.systop.move_process_selection(0);
+                }
+            }
+            KeyCode::Home => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Home);
+                } else {
+                    self.systop.process_selected = 0;
+                    self.systop.move_process_selection(0);
+                }
+            }
+            KeyCode::End => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::End);
+                } else {
+                    if let Some(snapshot) = &self.systop.snapshot {
+                        self.systop.process_selected = self.systop.filtered_processes(snapshot).len().saturating_sub(1);
+                        self.systop.move_process_selection(0);
+                    }
+                }
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('c'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('c');
+                    self.persist_system_top_preferences();
+                }
+            }
+            KeyCode::Char('m') | KeyCode::Char('M') => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('m'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('m');
+                    self.persist_system_top_preferences();
+                }
+            }
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('p'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('p');
+                    self.persist_system_top_preferences();
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                if self.systop.process_filter_active {
+                    self.systop.edit_process_filter(KeyCode::Char('n'));
+                    self.systop.move_process_selection(0);
+                } else {
+                    self.systop.apply_sort_key('n');
+                    self.persist_system_top_preferences();
+                }
+            }
+            KeyCode::Char('/') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.systop.activate_process_filter();
+            }
+            KeyCode::Char(c) if self.systop.process_filter_active => {
+                self.systop.edit_process_filter(KeyCode::Char(c));
+                self.systop.move_process_selection(0);
+            }
+            _ => {}
+        }
+        true
     }
 
     fn on_minion_logs_popup(&mut self, e: event::KeyEvent) -> bool {
@@ -2736,6 +2990,37 @@ impl SysInspectUX {
         let cfg_path = self.cfg.config_path();
         let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
         cfg_path.with_file_name(format!("{stem}.d")).join("99-models.conf")
+    }
+
+    fn system_top_dropin_path(&self) -> PathBuf {
+        let cfg_path = self.cfg.config_path();
+        let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        cfg_path.with_file_name(format!("{stem}.d")).join("system-top.conf")
+    }
+
+    fn write_system_top_dropin(&self) -> Result<(), String> {
+        let dropin = self.system_top_dropin_path();
+        if let Some(parent) = dropin.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Unable to create drop-in directory: {e}"))?;
+        }
+        let sort = match self.systop.persisted_sort() {
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Cpu => "cpu",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Mem => "mem",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Pid => "pid",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Name => "name",
+        };
+        let graph = match self.systop.persisted_graph() {
+            libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Blocks => "blocks",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Line => "line",
+        };
+        let body = format!("config:\n  console:\n    tools:\n      system-top:\n        sort: {sort}\n        graph: {graph}\n");
+        std::fs::write(&dropin, body).map_err(|e| format!("Unable to write System Top drop-in: {e}"))
+    }
+
+    fn persist_system_top_preferences(&self) {
+        if let Err(err) = self.write_system_top_dropin() {
+            log::warn!("Failed to persist System Top preferences: {err}");
+        }
     }
 
     fn enabled_model_ids(&self) -> Vec<String> {
