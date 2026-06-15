@@ -6,7 +6,7 @@ use super::{
 use ratatui::{
     layout::{Position, Rect},
     prelude::{Buffer, StatefulWidget, Widget},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarState},
 };
 use std::{
@@ -18,6 +18,9 @@ use std::{
 
 const HISTORY_LEN: usize = 96;
 const METER_CELL: &str = "■";
+const CPU_FLAME_PALETTE: [Color; 6] =
+    [Color::Indexed(198), Color::Indexed(204), Color::Indexed(210), Color::Indexed(216), Color::Indexed(222), Color::Indexed(228)];
+const CPU_AVG_LINE_COLOR: Color = Color::Indexed(193);
 
 #[derive(Debug, Default, Clone)]
 struct NetworkHistory {
@@ -39,6 +42,13 @@ enum ProcessSort {
     Cpu,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CpuChartMode {
+    #[default]
+    Flame,
+    Average,
+}
+
 /// Live state for the System top popup.
 #[derive(Debug, Default)]
 pub struct SystemTopState {
@@ -48,6 +58,8 @@ pub struct SystemTopState {
     pub snapshot: Option<libsysinspect::console::ConsoleMinionTopSnapshot>,
     pub network_interface: Option<String>,
     pub cpu_history: Vec<f32>,
+    cpu_core_history: Vec<Vec<f32>>,
+    cpu_chart_mode: CpuChartMode,
     total_network: NetworkHistory,
     interface_networks: BTreeMap<String, NetworkHistory>,
     pub last_fetch: Option<Instant>,
@@ -66,6 +78,8 @@ impl SystemTopState {
         self.snapshot = None;
         self.network_interface = None;
         self.cpu_history.clear();
+        self.cpu_core_history.clear();
+        self.cpu_chart_mode = CpuChartMode::Flame;
         self.total_network = NetworkHistory::default();
         self.interface_networks.clear();
         self.last_fetch = None;
@@ -82,6 +96,12 @@ impl SystemTopState {
     /// Apply one fresh snapshot.
     pub fn apply_snapshot(&mut self, snapshot: libsysinspect::console::ConsoleMinionTopSnapshot) {
         push_history(&mut self.cpu_history, snapshot.cpu_percent);
+        if self.cpu_core_history.len() != snapshot.cpu_per_core.len() {
+            self.cpu_core_history = vec![Vec::new(); snapshot.cpu_per_core.len()];
+        }
+        for (history, value) in self.cpu_core_history.iter_mut().zip(&snapshot.cpu_per_core) {
+            push_history(history, *value);
+        }
         update_network_history(
             &mut self.total_network,
             snapshot.network_rx_rate_bytes_per_sec,
@@ -130,6 +150,10 @@ impl SystemTopState {
             .unwrap_or(0);
         let next_idx = if forward { (current_idx + 1) % names.len() } else { current_idx.checked_sub(1).unwrap_or(names.len() - 1) };
         self.network_interface = Some(names[next_idx].clone());
+    }
+
+    pub(crate) fn set_cpu_chart_mode(&mut self, mode: CpuChartMode) {
+        self.cpu_chart_mode = mode;
     }
 
     /// Apply one process sort key.
@@ -194,7 +218,10 @@ impl SystemTopState {
             return;
         }
 
-        let cpu_h = 5.min(inner.height);
+        let core_count = self.snapshot.as_ref().map_or(1usize, |snapshot| snapshot.cpu_per_core.len().max(1));
+        let max_cpu_h = inner.height.saturating_sub(8).max(5);
+        let cpu_body_rows = choose_cpu_body_rows(core_count, inner.width, max_cpu_h.saturating_sub(1) as usize);
+        let cpu_h = (cpu_body_rows as u16 + 1).clamp(5, max_cpu_h);
         let cpu_area = Rect { x: inner.x, y: inner.y, width: inner.width, height: cpu_h };
         let lower_area = Rect { x: inner.x, y: inner.y + cpu_h, width: inner.width, height: inner.height.saturating_sub(cpu_h) };
         let left_w = ((lower_area.width * 43) / 100).clamp(34, lower_area.width.saturating_sub(28));
@@ -259,41 +286,103 @@ impl SystemTopState {
         if body.height == 0 {
             return;
         }
-        let graph_w = ((body.width * 2) / 5).clamp(22, body.width.saturating_sub(18));
-        let graph_area = Rect { x: body.x, y: body.y, width: graph_w, height: body.height };
-        let cores_area = Rect { x: graph_area.right(), y: body.y, width: body.width.saturating_sub(graph_w), height: body.height };
-        self.render_cpu_braille(graph_area, buf, snapshot);
-        self.render_core_bars(cores_area, buf, snapshot);
+        if body.height < 2 {
+            return;
+        }
+        let (_, cols, col_w) = cpu_core_layout(snapshot.cpu_per_core.len().max(1), body.width, body.height as usize);
+        let cores_w = cols as u16 * col_w;
+        let chart_area = Rect { x: body.x, y: body.y + 1, width: body.width.saturating_sub(cores_w), height: body.height.saturating_sub(1) };
+        let cores_area = Rect { x: body.right().saturating_sub(cores_w), y: body.y + 1, width: cores_w, height: body.height.saturating_sub(1) };
+        let divider_x = chart_area.right();
+        let left_label = match self.cpu_chart_mode {
+            CpuChartMode::Flame => " CPU Flame ",
+            CpuChartMode::Average => " Average Load ",
+        };
+        buf.set_string(
+            body.x + 1,
+            body.y,
+            truncate(left_label, chart_area.width.saturating_sub(2) as usize),
+            Style::default().fg(palette::HIGHLIGHT),
+        );
+        if divider_x < body.right() {
+            buf.set_string(divider_x, body.y, "│", Style::default().fg(palette::GRAY_0));
+            for y in chart_area.y..chart_area.bottom() {
+                buf.set_string(divider_x, y, "│", Style::default().fg(palette::GRAY_0));
+            }
+        }
+        buf.set_string(
+            divider_x.saturating_add(2),
+            body.y,
+            truncate(" Per Core ", cores_area.width.saturating_sub(2) as usize),
+            Style::default().fg(palette::HIGHLIGHT),
+        );
+        match self.cpu_chart_mode {
+            CpuChartMode::Flame => self.render_cpu_flame(chart_area, buf, snapshot),
+            CpuChartMode::Average => self.render_cpu_average_line(chart_area, buf, snapshot),
+        }
+        self.render_core_compact(cores_area, buf, snapshot, cols, col_w);
     }
 
-    fn render_cpu_braille(&self, area: Rect, buf: &mut Buffer, snapshot: &libsysinspect::console::ConsoleMinionTopSnapshot) {
+    fn render_cpu_flame(&self, area: Rect, buf: &mut Buffer, snapshot: &libsysinspect::console::ConsoleMinionTopSnapshot) {
         if area.height < 2 || area.width < 12 {
             return;
         }
-        let flame = braille_line(&self.cpu_history, area.width.saturating_sub(2) as usize);
-        buf.set_string(area.x + 1, area.y, flame, Style::default().fg(cpu_chart_color(snapshot.cpu_percent)));
-        if area.height > 1 {
-            let mut detail = format!("Trend {:>4.1}%  Cores {}", snapshot.cpu_percent, snapshot.cpu_per_core.len());
-            if let Some(temp) = snapshot.cpu_temp_celsius {
-                detail = format!("Trend {:>4.1}%  Cores {}  Temp {temp:>4.0}C", snapshot.cpu_percent, snapshot.cpu_per_core.len());
+        let plot = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(2), height: area.height };
+        if plot.width == 0 || plot.height == 0 || self.cpu_core_history.is_empty() {
+            return;
+        }
+        let core_samples: Vec<_> = self.cpu_core_history.iter().map(|history| sample_history_f32(history, plot.width as usize)).collect();
+        let avg_samples = sample_history_f32(&self.cpu_history, plot.width as usize);
+        let temp_factor =
+            self.snapshot.as_ref().and_then(|snapshot| snapshot.cpu_temp_celsius).map(|temp| ((temp - 45.0) / 45.0).clamp(0.0, 1.0)).unwrap_or(0.0);
+        for x_idx in 0..plot.width as usize {
+            let mut values = core_samples.iter().filter_map(|samples| samples.get(x_idx).copied()).filter(|value| *value > 0.0).collect::<Vec<_>>();
+            if values.is_empty() {
+                continue;
             }
-            buf.set_string(
-                area.x + 1,
-                area.bottom().saturating_sub(1),
-                truncate(&detail, area.width.saturating_sub(2) as usize),
-                Style::default().fg(palette::FG),
-            );
+            values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+            let avg_cpu = avg_samples.get(x_idx).copied().unwrap_or(snapshot.cpu_percent).clamp(0.0, 100.0);
+            let filled_rows = (((avg_cpu / 100.0) * plot.height as f32).round() as u16).min(plot.height);
+            if filled_rows == 0 {
+                continue;
+            }
+            let bands = proportional_rows(&values, filled_rows);
+            let mut y = plot.bottom().saturating_sub(1);
+            for (value, rows) in values.iter().zip(bands.iter()) {
+                for _ in 0..*rows {
+                    if y < plot.y {
+                        break;
+                    }
+                    let vertical_t =
+                        if plot.height <= 1 { 1.0 } else { 1.0 - (y.saturating_sub(plot.y) as f32 / plot.height.saturating_sub(1) as f32) };
+                    let heat = ((*value / 100.0) * 0.75 + (avg_cpu / 100.0) * 0.15 + vertical_t * 0.05 + temp_factor * 0.05).clamp(0.0, 1.0);
+                    let color = cpu_flame_color(heat);
+                    buf.set_string(plot.x + x_idx as u16, y, "█", Style::default().fg(color));
+                    if y == 0 {
+                        break;
+                    }
+                    y = y.saturating_sub(1);
+                }
+                if y < plot.y {
+                    break;
+                }
+            }
         }
     }
 
-    fn render_core_bars(&self, area: Rect, buf: &mut Buffer, snapshot: &libsysinspect::console::ConsoleMinionTopSnapshot) {
+    fn render_cpu_average_line(&self, area: Rect, buf: &mut Buffer, _snapshot: &libsysinspect::console::ConsoleMinionTopSnapshot) {
+        let plot = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(2), height: area.height };
+        render_braille_line_overlay(buf, plot, &self.cpu_history, CPU_AVG_LINE_COLOR);
+    }
+
+    fn render_core_compact(
+        &self, area: Rect, buf: &mut Buffer, snapshot: &libsysinspect::console::ConsoleMinionTopSnapshot, cols: usize, col_w: u16,
+    ) {
         if area.height == 0 || area.width < 14 {
             return;
         }
-        let rows = area.height as usize;
-        let cols = snapshot.cpu_per_core.len().div_ceil(rows.max(1)).clamp(1, 4);
-        let per_col = snapshot.cpu_per_core.len().div_ceil(cols).max(1);
-        let col_w = (area.width / cols as u16).max(1);
+        let rows = snapshot.cpu_per_core.len().div_ceil(cols.max(1)).max(1);
+        let per_col = rows;
         for (idx, cpu) in snapshot.cpu_per_core.iter().enumerate() {
             let col = idx / per_col;
             let row = idx % per_col;
@@ -302,16 +391,16 @@ impl SystemTopState {
             if y >= area.bottom() {
                 break;
             }
-            let show_pct = col_w >= 15;
             let label = format!("C{:02}", idx);
-            let pct_w = if show_pct { 5 } else { 0 };
-            let bar_x = x + 4;
-            let bar_w = col_w.saturating_sub(5 + pct_w).max(3);
+            let pct_text = format!("{:>3.0}%", cpu);
+            let meter_w = col_w.saturating_sub(9).clamp(4, 7) as usize;
+            let meter = compact_core_meter(*cpu, meter_w);
             buf.set_string(x, y, &label, Style::default().fg(palette::FORM_LABEL));
-            render_percent_bar(buf, Rect { x: bar_x, y, width: bar_w, height: 1 }, *cpu);
-            if show_pct {
-                buf.set_string(bar_x + bar_w + 1, y, format!("{:>3.0}%", cpu), Style::default().fg(cpu_chart_color(*cpu)));
+            for (offset, ch) in meter.chars().enumerate() {
+                let style = if ch == '█' { Style::default().fg(cpu_chart_color(*cpu)) } else { Style::default().fg(palette::GRAY_0) };
+                buf.set_string(x + 4 + offset as u16, y, ch.to_string(), style);
             }
+            buf.set_string(x + 5 + meter_w as u16, y, pct_text, Style::default().fg(cpu_chart_color(*cpu)));
         }
     }
 
@@ -673,12 +762,48 @@ fn format_uptime(secs: u64) -> String {
     if days > 0 { format!("{days}d {hours:02}:{mins:02}") } else { format!("{hours:02}:{mins:02}") }
 }
 
+fn choose_cpu_body_rows(core_count: usize, area_width: u16, max_body_rows: usize) -> usize {
+    let mut body_rows = 4usize;
+    let max_body_rows = max_body_rows.max(body_rows);
+    while body_rows < max_body_rows {
+        let (_, cols, col_w) = cpu_core_layout(core_count, area_width, body_rows);
+        if cols as u16 * col_w <= area_width / 2 {
+            break;
+        }
+        body_rows += 1;
+    }
+    body_rows
+}
+
+fn cpu_core_layout(core_count: usize, area_width: u16, body_rows: usize) -> (usize, usize, u16) {
+    let core_rows = body_rows.saturating_sub(1).max(1);
+    let cols = core_count.div_ceil(core_rows).max(1);
+    let max_core_width = (area_width / 2).max(16);
+    let col_w = (max_core_width / cols as u16).clamp(14, 18);
+    (core_rows, cols, col_w)
+}
+
 fn truncate(text: &str, width: usize) -> String {
     if text.chars().count() <= width { text.to_string() } else { format!("{}…", text.chars().take(width.saturating_sub(1)).collect::<String>()) }
 }
 
 fn cpu_chart_color(value: f32) -> ratatui::style::Color {
     ratatui_glamour::color::lerp_color(palette::SUCCESS_BASE, palette::ERROR, value.clamp(0.0, 100.0) / 100.0)
+}
+
+fn cpu_flame_color(value: f32) -> ratatui::style::Color {
+    let idx = ((value.clamp(0.0, 1.0) * (CPU_FLAME_PALETTE.len().saturating_sub(1)) as f32).round() as usize)
+        .min(CPU_FLAME_PALETTE.len().saturating_sub(1));
+    CPU_FLAME_PALETTE[idx]
+}
+
+fn compact_core_meter(pct: f32, width: usize) -> String {
+    let filled = (((pct.clamp(0.0, 100.0) / 100.0) * width as f32).round() as usize).min(width);
+    let mut out = String::with_capacity(width);
+    for idx in 0..width {
+        out.push(if idx < filled { '█' } else { '░' });
+    }
+    out
 }
 
 fn meter_band_color(value: f32) -> ratatui::style::Color {
@@ -799,9 +924,9 @@ fn render_mirrored_net_chart(buf: &mut Buffer, area: Rect, history: &NetworkHist
     let top_rows = (plot.height / 2).max(1);
     let bottom_rows = plot.height.saturating_sub(top_rows).max(1);
     let split_y = plot.y + top_rows;
-    let max_rate = history.rx_history.iter().chain(history.tx_history.iter()).copied().max().unwrap_or(0).max(1);
     let rx_samples = sample_history_u64(&history.rx_history, plot.width as usize);
     let tx_samples = sample_history_u64(&history.tx_history, plot.width as usize);
+    let max_rate = rx_samples.iter().chain(tx_samples.iter()).copied().max().unwrap_or(0).max(1);
 
     buf.set_string(area.x, plot.y, "Dn", Style::default().fg(palette::SUCCESS));
     buf.set_string(area.x, plot.bottom().saturating_sub(1), "Up", Style::default().fg(palette::PRIMARY));
@@ -812,7 +937,7 @@ fn render_mirrored_net_chart(buf: &mut Buffer, area: Rect, history: &NetworkHist
             plot.x + idx as u16,
             split_y.saturating_sub(1),
             top_rows,
-            scale_units(*sample, top_rows * 2, max_rate),
+            scale_rows(*sample, top_rows, max_rate),
             palette::SUCCESS_BASE,
             palette::SUCCESS_PEAK,
         );
@@ -823,7 +948,7 @@ fn render_mirrored_net_chart(buf: &mut Buffer, area: Rect, history: &NetworkHist
             plot.x + idx as u16,
             split_y,
             bottom_rows,
-            scale_units(*sample, bottom_rows * 2, max_rate),
+            scale_rows(*sample, bottom_rows, max_rate),
             palette::PROCESSING_BASE,
             palette::PROCESSING_PEAK,
         );
@@ -844,52 +969,124 @@ fn sample_history_u64(history: &[u64], width: usize) -> Vec<u64> {
     out
 }
 
-fn scale_units(value: u64, max_units: u16, max_value: u64) -> u16 {
-    if max_units == 0 || max_value == 0 {
+fn sample_history_f32(history: &[f32], width: usize) -> Vec<f32> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut out = vec![0.0; width];
+    let start = history.len().saturating_sub(width);
+    let slice = &history[start..];
+    let offset = width.saturating_sub(slice.len());
+    for (idx, value) in slice.iter().enumerate() {
+        out[offset + idx] = *value;
+    }
+    out
+}
+
+fn proportional_rows(values: &[f32], total_rows: u16) -> Vec<u16> {
+    if values.is_empty() || total_rows == 0 {
+        return Vec::new();
+    }
+    let sum = values.iter().sum::<f32>();
+    if sum <= f32::EPSILON {
+        return vec![0; values.len()];
+    }
+    let mut rows = vec![0u16; values.len()];
+    let mut fractions = Vec::with_capacity(values.len());
+    let mut assigned = 0u16;
+    for (idx, value) in values.iter().enumerate() {
+        let exact = (*value / sum) * total_rows as f32;
+        rows[idx] = exact.floor() as u16;
+        assigned = assigned.saturating_add(rows[idx]);
+        fractions.push((idx, exact - rows[idx] as f32));
+    }
+    fractions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+    for (idx, _) in fractions.into_iter().take(total_rows.saturating_sub(assigned) as usize) {
+        rows[idx] = rows[idx].saturating_add(1);
+    }
+    rows
+}
+
+fn render_braille_line_overlay(buf: &mut Buffer, plot: Rect, history: &[f32], color: Color) {
+    if plot.width == 0 || plot.height == 0 {
+        return;
+    }
+    let samples = sample_history_f32(history, plot.width as usize * 2);
+    if samples.is_empty() {
+        return;
+    }
+    let total_subrows = plot.height as usize * 4;
+    let mut cells = BTreeMap::<(u16, u16), u8>::new();
+    let mut prev = None;
+    for (x_sub, value) in samples.iter().enumerate() {
+        let y_sub = if total_subrows <= 1 {
+            0usize
+        } else {
+            (((value.clamp(0.0, 100.0) / 100.0) * (total_subrows - 1) as f32).round() as usize).min(total_subrows - 1)
+        };
+        if let Some((px, py)) = prev {
+            let steps = (x_sub.saturating_sub(px)).max(y_sub.abs_diff(py)).max(1);
+            for step in 0..=steps {
+                let t = step as f32 / steps as f32;
+                let xs = px as f32 + (x_sub as f32 - px as f32) * t;
+                let ys = py as f32 + (y_sub as f32 - py as f32) * t;
+                set_braille_subpoint(&mut cells, plot, xs.round() as usize, ys.round() as usize);
+            }
+        } else {
+            set_braille_subpoint(&mut cells, plot, x_sub, y_sub);
+        }
+        prev = Some((x_sub, y_sub));
+    }
+    for ((x, y), dots) in cells {
+        buf.set_string(x, y, char::from_u32(0x2800 + dots as u32).unwrap_or(' ').to_string(), Style::default().fg(color));
+    }
+}
+
+fn set_braille_subpoint(cells: &mut BTreeMap<(u16, u16), u8>, plot: Rect, x_sub: usize, y_sub: usize) {
+    if plot.width == 0 || plot.height == 0 {
+        return;
+    }
+    let cell_x = plot.x + (x_sub / 2).min(plot.width.saturating_sub(1) as usize) as u16;
+    let cell_y = plot.bottom().saturating_sub(1 + (y_sub / 4).min(plot.height.saturating_sub(1) as usize) as u16);
+    let mask = match (x_sub % 2, y_sub % 4) {
+        (0, 0) => 1 << 6,
+        (0, 1) => 1 << 2,
+        (0, 2) => 1 << 1,
+        (0, 3) => 1 << 0,
+        (1, 0) => 1 << 7,
+        (1, 1) => 1 << 5,
+        (1, 2) => 1 << 4,
+        (1, 3) => 1 << 3,
+        _ => 0,
+    };
+    cells.entry((cell_x, cell_y)).and_modify(|dots| *dots |= mask).or_insert(mask);
+}
+
+fn scale_rows(value: u64, rows: u16, max_value: u64) -> u16 {
+    if rows == 0 || max_value == 0 {
         return 0;
     }
-    (((value as f64 / max_value as f64) * max_units as f64).round() as u16).min(max_units)
+    let filled = (((value as f64 / max_value as f64) * rows as f64).round() as u16).min(rows);
+    if value > 0 && filled == 0 { 1 } else { filled }
 }
 
 fn render_vertical_fill_up(
-    buf: &mut Buffer, x: u16, baseline_y: u16, rows: u16, units: u16, cold: ratatui::style::Color, hot: ratatui::style::Color,
+    buf: &mut Buffer, x: u16, baseline_y: u16, rows: u16, filled_rows: u16, cold: ratatui::style::Color, hot: ratatui::style::Color,
 ) {
-    let mut remaining = units;
-    for row in 0..rows {
+    for row in 0..filled_rows.min(rows) {
         let y = baseline_y.saturating_sub(row);
-        let symbol = if remaining >= 2 {
-            remaining -= 2;
-            Some("█")
-        } else if remaining == 1 {
-            remaining = 0;
-            Some("▄")
-        } else {
-            None
-        };
-        if let Some(symbol) = symbol {
-            let t = if rows > 1 { row as f32 / (rows - 1) as f32 } else { 1.0 };
-            buf.set_string(x, y, symbol, Style::default().fg(ratatui_glamour::color::lerp_color(hot, cold, t)));
-        }
+        let t = if rows > 1 { row as f32 / (rows - 1) as f32 } else { 1.0 };
+        buf.set_string(x, y, "█", Style::default().fg(ratatui_glamour::color::lerp_color(hot, cold, t)));
     }
 }
 
-fn render_vertical_fill_down(buf: &mut Buffer, x: u16, start_y: u16, rows: u16, units: u16, cold: ratatui::style::Color, hot: ratatui::style::Color) {
-    let mut remaining = units;
-    for row in 0..rows {
+fn render_vertical_fill_down(
+    buf: &mut Buffer, x: u16, start_y: u16, rows: u16, filled_rows: u16, cold: ratatui::style::Color, hot: ratatui::style::Color,
+) {
+    for row in 0..filled_rows.min(rows) {
         let y = start_y.saturating_add(row);
-        let symbol = if remaining >= 2 {
-            remaining -= 2;
-            Some("█")
-        } else if remaining == 1 {
-            remaining = 0;
-            Some("▀")
-        } else {
-            None
-        };
-        if let Some(symbol) = symbol {
-            let t = if rows > 1 { row as f32 / (rows - 1) as f32 } else { 1.0 };
-            buf.set_string(x, y, symbol, Style::default().fg(ratatui_glamour::color::lerp_color(hot, cold, t)));
-        }
+        let t = if rows > 1 { row as f32 / (rows - 1) as f32 } else { 1.0 };
+        buf.set_string(x, y, "█", Style::default().fg(ratatui_glamour::color::lerp_color(hot, cold, t)));
     }
 }
 

@@ -1897,6 +1897,12 @@ impl SysInspectUX {
             KeyCode::PageDown => {
                 self.systop.processes_scroll = (self.systop.processes_scroll + page).min(max_top);
             }
+            KeyCode::Left => {
+                self.systop.set_cpu_chart_mode(crate::ui::systop::CpuChartMode::Flame);
+            }
+            KeyCode::Right => {
+                self.systop.set_cpu_chart_mode(crate::ui::systop::CpuChartMode::Average);
+            }
             KeyCode::Tab => {
                 self.systop.cycle_network_interface(true);
             }

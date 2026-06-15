@@ -148,6 +148,8 @@ impl SysInspectUX {
             desc("scroll,  "),
             key("PgUp/PgDn "),
             desc("skip,  "),
+            key("←→ "),
+            desc("graph,  "),
             key("Tab/Shift+Tab "),
             desc("cycle iface,  "),
             key("c/m/p/n "),
