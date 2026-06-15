@@ -56,4 +56,9 @@ tailed from the true bottom of the visible window. Hard execution failures that 
 result are emitted back into the event list as structured terminal failure events instead of appearing only in
 raw logs.
 
+The ``System top`` popup keeps its own operator preferences. Process sort order
+and the shared CPU/network graph mode are loaded from
+``config.console.tools.system-top`` and changes made in the UI are persisted to
+the active ``sysinspect.conf.d`` overlay as ``system-top.conf``.
+
 To exit the TUI, press ``q`` or ``ESC``.

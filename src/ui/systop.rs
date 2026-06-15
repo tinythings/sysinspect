@@ -43,10 +43,10 @@ enum ProcessSort {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CpuChartMode {
+pub(crate) enum ChartMode {
     #[default]
-    Flame,
-    Average,
+    Blocks,
+    Line,
 }
 
 /// Live state for the System top popup.
@@ -59,13 +59,15 @@ pub struct SystemTopState {
     pub network_interface: Option<String>,
     pub cpu_history: Vec<f32>,
     cpu_core_history: Vec<Vec<f32>>,
-    cpu_chart_mode: CpuChartMode,
+    chart_mode: ChartMode,
+    default_chart_mode: ChartMode,
     total_network: NetworkHistory,
     interface_networks: BTreeMap<String, NetworkHistory>,
     pub last_fetch: Option<Instant>,
     pub processes_scroll: usize,
     pub process_viewport_rows: Cell<usize>,
     process_sort: ProcessSort,
+    default_process_sort: ProcessSort,
     process_sort_asc: bool,
 }
 
@@ -79,13 +81,14 @@ impl SystemTopState {
         self.network_interface = None;
         self.cpu_history.clear();
         self.cpu_core_history.clear();
-        self.cpu_chart_mode = CpuChartMode::Flame;
+        self.chart_mode = ChartMode::Blocks;
         self.total_network = NetworkHistory::default();
         self.interface_networks.clear();
         self.last_fetch = None;
         self.processes_scroll = 0;
-        self.process_sort = ProcessSort::Cpu;
-        self.process_sort_asc = false;
+        self.process_sort = self.default_process_sort;
+        self.process_sort_asc = matches!(self.process_sort, ProcessSort::Name | ProcessSort::Pid);
+        self.chart_mode = self.default_chart_mode;
     }
 
     /// Close the popup.
@@ -152,8 +155,43 @@ impl SystemTopState {
         self.network_interface = Some(names[next_idx].clone());
     }
 
-    pub(crate) fn set_cpu_chart_mode(&mut self, mode: CpuChartMode) {
-        self.cpu_chart_mode = mode;
+    pub(crate) fn set_chart_mode(&mut self, mode: ChartMode) {
+        self.chart_mode = mode;
+        self.default_chart_mode = mode;
+    }
+
+    pub(crate) fn set_persisted_preferences(
+        &mut self, sort: libsysinspect::cfg::mmconf::ConsoleSystemTopSort, graph: libsysinspect::cfg::mmconf::ConsoleSystemTopGraph,
+    ) {
+        self.default_process_sort = match sort {
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Cpu => ProcessSort::Cpu,
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Mem => ProcessSort::Mem,
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Pid => ProcessSort::Pid,
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Name => ProcessSort::Name,
+        };
+        self.process_sort = self.default_process_sort;
+        self.process_sort_asc = matches!(self.process_sort, ProcessSort::Name | ProcessSort::Pid);
+        self.default_chart_mode = match graph {
+            libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Blocks => ChartMode::Blocks,
+            libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Line => ChartMode::Line,
+        };
+        self.chart_mode = self.default_chart_mode;
+    }
+
+    pub(crate) fn persisted_sort(&self) -> libsysinspect::cfg::mmconf::ConsoleSystemTopSort {
+        match self.default_process_sort {
+            ProcessSort::Cpu => libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Cpu,
+            ProcessSort::Mem => libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Mem,
+            ProcessSort::Pid => libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Pid,
+            ProcessSort::Name => libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Name,
+        }
+    }
+
+    pub(crate) fn persisted_graph(&self) -> libsysinspect::cfg::mmconf::ConsoleSystemTopGraph {
+        match self.default_chart_mode {
+            ChartMode::Blocks => libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Blocks,
+            ChartMode::Line => libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Line,
+        }
     }
 
     /// Apply one process sort key.
@@ -172,6 +210,7 @@ impl SystemTopState {
                 self.process_sort = next;
                 self.process_sort_asc = matches!(next, ProcessSort::Name | ProcessSort::Pid);
             }
+            self.default_process_sort = self.process_sort;
             self.processes_scroll = 0;
         }
     }
@@ -294,9 +333,9 @@ impl SystemTopState {
         let chart_area = Rect { x: body.x, y: body.y + 1, width: body.width.saturating_sub(cores_w), height: body.height.saturating_sub(1) };
         let cores_area = Rect { x: body.right().saturating_sub(cores_w), y: body.y + 1, width: cores_w, height: body.height.saturating_sub(1) };
         let divider_x = chart_area.right();
-        let left_label = match self.cpu_chart_mode {
-            CpuChartMode::Flame => " CPU Flame ",
-            CpuChartMode::Average => " Average Load ",
+        let left_label = match self.chart_mode {
+            ChartMode::Blocks => " CPU Flame ",
+            ChartMode::Line => " Average Load ",
         };
         buf.set_string(
             body.x + 1,
@@ -316,9 +355,9 @@ impl SystemTopState {
             truncate(" Per Core ", cores_area.width.saturating_sub(2) as usize),
             Style::default().fg(palette::HIGHLIGHT),
         );
-        match self.cpu_chart_mode {
-            CpuChartMode::Flame => self.render_cpu_flame(chart_area, buf, snapshot),
-            CpuChartMode::Average => self.render_cpu_average_line(chart_area, buf, snapshot),
+        match self.chart_mode {
+            ChartMode::Blocks => self.render_cpu_flame(chart_area, buf, snapshot),
+            ChartMode::Line => self.render_cpu_average_line(chart_area, buf, snapshot),
         }
         self.render_core_compact(cores_area, buf, snapshot, cols, col_w);
     }
@@ -483,7 +522,10 @@ impl SystemTopState {
         let chart_area = Rect { x: inner.x, y: inner.y, width: inner.width.saturating_sub(info_w), height: inner.height };
         let info_area = Rect { x: chart_area.right(), y: inner.y, width: info_w, height: inner.height };
         let primary = self.primary_network_history(snapshot).unwrap_or((&primary_name, &self.total_network));
-        render_mirrored_net_chart(buf, chart_area, primary.1);
+        match self.chart_mode {
+            ChartMode::Blocks => render_mirrored_net_chart(buf, chart_area, primary.1),
+            ChartMode::Line => render_mirrored_net_line_chart(buf, chart_area, primary.1),
+        }
         self.render_network_details(info_area, snapshot, primary.0, primary.1, &primary_name, buf);
     }
 
@@ -955,6 +997,30 @@ fn render_mirrored_net_chart(buf: &mut Buffer, area: Rect, history: &NetworkHist
     }
 }
 
+fn render_mirrored_net_line_chart(buf: &mut Buffer, area: Rect, history: &NetworkHistory) {
+    if area.width < 12 || area.height < 4 {
+        return;
+    }
+    let label_w = 4u16;
+    let plot = Rect { x: area.x + label_w, y: area.y, width: area.width.saturating_sub(label_w), height: area.height };
+    if plot.width == 0 || plot.height < 2 {
+        return;
+    }
+    let top_rows = (plot.height / 2).max(1);
+    let bottom_rows = plot.height.saturating_sub(top_rows).max(1);
+    let rx_plot = Rect { x: plot.x, y: plot.y, width: plot.width, height: top_rows };
+    let tx_plot = Rect { x: plot.x, y: plot.y + top_rows, width: plot.width, height: bottom_rows };
+    let rx_samples = sample_history_u64(&history.rx_history, plot.width as usize * 2);
+    let tx_samples = sample_history_u64(&history.tx_history, plot.width as usize * 2);
+    let max_rate = rx_samples.iter().chain(tx_samples.iter()).copied().max().unwrap_or(0).max(1);
+
+    buf.set_string(area.x, plot.y, "Dn", Style::default().fg(palette::SUCCESS));
+    buf.set_string(area.x, plot.bottom().saturating_sub(1), "Up", Style::default().fg(palette::PRIMARY));
+
+    render_braille_u64_line_overlay(buf, rx_plot, &rx_samples, max_rate, palette::SUCCESS_PEAK, false);
+    render_braille_u64_line_overlay(buf, tx_plot, &tx_samples, max_rate, palette::PROCESSING_PEAK, true);
+}
+
 fn sample_history_u64(history: &[u64], width: usize) -> Vec<u64> {
     if width == 0 {
         return Vec::new();
@@ -1008,6 +1074,18 @@ fn proportional_rows(values: &[f32], total_rows: u16) -> Vec<u16> {
 }
 
 fn render_braille_line_overlay(buf: &mut Buffer, plot: Rect, history: &[f32], color: Color) {
+    render_braille_line_overlay_oriented(buf, plot, history, color, false);
+}
+
+fn render_braille_u64_line_overlay(buf: &mut Buffer, plot: Rect, history: &[u64], max_value: u64, color: Color, from_top: bool) {
+    if max_value == 0 {
+        return;
+    }
+    let scaled = history.iter().map(|value| ((*value as f64 / max_value as f64) * 100.0) as f32).collect::<Vec<_>>();
+    render_braille_line_overlay_oriented(buf, plot, &scaled, color, from_top);
+}
+
+fn render_braille_line_overlay_oriented(buf: &mut Buffer, plot: Rect, history: &[f32], color: Color, from_top: bool) {
     if plot.width == 0 || plot.height == 0 {
         return;
     }
@@ -1030,10 +1108,10 @@ fn render_braille_line_overlay(buf: &mut Buffer, plot: Rect, history: &[f32], co
                 let t = step as f32 / steps as f32;
                 let xs = px as f32 + (x_sub as f32 - px as f32) * t;
                 let ys = py as f32 + (y_sub as f32 - py as f32) * t;
-                set_braille_subpoint(&mut cells, plot, xs.round() as usize, ys.round() as usize);
+                set_braille_subpoint(&mut cells, plot, xs.round() as usize, ys.round() as usize, from_top);
             }
         } else {
-            set_braille_subpoint(&mut cells, plot, x_sub, y_sub);
+            set_braille_subpoint(&mut cells, plot, x_sub, y_sub, from_top);
         }
         prev = Some((x_sub, y_sub));
     }
@@ -1042,12 +1120,16 @@ fn render_braille_line_overlay(buf: &mut Buffer, plot: Rect, history: &[f32], co
     }
 }
 
-fn set_braille_subpoint(cells: &mut BTreeMap<(u16, u16), u8>, plot: Rect, x_sub: usize, y_sub: usize) {
+fn set_braille_subpoint(cells: &mut BTreeMap<(u16, u16), u8>, plot: Rect, x_sub: usize, y_sub: usize, from_top: bool) {
     if plot.width == 0 || plot.height == 0 {
         return;
     }
     let cell_x = plot.x + (x_sub / 2).min(plot.width.saturating_sub(1) as usize) as u16;
-    let cell_y = plot.bottom().saturating_sub(1 + (y_sub / 4).min(plot.height.saturating_sub(1) as usize) as u16);
+    let cell_y = if from_top {
+        plot.y + (y_sub / 4).min(plot.height.saturating_sub(1) as usize) as u16
+    } else {
+        plot.bottom().saturating_sub(1 + (y_sub / 4).min(plot.height.saturating_sub(1) as usize) as u16)
+    };
     let mask = match (x_sub % 2, y_sub % 4) {
         (0, 0) => 1 << 6,
         (0, 1) => 1 << 2,

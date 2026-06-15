@@ -14,7 +14,7 @@ use libeventreg::{
 use libmodcore::modinit::ModInterface;
 use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
 use libsysinspect::{
-    cfg::mmconf::{MasterConfig, MinionConfig},
+    cfg::mmconf::{ConsoleConfig, MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
     mdescr::catalog::ModelCatalog,
     traits::os_display_name,
@@ -84,6 +84,7 @@ async fn tokio_run(cfg: MasterConfig, config_found: bool, term: &mut DefaultTerm
         Ok(app) => app.run_connected(term),
         Err(_) if config_found => {
             let mut app = SysInspectUX { cfg, offline: true, ..Default::default() };
+            let _ = app.load_console_tool_preferences();
             if app.find_sysmaster_binary().is_some() {
                 app.master_confirm_visible = true;
                 app.master_confirm_choice = AlertResult::Default;
@@ -96,7 +97,8 @@ async fn tokio_run(cfg: MasterConfig, config_found: bool, term: &mut DefaultTerm
             }
         }
         Err(_) => {
-            let app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
+            let mut app = SysInspectUX { cfg, setup_wizard: setup::MasterSetupWizard { visible: true, ..Default::default() }, ..Default::default() };
+            let _ = app.load_console_tool_preferences();
             app.run_setup_loop(term, &mut None)
         }
     }
@@ -400,8 +402,16 @@ impl SysInspectUX {
 
         ux.evtipc = Some(Arc::new(Mutex::new(DbIPCClient::new(cfg.telemetry_socket().to_str().unwrap_or_default()).await?)));
         ux.cfg = cfg;
+        ux.load_console_tool_preferences()?;
 
         Ok(ux)
+    }
+
+    fn load_console_tool_preferences(&mut self) -> Result<(), SysinspectError> {
+        let console_cfg = ConsoleConfig::new(self.cfg.config_path())?;
+        let systop = console_cfg.system_top();
+        self.systop.set_persisted_preferences(systop.sort, systop.graph());
+        Ok(())
     }
 
     pub fn run_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
@@ -1882,6 +1892,7 @@ impl SysInspectUX {
         let max_top = total_rows.saturating_sub(page);
         match e.code {
             KeyCode::Esc => {
+                self.persist_system_top_preferences();
                 self.systop.close();
                 self.status_at_minions_browser();
             }
@@ -1898,10 +1909,12 @@ impl SysInspectUX {
                 self.systop.processes_scroll = (self.systop.processes_scroll + page).min(max_top);
             }
             KeyCode::Left => {
-                self.systop.set_cpu_chart_mode(crate::ui::systop::CpuChartMode::Flame);
+                self.systop.set_chart_mode(crate::ui::systop::ChartMode::Blocks);
+                self.persist_system_top_preferences();
             }
             KeyCode::Right => {
-                self.systop.set_cpu_chart_mode(crate::ui::systop::CpuChartMode::Average);
+                self.systop.set_chart_mode(crate::ui::systop::ChartMode::Line);
+                self.persist_system_top_preferences();
             }
             KeyCode::Tab => {
                 self.systop.cycle_network_interface(true);
@@ -1911,15 +1924,19 @@ impl SysInspectUX {
             }
             KeyCode::Char('c') | KeyCode::Char('C') => {
                 self.systop.apply_sort_key('c');
+                self.persist_system_top_preferences();
             }
             KeyCode::Char('m') | KeyCode::Char('M') => {
                 self.systop.apply_sort_key('m');
+                self.persist_system_top_preferences();
             }
             KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.systop.apply_sort_key('p');
+                self.persist_system_top_preferences();
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
                 self.systop.apply_sort_key('n');
+                self.persist_system_top_preferences();
             }
             _ => {}
         }
@@ -2852,6 +2869,37 @@ impl SysInspectUX {
         let cfg_path = self.cfg.config_path();
         let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
         cfg_path.with_file_name(format!("{stem}.d")).join("99-models.conf")
+    }
+
+    fn system_top_dropin_path(&self) -> PathBuf {
+        let cfg_path = self.cfg.config_path();
+        let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        cfg_path.with_file_name(format!("{stem}.d")).join("system-top.conf")
+    }
+
+    fn write_system_top_dropin(&self) -> Result<(), String> {
+        let dropin = self.system_top_dropin_path();
+        if let Some(parent) = dropin.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Unable to create drop-in directory: {e}"))?;
+        }
+        let sort = match self.systop.persisted_sort() {
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Cpu => "cpu",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Mem => "mem",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Pid => "pid",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopSort::Name => "name",
+        };
+        let graph = match self.systop.persisted_graph() {
+            libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Blocks => "blocks",
+            libsysinspect::cfg::mmconf::ConsoleSystemTopGraph::Line => "line",
+        };
+        let body = format!("config:\n  console:\n    tools:\n      system-top:\n        sort: {sort}\n        graph: {graph}\n");
+        std::fs::write(&dropin, body).map_err(|e| format!("Unable to write System Top drop-in: {e}"))
+    }
+
+    fn persist_system_top_preferences(&self) {
+        if let Err(err) = self.write_system_top_dropin() {
+            log::warn!("Failed to persist System Top preferences: {err}");
+        }
     }
 
     fn enabled_model_ids(&self) -> Vec<String> {

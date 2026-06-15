@@ -188,6 +188,69 @@ and contains the following directives:
     These are filesystem conventions under the master root, not YAML
     configuration directives.
 
+``console.tools.system-top.*``
+##############################
+
+    Type: **console UI preferences**
+
+    Settings under this namespace control how the ``System top`` tool opens in
+    the terminal UI. These values are read on TUI startup and used to
+    initialise the tool the next time it is opened.
+
+    The TUI persists changes to these settings in the existing ``.d`` overlay
+    directory, by writing ``system-top.conf`` next to the active
+    ``sysinspect.conf`` file.
+
+    Example:
+
+    .. code-block:: yaml
+
+        config:
+          console:
+            tools:
+              system-top:
+                sort: cpu
+                graph: blocks
+
+``console.tools.system-top.sort``
+#################################
+
+    Type: **string**
+
+    Default sort order for the process table inside ``System top``.
+
+    Allowed values are:
+
+    * ``cpu``
+    * ``mem``
+    * ``pid``
+    * ``name``
+
+    The TUI updates this value when the operator changes the active sort with
+    the ``c``, ``m``, ``p``, or ``n`` keys.
+
+``console.tools.system-top.graph``
+##################################
+
+    Type: **string**
+
+    Shared chart mode for the CPU and network panels in ``System top``.
+
+    Allowed values are:
+
+    * ``blocks``
+    * ``line``
+
+    The TUI updates this value when the operator switches the graph mode with
+    the left and right arrow keys.
+
+    ``blocks`` keeps the existing CPU flame panel and mirrored network area
+    blocks. ``line`` switches both panels to line charts.
+
+    For compatibility, older overlays that still use ``graph.cpu: flame`` or
+    ``graph.cpu: average`` are accepted on read and rewritten as ``graph`` on
+    the next UI save.
+
 ``bind.ip``
 ###########
 
