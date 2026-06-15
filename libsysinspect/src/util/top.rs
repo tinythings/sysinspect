@@ -1,4 +1,4 @@
-use crate::console::{ConsoleMinionTopDisk, ConsoleMinionTopProcess, ConsoleMinionTopRequest, ConsoleMinionTopSnapshot};
+use crate::console::{ConsoleMinionTopDisk, ConsoleMinionTopInterface, ConsoleMinionTopProcess, ConsoleMinionTopRequest, ConsoleMinionTopSnapshot};
 use sysinfo::{Disks, Networks, ProcessesToUpdate, System};
 
 pub fn collect_top_snapshot(minion_id: &str, request: &ConsoleMinionTopRequest) -> ConsoleMinionTopSnapshot {
@@ -63,6 +63,17 @@ pub fn collect_top_snapshot(minion_id: &str, request: &ConsoleMinionTopRequest) 
 
     let network_rx_total_bytes = networks.values().map(|net| net.total_received()).sum();
     let network_tx_total_bytes = networks.values().map(|net| net.total_transmitted()).sum();
+    let mut network_interfaces: Vec<ConsoleMinionTopInterface> = networks
+        .iter()
+        .map(|(name, net)| ConsoleMinionTopInterface {
+            name: name.to_string(),
+            rx_total_bytes: net.total_received(),
+            tx_total_bytes: net.total_transmitted(),
+        })
+        .collect();
+    network_interfaces.sort_by(|a, b| {
+        b.rx_total_bytes.saturating_add(b.tx_total_bytes).cmp(&a.rx_total_bytes.saturating_add(a.tx_total_bytes)).then_with(|| a.name.cmp(&b.name))
+    });
     let load_avg = System::load_average();
 
     ConsoleMinionTopSnapshot {
@@ -81,6 +92,7 @@ pub fn collect_top_snapshot(minion_id: &str, request: &ConsoleMinionTopRequest) 
         swap_used_bytes: system.used_swap(),
         network_rx_total_bytes,
         network_tx_total_bytes,
+        network_interfaces,
         disks: disk_rows,
         processes,
     }

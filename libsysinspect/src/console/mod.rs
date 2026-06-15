@@ -150,6 +150,13 @@ pub struct ConsoleMinionTopDisk {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsoleMinionTopInterface {
+    pub name: String,
+    pub rx_total_bytes: u64,
+    pub tx_total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConsoleMinionTopSnapshot {
     pub minion_id: String,
     pub hostname: String,
@@ -167,6 +174,8 @@ pub struct ConsoleMinionTopSnapshot {
     pub swap_used_bytes: u64,
     pub network_rx_total_bytes: u64,
     pub network_tx_total_bytes: u64,
+    #[serde(default)]
+    pub network_interfaces: Vec<ConsoleMinionTopInterface>,
     #[serde(default)]
     pub disks: Vec<ConsoleMinionTopDisk>,
     #[serde(default)]
