@@ -22,9 +22,10 @@ use libsysinspect::{
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS,
-        CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX,
-        CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
+        CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
+        CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION,
+        CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
     },
 };
 use ratatui::{
@@ -128,6 +129,25 @@ impl Default for DeleteProgressState {
         Self { visible: false, message: String::new(), spinner: spinner_model, last_tick: Instant::now() }
     }
 }
+
+#[derive(Debug)]
+pub struct ClusterUpgradeProgressState {
+    pub visible: bool,
+    pub message: String,
+    pub spinner: spinner::Model,
+    pub last_tick: Instant,
+}
+
+impl Default for ClusterUpgradeProgressState {
+    fn default() -> Self {
+        let mut spinner_model = spinner::Model::new();
+        spinner_model.spinner = spinner::Spinner::mini_dot();
+        spinner_model.style = Style::default().fg(palette::WARNING_PEAK);
+        Self { visible: false, message: String::new(), spinner: spinner_model, last_tick: Instant::now() }
+    }
+}
+
+type ClusterUpgradeTaskResult = Result<(usize, usize, usize, usize, usize, Vec<String>), String>;
 
 #[derive(Debug)]
 pub struct SysInspectUX {
@@ -261,6 +281,10 @@ pub struct SysInspectUX {
     pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
     pub delete_success_message: String,
     pub delete_success_styled: Option<Text<'static>>,
+    pub cluster_upgrade_progress: ClusterUpgradeProgressState,
+    pub cluster_upgrade_task: Option<tokio::task::JoinHandle<ClusterUpgradeTaskResult>>,
+    pub cluster_upgrade_required_count: usize,
+    pub cluster_upgrade_unreachable_count: usize,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -379,6 +403,10 @@ impl Default for SysInspectUX {
             delete_task: None,
             delete_success_message: String::new(),
             delete_success_styled: None,
+            cluster_upgrade_progress: ClusterUpgradeProgressState::default(),
+            cluster_upgrade_task: None,
+            cluster_upgrade_required_count: 0,
+            cluster_upgrade_unreachable_count: 0,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -416,11 +444,13 @@ impl SysInspectUX {
 
     pub fn run_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
         self.cycles_buf = self.get_cycles().unwrap_or_default();
+        self.refresh_cluster_upgrade_status();
         self.run_normal_loop(term)
     }
 
     fn run_connected(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
         self.cycles_buf = self.get_cycles().unwrap_or_default();
+        self.refresh_cluster_upgrade_status();
         self.run_normal_loop(term)
     }
 
@@ -655,18 +685,46 @@ impl SysInspectUX {
 
         frame.render_widget(self, main_area);
 
+        let badge_text = if self.cluster_upgrade_required_count > 0 {
+            Some(if self.cluster_upgrade_unreachable_count > 0 { " ⚠️ Cluster upgrade incomplete " } else { " 🚨 Cluster upgrade required " })
+        } else {
+            None
+        };
+
         if self.offline {
             let offline_w: u16 = 14;
-            let [main_status, offline_area]: [Rect; 2] = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(0), Constraint::Length(offline_w)].as_ref())
-                .split(status_area)
-                .as_ref()
-                .try_into()
-                .unwrap();
+            let (main_status, badge_area, offline_area) = if let Some(text) = badge_text {
+                let badge_w = UnicodeWidthStr::width(text) as u16;
+                let [main_status, badge_area, offline_area]: [Rect; 3] = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(badge_w), Constraint::Length(offline_w)].as_ref())
+                    .split(status_area)
+                    .as_ref()
+                    .try_into()
+                    .unwrap();
+                (main_status, Some((badge_area, text)), offline_area)
+            } else {
+                let [main_status, offline_area]: [Rect; 2] = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(offline_w)].as_ref())
+                    .split(status_area)
+                    .as_ref()
+                    .try_into()
+                    .unwrap();
+                (main_status, None, offline_area)
+            };
 
             let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
             frame.render_widget(status_paragraph, main_status);
+            if let Some((badge_area, text)) = badge_area {
+                let badge_style = if self.cluster_upgrade_unreachable_count > 0 {
+                    Style::default().fg(palette::WARNING_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(palette::ERROR_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                };
+                frame
+                    .render_widget(Paragraph::new(Line::from(Span::styled(text, badge_style))).style(Style::default().bg(palette::BG_1)), badge_area);
+            }
 
             let offline_paragraph = Paragraph::new(Line::from(vec![Span::styled(
                 "  Offline \u{2716} ",
@@ -675,8 +733,30 @@ impl SysInspectUX {
             .style(Style::default().bg(palette::BG_1));
             frame.render_widget(offline_paragraph, offline_area);
         } else {
-            let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
-            frame.render_widget(status_paragraph, status_area);
+            if let Some(text) = badge_text {
+                let badge_w = UnicodeWidthStr::width(text) as u16;
+                let [main_status, badge_area]: [Rect; 2] = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(badge_w)].as_ref())
+                    .split(status_area)
+                    .as_ref()
+                    .try_into()
+                    .unwrap();
+                let status_paragraph =
+                    Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+                frame.render_widget(status_paragraph, main_status);
+                let badge_style = if self.cluster_upgrade_unreachable_count > 0 {
+                    Style::default().fg(palette::WARNING_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(palette::ERROR_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                };
+                frame
+                    .render_widget(Paragraph::new(Line::from(Span::styled(text, badge_style))).style(Style::default().bg(palette::BG_1)), badge_area);
+            } else {
+                let status_paragraph =
+                    Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+                frame.render_widget(status_paragraph, status_area);
+            }
         }
     }
 
@@ -685,6 +765,7 @@ impl SysInspectUX {
         let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some()
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
+            || self.cluster_upgrade_progress.visible
         {
             Duration::from_millis(50)
         } else {
@@ -712,6 +793,7 @@ impl SysInspectUX {
                     }
                 }
                 if !self.offline {
+                    self.refresh_cluster_upgrade_status();
                     if self.minions_visible {
                         self.refresh_minions();
                     }
@@ -737,6 +819,13 @@ impl SysInspectUX {
             let tick = self.delete_progress.spinner.tick();
             self.delete_progress.spinner.update(tick);
             self.delete_progress.last_tick = Instant::now();
+        }
+        if self.cluster_upgrade_progress.visible
+            && self.cluster_upgrade_progress.last_tick.elapsed() >= self.cluster_upgrade_progress.spinner.spinner.fps
+        {
+            let tick = self.cluster_upgrade_progress.spinner.tick();
+            self.cluster_upgrade_progress.spinner.update(tick);
+            self.cluster_upgrade_progress.last_tick = Instant::now();
         }
         if self.delete_progress.visible
             && self.delete_task.as_ref().is_some_and(|task| task.is_finished())
@@ -768,6 +857,36 @@ impl SysInspectUX {
                 }
             }
         }
+        if self.cluster_upgrade_progress.visible
+            && self.cluster_upgrade_task.as_ref().is_some_and(|task| task.is_finished())
+            && let Some(task) = self.cluster_upgrade_task.take()
+        {
+            let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+            self.cluster_upgrade_progress.visible = false;
+            self.cluster_upgrade_progress.message.clear();
+            self.restore_status();
+            self.refresh_cluster_upgrade_status();
+            self.refresh_minions();
+            match result {
+                Ok(Ok((updated, dispatched, skipped, failed, offline, items))) => {
+                    self.info_alert_visible = true;
+                    self.info_alert_title = "Cluster Upgrade".to_string();
+                    self.info_alert_styled = None;
+                    self.info_alert_message = format!(
+                        "SSH upgraded:         {updated}\nDispatched to online: {dispatched}\nSkipped:              {skipped}\nFailed:               {failed}\nOffline:              {offline}{}",
+                        if items.is_empty() { String::new() } else { format!("\n\n{}", items.join("\n")) }
+                    );
+                }
+                Ok(Err(err)) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to join cluster upgrade task: {err}");
+                }
+            }
+        }
         // Process file picker result for repo manager
         if self.repo_manager.visible
             && let Some(path) = self.file_picker.selected.take()
@@ -791,6 +910,7 @@ impl SysInspectUX {
                     if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
+                    self.mark_cluster_upgrade_required();
                 }
             } else {
                 // Track that a reload is needed when progress finishes
@@ -1423,6 +1543,7 @@ impl SysInspectUX {
             || self.registration_form.visible
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
+            || self.cluster_upgrade_progress.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1462,6 +1583,47 @@ impl SysInspectUX {
                 }
             }
         }
+    }
+
+    fn refresh_cluster_upgrade_status(&mut self) {
+        if let Ok((required, unreachable)) = self.fetch_cluster_upgrade_status() {
+            self.cluster_upgrade_required_count = required;
+            self.cluster_upgrade_unreachable_count = unreachable;
+        }
+    }
+
+    fn mark_cluster_upgrade_required(&mut self) {
+        let _ = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MARK_UPGRADE_REQUIRED}"), "*", None, None, None).await
+            })
+        });
+        self.refresh_cluster_upgrade_status();
+        if self.minions_visible {
+            self.refresh_minions();
+        }
+    }
+
+    fn start_cluster_upgrade(&mut self) {
+        self.cluster_upgrade_progress.visible = true;
+        self.cluster_upgrade_progress.message = "Applying repository updates across the cluster...".to_string();
+        self.cluster_upgrade_progress.last_tick = Instant::now();
+        self.status_text = Line::from(vec![
+            Span::styled(" Esc ", Style::default().fg(palette::FG)),
+            Span::styled("wait for completion", Style::default().fg(palette::FAINT)),
+        ]);
+        let cfg = self.cfg.clone();
+        self.cluster_upgrade_task = Some(tokio::spawn(async move {
+            call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_UPGRADE_MINIONS}"), "*", None, None, None)
+                .await
+                .map_err(|err| err.to_string())
+                .and_then(|resp| match resp.payload {
+                    ConsolePayload::UpgradeSummary { updated, dispatched, skipped, failed, offline, items } => {
+                        Ok((updated, dispatched, skipped, failed, offline, items))
+                    }
+                    _ => Err("Unexpected console payload for cluster upgrade".to_string()),
+                })
+        }));
     }
 
     fn load_selected_minion_info(&mut self) {
@@ -2885,6 +3047,7 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "new", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -2892,18 +3055,21 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "delete", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
     fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
     fn do_profile_remove_match(&mut self, name: &str, selector: &str, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "remove", "name": name, "matches": [selector], "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3141,6 +3307,7 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(ids)?;
         self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
         self.repo_manager.models_dirty = true;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3189,6 +3356,7 @@ impl SysInspectUX {
         {
             Ok(()) => {
                 self.repo_manager.models_dirty = true;
+                self.mark_cluster_upgrade_required();
                 self.info_alert_visible = true;
                 self.info_alert_title = "Model Import".to_string();
                 self.info_alert_styled = None;
@@ -3212,6 +3380,7 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(enabled_ids.clone())?;
         self.refresh_local_model_rows(&enabled_ids)?;
         self.repo_manager.models_dirty = true;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3382,6 +3551,7 @@ impl SysInspectUX {
             self.error_alert_message = format!("Cannot remove modules: {e}");
         } else {
             let _ = self.load_module_index();
+            self.mark_cluster_upgrade_required();
         }
     }
 
@@ -3405,6 +3575,7 @@ impl SysInspectUX {
             }
         }
         let _ = self.load_module_index();
+        self.mark_cluster_upgrade_required();
     }
 
     fn process_library_add(&mut self, path: &std::path::Path) {
@@ -3423,6 +3594,7 @@ impl SysInspectUX {
                 self.error_alert_message = format!("Cannot add library: {e}");
             } else {
                 self.load_library_index().ok();
+                self.mark_cluster_upgrade_required();
             }
         } else {
             // Single file: wrap in temp dir, use add_library
@@ -3436,6 +3608,7 @@ impl SysInspectUX {
                         self.error_alert_message = format!("Cannot add library file: {e}");
                     } else {
                         self.load_library_index().ok();
+                        self.mark_cluster_upgrade_required();
                     }
                     let _ = std::fs::remove_dir_all(&tmp);
                 }
@@ -3457,6 +3630,8 @@ impl SysInspectUX {
                 } else if let Err(e) = self.load_platforms() {
                     self.error_alert_visible = true;
                     self.error_alert_message = format!("Failed to reload platforms: {e}");
+                } else {
+                    self.mark_cluster_upgrade_required();
                 }
             }
             Err(e) => {
@@ -3479,6 +3654,7 @@ impl SysInspectUX {
             }
         }
         let _ = self.load_platforms();
+        self.mark_cluster_upgrade_required();
     }
 
     fn read_spec_version_descr(spec: &std::path::Path) -> (Option<String>, String) {
@@ -3682,6 +3858,10 @@ impl SysInspectUX {
                     self.status_at_repo_manager();
                 }
             }
+            KeyCode::Char('u') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.start_cluster_upgrade();
+            }
             KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = false;
                 self.master_confirm_visible = true;
@@ -3748,16 +3928,19 @@ impl SysInspectUX {
                         }
                     }
                     4 => {
-                        self.master_confirm_visible = true;
-                        self.master_confirm_choice = AlertResult::Default;
-                        self.master_confirm_action = 1;
+                        self.start_cluster_upgrade();
                     }
                     5 => {
                         self.master_confirm_visible = true;
                         self.master_confirm_choice = AlertResult::Default;
-                        self.master_confirm_action = 3;
+                        self.master_confirm_action = 1;
                     }
                     6 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 3;
+                    }
+                    7 => {
                         self.master_confirm_visible = true;
                         self.master_confirm_choice = AlertResult::Default;
                         self.master_confirm_action = 2;
@@ -4171,6 +4354,10 @@ impl SysInspectUX {
         }
 
         if self.delete_progress.visible {
+            return;
+        }
+
+        if self.cluster_upgrade_progress.visible {
             return;
         }
 
@@ -4739,6 +4926,19 @@ impl SysInspectUX {
                     match resp.payload {
                         ConsolePayload::OnlineMinions { rows } => rows,
                         _ => Vec::new(),
+                    }
+                })
+            })
+        })
+    }
+
+    pub fn fetch_cluster_upgrade_status(&self) -> Result<(usize, usize), SysinspectError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_UPGRADE_STATUS}"), "*", None, None, None).await.map(|resp| {
+                    match resp.payload {
+                        ConsolePayload::UpgradeStatus { required, unreachable } => (required, unreachable),
+                        _ => (0, 0),
                     }
                 })
             })

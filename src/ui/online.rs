@@ -19,6 +19,7 @@ use ratatui_cheese::{
     tree::{TreeGroup, TreeItem},
 };
 use serde_json::Value;
+use unicode_width::UnicodeWidthStr;
 
 impl SysInspectUX {
     /// Shorten a display string by preserving leading/trailing `edge` chars and replacing the middle with `...`.
@@ -192,7 +193,8 @@ impl SysInspectUX {
             return;
         }
 
-        let ip_data: Vec<String> = filtered.iter().map(|r| Self::_fmt_ip(&r.ip)).collect();
+        let ip_data: Vec<String> =
+            filtered.iter().map(|r| if r.upgrade_unreachable { format!("📦 {}", Self::_fmt_ip(&r.ip)) } else { Self::_fmt_ip(&r.ip) }).collect();
         let host_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::online_host(r), max_w as usize)).collect();
         let ver_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::_fmt_version(r), max_w as usize)).collect();
         let id_data: Vec<String> = filtered.iter().map(|r| Self::shorten_mid(&r.minion_id, 4)).collect();
@@ -207,13 +209,13 @@ impl SysInspectUX {
         let osv_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&r.os_version, max_w as usize)).collect();
         let ker_data: Vec<String> = filtered.iter().map(|r| r.kernel.clone()).collect();
 
-        let ip_w = ip_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
-        let host_w = host_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(4).max(4);
-        let ver_w = ver_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(7).min(max_w);
-        let id_w = id_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
-        let os_w = os_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
-        let osv_w = osv_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
-        let ker_w = ker_data.iter().map(|s| s.chars().count() as u16).max().unwrap_or(2).max(2);
+        let ip_w = ip_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+        let host_w = host_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(4).max(4);
+        let ver_w = ver_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(7).min(max_w);
+        let id_w = id_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+        let os_w = os_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+        let osv_w = osv_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+        let ker_w = ker_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
 
         let base_w: Vec<u16> = vec![ip_w, host_w, ver_w, id_w, os_w, osv_w, ker_w];
         let mut cols: Vec<Constraint> = base_w.into_iter().map(Constraint::Length).collect();

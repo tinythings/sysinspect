@@ -281,7 +281,7 @@ fn main() -> std::io::Result<()> {
             2.. => LevelFilter::max(),
         })
     }) {
-        println!("Error setting logger output: {err}");
+        println!("Error setting logger output: {err}!");
     }
 
     // Start

@@ -68,6 +68,18 @@ pub mod commands {
     // Send a Unix signal to one process on one specific minion
     pub const CLUSTER_MINION_PROCESS_SIGNAL: &str = "cluster/minion/process/signal";
 
+    // Mark all selected minions as requiring a cluster upgrade/sync
+    pub const CLUSTER_MARK_UPGRADE_REQUIRED: &str = "cluster/upgrade/mark";
+
+    // Run cluster upgrade/sync across marked minions
+    pub const CLUSTER_UPGRADE_MINIONS: &str = "cluster/upgrade/run";
+
+    // Read current cluster upgrade status counts
+    pub const CLUSTER_UPGRADE_STATUS: &str = "cluster/upgrade/status";
+
+    // Ask a minion to download, verify, and replace its own binary
+    pub const CLUSTER_MINION_UPGRADE_SELF: &str = "cluster/minion/upgrade/self";
+
     // Force all online minions to reconnect (cluster-wide broadcast)
     pub const CLUSTER_RECONNECT: &str = "cluster/reconnect";
 

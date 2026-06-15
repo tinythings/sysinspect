@@ -321,6 +321,44 @@ impl SysInspectUX {
         Self::draw_popup_shadow(buf, canvas, height);
     }
 
+    pub fn dialog_cluster_upgrade_progress(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.cluster_upgrade_progress.visible {
+            return;
+        }
+
+        let text = Line::from(vec![Span::styled(
+            format!("{} {}", self.cluster_upgrade_progress.spinner.view(), self.cluster_upgrade_progress.message),
+            Style::default().fg(palette::FG),
+        )]);
+        let width = (UnicodeWidthStr::width(self.cluster_upgrade_progress.message.as_str()) as u16 + 12).max(48);
+        let height = 5u16;
+        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
+        let canvas = Rect { x, y, width, height };
+
+        Clear.render(canvas, buf);
+
+        let popup_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(palette::WARNING_PEAK))
+            .padding(Padding::horizontal(2))
+            .style(Style::default().bg(palette::POPUP_BG_BASE));
+        let popup_inner = popup_block.inner(canvas);
+        popup_block.render(canvas, buf);
+
+        let [_, text_area, _]: [Rect; 3] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(0)])
+            .split(popup_inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+        Paragraph::new(text).alignment(Alignment::Center).render(text_area, buf);
+
+        Self::draw_popup_shadow(buf, canvas, height);
+    }
+
     pub fn dialog_master_confirm(&self, parent: Rect, buf: &mut Buffer) {
         if !self.master_confirm_visible {
             return;

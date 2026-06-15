@@ -8,20 +8,22 @@
 use super::*;
 
 use crate::hopstart::{HopStartTarget, HopStarter, shell_quote};
-use libmodpak::{SysInspectModPak, compare_versions, mpk::ModPakRepoIndex};
+use libmodpak::{SysInspectModPak, mpk::ModPakRepoIndex};
 use libsysinspect::{
     cfg::mmconf::MinionConfig,
     console::{
         ConsoleEnvelope, ConsoleLibraryRow, ConsoleMasterLogSnapshot, ConsoleMinionInfoRow, ConsoleMinionLogRequest, ConsoleMinionLogSnapshot,
-        ConsoleMinionProcessSignalRequest, ConsoleMinionTopRequest, ConsoleMinionTopSnapshot, ConsoleModelRow, ConsoleModuleArgument,
-        ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed, ConsoleTransportStatusRow,
-        MinionCommandReply, authorised_console_client, load_master_private_key,
+        ConsoleMinionProcessSignalRequest, ConsoleMinionTopRequest, ConsoleMinionTopSnapshot, ConsoleMinionUpgradeSelfRequest, ConsoleModelRow,
+        ConsoleModuleArgument, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload, ConsoleQuery, ConsoleResponse, ConsoleSealed,
+        ConsoleTransportStatusRow, MinionCommandReply, authorised_console_client, load_master_private_key,
     },
     context::get_context,
     mdescr::catalog::ModelCatalog,
     traits::TraitSource,
 };
-use libsysproto::query::commands::CLUSTER_MINION_TOP;
+use libsysproto::query::commands::{
+    CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MINION_TOP, CLUSTER_MINION_UPGRADE_SELF, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
+};
 use tokio::net::{TcpStream, tcp::OwnedReadHalf};
 use tokio::sync::oneshot;
 use tokio::time;
@@ -227,6 +229,18 @@ impl RotationDispatchSummary {
 }
 
 impl SysMaster {
+    fn repo_minion_builds(&self) -> std::collections::BTreeMap<(String, String), libmodpak::MinionBuildRecord> {
+        SysInspectModPak::new(self.cfg.get_mod_repo_root())
+            .ok()
+            .map(|repo| {
+                repo.minion_builds().into_iter().fold(std::collections::BTreeMap::new(), |mut rows, row| {
+                    rows.insert((row.platform().to_string(), row.arch().to_string()), row);
+                    rows
+                })
+            })
+            .unwrap_or_default()
+    }
+
     /// Serialize a console response into a plain JSON line for direct socket writes.
     ///
     /// This helper is used for pre-encryption validation errors and other cases
@@ -252,28 +266,31 @@ impl SysMaster {
     /// applied here.
     async fn online_minions_data(&mut self, query: &str, traits: &str, mid: &str) -> Result<Vec<ConsoleOnlineMinionRow>, SysinspectError> {
         Ok({
-            let repo_versions = SysInspectModPak::new(self.cfg.get_mod_repo_root())
-                .ok()
-                .map(|repo| {
-                    repo.minion_builds().into_iter().fold(std::collections::BTreeMap::new(), |mut rows, row| {
-                        rows.insert((row.platform().to_string(), row.arch().to_string()), row.version().to_string());
-                        rows
-                    })
-                })
-                .unwrap_or_default();
+            let repo_checksums = self
+                .repo_minion_builds()
+                .into_iter()
+                .map(|(key, row)| (key, row.checksum().to_string()))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            let repo_versions = self
+                .repo_minion_builds()
+                .into_iter()
+                .map(|(key, row)| (key, row.version().to_string()))
+                .collect::<std::collections::BTreeMap<_, _>>();
             let selected = self.selected_minions(query, traits, mid).await?;
             let mut session = self.session.lock().await;
             {
                 let mut rows = Vec::with_capacity(selected.len());
                 for minion in selected {
                     let cmdb = self.mreg.lock().await.get_cmdb(minion.id()).unwrap_or_default();
+                    let upgrade_marker = self.mreg.lock().await.get_upgrade_marker(minion.id()).unwrap_or_default();
                     let (fqdn, hostname, ip) = Self::preferred_host(&minion, cmdb.as_ref());
                     let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let current_sha = minion.get_traits().get("minion.binary.sha256").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let os_dist = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                    let target_version = repo_versions
-                        .get(&(os_dist.clone(), minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string()))
-                        .cloned()
-                        .unwrap_or_default();
+                    let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let target_sha = repo_checksums.get(&(os_dist.clone(), arch.clone())).cloned().unwrap_or_default();
+                    let target_version = repo_versions.get(&(os_dist.clone(), arch)).cloned().unwrap_or_default();
+                    let outdated = !target_sha.is_empty() && current_sha != target_sha;
                     let os_name = minion.get_traits().get("system.os.name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let os_version = minion.get_traits().get("system.os.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let kernel = minion.get_traits().get("system.kernel").and_then(|v| v.as_str()).unwrap_or_default().to_string();
@@ -283,9 +300,9 @@ impl SysMaster {
                         ip,
                         minion_id: minion.id().to_string(),
                         alive: session.alive(minion.id()),
-                        outdated: !current_version.is_empty()
-                            && !target_version.is_empty()
-                            && compare_versions(&current_version, &target_version).is_lt(),
+                        outdated,
+                        upgrade_required: outdated || upgrade_marker.is_some(),
+                        upgrade_unreachable: upgrade_marker.as_ref().is_some_and(|marker| marker.unreachable),
                         version: current_version,
                         target_version,
                         os_distribution: os_dist,
@@ -297,6 +314,177 @@ impl SysMaster {
                 rows
             }
         })
+    }
+
+    async fn mark_upgrade_required_console_response(&mut self) -> Result<ConsoleResponse, SysinspectError> {
+        let repo_builds = self.repo_minion_builds();
+        let ids = self.mreg.lock().await.get_registered_ids()?;
+        let mut marked = 0usize;
+        let mut cleared = 0usize;
+        for mid in ids {
+            let Some(minion) = self.mreg.lock().await.get(&mid)? else {
+                continue;
+            };
+            let platform = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let current_sha = minion.get_traits().get("minion.binary.sha256").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            if let Some(build) = repo_builds.get(&(platform, arch)) {
+                if !current_sha.is_empty() && current_sha == build.checksum() {
+                    self.mreg.lock().await.clear_upgrade_required(&mid)?;
+                    cleared += 1;
+                } else {
+                    self.mreg.lock().await.mark_upgrade_required(&mid, build.version(), build.checksum())?;
+                    marked += 1;
+                }
+            } else {
+                self.mreg.lock().await.clear_upgrade_required(&mid)?;
+                cleared += 1;
+            }
+        }
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack {
+            action: "reconcile_cluster_upgrade".to_string(),
+            target: "cluster".to_string(),
+            count: marked,
+            items: vec![format!("{cleared} minions up-to-date or unsupported")],
+        }))
+    }
+
+    async fn cluster_upgrade_status_console_response(&mut self) -> Result<ConsoleResponse, SysinspectError> {
+        let (required, unreachable) = self.mreg.lock().await.upgrade_status_counts()?;
+        Ok(ConsoleResponse::ok(ConsolePayload::UpgradeStatus { required, unreachable }))
+    }
+
+    async fn upgrade_minion_over_ssh(
+        cmdb: &crate::registry::rec::MinionCmdbRecord, artifact: &libmodpak::MinionBuildRecord,
+    ) -> Result<(), SysinspectError> {
+        let host = cmdb.host().ok_or_else(|| SysinspectError::InvalidQuery("Missing host in CMDB".to_string()))?;
+        let user = cmdb.user().ok_or_else(|| SysinspectError::InvalidQuery("Missing user in CMDB".to_string()))?;
+        let root = cmdb.root().ok_or_else(|| SysinspectError::InvalidQuery("Missing root in CMDB".to_string()))?;
+        let bin = cmdb.bin().ok_or_else(|| SysinspectError::InvalidQuery("Missing bin path in CMDB".to_string()))?;
+        let config = cmdb.config().ok_or_else(|| SysinspectError::InvalidQuery("Missing config path in CMDB".to_string()))?;
+        let stage_dir = format!("{root}/tmp");
+        let stage_bin = format!("{stage_dir}/sysminion.upgrade");
+        let ssh_target = format!("{user}@{host}");
+
+        let mkdir_status = tokio::process::Command::new("ssh").arg(&ssh_target).arg(format!("mkdir -p {}", shell_quote(&stage_dir))).status().await?;
+        if !mkdir_status.success() {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to prepare remote stage directory on {host}")));
+        }
+
+        let scp_status = tokio::process::Command::new("scp").arg(artifact.path()).arg(format!("{ssh_target}:{stage_bin}")).status().await?;
+        if !scp_status.success() {
+            return Err(SysinspectError::MasterGeneralError(format!("Unable to upload sysminion build to {host}")));
+        }
+
+        let remote_cmd = format!(
+            "sh -lc '{} -c {} --stop >/dev/null 2>&1 || true; install -m 0755 {} {}; {} -c {} --daemon'",
+            shell_quote(bin),
+            shell_quote(config),
+            shell_quote(&stage_bin),
+            shell_quote(bin),
+            shell_quote(bin),
+            shell_quote(config)
+        );
+        let status = tokio::process::Command::new("ssh").arg(&ssh_target).arg(remote_cmd).status().await?;
+        if !status.success() {
+            return Err(SysinspectError::MasterGeneralError(format!("Remote sysminion upgrade failed for {host}")));
+        }
+
+        Ok(())
+    }
+
+    async fn run_cluster_upgrade_console_response(
+        master: Arc<Mutex<Self>>, bcast: &broadcast::Sender<MasterMessage>, cfg: &MasterConfig,
+    ) -> Result<ConsoleResponse, SysinspectError> {
+        let mut updated = 0usize;
+        let mut dispatched = 0usize;
+        let mut offline = 0usize;
+        let mut skipped = 0usize;
+        let mut failed = 0usize;
+        let mut items = Vec::new();
+        let mut messages = Vec::new();
+
+        let ids = master.lock().await.mreg.lock().await.get_upgrade_required_ids()?;
+        let repo_builds = master.lock().await.repo_minion_builds();
+        let fileserver_root = cfg.fileserver_root().to_path_buf();
+        for mid in ids {
+            let (minion, cmdb, alive) = {
+                let guard = master.lock().await;
+                let minion = guard.mreg.lock().await.get(&mid)?;
+                let cmdb = guard.mreg.lock().await.get_cmdb(&mid)?;
+                let alive = guard.session.lock().await.alive(&mid);
+                (minion, cmdb, alive)
+            };
+            let Some(minion) = minion else {
+                skipped += 1;
+                items.push(format!("{mid}: registry entry missing"));
+                continue;
+            };
+
+            let platform = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let Some(build) = repo_builds.get(&(platform, arch)) else {
+                skipped += 1;
+                items.push(format!("{mid}: matching sysminion build not found"));
+                continue;
+            };
+
+            if alive {
+                let subpath = build.path().strip_prefix(&fileserver_root).map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                if subpath.is_empty() {
+                    failed += 1;
+                    items.push(format!("{mid}: unable to determine download subpath"));
+                    continue;
+                }
+                let context = serde_json::to_string(&ConsoleMinionUpgradeSelfRequest {
+                    subpath,
+                    checksum: build.checksum().to_string(),
+                    version: build.version().to_string(),
+                })
+                .map_err(|err| SysinspectError::SerializationError(format!("Failed to encode upgrade request: {err}")))?;
+                let msg = {
+                    let mut guard = master.lock().await;
+                    guard.msg_query_data(&format!("{SCHEME_COMMAND}{CLUSTER_MINION_UPGRADE_SELF}"), "", "", &mid, &context).await
+                };
+                match msg {
+                    Some(msg) => {
+                        messages.push(msg);
+                        dispatched += 1;
+                    }
+                    None => {
+                        failed += 1;
+                        items.push(format!("{mid}: unable to construct upgrade message"));
+                    }
+                }
+                continue;
+            }
+
+            if let Some(cmdb) = cmdb.as_ref()
+                && cmdb.backend() == Some("hopstart")
+            {
+                match Self::upgrade_minion_over_ssh(cmdb, build).await {
+                    Ok(()) => {
+                        master.lock().await.mreg.lock().await.clear_upgrade_required(&mid)?;
+                        updated += 1;
+                    }
+                    Err(err) => {
+                        master.lock().await.mreg.lock().await.mark_upgrade_unreachable(&mid)?;
+                        failed += 1;
+                        items.push(format!("{mid}: {err}"));
+                    }
+                }
+                continue;
+            }
+
+            offline += 1;
+            items.push(format!("{mid}: minion is offline"));
+        }
+
+        if !messages.is_empty() {
+            Self::broadcast_console_messages(Arc::clone(&master), bcast, cfg, messages, true).await;
+        }
+
+        Ok(ConsoleResponse::ok(ConsolePayload::UpgradeSummary { updated, dispatched, skipped, failed, offline, items }))
     }
 
     /// Build model-discovery rows from the master's fileserver models directory.
@@ -878,6 +1066,27 @@ impl SysMaster {
             return match master.lock().await.online_minions_data(&query.query, &query.traits, &query.mid).await {
                 Ok(rows) => ConsoleResponse::ok(ConsolePayload::OnlineMinions { rows }),
                 Err(err) => ConsoleResponse::err(format!("Unable to get online minions: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_MARK_UPGRADE_REQUIRED}")) {
+            return match master.lock().await.mark_upgrade_required_console_response().await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(format!("Unable to mark cluster upgrade state: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_UPGRADE_STATUS}")) {
+            return match master.lock().await.cluster_upgrade_status_console_response().await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(format!("Unable to get cluster upgrade status: {err}")),
+            };
+        }
+
+        if query.model.eq(&format!("{SCHEME_COMMAND}{CLUSTER_UPGRADE_MINIONS}")) {
+            return match Self::run_cluster_upgrade_console_response(Arc::clone(&master), bcast, cfg).await {
+                Ok(response) => response,
+                Err(err) => ConsoleResponse::err(format!("Unable to run cluster upgrade: {err}")),
             };
         }
 

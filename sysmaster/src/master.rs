@@ -1167,6 +1167,9 @@ impl SysMaster {
                     if let Err(err) = mreg.refresh_cmdb_observed(&mid, &traits) {
                         log::error!("Unable to sync CMDB traits for {}: {err}", mid);
                     }
+                    if let Err(err) = mreg.clear_upgrade_required_if_checksum_matches(&mid, &traits) {
+                        log::debug!("Unable to clear upgrade marker for {}: {err}", mid);
+                    }
                     let m = mreg.get(&mid).unwrap_or_default().unwrap_or_default();
                     let cmdb = mreg.get_cmdb(&mid).unwrap_or_default();
                     let (fqdn, hostname, ip) = Self::preferred_host(&m, cmdb.as_ref());

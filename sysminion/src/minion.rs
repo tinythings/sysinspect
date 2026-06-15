@@ -26,7 +26,10 @@ use libsysinspect::{
         get_minion_config,
         mmconf::{CFG_MASTER_KEY_PUB, CFG_PENDING_TASKS_ROOT, DEFAULT_PORT, MinionConfig, MinionOfflineMode, SysInspectConfig},
     },
-    console::{ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleMinionProcessSignalRequest, ConsoleMinionTopRequest, MinionCommandReply},
+    console::{
+        ConsoleMinionLogRequest, ConsoleMinionLogSnapshot, ConsoleMinionProcessSignalRequest, ConsoleMinionTopRequest,
+        ConsoleMinionUpgradeSelfRequest, MinionCommandReply,
+    },
     context,
     inspector::SysInspectRunner,
     intp::{
@@ -62,7 +65,8 @@ use libsysproto::{
         MinionQuery, SCHEME_COMMAND,
         commands::{
             CLUSTER_MINION_LOGS, CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP,
-            CLUSTER_REBOOT, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE,
+            CLUSTER_MINION_UPGRADE_SELF, CLUSTER_REBOOT, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_ROTATE, CLUSTER_SHUTDOWN, CLUSTER_SYNC,
+            CLUSTER_TRAITS_UPDATE,
         },
     },
     replay::{ReplayIdentity, replay_identity_from_minion_bytes},
@@ -76,7 +80,9 @@ use serde_yaml::Value as YamlValue;
 use std::{
     collections::VecDeque,
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
     sync::RwLock,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
@@ -136,6 +142,9 @@ impl LogRingBuffers {
 }
 
 pub static LOG_RING: Lazy<RwLock<LogRingBuffers>> = Lazy::new(|| RwLock::new(LogRingBuffers::new(LOG_RING_CAPACITY)));
+static MINION_BINARY_PATH: Lazy<Option<String>> = Lazy::new(|| std::env::current_exe().ok().map(|path| path.display().to_string()));
+static MINION_BINARY_SHA256: Lazy<Option<String>> =
+    Lazy::new(|| std::env::current_exe().ok().and_then(|path| util::iofs::get_file_sha256(path).ok()));
 
 #[derive(Debug, Clone, Copy, Default)]
 struct BacklogSnapshot {
@@ -158,9 +167,15 @@ impl BacklogSnapshot {
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
 
-fn minion_traits(cfg: &MinionConfig, q: bool) -> SystemTraits {
+fn minion_traits(cfg: &MinionConfig, q: bool, include_binary_sha: bool) -> SystemTraits {
     let mut traits = if q { traits::get_minion_traits_nolog(Some(cfg)) } else { traits::get_minion_traits(Some(cfg)) };
     traits.put("minion.version".to_string(), json!(env!("CARGO_PKG_VERSION")));
+    if let Some(path) = &*MINION_BINARY_PATH {
+        traits.put("minion.binary.path".to_string(), json!(path));
+    }
+    if include_binary_sha && let Some(sha256) = &*MINION_BINARY_SHA256 {
+        traits.put("minion.binary.sha256".to_string(), json!(sha256));
+    }
     traits
 }
 
@@ -405,7 +420,7 @@ impl SysMinion {
         }
 
         let mut out: Vec<String> = vec![];
-        let minion_traits = minion_traits(&self.cfg, false);
+        let minion_traits = minion_traits(&self.cfg, false, false);
         for t in minion_traits.trait_keys() {
             out.push(format!("{}: {}", t.to_owned(), dataconv::to_string(minion_traits.get(&t)).unwrap_or_default()));
         }
@@ -452,7 +467,7 @@ impl SysMinion {
     /// Display minion info
     pub fn print_info(cfg: &MinionConfig) {
         let mut out: IndexMap<String, String> = IndexMap::new();
-        let mut systraits = minion_traits(cfg, true);
+        let mut systraits = minion_traits(cfg, true, false);
         systraits.put("uri.master".to_string(), json!(cfg.master()));
         systraits.put("uri.fileserver".to_string(), json!(cfg.fileserver()));
         systraits.put("path.models".to_string(), json!(cfg.models_dir()));
@@ -1110,13 +1125,13 @@ impl SysMinion {
                         match msg.get_retcode() {
                             ProtoErrorCode::Success => {
                                 if msg.target().scheme().starts_with(SCHEME_COMMAND) {
-                                    if matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true)) {
+                                    if matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true, false)) {
                                         this.clone().call_internal_command(msg.cycle(), msg.target().scheme(), msg.target().context()).await;
                                     } else {
                                         log::debug!("Dropped internal master command for another minion");
                                     }
                                 } else {
-                                    if !matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true)) {
+                                    if !matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true, false)) {
                                         log::debug!("Dropped master model command for another minion");
                                         continue;
                                     }
@@ -1279,7 +1294,7 @@ impl SysMinion {
     }
 
     pub async fn send_traits(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let fresh_traits = minion_traits(&self.cfg, false);
+        let fresh_traits = minion_traits(&self.cfg, false, true);
         let mut r = MinionMessage::new(self.get_minion_id().to_string(), RequestType::Traits, fresh_traits.to_transport_value()?);
         r.set_sid(MINION_SID.to_string());
         self.try_request(
@@ -1295,7 +1310,7 @@ impl SysMinion {
 
     /// Send ehlo
     pub async fn send_ehlo(self: Arc<Self>) -> Result<(), SysinspectError> {
-        let fresh_traits = minion_traits(&self.cfg, false);
+        let fresh_traits = minion_traits(&self.cfg, false, false);
         let mut r = MinionMessage::new(dataconv::as_str(fresh_traits.get(traits::SYS_ID)), RequestType::Ehlo, fresh_traits.to_json_value()?);
         r.set_sid(MINION_SID.to_string());
 
@@ -1599,9 +1614,75 @@ impl SysMinion {
         Ok(())
     }
 
+    /// Replace the running sysminion binary with a newer build from the master.
+    async fn upgrade_self(self: Arc<Self>, request: ConsoleMinionUpgradeSelfRequest, cycle_id: &str) {
+        log::info!("Self-upgrade to version {} (checksum {})", request.version.bright_yellow(), request.checksum.yellow());
+        let data = match self.clone().download_file(&request.subpath).await {
+            Ok(d) => d,
+            Err(err) => {
+                self.as_ptr().send_command_reply(cycle_id, Err(err)).await;
+                return;
+            }
+        };
+        let exe = match std::env::current_exe().and_then(std::fs::canonicalize) {
+            Ok(p) => p,
+            Err(err) => {
+                self.as_ptr().send_command_reply(cycle_id, Err(SysinspectError::IoErr(err))).await;
+                return;
+            }
+        };
+        let stage = exe.with_extension("upgrade");
+        let backup = exe.with_extension("old");
+        if let Err(err) = std::fs::write(&stage, data) {
+            self.as_ptr().send_command_reply(cycle_id, Err(SysinspectError::IoErr(err))).await;
+            return;
+        }
+        if let Err(err) = std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o755)) {
+            log::warn!("Unable to set upgrade binary permissions: {err}");
+        }
+        let actual = match util::iofs::get_file_sha256(stage.clone()) {
+            Ok(s) => s,
+            Err(err) => {
+                let _ = std::fs::remove_file(&stage);
+                self.as_ptr().send_command_reply(cycle_id, Err(err)).await;
+                return;
+            }
+        };
+        if actual != request.checksum {
+            let _ = std::fs::remove_file(&stage);
+            self.as_ptr()
+                .send_command_reply(
+                    cycle_id,
+                    Err(SysinspectError::MinionGeneralError(format!("Checksum mismatch: expected {}, got {}", request.checksum, actual))),
+                )
+                .await;
+            return;
+        }
+        let _ = std::fs::remove_file(&backup);
+        if let Err(err) = std::fs::rename(&exe, &backup) {
+            let _ = std::fs::remove_file(&stage);
+            self.as_ptr().send_command_reply(cycle_id, Err(SysinspectError::IoErr(err))).await;
+            return;
+        }
+        if let Err(err) = std::fs::rename(&stage, &exe) {
+            let _ = std::fs::rename(&backup, &exe);
+            self.as_ptr().send_command_reply(cycle_id, Err(SysinspectError::IoErr(err))).await;
+            return;
+        }
+        self.as_ptr()
+            .send_command_reply(cycle_id, Ok(json!({"status": "upgrading", "version": request.version, "checksum": request.checksum})))
+            .await;
+        log::info!("Restarting sysminion from {} after upgrade", exe.display().to_string().bright_green());
+        if let Err(err) = Command::new(&exe).arg("--daemon").spawn() {
+            log::error!("Failed to start upgraded sysminion: {err}");
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        std::process::exit(0);
+    }
+
     /// Download a file from master
     async fn download_file(self: Arc<Self>, fname: &str) -> Result<Vec<u8>, SysinspectError> {
-        async fn fetch_file(url: &str, filename: &str) -> Result<String, SysinspectError> {
+        async fn fetch_file(url: &str, filename: &str) -> Result<Vec<u8>, SysinspectError> {
             let url = format!("http://{}/{}", url.trim_end_matches('/'), filename.to_string().trim_start_matches('/'));
             let rsp = match reqwest::get(url.to_owned()).await {
                 Ok(rsp) => rsp,
@@ -1610,16 +1691,14 @@ impl SysMinion {
                 }
             };
 
-            Ok(match rsp.status() {
-                reqwest::StatusCode::OK => match rsp.text().await {
-                    Ok(data) => data,
-                    Err(err) => {
-                        return Err(SysinspectError::MinionGeneralError(format!("Unable to get text from the file: {err}")));
-                    }
+            match rsp.status() {
+                reqwest::StatusCode::OK => match rsp.bytes().await {
+                    Ok(data) => Ok(data.to_vec()),
+                    Err(err) => Err(SysinspectError::MinionGeneralError(format!("Unable to read bytes from the file: {err}"))),
                 },
-                reqwest::StatusCode::NOT_FOUND => return Err(SysinspectError::MinionGeneralError("File not found".to_string())),
-                _ => return Err(SysinspectError::MinionGeneralError("Unknown status".to_string())),
-            })
+                reqwest::StatusCode::NOT_FOUND => Err(SysinspectError::MinionGeneralError("File not found".to_string())),
+                _ => Err(SysinspectError::MinionGeneralError("Unknown status".to_string())),
+            }
         }
         let addr = self.cfg.fileserver();
         let fname = fname.to_string();
@@ -1627,7 +1706,7 @@ impl SysMinion {
             match fetch_file(&addr, &fname).await {
                 Ok(data) => {
                     log::debug!("Filename: {fname} contains {} bytes", data.len());
-                    Some(data.into_bytes())
+                    Some(data)
                 }
                 Err(err) => {
                     log::error!("Error while downloading file {fname}: {err}");
@@ -1734,7 +1813,7 @@ impl SysMinion {
             sr.set_state(mqr_guard.state());
             sr.set_entities(mqr_guard.entities());
             sr.set_checkbook_labels(mqr_guard.checkbook_labels());
-            sr.set_traits(minion_traits(&self.cfg, false));
+            sr.set_traits(minion_traits(&self.cfg, false, false));
             sr.set_context(context::get_context(context));
 
             sr.add_action_callback(Box::new(ActionResponseCallback::new(self.as_ptr(), cycle_id, scheme)));
@@ -1891,6 +1970,19 @@ impl SysMinion {
                     });
                 self.as_ptr().send_command_reply(cycle_id, payload).await;
             }
+            CLUSTER_MINION_UPGRADE_SELF => match serde_json::from_str::<ConsoleMinionUpgradeSelfRequest>(context) {
+                Ok(request) => {
+                    self.clone().upgrade_self(request, cycle_id).await;
+                }
+                Err(err) => {
+                    self.as_ptr()
+                        .send_command_reply(
+                            cycle_id,
+                            Err(SysinspectError::DeserializationError(format!("Failed to parse self-upgrade request: {err}"))),
+                        )
+                        .await;
+                }
+            },
             _ => {
                 log::warn!("Unknown command: {cmd}");
             }
@@ -1904,7 +1996,7 @@ impl SysMinion {
             log::error!("Cycle ID is empty!");
             return;
         }
-        if !matches_target(&cmd, self.get_minion_id(), &minion_traits(&self.cfg, true)) {
+        if !matches_target(&cmd, self.get_minion_id(), &minion_traits(&self.cfg, true, false)) {
             log::debug!("Command was dropped as it targets another minion");
             return;
         }
