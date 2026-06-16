@@ -186,6 +186,7 @@ pub struct SysInspectUX {
 
     // Help popup
     pub help_popup_visible: bool,
+    pub help_popup_scroll: Cell<usize>,
 
     // Online minions popup
     pub minions_visible: bool,
@@ -330,6 +331,7 @@ impl Default for SysInspectUX {
             info_alert_title: String::new(),
             info_alert_styled: None,
             help_popup_visible: false,
+            help_popup_scroll: Cell::new(0),
 
             minions_visible: false,
             minions_rows: Vec::new(),
@@ -1033,11 +1035,23 @@ impl SysInspectUX {
             match e.code {
                 KeyCode::Enter | KeyCode::Esc => {
                     self.help_popup_visible = false;
+                    self.help_popup_scroll.set(0);
+                }
+                KeyCode::Up => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_sub(1));
+                }
+                KeyCode::Down => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_add(1));
+                }
+                KeyCode::PageUp => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_sub(10));
+                }
+                KeyCode::PageDown => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_add(10));
                 }
                 _ => {}
             }
         }
-
         stat
     }
 

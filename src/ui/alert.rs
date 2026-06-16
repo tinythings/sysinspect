@@ -4,7 +4,7 @@ use ratatui::{
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
 };
 use ratatui_glamour::color::blend_2d;
 use unicode_width::UnicodeWidthStr;
@@ -165,26 +165,138 @@ impl SysInspectUX {
         if !self.help_popup_visible {
             return;
         }
-        let rects = Self::_popup_ex(
-            parent,
-            buf,
-            Some("Help"),
-            "\"c\" - call composer\n\"h\" - show this help\n\"m\" - master operations\n\"o\" - registered minions popup\n\"p\" - purge all records\n\"q\" - quit the UI\n",
-            None,
-            Alignment::Left,
-            AlertResult::Close,
-            AlertButtons::Close,
-            Some(0),
-            Some(palette::SUCCESS),
-            None,
-            None,
-            Some(palette::BG_1),
-            None,
-            None,
-            None,
-            None,
-        );
-        self.popup_button_rects.set(Some(rects));
+        let lines: Vec<Line<'static>> = vec![
+            Self::help_line("c", "Open the query composer: pick a model, target, and"),
+            Self::help_line("", "state to run across your machines."),
+            Line::from(""),
+            Self::help_line("h", "Show this help window."),
+            Line::from(""),
+            Self::help_line("m", "Open the master menu: logs, registration, artefacts,"),
+            Self::help_line("", "cluster upgrades."),
+            Line::from(""),
+            Self::help_line("o", "Open the minions list with filter, tagging, and"),
+            Self::help_line("", "detailed per-machine inspection."),
+            Line::from(""),
+            Self::help_line("p", "Purge all locally stored records to free up space."),
+            Line::from(""),
+            Self::help_line("q", "Exit the Sysinspect TUI."),
+            Line::from(""),
+            Self::help_line("Esc", "Close popups or go back.  Press twice to quit."),
+            Line::from(""),
+            Self::help_line("Enter", "Open the selected item to drill into details:"),
+            Self::help_line("", "cycles show machines, machines show events,"),
+            Self::help_line("", "events show full data."),
+            Line::from(""),
+            Self::help_line("Up/Down", "Navigate through list items in the active panel."),
+            Line::from(""),
+            Self::help_line("Left/Right", "Switch between panels: Calls, Machines, Results,"),
+            Self::help_line("", "Data."),
+            Line::from(""),
+            Self::help_line("Tab", "From Action Results, view full event data."),
+            Line::from(""),
+            Self::help_line("Ctrl+O", "Open master logs directly from the master."),
+            Line::from(""),
+            Self::help_line("Ctrl+L", "Open locally saved master logs for offline viewing."),
+            Line::from(""),
+            Self::help_line("Ctrl+R", "Open the registration form to add a new machine."),
+            Line::from(""),
+            Self::help_line("Ctrl+A", "Open the Artefacts Manager: modules, libraries,"),
+            Self::help_line("", "models, profiles, platform builds."),
+            Line::from(""),
+            Self::help_line("Ctrl+U", "Run a cluster upgrade across your machines."),
+            Line::from(""),
+            Line::from(vec![Span::styled("For bug reporting and project updates, visit:", Style::default().fg(palette::GRAY_1))]),
+            Line::from(vec![Span::styled("https://github.com/tinythings/sysinspect", Style::default().fg(palette::GRAY_1))]),
+        ];
+
+        let total = lines.len();
+        let max_text_h = parent.height.saturating_sub(8);
+        let max_scroll = total.saturating_sub(max_text_h as usize);
+        let scroll = self.help_popup_scroll.get().min(max_scroll);
+        self.help_popup_scroll.set(scroll);
+        let visible: Vec<Line> = lines.into_iter().skip(scroll).take(max_text_h as usize).collect();
+        let visible_h = visible.len() as u16;
+
+        let w = (parent.width * 75 / 100).max(60).min(parent.width.saturating_sub(2));
+        let h = visible_h.saturating_add(3);
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        Clear.render(canvas, buf);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(palette::SUCCESS_PEAK))
+            .title(Line::from(vec![
+                Span::styled("\u{E0B2}", Style::default().fg(palette::SUCCESS_PEAK)),
+                Span::styled("Help", Style::default().fg(palette::BLACK).bg(palette::SUCCESS_PEAK).add_modifier(Modifier::BOLD)),
+                Span::styled("\u{E0B0}", Style::default().fg(palette::SUCCESS_PEAK)),
+            ]))
+            .style(Style::default().bg(palette::BG_1));
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let text_inner = Rect::new(inner.x + 2, inner.y, inner.width.saturating_sub(2), inner.height);
+        Paragraph::new(Text::from(visible)).alignment(Alignment::Left).render(text_inner, buf);
+
+        if total > max_text_h as usize {
+            let sb_x = inner.right().saturating_sub(1);
+            let mut sb_state = ScrollbarState::new(total).position(scroll);
+            StatefulWidget::render(
+                Scrollbar::default()
+                    .orientation(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(None)
+                    .end_symbol(None)
+                    .track_symbol(Some("\u{28FF}"))
+                    .thumb_symbol("█")
+                    .track_style(Style::default().bg(palette::BG_2))
+                    .thumb_style(Style::default().fg(palette::GRAY_1)),
+                Rect::new(sb_x, inner.y, 1, inner.height),
+                buf,
+                &mut sb_state,
+            );
+        }
+
+        // MS-DOS shadow
+        let buf_area = buf.area();
+        let max_x = buf_area.right().saturating_sub(1);
+        let max_y = buf_area.bottom().saturating_sub(1);
+        for idx in 0..w {
+            let sx = x.saturating_add(2).saturating_add(idx);
+            let sy = y.saturating_add(h);
+            if sx > max_x || sy > max_y {
+                continue;
+            }
+            if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                cell.set_bg(palette::SHADOW_BG);
+                cell.set_fg(palette::SHADOW_FG);
+            }
+        }
+        for offset in 0..2u16 {
+            for idx in 0..h {
+                let sx = x.saturating_add(w).saturating_add(offset);
+                let sy = y.saturating_add(idx).saturating_add(1);
+                if sx > max_x || sy > max_y {
+                    continue;
+                }
+                if let Some(cell) = buf.cell_mut(Position::new(sx, sy)) {
+                    cell.set_bg(palette::SHADOW_BG);
+                    cell.set_fg(palette::SHADOW_FG);
+                }
+            }
+        }
+    }
+
+    fn help_line(key: &str, desc: &str) -> Line<'static> {
+        let key_w = 11usize;
+        let key_padded = format!("{:width$}", key, width = key_w);
+        Line::from(vec![
+            Span::styled(key_padded, Style::default().fg(palette::WARNING_PEAK).add_modifier(Modifier::BOLD)),
+            Span::raw(""),
+            Span::styled(desc.to_string(), Style::default().fg(palette::GRAY_2)),
+        ])
     }
 
     pub fn dialog_exit(&self, parent: Rect, buf: &mut Buffer) {
