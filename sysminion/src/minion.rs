@@ -84,6 +84,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Arc,
+    sync::OnceLock,
     sync::RwLock,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
     time::{Duration, Instant},
@@ -143,8 +144,7 @@ impl LogRingBuffers {
 
 pub static LOG_RING: Lazy<RwLock<LogRingBuffers>> = Lazy::new(|| RwLock::new(LogRingBuffers::new(LOG_RING_CAPACITY)));
 static MINION_BINARY_PATH: Lazy<Option<String>> = Lazy::new(|| std::env::current_exe().ok().map(|path| path.display().to_string()));
-static MINION_BINARY_SHA256: Lazy<Option<String>> =
-    Lazy::new(|| std::env::current_exe().ok().and_then(|path| util::iofs::get_file_sha256(path).ok()));
+static MINION_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Default)]
 struct BacklogSnapshot {
@@ -173,7 +173,7 @@ fn minion_traits(cfg: &MinionConfig, q: bool, include_binary_sha: bool) -> Syste
     if let Some(path) = &*MINION_BINARY_PATH {
         traits.put("minion.binary.path".to_string(), json!(path));
     }
-    if include_binary_sha && let Some(sha256) = &*MINION_BINARY_SHA256 {
+    if include_binary_sha && let Some(sha256) = MINION_BINARY_SHA256.get() {
         traits.put("minion.binary.sha256".to_string(), json!(sha256));
     }
     traits
@@ -261,6 +261,28 @@ pub struct SysMinion {
 }
 
 impl SysMinion {
+    async fn ensure_binary_sha256() {
+        if MINION_BINARY_SHA256.get().is_some() {
+            return;
+        }
+
+        let sha = tokio::task::spawn_blocking(|| {
+            if MINION_BINARY_SHA256.get().is_some() {
+                return None;
+            }
+
+            let path = std::env::current_exe().ok()?;
+            util::iofs::get_file_sha256(path).ok()
+        })
+        .await
+        .ok()
+        .flatten();
+
+        if let Some(sha) = sha {
+            let _ = MINION_BINARY_SHA256.set(sha);
+        }
+    }
+
     fn classify_execution_failure(err: &SysinspectError) -> &'static str {
         let msg = err.to_string();
 
@@ -401,7 +423,10 @@ impl SysMinion {
 
         log::debug!("Initialisation done");
 
-        Ok(Arc::new(instance))
+        let instance = Arc::new(instance);
+        Self::ensure_binary_sha256().await;
+
+        Ok(instance)
     }
 
     /// Initialise minion.
