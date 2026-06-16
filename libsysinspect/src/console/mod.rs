@@ -353,6 +353,9 @@ pub enum ConsolePayload {
         required: usize,
         /// Number of marked minions last seen as unreachable during upgrade.
         unreachable: usize,
+        /// Number of minions pending post-upgrade auto-hopstart.
+        #[serde(default)]
+        pending_post_upgrade: usize,
     },
     /// Result summary for one cluster upgrade run.
     UpgradeSummary {

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::minion_sha_ut::test_binary_sha256;
 use crate::{
     callbacks::{ActionResponseCallback, ModelResponseCallback},
     filedata::{MinionFiledata, SensorsFiledata},
@@ -266,6 +268,10 @@ impl SysMinion {
             return;
         }
 
+        #[cfg(test)]
+        let sha = Some(test_binary_sha256());
+
+        #[cfg(not(test))]
         let sha = tokio::task::spawn_blocking(|| {
             if MINION_BINARY_SHA256.get().is_some() {
                 return None;

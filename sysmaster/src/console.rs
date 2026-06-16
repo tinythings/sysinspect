@@ -350,8 +350,10 @@ impl SysMaster {
     }
 
     async fn cluster_upgrade_status_console_response(&mut self) -> Result<ConsoleResponse, SysinspectError> {
-        let (required, unreachable) = self.mreg.lock().await.upgrade_status_counts()?;
-        Ok(ConsoleResponse::ok(ConsolePayload::UpgradeStatus { required, unreachable }))
+        let mreg = self.mreg.lock().await;
+        let (required, unreachable) = mreg.upgrade_status_counts()?;
+        let pending_post_upgrade = mreg.post_upgrade_pending_count()?;
+        Ok(ConsoleResponse::ok(ConsolePayload::UpgradeStatus { required, unreachable, pending_post_upgrade }))
     }
 
     async fn upgrade_minion_over_ssh(
@@ -450,6 +452,9 @@ impl SysMaster {
                     Some(msg) => {
                         messages.push(msg);
                         dispatched += 1;
+                        if let Some(c) = cmdb.as_ref() {
+                            let _ = master.lock().await.mreg.lock().await.add_post_upgrade_pending(&mid, c);
+                        }
                     }
                     None => {
                         failed += 1;

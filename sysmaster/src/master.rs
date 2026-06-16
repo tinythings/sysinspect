@@ -686,6 +686,37 @@ impl SysMaster {
         if let Some(mid) = self.conn_to_mid.remove(minion_addr) {
             log::info!("Minion connection {} dropped; clearing session for {}", minion_addr, mid);
             self.get_session().lock().await.remove(&mid);
+
+            // Auto-hopstart: if this minion was just dispatched for self-upgrade,
+            // try to bring it back up via SSH.
+            if let Ok(Some(pending)) = self.mreg.lock().await.get_post_upgrade_pending(&mid) {
+                if pending.managed_by_init().is_none_or(|m| !m) {
+                    let target = crate::hopstart::HopStartTarget::new(
+                        pending.host().to_string(),
+                        pending.root().to_string(),
+                        pending.user().to_string(),
+                        pending.bin().to_string(),
+                        pending.config().to_string(),
+                    );
+                    let mreg = Arc::clone(&self.mreg);
+                    let mid_clone = mid.clone();
+                    tokio::spawn(async move {
+                        let sem = crate::hopstart::hopstart_semaphore();
+                        let _permit = sem.acquire_owned().await;
+                        target.log_issue();
+                        match target.issue().await {
+                            Ok(()) => {
+                                let _ = mreg.lock().await.remove_post_upgrade_pending(&mid_clone);
+                            }
+                            Err(err) => {
+                                log::warn!("Post-upgrade hopstart failed for {mid_clone}: {err}");
+                            }
+                        }
+                    });
+                } else {
+                    let _ = self.mreg.lock().await.remove_post_upgrade_pending(&mid);
+                }
+            }
         } else {
             log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
         }
@@ -770,6 +801,8 @@ impl SysMaster {
         log::info!("{minion_id} connected successfully");
         self.conn_to_mid.insert(minion_addr.to_string(), minion_id.to_string());
         self.get_session().lock().await.ping(minion_id, Some(sid));
+        // Clean up post-upgrade pending — minion came back online on its own.
+        let _ = self.mreg.lock().await.remove_post_upgrade_pending(minion_id);
         _ = bcast.send(self.msg_request_traits(minion_id.to_string(), sid.to_string()));
         log::info!("Syncing traits with minion at {minion_id}");
 
@@ -1649,6 +1682,7 @@ pub(crate) async fn master(cfg: MasterConfig) -> Result<(), SysinspectError> {
     {
         let mut m = master.lock().await;
         m.init().await?;
+        crate::hopstart::init_hopstart_semaphore(cfg.hopstart().batch());
         log::info!("SysMaster initialized");
     }
 

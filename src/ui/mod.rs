@@ -285,6 +285,7 @@ pub struct SysInspectUX {
     pub cluster_upgrade_task: Option<tokio::task::JoinHandle<ClusterUpgradeTaskResult>>,
     pub cluster_upgrade_required_count: usize,
     pub cluster_upgrade_unreachable_count: usize,
+    pub cluster_upgrade_pending_count: usize,
     pub cluster_upgrade_check_message: Option<String>,
 
     // Exit-after-popup state (for setup config-written notice)
@@ -408,6 +409,7 @@ impl Default for SysInspectUX {
             cluster_upgrade_task: None,
             cluster_upgrade_required_count: 0,
             cluster_upgrade_unreachable_count: 0,
+            cluster_upgrade_pending_count: 0,
             cluster_upgrade_check_message: None,
 
             pending_exit: false,
@@ -1596,9 +1598,10 @@ impl SysInspectUX {
 
     fn refresh_cluster_upgrade_status(&mut self) {
         match self.fetch_cluster_upgrade_status() {
-            Ok((required, unreachable)) => {
+            Ok((required, unreachable, pending)) => {
                 self.cluster_upgrade_required_count = required;
                 self.cluster_upgrade_unreachable_count = unreachable;
+                self.cluster_upgrade_pending_count = pending;
             }
             Err(e) => {
                 self.error_alert_visible = true;
@@ -4958,13 +4961,15 @@ impl SysInspectUX {
         })
     }
 
-    pub fn fetch_cluster_upgrade_status(&self) -> Result<(usize, usize), SysinspectError> {
+    pub fn fetch_cluster_upgrade_status(&self) -> Result<(usize, usize, usize), SysinspectError> {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_UPGRADE_STATUS}"), "*", None, None, None).await.map(|resp| {
                     match resp.payload {
-                        ConsolePayload::UpgradeStatus { required, unreachable } => (required, unreachable),
-                        _ => (0, 0),
+                        ConsolePayload::UpgradeStatus { required, unreachable, pending_post_upgrade } => {
+                            (required, unreachable, pending_post_upgrade)
+                        }
+                        _ => (0, 0, 0),
                     }
                 })
             })

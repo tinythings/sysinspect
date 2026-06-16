@@ -44,6 +44,8 @@ pub struct MinionCmdbRecord {
     pub(crate) config: Option<String>,
     #[serde(default)]
     pub(crate) backend: Option<String>,
+    #[serde(default)]
+    pub(crate) managed_by_init: Option<bool>,
     pub(crate) updated_at: DateTime<Utc>,
 }
 
@@ -90,6 +92,7 @@ impl MinionCmdbRecord {
             bin: None,
             config: None,
             backend: None,
+            managed_by_init: None,
             updated_at: Utc::now(),
         }
     }
@@ -156,6 +159,10 @@ impl MinionCmdbRecord {
 
     pub fn backend(&self) -> Option<&str> {
         self.backend.as_deref()
+    }
+
+    pub fn managed_by_init(&self) -> Option<bool> {
+        self.managed_by_init
     }
 
     pub fn updated_at(&self) -> DateTime<Utc> {

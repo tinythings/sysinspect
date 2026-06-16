@@ -19,6 +19,7 @@ use std::{
 const DB_MINIONS: &str = "minions";
 const DB_CMDB: &str = "cmdb";
 const DB_UPGRADE: &str = "upgrade";
+const DB_POST_UPGRADE: &str = "post_upgrade";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UpgradeMarker {
@@ -44,6 +45,49 @@ impl UpgradeMarker {
 impl Default for UpgradeMarker {
     fn default() -> Self {
         Self { marked_at: Utc::now(), repo_version: String::new(), repo_checksum: String::new(), unreachable: false }
+    }
+}
+
+/// Snapshot of CMDB data stored alongside a self-upgrade dispatch
+/// so the master can issue a hopstart when the minion drops offline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PostUpgradePending {
+    dispatched_at: DateTime<Utc>,
+    host: String,
+    user: String,
+    root: String,
+    bin: String,
+    config: String,
+    managed_by_init: Option<bool>,
+}
+
+impl PostUpgradePending {
+    fn new(host: String, user: String, root: String, bin: String, config: String, managed_by_init: Option<bool>) -> Self {
+        Self { dispatched_at: Utc::now(), host, user, root, bin, config, managed_by_init }
+    }
+
+    pub(crate) fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub(crate) fn user(&self) -> &str {
+        &self.user
+    }
+
+    pub(crate) fn root(&self) -> &str {
+        &self.root
+    }
+
+    pub(crate) fn bin(&self) -> &str {
+        &self.bin
+    }
+
+    pub(crate) fn config(&self) -> &str {
+        &self.config
+    }
+
+    pub(crate) fn managed_by_init(&self) -> Option<bool> {
+        self.managed_by_init
     }
 }
 
@@ -342,6 +386,58 @@ impl MinionRegistry {
             }
         }
         Ok((required, unreachable))
+    }
+
+    // -----------------------------------------------------------------------
+    //  Post-upgrade pending — auto-hopstart after self-upgrade
+    // -----------------------------------------------------------------------
+
+    pub fn add_post_upgrade_pending(&self, mid: &str, cmdb: &crate::registry::rec::MinionCmdbRecord) -> Result<(), SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        let pending = json!(PostUpgradePending::new(
+            cmdb.host().unwrap_or_default().to_string(),
+            cmdb.user().unwrap_or_default().to_string(),
+            cmdb.root().unwrap_or_default().to_string(),
+            cmdb.bin().unwrap_or_default().to_string(),
+            cmdb.config().unwrap_or_default().to_string(),
+            cmdb.managed_by_init(),
+        ));
+        tree.insert(mid, pending.to_string().into_bytes())?;
+        Ok(())
+    }
+
+    pub fn remove_post_upgrade_pending(&self, mid: &str) -> Result<(), SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        tree.remove(mid)?;
+        Ok(())
+    }
+
+    pub fn get_post_upgrade_pending(&self, mid: &str) -> Result<Option<PostUpgradePending>, SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        let Some(raw) = tree.get(mid)? else {
+            return Ok(None);
+        };
+        let marker = serde_json::from_str::<PostUpgradePending>(
+            &String::from_utf8(raw.to_vec()).map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?,
+        )
+        .map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?;
+        Ok(Some(marker))
+    }
+
+    pub fn has_post_upgrade_pending(&self, mid: &str) -> Result<bool, SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        Ok(tree.contains_key(mid)?)
+    }
+
+    pub fn post_upgrade_pending_count(&self) -> Result<usize, SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        Ok(tree.iter().count())
+    }
+
+    pub fn clear_all_post_upgrade_pending(&self) -> Result<(), SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        tree.clear()?;
+        Ok(())
     }
 
     pub fn get(&self, mid: &str) -> Result<Option<MinionRecord>, SysinspectError> {
