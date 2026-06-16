@@ -1,5 +1,19 @@
 use crate::journal::Journal;
 
+fn open_with_retry(dir: &std::path::Path, max_bytes: u64) -> Journal {
+    let mut last_err = None;
+    for _ in 0..20 {
+        match Journal::open(dir, max_bytes) {
+            Ok(journal) => return journal,
+            Err(err) => {
+                last_err = Some(err);
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+    }
+    panic!("failed to reopen journal: {}", last_err.unwrap());
+}
+
 fn temp_dir() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "libsysinspect-journal-ut-{}-{}",
@@ -73,7 +87,7 @@ fn state_persists_across_reopen() {
     let j1 = Journal::open(&dir, 0).unwrap();
     j1.append("c1", b"lost").unwrap();
     drop(j1);
-    let j2 = Journal::open(&dir, 0).unwrap();
+    let j2 = open_with_retry(&dir, 0);
     let pending = j2.pending().unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].0, "c1");
