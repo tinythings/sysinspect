@@ -147,7 +147,7 @@ fn reopen_after_partial_ack_preserves_survivors() {
         j.ack_cycle("c2").unwrap();
     }
     {
-        let j = Journal::open(&dir, 0).unwrap();
+        let j = open_with_retry(&dir, 0);
         let pending = j.pending().unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].0, "c1");
@@ -163,7 +163,7 @@ fn budget_applies_after_reopen() {
         j.append("c1", b"1234567890").unwrap();
     }
     {
-        let j = Journal::open(&dir, 20).unwrap();
+        let j = open_with_retry(&dir, 20);
         j.append("c1", b"abcdefghij").unwrap();
         j.append("c2", b"overflow!").unwrap();
         let pending = j.pending().unwrap();
@@ -243,7 +243,7 @@ fn completed_cycle_marker_persists_across_reopen_until_ack() {
         assert!(j.is_cycle_locally_complete("c1").unwrap());
     }
     {
-        let j = Journal::open(&dir, 0).unwrap();
+        let j = open_with_retry(&dir, 0);
         assert!(j.is_cycle_locally_complete("c1").unwrap());
         j.ack_cycle("c1").unwrap();
         assert!(!j.is_cycle_locally_complete("c1").unwrap());
@@ -388,7 +388,7 @@ fn reopen_and_continue_appending() {
         j.ack_cycle("c1").unwrap();
     }
     {
-        let j = Journal::open(&dir, 0).unwrap();
+        let j = open_with_retry(&dir, 0);
         j.append("c2", b"c").unwrap();
         j.append("c3", b"d").unwrap();
         let pending = j.pending().unwrap();
