@@ -33,7 +33,7 @@ impl SysInspectUX {
         let events_active = self.main_box_active(ActiveBox::Events);
 
         let block = if is_focused {
-            Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(palette::SUCCESS_PEAK))
+            Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(palette::SUCCESS))
         } else if events_active && !model.is_empty() {
             let title_str = if let Some(ref state) = state_opt {
                 if !event_name.is_empty() {
@@ -64,10 +64,18 @@ impl SysInspectUX {
 
         if show_segments && !model.is_empty() {
             let mut segments = vec![
-                TitleSegment { text: " Action Data ".into(), bg: palette::SUCCESS_PEAK, fg: palette::BLACK, modifier: Modifier::empty() },
-                TitleSegment { text: format!(" {model} "), bg: palette::SUCCESS_HEAT, fg: palette::BLACK, modifier: Modifier::empty() },
-                TitleSegment { text: format!(" {target} "), bg: palette::SUCCESS_GLOW, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: " Action Data ".into(), bg: palette::SUCCESS, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {model} "), bg: palette::SUCCESS_PEAK, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {target} "), bg: palette::SUCCESS_HEAT, fg: palette::BLACK, modifier: Modifier::empty() },
             ];
+            if let Some(ref state) = state_opt {
+                segments.push(TitleSegment {
+                    text: format!(" {state} "),
+                    bg: palette::SUCCESS_GLOW,
+                    fg: palette::BLACK,
+                    modifier: Modifier::empty(),
+                });
+            }
             if !event_name.is_empty() {
                 segments.push(TitleSegment {
                     text: format!(" {event_name} "),
@@ -171,7 +179,7 @@ impl SysInspectUX {
         let info_active = self.main_box_active(ActiveBox::Info);
 
         let block = if is_focused {
-            Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(palette::SUCCESS_PEAK))
+            Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(palette::SUCCESS))
         } else if info_active && !model.is_empty() {
             let title_str = if let Some(ref state) = state_opt {
                 format!(" Action Results / {model} / {target} / {state} ")
@@ -196,15 +204,15 @@ impl SysInspectUX {
 
         if show_segments && !model.is_empty() {
             let mut segments = vec![
-                TitleSegment { text: " Action Results ".into(), bg: palette::SUCCESS_PEAK, fg: palette::BLACK, modifier: Modifier::empty() },
-                TitleSegment { text: format!(" {model} "), bg: palette::SUCCESS_HEAT, fg: palette::BLACK, modifier: Modifier::empty() },
-                TitleSegment { text: format!(" {target} "), bg: palette::SUCCESS_GLOW, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: " Action Results ".into(), bg: palette::SUCCESS, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {model} "), bg: palette::SUCCESS_PEAK, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {target} "), bg: palette::SUCCESS_HEAT, fg: palette::BLACK, modifier: Modifier::empty() },
             ];
             if let Some(ref state) = state_opt {
                 segments.push(TitleSegment {
                     text: format!(" {state} "),
-                    bg: palette::SUCCESS_BASE,
-                    fg: palette::WHITE,
+                    bg: palette::SUCCESS_GLOW,
+                    fg: palette::BLACK,
                     modifier: Modifier::empty(),
                 });
             }
@@ -296,12 +304,12 @@ impl SysInspectUX {
             Block::default()
                 .borders(Borders::ALL)
                 .title(Line::from(vec![
-                    Span::styled("\u{E0B2}", Style::default().fg(palette::SUCCESS_PEAK)),
-                    Span::styled(t, Style::default().fg(palette::BLACK).bg(palette::SUCCESS_PEAK).add_modifier(Modifier::BOLD)),
-                    Span::styled("\u{E0B0}", Style::default().fg(palette::SUCCESS_PEAK)),
+                    Span::styled("\u{E0B2}", Style::default().fg(palette::SUCCESS)),
+                    Span::styled(t, Style::default().fg(palette::BLACK).bg(palette::SUCCESS).add_modifier(Modifier::BOLD)),
+                    Span::styled("\u{E0B0}", Style::default().fg(palette::SUCCESS)),
                 ]))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::SUCCESS_PEAK))
+                .border_style(Style::default().fg(palette::SUCCESS))
         } else {
             Block::default()
                 .borders(Borders::ALL)
