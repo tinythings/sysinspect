@@ -249,9 +249,9 @@ impl DbListItem for MinionListItem {
         let _ = hl;
         let HostInfo { ipaddr, hostname } = self.hostname();
         Line::from(vec![
-            Span::styled(ipaddr, Style::default().fg(palette::GRAY_1)),
+            Span::styled(format_ip_octets(&ipaddr), Style::default().fg(palette::GRAY_1)),
             Span::raw(" "),
-            Span::styled(hostname, Style::default().fg(palette::FG)),
+            Span::styled(hostname, Style::default().fg(palette::PROCESSING_PEAK)),
         ])
     }
 
@@ -259,6 +259,11 @@ impl DbListItem for MinionListItem {
         let HostInfo { ipaddr, hostname } = self.hostname();
         format!("{ipaddr} ({hostname})")
     }
+}
+
+fn format_ip_octets(ip: &str) -> String {
+    let octets: Vec<&str> = ip.split('.').collect();
+    if octets.len() == 4 { format!("{:>3}.{:>3}.{:>3}.{:>3}", octets[0], octets[1], octets[2], octets[3]) } else { format!("{:>15}", ip) }
 }
 
 fn right_pad(s: &str, width: usize) -> String {

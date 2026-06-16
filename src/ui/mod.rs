@@ -448,12 +448,26 @@ impl SysInspectUX {
 
     pub fn run_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
         self.cycles_buf = self.get_cycles().unwrap_or_default();
+        if !self.cycles_buf.is_empty() {
+            let sid = self.get_selected_cycle().event().sid().to_string();
+            if let Ok(minions) = self.get_minions(&sid) {
+                self.li_minions = minions;
+                self.refresh_events_for_selected_minion();
+            }
+        }
         self.refresh_cluster_upgrade_status();
         self.run_normal_loop(term)
     }
 
     fn run_connected(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
         self.cycles_buf = self.get_cycles().unwrap_or_default();
+        if !self.cycles_buf.is_empty() {
+            let sid = self.get_selected_cycle().event().sid().to_string();
+            if let Ok(minions) = self.get_minions(&sid) {
+                self.li_minions = minions;
+                self.refresh_events_for_selected_minion();
+            }
+        }
         self.refresh_cluster_upgrade_status();
         self.run_normal_loop(term)
     }
@@ -4215,6 +4229,9 @@ impl SysInspectUX {
                 self.minions_buf = Vec::new();
                 self.events_buf = Vec::new();
                 self.event_data = IndexMap::new();
+                self.li_events = Vec::new();
+                self.li_minions = Vec::new();
+                self.selected_event = 0;
 
                 if down {
                     if self.selected_cycle < self.cycles_buf.len().saturating_sub(1) {
@@ -4223,11 +4240,34 @@ impl SysInspectUX {
                 } else if self.selected_cycle > 0 {
                     self.selected_cycle -= 1;
                 }
+                if !self.cycles_buf.is_empty() {
+                    let sid = self.get_selected_cycle().event().sid().to_string();
+                    if let Ok(minions) = self.get_minions(&sid) {
+                        self.li_minions = minions;
+                        self.selected_minion = 0;
+                        self.refresh_events_for_selected_minion();
+                    }
+                }
             }
             Err(err) => {
                 self.error_alert_visible = true;
                 self.error_alert_message = err.to_string();
             }
+        }
+    }
+
+    fn refresh_events_for_selected_minion(&mut self) {
+        self.event_data = IndexMap::new();
+        self.li_events = Vec::new();
+        self.selected_event = 0;
+        if let Some(mli) = self.get_selected_minion() {
+            let sid = self.get_selected_cycle().event().sid().to_string();
+            if let Ok(events) = self.get_events(&sid, mli.event().id()) {
+                self.li_events = events;
+            }
+        }
+        if !self.li_events.is_empty() {
+            self.event_data = self.li_events[0].event().flatten();
         }
     }
 
@@ -4538,10 +4578,22 @@ impl SysInspectUX {
             KeyCode::PageUp => {
                 match self.active_box {
                     ActiveBox::Cycles => {
+                        self.event_data = IndexMap::new();
+                        self.li_events = Vec::new();
+                        self.li_minions = Vec::new();
+                        self.selected_event = 0;
                         self.selected_cycle = self.selected_cycle.saturating_sub(self.size.get().table_cycles);
+                        if !self.cycles_buf.is_empty() {
+                            let sid = self.get_selected_cycle().event().sid().to_string();
+                            if let Ok(minions) = self.get_minions(&sid) {
+                                self.li_minions = minions;
+                                self.selected_minion = 0;
+                            }
+                        }
                     }
                     ActiveBox::Minions => {
                         self.selected_minion = self.selected_minion.saturating_sub(self.size.get().table_minions);
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         self.selected_event = self.selected_event.saturating_sub(self.size.get().table_events);
@@ -4554,13 +4606,22 @@ impl SysInspectUX {
             KeyCode::PageDown => {
                 match self.active_box {
                     ActiveBox::Cycles => {
+                        self.event_data = IndexMap::new();
+                        self.li_events = Vec::new();
+                        self.li_minions = Vec::new();
+                        self.selected_event = 0;
                         self.selected_cycle = (self.selected_cycle + self.size.get().table_cycles).min(self.cycles_buf.len().saturating_sub(1));
+                        if !self.cycles_buf.is_empty() {
+                            let sid = self.get_selected_cycle().event().sid().to_string();
+                            if let Ok(minions) = self.get_minions(&sid) {
+                                self.li_minions = minions;
+                                self.selected_minion = 0;
+                            }
+                        }
                     }
                     ActiveBox::Minions => {
-                        if !self.li_events.is_empty() {
-                            self.selected_minion =
-                                (self.selected_minion + self.size.get().table_minions).min(self.li_minions.len().saturating_sub(1));
-                        }
+                        self.selected_minion = (self.selected_minion + self.size.get().table_minions).min(self.li_minions.len().saturating_sub(1));
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         if !self.li_events.is_empty() {
@@ -4580,6 +4641,7 @@ impl SysInspectUX {
                         if self.selected_minion > 0 {
                             self.selected_minion -= 1;
                         }
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         if self.selected_event > 0 {
@@ -4590,6 +4652,13 @@ impl SysInspectUX {
                     ActiveBox::Info => {
                         if self.actdt_info_offset > 0 {
                             self.actdt_info_offset -= 1;
+                        } else {
+                            self.active_box = ActiveBox::Events;
+                            if !self.li_events.is_empty() {
+                                self.selected_event = self.li_events.len().saturating_sub(1);
+                                self.event_data = self.li_events[self.selected_event].event().flatten();
+                            }
+                            self.status_at_action_results();
                         }
                     }
                 };
@@ -4601,10 +4670,16 @@ impl SysInspectUX {
                         if self.selected_minion < self.li_minions.len().saturating_sub(1) {
                             self.selected_minion += 1;
                         }
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         if self.selected_event < self.li_events.len().saturating_sub(1) {
                             self.selected_event += 1;
+                        } else if !self.info_rows.borrow().is_empty() {
+                            self.active_box = ActiveBox::Info;
+                            self.actdt_info_offset = 0;
+                            self.status_at_action_data();
+                            return;
                         }
                         self.event_data = self.get_selected_event().unwrap().event().flatten();
                     }
@@ -4637,6 +4712,7 @@ impl SysInspectUX {
                                         self.li_minions = minions;
                                         self.selected_minion = 0;
                                         self.selected_event = 0;
+                                        self.refresh_events_for_selected_minion();
                                     }
                                     Err(err) => {
                                         self.error_alert_visible = true;

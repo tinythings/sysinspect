@@ -1,7 +1,9 @@
 use super::{
     SysInspectUX, UISizes,
     elements::{ActiveBox, DbListItem, EventListItem},
-    minreg, palette, typecolors,
+    minreg, palette, title,
+    title::{TitleSegment, TitleStyle},
+    typecolors,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -20,8 +22,64 @@ impl SysInspectUX {
         let csize = self.size.get();
         self.size.set(UISizes { table_info: rect.height.saturating_sub(2) as usize, ..csize });
 
-        let block = self._get_box_block("Action Data", ActiveBox::Info);
+        let (model, target, state_opt) = if !self.cycles_buf.is_empty() {
+            parse_query_for_title(self.get_selected_cycle().event().query())
+        } else {
+            (String::new(), String::new(), None)
+        };
+        let event_name = self.get_selected_event().map(|e| e.event().get_action_id()).unwrap_or_default();
+        let show_segments = matches!(self.active_box, ActiveBox::Info);
+        let is_focused = self.main_box_active(ActiveBox::Info);
+        let events_active = self.main_box_active(ActiveBox::Events);
+
+        let block = if is_focused {
+            Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(palette::SUCCESS_PEAK))
+        } else if events_active && !model.is_empty() {
+            let title_str = if let Some(ref state) = state_opt {
+                if !event_name.is_empty() {
+                    format!(" Action Data / {model} / {target} / {state} / {event_name} ")
+                } else {
+                    format!(" Action Data / {model} / {target} / {state} ")
+                }
+            } else if !event_name.is_empty() {
+                format!(" Action Data / {model} / {target} / {event_name} ")
+            } else {
+                format!(" Action Data / {model} / {target} ")
+            };
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title_str)
+                .title_style(Style::default().fg(palette::MUTED))
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(palette::FAINT))
+        } else {
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Action Data ")
+                .title_style(Style::default().fg(palette::MUTED))
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(palette::FAINT))
+        };
         Widget::render(&block, rect, buf);
+
+        if show_segments && !model.is_empty() {
+            let mut segments = vec![
+                TitleSegment { text: " Action Data ".into(), bg: palette::SUCCESS_PEAK, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {model} "), bg: palette::SUCCESS_HEAT, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {target} "), bg: palette::SUCCESS_GLOW, fg: palette::BLACK, modifier: Modifier::empty() },
+            ];
+            if !event_name.is_empty() {
+                segments.push(TitleSegment {
+                    text: format!(" {event_name} "),
+                    bg: palette::SUCCESS_BASE,
+                    fg: palette::WHITE,
+                    modifier: Modifier::empty(),
+                });
+            }
+            let title_style = TitleStyle::cyberpunk(palette::SUCCESS_PEAK);
+            title::overlay_gradient_title(buf, rect, &title_style, &segments);
+        }
+
         let inner = block.inner(rect);
 
         let rule_title = Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD);
@@ -103,9 +161,56 @@ impl SysInspectUX {
         let csize = self.size.get();
         self.size.set(UISizes { table_events: rect.height.saturating_sub(2) as usize, ..csize });
 
-        let title = "Action Results";
-        let block = self._get_box_block(title, ActiveBox::Events);
+        let (model, target, state_opt) = if !self.cycles_buf.is_empty() {
+            parse_query_for_title(self.get_selected_cycle().event().query())
+        } else {
+            (String::new(), String::new(), None)
+        };
+        let show_segments = matches!(self.active_box, ActiveBox::Events);
+        let is_focused = self.main_box_active(ActiveBox::Events);
+        let info_active = self.main_box_active(ActiveBox::Info);
+
+        let block = if is_focused {
+            Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(palette::SUCCESS_PEAK))
+        } else if info_active && !model.is_empty() {
+            let title_str = if let Some(ref state) = state_opt {
+                format!(" Action Results / {model} / {target} / {state} ")
+            } else {
+                format!(" Action Results / {model} / {target} ")
+            };
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title_str)
+                .title_style(Style::default().fg(palette::MUTED))
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(palette::FAINT))
+        } else {
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Action Results ")
+                .title_style(Style::default().fg(palette::MUTED))
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(palette::FAINT))
+        };
         Widget::render(&block, rect, buf);
+
+        if show_segments && !model.is_empty() {
+            let mut segments = vec![
+                TitleSegment { text: " Action Results ".into(), bg: palette::SUCCESS_PEAK, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {model} "), bg: palette::SUCCESS_HEAT, fg: palette::BLACK, modifier: Modifier::empty() },
+                TitleSegment { text: format!(" {target} "), bg: palette::SUCCESS_GLOW, fg: palette::BLACK, modifier: Modifier::empty() },
+            ];
+            if let Some(ref state) = state_opt {
+                segments.push(TitleSegment {
+                    text: format!(" {state} "),
+                    bg: palette::SUCCESS_BASE,
+                    fg: palette::WHITE,
+                    modifier: Modifier::empty(),
+                });
+            }
+            let title_style = TitleStyle::cyberpunk(palette::SUCCESS_PEAK);
+            title::overlay_gradient_title(buf, rect, &title_style, &segments);
+        }
 
         let events_inner = block.inner(rect);
         let mut events_state = ListState::default();
@@ -191,12 +296,12 @@ impl SysInspectUX {
             Block::default()
                 .borders(Borders::ALL)
                 .title(Line::from(vec![
-                    Span::styled("\u{E0B2}", Style::default().fg(palette::ACCENT)),
-                    Span::styled(t, Style::default().fg(palette::BLACK).bg(palette::ACCENT).add_modifier(Modifier::BOLD)),
-                    Span::styled("\u{E0B0}", Style::default().fg(palette::ACCENT)),
+                    Span::styled("\u{E0B2}", Style::default().fg(palette::SUCCESS_PEAK)),
+                    Span::styled(t, Style::default().fg(palette::BLACK).bg(palette::SUCCESS_PEAK).add_modifier(Modifier::BOLD)),
+                    Span::styled("\u{E0B0}", Style::default().fg(palette::SUCCESS_PEAK)),
                 ]))
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(palette::ACCENT))
+                .border_style(Style::default().fg(palette::SUCCESS_PEAK))
         } else {
             Block::default()
                 .borders(Borders::ALL)
@@ -251,6 +356,21 @@ impl SysInspectUX {
     }
 }
 
+/// Parse a model query string into model, target/label, and optional state.
+pub(crate) fn parse_query_for_title(query: &str) -> (String, String, Option<String>) {
+    let display = query.strip_suffix("/$").unwrap_or(query);
+    if let Some((model, label)) = display.split_once(':') {
+        return (model.to_string(), label.to_string(), None);
+    }
+    let parts: Vec<&str> = display.split('/').collect();
+    match parts.as_slice() {
+        [model, target] => (model.to_string(), target.to_string(), None),
+        [model, target, state] if *state != "$" => (model.to_string(), target.to_string(), Some(state.to_string())),
+        [model, target, _] => (model.to_string(), target.to_string(), None),
+        _ => (display.to_string(), String::new(), None),
+    }
+}
+
 /// Render a decorated rule line: ` Title ////////////////////////////////`
 /// with one leading space and dash fill to end of area, minus one trailing space.
 pub(crate) fn render_rule_line(
@@ -282,15 +402,18 @@ impl Widget for &SysInspectUX {
         Block::default().style(Style::default().bg(palette::BG_1)).render(area, buf);
         self.popup_button_rects.set(None);
 
-        let cycles_max = self.cycles_buf.iter().map(|c| c.get_list_line(false).width()).max().unwrap_or(10);
-        let minions_max = self.li_minions.iter().map(|m| m.get_list_line(false).width()).max().unwrap_or(8);
+        let _cycles_max = self.cycles_buf.iter().map(|c| c.get_list_line(false).width()).max().unwrap_or(10);
+        let _minions_max = self.li_minions.iter().map(|m| m.get_list_line(false).width()).max().unwrap_or(8);
 
-        let cycles_w = (cycles_max as u16 + 5).max(20).min(area.width.saturating_sub(20));
-        let minions_w = (minions_max as u16 + 5).max(20).min(area.width.saturating_sub(cycles_w).saturating_sub(10));
+        let (cycles_w, minions_w) = if matches!(self.active_box, ActiveBox::Cycles | ActiveBox::Minions) {
+            (Constraint::Ratio(1, 3), Constraint::Ratio(1, 3))
+        } else {
+            (Constraint::Ratio(1, 6), Constraint::Ratio(1, 6))
+        };
 
         let [cycles_a, minions_a, events_a]: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(cycles_w), Constraint::Length(minions_w), Constraint::Min(0)])
+            .constraints([cycles_w, minions_w, Constraint::Min(0)])
             .split(area)
             .as_ref()
             .try_into()
