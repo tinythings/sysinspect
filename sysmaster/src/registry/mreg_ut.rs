@@ -1,5 +1,5 @@
 use super::MinionRegistry;
-use crate::registry::rec::MinionCmdbStartup;
+use crate::registry::rec::{MinionCmdbRecord, MinionCmdbStartup};
 use chrono::Utc;
 use libsysproto::MinionTarget;
 use serde_json::json;
@@ -322,4 +322,159 @@ fn get_upgrade_marker_returns_none_for_unknown() {
     let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
 
     assert!(registry.get_upgrade_marker("nobody").unwrap().is_none());
+}
+
+// ---------------------------------------------------------------------------
+//  Post-upgrade pending — auto-hopstart after self-upgrade
+// ---------------------------------------------------------------------------
+
+fn cmdb_for_test(host: &str, user: &str, root: &str, bin: &str, config: &str, managed_by_init: Option<bool>) -> MinionCmdbRecord {
+    MinionCmdbRecord {
+        mid: String::new(),
+        user: Some(user.to_string()),
+        host: Some(host.to_string()),
+        hostname: None,
+        fqdn: None,
+        ip: None,
+        root: Some(root.to_string()),
+        bin: Some(bin.to_string()),
+        config: Some(config.to_string()),
+        backend: None,
+        managed_by_init,
+        updated_at: chrono::Utc::now(),
+    }
+}
+
+#[test]
+fn add_post_upgrade_pending_stores_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    registry
+        .add_post_upgrade_pending(
+            "mid-1",
+            &cmdb_for_test("10.0.0.1", "deploy", "/srv/sysinspect", "/srv/bin/sysminion", "/srv/etc/sysinspect.conf", None),
+        )
+        .unwrap();
+
+    assert!(registry.has_post_upgrade_pending("mid-1").unwrap());
+    let pending = registry.get_post_upgrade_pending("mid-1").unwrap().unwrap();
+    assert_eq!(pending.host(), "10.0.0.1");
+    assert_eq!(pending.user(), "deploy");
+    assert_eq!(pending.root(), "/srv/sysinspect");
+    assert_eq!(pending.bin(), "/srv/bin/sysminion");
+    assert_eq!(pending.config(), "/srv/etc/sysinspect.conf");
+    assert_eq!(pending.managed_by_init(), None);
+}
+
+#[test]
+fn remove_post_upgrade_pending_deletes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("10.0.0.1", "deploy", "/srv", "/srv/bin", "/srv/etc/cfg.conf", None)).unwrap();
+    assert!(registry.has_post_upgrade_pending("mid-1").unwrap());
+
+    registry.remove_post_upgrade_pending("mid-1").unwrap();
+    assert!(!registry.has_post_upgrade_pending("mid-1").unwrap());
+    assert!(registry.get_post_upgrade_pending("mid-1").unwrap().is_none());
+}
+
+#[test]
+fn has_post_upgrade_pending_true_false_unknown() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    assert!(!registry.has_post_upgrade_pending("ghost").unwrap());
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("h", "u", "r", "b", "c", None)).unwrap();
+    assert!(registry.has_post_upgrade_pending("mid-1").unwrap());
+
+    registry.remove_post_upgrade_pending("mid-1").unwrap();
+    assert!(!registry.has_post_upgrade_pending("mid-1").unwrap());
+}
+
+#[test]
+fn post_upgrade_pending_count_tracks_multiple() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    assert_eq!(registry.post_upgrade_pending_count().unwrap(), 0);
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("h1", "u", "r", "b", "c", None)).unwrap();
+    registry.add_post_upgrade_pending("mid-2", &cmdb_for_test("h2", "u", "r", "b", "c", None)).unwrap();
+    registry.add_post_upgrade_pending("mid-3", &cmdb_for_test("h3", "u", "r", "b", "c", None)).unwrap();
+
+    assert_eq!(registry.post_upgrade_pending_count().unwrap(), 3);
+
+    registry.remove_post_upgrade_pending("mid-2").unwrap();
+    assert_eq!(registry.post_upgrade_pending_count().unwrap(), 2);
+}
+
+#[test]
+fn post_upgrade_pending_overwrites_previous() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("old-host", "u", "r", "b", "c", None)).unwrap();
+    assert_eq!(registry.get_post_upgrade_pending("mid-1").unwrap().unwrap().host(), "old-host");
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("new-host", "u", "r", "b", "c", None)).unwrap();
+    assert_eq!(registry.get_post_upgrade_pending("mid-1").unwrap().unwrap().host(), "new-host");
+}
+
+#[test]
+fn post_upgrade_pending_survives_registry_reopen() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().to_path_buf();
+
+    {
+        let registry = MinionRegistry::new(db_path.clone()).unwrap();
+        registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("10.0.0.1", "deploy", "/s", "/b", "/c", Some(true))).unwrap();
+    }
+
+    let registry = MinionRegistry::new(db_path).unwrap();
+    assert!(registry.has_post_upgrade_pending("mid-1").unwrap());
+    let pending = registry.get_post_upgrade_pending("mid-1").unwrap().unwrap();
+    assert_eq!(pending.host(), "10.0.0.1");
+    assert_eq!(pending.managed_by_init(), Some(true));
+}
+
+#[test]
+fn post_upgrade_pending_managed_by_init_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("h", "u", "r", "b", "c", Some(true))).unwrap();
+    assert_eq!(registry.get_post_upgrade_pending("mid-1").unwrap().unwrap().managed_by_init(), Some(true));
+
+    registry.add_post_upgrade_pending("mid-2", &cmdb_for_test("h", "u", "r", "b", "c", Some(false))).unwrap();
+    assert_eq!(registry.get_post_upgrade_pending("mid-2").unwrap().unwrap().managed_by_init(), Some(false));
+}
+
+#[test]
+fn post_upgrade_pending_independent_per_minion() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("h1", "u", "r", "b", "c", None)).unwrap();
+    registry.add_post_upgrade_pending("mid-2", &cmdb_for_test("h2", "u", "r", "b", "c", None)).unwrap();
+
+    registry.remove_post_upgrade_pending("mid-1").unwrap();
+    assert!(!registry.has_post_upgrade_pending("mid-1").unwrap());
+    assert!(registry.has_post_upgrade_pending("mid-2").unwrap());
+}
+
+#[test]
+fn clear_all_post_upgrade_pending_empties() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = MinionRegistry::new(tmp.path().to_path_buf()).unwrap();
+
+    registry.add_post_upgrade_pending("mid-1", &cmdb_for_test("h", "u", "r", "b", "c", None)).unwrap();
+    registry.add_post_upgrade_pending("mid-2", &cmdb_for_test("h", "u", "r", "b", "c", None)).unwrap();
+    registry.add_post_upgrade_pending("mid-3", &cmdb_for_test("h", "u", "r", "b", "c", None)).unwrap();
+
+    registry.clear_all_post_upgrade_pending().unwrap();
+    assert_eq!(registry.post_upgrade_pending_count().unwrap(), 0);
+    assert!(!registry.has_post_upgrade_pending("mid-1").unwrap());
 }
