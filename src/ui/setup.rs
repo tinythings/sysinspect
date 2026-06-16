@@ -326,8 +326,8 @@ impl MasterSetupWizard {
         }
 
         let label_w = 20u16;
-        let focus_style = Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD);
-        let muted = Style::default().fg(palette::MUTED);
+        let focus_style = Style::default().fg(palette::FORM_LABEL_SELECTED).add_modifier(Modifier::BOLD);
+        let muted = Style::default().fg(palette::FORM_LABEL);
 
         let mut row_y = inner.y;
 
@@ -494,8 +494,8 @@ impl MasterSetupWizard {
     fn render_input_row(
         base_x: u16, row_y: &mut u16, inner_width: u16, buf: &mut Buffer, label: &str, state: &InputState, focused: bool, label_w: u16,
     ) {
-        let muted = Style::default().fg(palette::MUTED);
-        let focus_style = Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD);
+        let muted = Style::default().fg(palette::FORM_LABEL);
+        let focus_style = Style::default().fg(palette::FORM_LABEL_SELECTED).add_modifier(Modifier::BOLD);
         let lstyle = if focused { focus_style } else { muted };
         let label_padded = format!("{:width$}", label, width = label_w as usize);
         buf.set_string(base_x + 2, *row_y, &label_padded, lstyle);
