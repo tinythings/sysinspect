@@ -22,9 +22,10 @@ use libsysinspect::{
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART, CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS,
-        CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN, CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX,
-        CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION, CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE,
+        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
+        CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
+        CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION,
+        CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
     },
 };
 use ratatui::{
@@ -130,6 +131,25 @@ impl Default for DeleteProgressState {
 }
 
 #[derive(Debug)]
+pub struct ClusterUpgradeProgressState {
+    pub visible: bool,
+    pub message: String,
+    pub spinner: spinner::Model,
+    pub last_tick: Instant,
+}
+
+impl Default for ClusterUpgradeProgressState {
+    fn default() -> Self {
+        let mut spinner_model = spinner::Model::new();
+        spinner_model.spinner = spinner::Spinner::mini_dot();
+        spinner_model.style = Style::default().fg(palette::WARNING_PEAK);
+        Self { visible: false, message: String::new(), spinner: spinner_model, last_tick: Instant::now() }
+    }
+}
+
+type ClusterUpgradeTaskResult = Result<(usize, usize, usize, usize, usize, Vec<String>), String>;
+
+#[derive(Debug)]
 pub struct SysInspectUX {
     exit: bool,
     pub selected_cycle: usize,
@@ -166,6 +186,7 @@ pub struct SysInspectUX {
 
     // Help popup
     pub help_popup_visible: bool,
+    pub help_popup_scroll: Cell<usize>,
 
     // Online minions popup
     pub minions_visible: bool,
@@ -261,6 +282,12 @@ pub struct SysInspectUX {
     pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
     pub delete_success_message: String,
     pub delete_success_styled: Option<Text<'static>>,
+    pub cluster_upgrade_progress: ClusterUpgradeProgressState,
+    pub cluster_upgrade_task: Option<tokio::task::JoinHandle<ClusterUpgradeTaskResult>>,
+    pub cluster_upgrade_required_count: usize,
+    pub cluster_upgrade_unreachable_count: usize,
+    pub cluster_upgrade_pending_count: usize,
+    pub cluster_upgrade_check_message: Option<String>,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -304,6 +331,7 @@ impl Default for SysInspectUX {
             info_alert_title: String::new(),
             info_alert_styled: None,
             help_popup_visible: false,
+            help_popup_scroll: Cell::new(0),
 
             minions_visible: false,
             minions_rows: Vec::new(),
@@ -379,6 +407,12 @@ impl Default for SysInspectUX {
             delete_task: None,
             delete_success_message: String::new(),
             delete_success_styled: None,
+            cluster_upgrade_progress: ClusterUpgradeProgressState::default(),
+            cluster_upgrade_task: None,
+            cluster_upgrade_required_count: 0,
+            cluster_upgrade_unreachable_count: 0,
+            cluster_upgrade_pending_count: 0,
+            cluster_upgrade_check_message: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -416,11 +450,27 @@ impl SysInspectUX {
 
     pub fn run_loop(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
         self.cycles_buf = self.get_cycles().unwrap_or_default();
+        if !self.cycles_buf.is_empty() {
+            let sid = self.get_selected_cycle().event().sid().to_string();
+            if let Ok(minions) = self.get_minions(&sid) {
+                self.li_minions = minions;
+                self.refresh_events_for_selected_minion();
+            }
+        }
+        self.refresh_cluster_upgrade_status();
         self.run_normal_loop(term)
     }
 
     fn run_connected(mut self, term: &mut DefaultTerminal) -> io::Result<()> {
         self.cycles_buf = self.get_cycles().unwrap_or_default();
+        if !self.cycles_buf.is_empty() {
+            let sid = self.get_selected_cycle().event().sid().to_string();
+            if let Ok(minions) = self.get_minions(&sid) {
+                self.li_minions = minions;
+                self.refresh_events_for_selected_minion();
+            }
+        }
+        self.refresh_cluster_upgrade_status();
         self.run_normal_loop(term)
     }
 
@@ -560,6 +610,13 @@ impl SysInspectUX {
             if self.repo_manager.visible {
                 self.status_at_repo_manager();
             }
+            if let Some(ref msg) = self.cluster_upgrade_check_message
+                && self.cluster_upgrade_required_count == 0
+            {
+                let mut spans: Vec<Span> = self.status_text.clone().spans.to_vec();
+                spans.push(Span::styled(format!("  {}", msg), Style::default().fg(palette::MUTED)));
+                self.status_text = Line::from(spans);
+            }
             term.draw(|frame| self.draw(frame))?;
             self.on_events()?;
             if self.offline && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) {
@@ -655,18 +712,46 @@ impl SysInspectUX {
 
         frame.render_widget(self, main_area);
 
+        let badge_text = if self.cluster_upgrade_required_count > 0 {
+            Some(if self.cluster_upgrade_unreachable_count > 0 { " ⚠️ Cluster upgrade incomplete " } else { " 🚨 Cluster upgrade required " })
+        } else {
+            None
+        };
+
         if self.offline {
             let offline_w: u16 = 14;
-            let [main_status, offline_area]: [Rect; 2] = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(0), Constraint::Length(offline_w)].as_ref())
-                .split(status_area)
-                .as_ref()
-                .try_into()
-                .unwrap();
+            let (main_status, badge_area, offline_area) = if let Some(text) = badge_text {
+                let badge_w = UnicodeWidthStr::width(text) as u16;
+                let [main_status, badge_area, offline_area]: [Rect; 3] = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(badge_w), Constraint::Length(offline_w)].as_ref())
+                    .split(status_area)
+                    .as_ref()
+                    .try_into()
+                    .unwrap();
+                (main_status, Some((badge_area, text)), offline_area)
+            } else {
+                let [main_status, offline_area]: [Rect; 2] = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(offline_w)].as_ref())
+                    .split(status_area)
+                    .as_ref()
+                    .try_into()
+                    .unwrap();
+                (main_status, None, offline_area)
+            };
 
             let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
             frame.render_widget(status_paragraph, main_status);
+            if let Some((badge_area, text)) = badge_area {
+                let badge_style = if self.cluster_upgrade_unreachable_count > 0 {
+                    Style::default().fg(palette::WARNING_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(palette::ERROR_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                };
+                frame
+                    .render_widget(Paragraph::new(Line::from(Span::styled(text, badge_style))).style(Style::default().bg(palette::BG_1)), badge_area);
+            }
 
             let offline_paragraph = Paragraph::new(Line::from(vec![Span::styled(
                 "  Offline \u{2716} ",
@@ -675,8 +760,30 @@ impl SysInspectUX {
             .style(Style::default().bg(palette::BG_1));
             frame.render_widget(offline_paragraph, offline_area);
         } else {
-            let status_paragraph = Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
-            frame.render_widget(status_paragraph, status_area);
+            if let Some(text) = badge_text {
+                let badge_w = UnicodeWidthStr::width(text) as u16;
+                let [main_status, badge_area]: [Rect; 2] = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(badge_w)].as_ref())
+                    .split(status_area)
+                    .as_ref()
+                    .try_into()
+                    .unwrap();
+                let status_paragraph =
+                    Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+                frame.render_widget(status_paragraph, main_status);
+                let badge_style = if self.cluster_upgrade_unreachable_count > 0 {
+                    Style::default().fg(palette::WARNING_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(palette::ERROR_PEAK).bg(palette::BG_1).add_modifier(Modifier::BOLD)
+                };
+                frame
+                    .render_widget(Paragraph::new(Line::from(Span::styled(text, badge_style))).style(Style::default().bg(palette::BG_1)), badge_area);
+            } else {
+                let status_paragraph =
+                    Paragraph::new(self.status_text.clone()).style(Style::default().fg(self::palette::GRAY_1).bg(self::palette::BG_1));
+                frame.render_widget(status_paragraph, status_area);
+            }
         }
     }
 
@@ -685,6 +792,7 @@ impl SysInspectUX {
         let poll_dur = if self.repo_manager.progress.lock().unwrap().is_some()
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
+            || self.cluster_upgrade_progress.visible
         {
             Duration::from_millis(50)
         } else {
@@ -712,6 +820,7 @@ impl SysInspectUX {
                     }
                 }
                 if !self.offline {
+                    self.refresh_cluster_upgrade_status();
                     if self.minions_visible {
                         self.refresh_minions();
                     }
@@ -737,6 +846,13 @@ impl SysInspectUX {
             let tick = self.delete_progress.spinner.tick();
             self.delete_progress.spinner.update(tick);
             self.delete_progress.last_tick = Instant::now();
+        }
+        if self.cluster_upgrade_progress.visible
+            && self.cluster_upgrade_progress.last_tick.elapsed() >= self.cluster_upgrade_progress.spinner.spinner.fps
+        {
+            let tick = self.cluster_upgrade_progress.spinner.tick();
+            self.cluster_upgrade_progress.spinner.update(tick);
+            self.cluster_upgrade_progress.last_tick = Instant::now();
         }
         if self.delete_progress.visible
             && self.delete_task.as_ref().is_some_and(|task| task.is_finished())
@@ -768,6 +884,36 @@ impl SysInspectUX {
                 }
             }
         }
+        if self.cluster_upgrade_progress.visible
+            && self.cluster_upgrade_task.as_ref().is_some_and(|task| task.is_finished())
+            && let Some(task) = self.cluster_upgrade_task.take()
+        {
+            let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+            self.cluster_upgrade_progress.visible = false;
+            self.cluster_upgrade_progress.message.clear();
+            self.restore_status();
+            self.refresh_cluster_upgrade_status();
+            self.refresh_minions();
+            match result {
+                Ok(Ok((updated, dispatched, skipped, failed, offline, items))) => {
+                    self.info_alert_visible = true;
+                    self.info_alert_title = "Cluster Upgrade".to_string();
+                    self.info_alert_styled = None;
+                    self.info_alert_message = format!(
+                        "SSH upgraded:         {updated}\nDispatched to online: {dispatched}\nSkipped:              {skipped}\nFailed:               {failed}\nOffline:              {offline}{}",
+                        if items.is_empty() { String::new() } else { format!("\n\n{}", items.join("\n")) }
+                    );
+                }
+                Ok(Err(err)) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Failed to join cluster upgrade task: {err}");
+                }
+            }
+        }
         // Process file picker result for repo manager
         if self.repo_manager.visible
             && let Some(path) = self.file_picker.selected.take()
@@ -791,6 +937,7 @@ impl SysInspectUX {
                     if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
+                    self.mark_cluster_upgrade_required();
                 }
             } else {
                 // Track that a reload is needed when progress finishes
@@ -888,11 +1035,23 @@ impl SysInspectUX {
             match e.code {
                 KeyCode::Enter | KeyCode::Esc => {
                     self.help_popup_visible = false;
+                    self.help_popup_scroll.set(0);
+                }
+                KeyCode::Up => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_sub(1));
+                }
+                KeyCode::Down => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_add(1));
+                }
+                KeyCode::PageUp => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_sub(10));
+                }
+                KeyCode::PageDown => {
+                    self.help_popup_scroll.set(self.help_popup_scroll.get().saturating_add(10));
                 }
                 _ => {}
             }
         }
-
         stat
     }
 
@@ -1423,6 +1582,7 @@ impl SysInspectUX {
             || self.registration_form.visible
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
+            || self.cluster_upgrade_progress.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1462,6 +1622,65 @@ impl SysInspectUX {
                 }
             }
         }
+    }
+
+    fn refresh_cluster_upgrade_status(&mut self) {
+        match self.fetch_cluster_upgrade_status() {
+            Ok((required, unreachable, pending)) => {
+                self.cluster_upgrade_required_count = required;
+                self.cluster_upgrade_unreachable_count = unreachable;
+                self.cluster_upgrade_pending_count = pending;
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot fetch upgrade status: {e}");
+            }
+        }
+    }
+
+    fn mark_cluster_upgrade_required(&mut self) {
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_MARK_UPGRADE_REQUIRED}"), "*", None, None, None).await
+            })
+        }) {
+            Ok(resp) => {
+                self.refresh_cluster_upgrade_status();
+                if self.minions_visible {
+                    self.refresh_minions();
+                }
+                if let ConsolePayload::Ack { count, items, .. } = &resp.payload {
+                    self.cluster_upgrade_check_message =
+                        Some(format!("{} marked, {}", count, items.first().map(|s| s.as_str()).unwrap_or("no response")));
+                }
+            }
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot mark cluster upgrade: {e}");
+            }
+        }
+    }
+
+    fn start_cluster_upgrade(&mut self) {
+        self.cluster_upgrade_progress.visible = true;
+        self.cluster_upgrade_progress.message = "Applying repository updates across the cluster...".to_string();
+        self.cluster_upgrade_progress.last_tick = Instant::now();
+        self.status_text = Line::from(vec![
+            Span::styled(" Esc ", Style::default().fg(palette::FG)),
+            Span::styled("wait for completion", Style::default().fg(palette::FAINT)),
+        ]);
+        let cfg = self.cfg.clone();
+        self.cluster_upgrade_task = Some(tokio::spawn(async move {
+            call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_UPGRADE_MINIONS}"), "*", None, None, None)
+                .await
+                .map_err(|err| err.to_string())
+                .and_then(|resp| match resp.payload {
+                    ConsolePayload::UpgradeSummary { updated, dispatched, skipped, failed, offline, items } => {
+                        Ok((updated, dispatched, skipped, failed, offline, items))
+                    }
+                    _ => Err("Unexpected console payload for cluster upgrade".to_string()),
+                })
+        }));
     }
 
     fn load_selected_minion_info(&mut self) {
@@ -2885,6 +3104,7 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "new", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -2892,18 +3112,21 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "delete", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
     fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
     fn do_profile_remove_match(&mut self, name: &str, selector: &str, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "remove", "name": name, "matches": [selector], "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3141,6 +3364,7 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(ids)?;
         self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
         self.repo_manager.models_dirty = true;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3189,6 +3413,7 @@ impl SysInspectUX {
         {
             Ok(()) => {
                 self.repo_manager.models_dirty = true;
+                self.mark_cluster_upgrade_required();
                 self.info_alert_visible = true;
                 self.info_alert_title = "Model Import".to_string();
                 self.info_alert_styled = None;
@@ -3212,6 +3437,7 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(enabled_ids.clone())?;
         self.refresh_local_model_rows(&enabled_ids)?;
         self.repo_manager.models_dirty = true;
+        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3382,6 +3608,7 @@ impl SysInspectUX {
             self.error_alert_message = format!("Cannot remove modules: {e}");
         } else {
             let _ = self.load_module_index();
+            self.mark_cluster_upgrade_required();
         }
     }
 
@@ -3405,6 +3632,7 @@ impl SysInspectUX {
             }
         }
         let _ = self.load_module_index();
+        self.mark_cluster_upgrade_required();
     }
 
     fn process_library_add(&mut self, path: &std::path::Path) {
@@ -3423,6 +3651,7 @@ impl SysInspectUX {
                 self.error_alert_message = format!("Cannot add library: {e}");
             } else {
                 self.load_library_index().ok();
+                self.mark_cluster_upgrade_required();
             }
         } else {
             // Single file: wrap in temp dir, use add_library
@@ -3436,6 +3665,7 @@ impl SysInspectUX {
                         self.error_alert_message = format!("Cannot add library file: {e}");
                     } else {
                         self.load_library_index().ok();
+                        self.mark_cluster_upgrade_required();
                     }
                     let _ = std::fs::remove_dir_all(&tmp);
                 }
@@ -3457,6 +3687,8 @@ impl SysInspectUX {
                 } else if let Err(e) = self.load_platforms() {
                     self.error_alert_visible = true;
                     self.error_alert_message = format!("Failed to reload platforms: {e}");
+                } else {
+                    self.mark_cluster_upgrade_required();
                 }
             }
             Err(e) => {
@@ -3479,6 +3711,7 @@ impl SysInspectUX {
             }
         }
         let _ = self.load_platforms();
+        self.mark_cluster_upgrade_required();
     }
 
     fn read_spec_version_descr(spec: &std::path::Path) -> (Option<String>, String) {
@@ -3682,6 +3915,10 @@ impl SysInspectUX {
                     self.status_at_repo_manager();
                 }
             }
+            KeyCode::Char('u') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.master_menu_visible = false;
+                self.start_cluster_upgrade();
+            }
             KeyCode::Char('t') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.master_menu_visible = false;
                 self.master_confirm_visible = true;
@@ -3748,16 +3985,19 @@ impl SysInspectUX {
                         }
                     }
                     4 => {
-                        self.master_confirm_visible = true;
-                        self.master_confirm_choice = AlertResult::Default;
-                        self.master_confirm_action = 1;
+                        self.start_cluster_upgrade();
                     }
                     5 => {
                         self.master_confirm_visible = true;
                         self.master_confirm_choice = AlertResult::Default;
-                        self.master_confirm_action = 3;
+                        self.master_confirm_action = 1;
                     }
                     6 => {
+                        self.master_confirm_visible = true;
+                        self.master_confirm_choice = AlertResult::Default;
+                        self.master_confirm_action = 3;
+                    }
+                    7 => {
                         self.master_confirm_visible = true;
                         self.master_confirm_choice = AlertResult::Default;
                         self.master_confirm_action = 2;
@@ -4003,6 +4243,9 @@ impl SysInspectUX {
                 self.minions_buf = Vec::new();
                 self.events_buf = Vec::new();
                 self.event_data = IndexMap::new();
+                self.li_events = Vec::new();
+                self.li_minions = Vec::new();
+                self.selected_event = 0;
 
                 if down {
                     if self.selected_cycle < self.cycles_buf.len().saturating_sub(1) {
@@ -4011,11 +4254,34 @@ impl SysInspectUX {
                 } else if self.selected_cycle > 0 {
                     self.selected_cycle -= 1;
                 }
+                if !self.cycles_buf.is_empty() {
+                    let sid = self.get_selected_cycle().event().sid().to_string();
+                    if let Ok(minions) = self.get_minions(&sid) {
+                        self.li_minions = minions;
+                        self.selected_minion = 0;
+                        self.refresh_events_for_selected_minion();
+                    }
+                }
             }
             Err(err) => {
                 self.error_alert_visible = true;
                 self.error_alert_message = err.to_string();
             }
+        }
+    }
+
+    fn refresh_events_for_selected_minion(&mut self) {
+        self.event_data = IndexMap::new();
+        self.li_events = Vec::new();
+        self.selected_event = 0;
+        if let Some(mli) = self.get_selected_minion() {
+            let sid = self.get_selected_cycle().event().sid().to_string();
+            if let Ok(events) = self.get_events(&sid, mli.event().id()) {
+                self.li_events = events;
+            }
+        }
+        if !self.li_events.is_empty() {
+            self.event_data = self.li_events[0].event().flatten();
         }
     }
 
@@ -4174,6 +4440,10 @@ impl SysInspectUX {
             return;
         }
 
+        if self.cluster_upgrade_progress.visible {
+            return;
+        }
+
         // Master operations menu is modal
         if self.on_master_menu(e) {
             return;
@@ -4322,10 +4592,22 @@ impl SysInspectUX {
             KeyCode::PageUp => {
                 match self.active_box {
                     ActiveBox::Cycles => {
+                        self.event_data = IndexMap::new();
+                        self.li_events = Vec::new();
+                        self.li_minions = Vec::new();
+                        self.selected_event = 0;
                         self.selected_cycle = self.selected_cycle.saturating_sub(self.size.get().table_cycles);
+                        if !self.cycles_buf.is_empty() {
+                            let sid = self.get_selected_cycle().event().sid().to_string();
+                            if let Ok(minions) = self.get_minions(&sid) {
+                                self.li_minions = minions;
+                                self.selected_minion = 0;
+                            }
+                        }
                     }
                     ActiveBox::Minions => {
                         self.selected_minion = self.selected_minion.saturating_sub(self.size.get().table_minions);
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         self.selected_event = self.selected_event.saturating_sub(self.size.get().table_events);
@@ -4338,13 +4620,22 @@ impl SysInspectUX {
             KeyCode::PageDown => {
                 match self.active_box {
                     ActiveBox::Cycles => {
+                        self.event_data = IndexMap::new();
+                        self.li_events = Vec::new();
+                        self.li_minions = Vec::new();
+                        self.selected_event = 0;
                         self.selected_cycle = (self.selected_cycle + self.size.get().table_cycles).min(self.cycles_buf.len().saturating_sub(1));
+                        if !self.cycles_buf.is_empty() {
+                            let sid = self.get_selected_cycle().event().sid().to_string();
+                            if let Ok(minions) = self.get_minions(&sid) {
+                                self.li_minions = minions;
+                                self.selected_minion = 0;
+                            }
+                        }
                     }
                     ActiveBox::Minions => {
-                        if !self.li_events.is_empty() {
-                            self.selected_minion =
-                                (self.selected_minion + self.size.get().table_minions).min(self.li_minions.len().saturating_sub(1));
-                        }
+                        self.selected_minion = (self.selected_minion + self.size.get().table_minions).min(self.li_minions.len().saturating_sub(1));
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         if !self.li_events.is_empty() {
@@ -4364,6 +4655,7 @@ impl SysInspectUX {
                         if self.selected_minion > 0 {
                             self.selected_minion -= 1;
                         }
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         if self.selected_event > 0 {
@@ -4374,6 +4666,13 @@ impl SysInspectUX {
                     ActiveBox::Info => {
                         if self.actdt_info_offset > 0 {
                             self.actdt_info_offset -= 1;
+                        } else {
+                            self.active_box = ActiveBox::Events;
+                            if !self.li_events.is_empty() {
+                                self.selected_event = self.li_events.len().saturating_sub(1);
+                                self.event_data = self.li_events[self.selected_event].event().flatten();
+                            }
+                            self.status_at_action_results();
                         }
                     }
                 };
@@ -4385,10 +4684,16 @@ impl SysInspectUX {
                         if self.selected_minion < self.li_minions.len().saturating_sub(1) {
                             self.selected_minion += 1;
                         }
+                        self.refresh_events_for_selected_minion();
                     }
                     ActiveBox::Events => {
                         if self.selected_event < self.li_events.len().saturating_sub(1) {
                             self.selected_event += 1;
+                        } else if !self.info_rows.borrow().is_empty() {
+                            self.active_box = ActiveBox::Info;
+                            self.actdt_info_offset = 0;
+                            self.status_at_action_data();
+                            return;
                         }
                         self.event_data = self.get_selected_event().unwrap().event().flatten();
                     }
@@ -4421,6 +4726,7 @@ impl SysInspectUX {
                                         self.li_minions = minions;
                                         self.selected_minion = 0;
                                         self.selected_event = 0;
+                                        self.refresh_events_for_selected_minion();
                                     }
                                     Err(err) => {
                                         self.error_alert_visible = true;
@@ -4739,6 +5045,21 @@ impl SysInspectUX {
                     match resp.payload {
                         ConsolePayload::OnlineMinions { rows } => rows,
                         _ => Vec::new(),
+                    }
+                })
+            })
+        })
+    }
+
+    pub fn fetch_cluster_upgrade_status(&self) -> Result<(usize, usize, usize), SysinspectError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_UPGRADE_STATUS}"), "*", None, None, None).await.map(|resp| {
+                    match resp.payload {
+                        ConsolePayload::UpgradeStatus { required, unreachable, pending_post_upgrade } => {
+                            (required, unreachable, pending_post_upgrade)
+                        }
+                        _ => (0, 0, 0),
                     }
                 })
             })

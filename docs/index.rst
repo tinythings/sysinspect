@@ -52,8 +52,23 @@ welcome—see the section on contributing for how to get involved.
    tutorial/wasm_modules_tutor
    tutorial/lua_modules_tutor
    tutorial/menotify_tutor
-   tutorial/menotify_sensor_dev_tutor
+    tutorial/menotify_sensor_dev_tutor
 
+Source Code
+-----------
+
+The project source code is hosted on GitHub:
+`github.com/tinythings/sysinspect <https://github.com/tinythings/sysinspect>`_.
+
+Related Projects
+----------------
+
+`LogJet <https://github.com/tinythings/logjet>`_ is a sibling project providing
+OTLP telemetry storage, replay, and bridge functionality.  It acts as a durable
+log, metric, and trace buffer that sits between local telemetry sources and
+downstream collectors — optimised for weak hardware, limited RAM, intermittent
+connectivity, and sequential replay.  Together with Sysinspect, it enables
+end-to-end disconnected-capable observability pipelines.
 
 Licence
 -------

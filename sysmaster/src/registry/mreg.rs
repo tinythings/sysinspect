@@ -1,10 +1,12 @@
 use crate::master::SHARED_SESSION;
 
 use super::rec::{MinionCmdbRecord, MinionCmdbStartup, MinionRecord};
+use chrono::{DateTime, Utc};
 use globset::Glob;
 use libcommon::SysinspectError;
 use libsysinspect::traits;
 use libsysproto::MinionTarget;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sled::{Db, Tree};
 use std::{
@@ -16,6 +18,78 @@ use std::{
 
 const DB_MINIONS: &str = "minions";
 const DB_CMDB: &str = "cmdb";
+const DB_UPGRADE: &str = "upgrade";
+const DB_POST_UPGRADE: &str = "post_upgrade";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct UpgradeMarker {
+    marked_at: DateTime<Utc>,
+    #[serde(default)]
+    repo_version: String,
+    #[serde(default)]
+    repo_checksum: String,
+    #[serde(default)]
+    pub(crate) unreachable: bool,
+}
+
+impl UpgradeMarker {
+    fn new(repo_version: impl Into<String>, repo_checksum: impl Into<String>) -> Self {
+        Self { marked_at: Utc::now(), repo_version: repo_version.into(), repo_checksum: repo_checksum.into(), unreachable: false }
+    }
+
+    pub(crate) fn checksum(&self) -> &str {
+        &self.repo_checksum
+    }
+}
+
+impl Default for UpgradeMarker {
+    fn default() -> Self {
+        Self { marked_at: Utc::now(), repo_version: String::new(), repo_checksum: String::new(), unreachable: false }
+    }
+}
+
+/// Snapshot of CMDB data stored alongside a self-upgrade dispatch
+/// so the master can issue a hopstart when the minion drops offline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PostUpgradePending {
+    dispatched_at: DateTime<Utc>,
+    host: String,
+    user: String,
+    root: String,
+    bin: String,
+    config: String,
+    managed_by_init: Option<bool>,
+}
+
+impl PostUpgradePending {
+    fn new(host: String, user: String, root: String, bin: String, config: String, managed_by_init: Option<bool>) -> Self {
+        Self { dispatched_at: Utc::now(), host, user, root, bin, config, managed_by_init }
+    }
+
+    pub(crate) fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub(crate) fn user(&self) -> &str {
+        &self.user
+    }
+
+    pub(crate) fn root(&self) -> &str {
+        &self.root
+    }
+
+    pub(crate) fn bin(&self) -> &str {
+        &self.bin
+    }
+
+    pub(crate) fn config(&self) -> &str {
+        &self.config
+    }
+
+    pub(crate) fn managed_by_init(&self) -> Option<bool> {
+        self.managed_by_init
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct MinionRegistry {
@@ -223,6 +297,149 @@ impl MinionRegistry {
         Ok(ids)
     }
 
+    pub fn mark_upgrade_required(&self, mid: &str, repo_version: &str, repo_checksum: &str) -> Result<(), SysinspectError> {
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        upgrade.insert(mid, json!(UpgradeMarker::new(repo_version, repo_checksum)).to_string().into_bytes())?;
+        Ok(())
+    }
+
+    pub fn mark_upgrade_unreachable(&self, mid: &str) -> Result<(), SysinspectError> {
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        let marker = self.get_upgrade_marker(mid)?.map(|mut marker| {
+            marker.unreachable = true;
+            marker
+        });
+        if let Some(marker) = marker {
+            upgrade.insert(mid, json!(marker).to_string().into_bytes())?;
+        }
+        Ok(())
+    }
+
+    pub fn clear_upgrade_required(&self, mid: &str) -> Result<(), SysinspectError> {
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        let _ = upgrade.remove(mid)?;
+        Ok(())
+    }
+
+    pub fn clear_upgrade_required_if_checksum_matches(&self, mid: &str, traits: &HashMap<String, Value>) -> Result<(), SysinspectError> {
+        let Some(marker) = self.get_upgrade_marker(mid)? else {
+            return Ok(());
+        };
+        let actual = traits.get("minion.binary.sha256").and_then(|v| v.as_str()).unwrap_or_default();
+        if !actual.is_empty() && actual == marker.checksum() {
+            self.clear_upgrade_required(mid)?;
+        }
+        Ok(())
+    }
+
+    pub fn clear_all_upgrade_markers(&self) -> Result<(), SysinspectError> {
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        for entry in upgrade.iter() {
+            let (key, _) = entry.map_err(|err| SysinspectError::MasterGeneralError(format!("Upgrade database seems corrupt: {err}")))?;
+            let _ = upgrade.remove(key)?;
+        }
+        Ok(())
+    }
+
+    pub fn get_upgrade_marker(&self, mid: &str) -> Result<Option<UpgradeMarker>, SysinspectError> {
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        let data = upgrade.get(mid)?;
+        if let Some(data) = data {
+            let marker = serde_json::from_str::<UpgradeMarker>(
+                &String::from_utf8(data.to_vec()).map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?,
+            )
+            .map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?;
+            return Ok(Some(marker));
+        }
+        Ok(None)
+    }
+
+    pub fn is_upgrade_required(&self, mid: &str) -> Result<bool, SysinspectError> {
+        Ok(self.get_upgrade_marker(mid)?.is_some())
+    }
+
+    pub fn get_upgrade_required_ids(&self) -> Result<Vec<String>, SysinspectError> {
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        let mut ids = Vec::new();
+        for entry in upgrade.iter() {
+            let (key, _) = entry.map_err(|err| SysinspectError::MasterGeneralError(format!("Upgrade database seems corrupt: {err}")))?;
+            ids.push(String::from_utf8(key.to_vec()).unwrap_or_default());
+        }
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
+    }
+
+    pub fn upgrade_status_counts(&self) -> Result<(usize, usize), SysinspectError> {
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        let mut required = 0usize;
+        let mut unreachable = 0usize;
+        for entry in upgrade.iter() {
+            let (_, value) = entry.map_err(|err| SysinspectError::MasterGeneralError(format!("Upgrade database seems corrupt: {err}")))?;
+            required += 1;
+            let marker = serde_json::from_str::<UpgradeMarker>(
+                &String::from_utf8(value.to_vec()).map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?,
+            )
+            .map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?;
+            if marker.unreachable {
+                unreachable += 1;
+            }
+        }
+        Ok((required, unreachable))
+    }
+
+    // -----------------------------------------------------------------------
+    //  Post-upgrade pending — auto-hopstart after self-upgrade
+    // -----------------------------------------------------------------------
+
+    pub fn add_post_upgrade_pending(&self, mid: &str, cmdb: &crate::registry::rec::MinionCmdbRecord) -> Result<(), SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        let pending = json!(PostUpgradePending::new(
+            cmdb.host().unwrap_or_default().to_string(),
+            cmdb.user().unwrap_or_default().to_string(),
+            cmdb.root().unwrap_or_default().to_string(),
+            cmdb.bin().unwrap_or_default().to_string(),
+            cmdb.config().unwrap_or_default().to_string(),
+            cmdb.managed_by_init(),
+        ));
+        tree.insert(mid, pending.to_string().into_bytes())?;
+        Ok(())
+    }
+
+    pub fn remove_post_upgrade_pending(&self, mid: &str) -> Result<(), SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        tree.remove(mid)?;
+        Ok(())
+    }
+
+    pub fn get_post_upgrade_pending(&self, mid: &str) -> Result<Option<PostUpgradePending>, SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        let Some(raw) = tree.get(mid)? else {
+            return Ok(None);
+        };
+        let marker = serde_json::from_str::<PostUpgradePending>(
+            &String::from_utf8(raw.to_vec()).map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?,
+        )
+        .map_err(|err| SysinspectError::MasterGeneralError(format!("{err}")))?;
+        Ok(Some(marker))
+    }
+
+    pub fn has_post_upgrade_pending(&self, mid: &str) -> Result<bool, SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        Ok(tree.contains_key(mid)?)
+    }
+
+    pub fn post_upgrade_pending_count(&self) -> Result<usize, SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        Ok(tree.iter().count())
+    }
+
+    pub fn clear_all_post_upgrade_pending(&self) -> Result<(), SysinspectError> {
+        let tree = self.get_tree(DB_POST_UPGRADE)?;
+        tree.clear()?;
+        Ok(())
+    }
+
     pub fn get(&self, mid: &str) -> Result<Option<MinionRecord>, SysinspectError> {
         let minions = self.get_tree(DB_MINIONS)?;
         let data = match minions.get(mid) {
@@ -261,6 +478,16 @@ impl MinionRegistry {
         };
 
         if contains && let Err(err) = cmdb.remove(mid) {
+            return Err(SysinspectError::MasterGeneralError(format!("{err}")));
+        };
+
+        let upgrade = self.get_tree(DB_UPGRADE)?;
+        let contains = match upgrade.contains_key(mid) {
+            Ok(res) => res,
+            Err(err) => return Err(SysinspectError::MasterGeneralError(format!("{err}"))),
+        };
+
+        if contains && let Err(err) = upgrade.remove(mid) {
             return Err(SysinspectError::MasterGeneralError(format!("{err}")));
         };
 

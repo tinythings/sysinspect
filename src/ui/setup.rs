@@ -13,7 +13,6 @@ use ratatui::{
 use ratatui_cheese::input::{Input, InputState};
 use ratatui_glamour::color::blend_2d;
 use ratatui_glamour::rule::dashed_title;
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InstallationMode {
@@ -36,12 +35,19 @@ pub enum SetupFocus {
 }
 
 impl SetupFocus {
-    fn next(self) -> Self {
+    fn next(self, mode: InstallationMode) -> Self {
         use SetupFocus::*;
+
         match self {
             SysMasterPath => SystemRadio,
             SystemRadio => CustomRadio,
-            CustomRadio => CustomDest,
+            CustomRadio => {
+                if mode == InstallationMode::Custom {
+                    CustomDest
+                } else {
+                    BindAddr
+                }
+            }
             CustomDest => BindAddr,
             BindAddr => BindPort,
             BindPort => FsPort,
@@ -52,14 +58,21 @@ impl SetupFocus {
         }
     }
 
-    fn prev(self) -> Self {
+    fn prev(self, mode: InstallationMode) -> Self {
         use SetupFocus::*;
+
         match self {
             SysMasterPath => Cancel,
             SystemRadio => SysMasterPath,
             CustomRadio => SystemRadio,
             CustomDest => CustomRadio,
-            BindAddr => CustomDest,
+            BindAddr => {
+                if mode == InstallationMode::Custom {
+                    CustomDest
+                } else {
+                    CustomRadio
+                }
+            }
             BindPort => BindAddr,
             FsPort => BindPort,
             ApiCheck => FsPort,
@@ -171,10 +184,14 @@ impl MasterSetupWizard {
         }
         match key.code {
             KeyCode::Tab => {
-                self.focus = if key.modifiers.contains(KeyModifiers::SHIFT) { self.focus.prev() } else { self.focus.next() };
+                self.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.focus.prev(self.installation_mode)
+                } else {
+                    self.focus.next(self.installation_mode)
+                };
             }
             KeyCode::BackTab => {
-                self.focus = self.focus.prev();
+                self.focus = self.focus.prev(self.installation_mode);
             }
             KeyCode::Enter => match self.focus {
                 SetupFocus::SysMasterPath => {
@@ -268,14 +285,14 @@ impl MasterSetupWizard {
             return;
         }
         let dlg_w = (parent.width * 3 / 4).clamp(60, 72);
-        let dlg_h = if self.installation_mode == InstallationMode::Custom { 16u16 } else { 15u16 };
+        let dlg_h = if self.installation_mode == InstallationMode::Custom { 15u16 } else { 14u16 };
         let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
         let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
         let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
 
         Clear.render(canvas, buf);
 
-        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::GRAY_0, palette::BG_2] as &[Color]);
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::GRAY_0, palette::BG_1] as &[Color]);
         for row in 0..canvas.height {
             for col in 0..canvas.width {
                 let idx = row as usize * canvas.width as usize + col as usize;
@@ -298,7 +315,10 @@ impl MasterSetupWizard {
             buf,
             canvas,
             &title_style,
-            &[TitleSegment { text: " Master Setup ".into(), bg: palette::PROCESSING_BASE, fg: palette::FG, modifier: Modifier::empty() }],
+            &[
+                TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::WHITE, modifier: Modifier::empty() },
+                TitleSegment { text: " Setup ".into(), bg: palette::PROCESSING_HEAT, fg: palette::WHITE, modifier: Modifier::empty() },
+            ],
         );
 
         if inner.height < 3 {
@@ -306,8 +326,8 @@ impl MasterSetupWizard {
         }
 
         let label_w = 20u16;
-        let focus_style = Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD);
-        let muted = Style::default().fg(palette::MUTED);
+        let focus_style = Style::default().fg(palette::FORM_LABEL_SELECTED).add_modifier(Modifier::BOLD);
+        let muted = Style::default().fg(palette::FORM_LABEL);
 
         let mut row_y = inner.y;
 
@@ -328,38 +348,41 @@ impl MasterSetupWizard {
             &mut row_y,
             inner.width,
             buf,
-            " Sys Master:",
+            "Sys Master:",
             &self.sysmaster_path,
             self.is_focused(SetupFocus::SysMasterPath),
             label_w,
         );
 
-        // Radio buttons — each on its own line
+        // Destination row with inline radio options
         let sys_checked = self.installation_mode == InstallationMode::SystemWide;
         let sys_style = if self.is_focused(SetupFocus::SystemRadio) { focus_style } else { muted };
         let cus_style = if self.is_focused(SetupFocus::CustomRadio) { focus_style } else { muted };
 
-        let sys_bullet = if sys_checked { "(•)" } else { "( )" };
-        let cus_bullet = if sys_checked { "( )" } else { "(•)" };
-        buf.set_string(inner.x + 3, row_y, format!(" {sys_bullet} System wide (/usr/bin) "), sys_style);
-        row_y += 1;
-        buf.set_string(inner.x + 3, row_y, format!(" {cus_bullet} Custom "), cus_style);
+        let sys_bullet = if sys_checked { "\u{1F518}" } else { "\u{25EF}" };
+        let cus_bullet = if sys_checked { "\u{25EF}" } else { "\u{1F518}" };
+
+        let dest_label = format!("{:width$}", "Destination:", width = label_w as usize);
+        buf.set_string(inner.x + 2, row_y, &dest_label, muted);
+        let sys_text = format!(" {sys_bullet}  System wide (/usr/bin)  ");
+        let cus_text = format!(" {cus_bullet}  Custom");
+        let label_end = (inner.x + 2) + label_w;
+        buf.set_string(label_end, row_y, &sys_text, sys_style);
+        buf.set_string(label_end + sys_text.len() as u16, row_y, &cus_text, cus_style);
         row_y += 1;
 
         // Custom destination row (only when Custom is selected)
         if self.installation_mode == InstallationMode::Custom {
-            let cdest_label = " Custom destination: ";
+            let cdest_label = "Destination path: ";
             let cdest_lstyle = if self.is_focused(SetupFocus::CustomDest) { focus_style } else { muted };
-            buf.set_string(inner.x + 5, row_y, cdest_label, cdest_lstyle);
-            let input_x = inner.x + 5 + label_w;
+            buf.set_string(inner.x + 2, row_y, cdest_label, cdest_lstyle);
+            let input_x = inner.x + 2 + label_w;
             let input_w = inner.width.saturating_sub(8 + label_w);
             if input_w > 0 {
                 let mut is = Self::copy_input_state(&self.custom_destination, self.is_focused(SetupFocus::CustomDest));
                 let inp = Input::new("").prompt("").placeholder("path to install root...");
                 StatefulWidget::render(&inp, Rect::new(input_x, row_y, input_w, 1), buf, &mut is);
             }
-            row_y += 1;
-        } else {
             row_y += 1;
         }
 
@@ -383,38 +406,39 @@ impl MasterSetupWizard {
             &mut row_y,
             inner.width,
             buf,
-            " Bind address:",
+            "Bind address:",
             &self.bind_addr,
             self.is_focused(SetupFocus::BindAddr),
             label_w,
         );
         // Bind port row
-        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, " Bind port:", &self.bind_port, self.is_focused(SetupFocus::BindPort), label_w);
+        Self::render_input_row(inner.x, &mut row_y, inner.width, buf, "Bind port:", &self.bind_port, self.is_focused(SetupFocus::BindPort), label_w);
         // Fileserver port row
         Self::render_input_row(
             inner.x,
             &mut row_y,
             inner.width,
             buf,
-            " Fileserver port:",
+            "Fileserver port:",
             &self.fs_port,
             self.is_focused(SetupFocus::FsPort),
             label_w,
         );
 
         // API checkbox
-        let api_chk = if self.api_enabled { "[x] Enable Web API" } else { "[ ] Enable Web API" };
+        let api_chk = if self.api_enabled { " ▣  Enable Web API" } else { " □  Enable Web API" };
         let api_style = if self.is_focused(SetupFocus::ApiCheck) { focus_style } else { muted };
-        buf.set_string(inner.x + 3, row_y, api_chk, api_style);
+        buf.set_string(inner.x + 1, row_y, api_chk, api_style);
         row_y += 1;
 
         // spacing
         row_y += 1;
 
         // ── Buttons ──
-        let ok_label = "  [   OK   ]  ";
-        let cancel_label = "  [ Cancel ]  ";
-        let btn_w = ok_label.width() as u16 + cancel_label.width() as u16 + 6;
+        let ok_label = super::SysInspectUX::format_button("OK");
+        let cancel_label = super::SysInspectUX::format_button("Cancel");
+        let gap = 3u16;
+        let btn_w = ok_label.len() as u16 + gap + cancel_label.len() as u16;
         let btn_x = inner.x + (inner.width.saturating_sub(btn_w)) / 2;
 
         let ok_style = if self.is_focused(SetupFocus::Ok) {
@@ -428,8 +452,8 @@ impl MasterSetupWizard {
             Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD)
         };
 
-        buf.set_string(btn_x, row_y, ok_label, ok_style);
-        buf.set_string(btn_x + ok_label.width() as u16 + 4, row_y, cancel_label, cancel_style);
+        buf.set_string(btn_x, row_y, &ok_label, ok_style);
+        buf.set_string(btn_x + ok_label.len() as u16 + gap, row_y, &cancel_label, cancel_style);
 
         if let Some(ref err) = self.error_message {
             let err_y = row_y.saturating_sub(1);
@@ -470,12 +494,12 @@ impl MasterSetupWizard {
     fn render_input_row(
         base_x: u16, row_y: &mut u16, inner_width: u16, buf: &mut Buffer, label: &str, state: &InputState, focused: bool, label_w: u16,
     ) {
-        let muted = Style::default().fg(palette::MUTED);
-        let focus_style = Style::default().fg(palette::ACCENT).add_modifier(Modifier::BOLD);
+        let muted = Style::default().fg(palette::FORM_LABEL);
+        let focus_style = Style::default().fg(palette::FORM_LABEL_SELECTED).add_modifier(Modifier::BOLD);
         let lstyle = if focused { focus_style } else { muted };
         let label_padded = format!("{:width$}", label, width = label_w as usize);
-        buf.set_string(base_x + 3, *row_y, &label_padded, lstyle);
-        let input_x = base_x + 3 + label_w;
+        buf.set_string(base_x + 2, *row_y, &label_padded, lstyle);
+        let input_x = base_x + 2 + label_w;
         let input_w = inner_width.saturating_sub(label_w + 6);
         if input_w > 0 {
             let mut is = Self::copy_input_state(state, focused);

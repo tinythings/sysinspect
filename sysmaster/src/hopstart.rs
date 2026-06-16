@@ -1,7 +1,21 @@
 use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::HopstartConfig;
+use std::sync::{Arc, OnceLock};
 use tokio::{process::Command, sync::Semaphore};
+
+/// Shared semaphore capping concurrent hopstart SSH calls across all callers.
+pub(crate) static HOPSTART_SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+
+/// Return the shared hopstart semaphore, falling back to allow-1 if not initialised.
+pub(crate) fn hopstart_semaphore() -> Arc<Semaphore> {
+    HOPSTART_SEMAPHORE.get().cloned().unwrap_or_else(|| Arc::new(Semaphore::new(1)))
+}
+
+/// Initialise the shared hopstart semaphore from the configured batch size.
+pub(crate) fn init_hopstart_semaphore(batch: usize) {
+    HOPSTART_SEMAPHORE.set(Arc::new(Semaphore::new(batch.max(1)))).ok();
+}
 
 #[derive(Clone)]
 pub(crate) struct HopStartTarget {
@@ -25,11 +39,11 @@ impl HopStartTarget {
         format!("{}@{}", self.user, self.host)
     }
 
-    fn log_issue(&self) {
+    pub(crate) fn log_issue(&self) {
         log::info!("Hop-start {} at {} as {}", self.host.yellow(), self.root.bright_white().bold(), self.user.bright_blue().bold());
     }
 
-    async fn issue(&self) -> Result<(), SysinspectError> {
+    pub(crate) async fn issue(&self) -> Result<(), SysinspectError> {
         let status = Command::new("ssh").arg(self.ssh_target()).arg(self.remote_command()).status().await?;
 
         if status.success() {
@@ -54,12 +68,12 @@ impl HopStarter {
     }
 
     pub(crate) async fn issue(&self, targets: Vec<HopStartTarget>) {
-        let limit = std::sync::Arc::new(Semaphore::new(self.cfg.batch().max(1)));
+        let limit = hopstart_semaphore();
         let mut tasks = Vec::with_capacity(targets.len());
 
         for target in targets {
             tasks.push(tokio::spawn({
-                let limit = std::sync::Arc::clone(&limit);
+                let limit = Arc::clone(&limit);
                 async move {
                     if let Ok(_permit) = limit.acquire_owned().await {
                         target.log_issue();

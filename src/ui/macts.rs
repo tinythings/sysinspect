@@ -32,7 +32,13 @@ const MENU_SECTIONS: &[MenuSection] = &[
 const MASTER_MENU_SECTIONS: &[MenuSection] = &[
     MenuSection {
         title: "Operations",
-        items: &[("View master logs online", "^O"), ("View local logs", "^L"), ("Register a minion", "^R"), ("Artefacts Manager", "^A")],
+        items: &[
+            ("View master logs online", "^O"),
+            ("View local logs", "^L"),
+            ("Register a minion", "^R"),
+            ("Artefacts Manager", "^A"),
+            ("Cluster upgrade", "^U"),
+        ],
     },
     MenuSection { title: "System", items: &[("Start", "^T"), ("Stop", "^S"), ("Restart", "^E")] },
 ];
@@ -222,7 +228,7 @@ impl SysInspectUX {
         let max_item_w = max_label_w + 20;
 
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
-        let is_system = self.master_menu_sel >= 4;
+        let is_system = self.master_menu_sel >= 5;
         let sub_title = if is_system { " System " } else { " Operations " };
         let segments = vec![
             TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::FG, modifier: Modifier::empty() },
@@ -230,7 +236,7 @@ impl SysInspectUX {
         ];
 
         let local_logs_available = self.cfg.logfile_std().exists() || self.cfg.logfile_err().exists();
-        let disabled = [!local_logs_available, false, false, false, false, false, false];
+        let disabled = [!local_logs_available, false, false, false, false, false, false, false];
 
         render_menu_popup(parent, buf, MASTER_MENU_SECTIONS, self.master_menu_sel, &segments, &title_style, max_item_w, &disabled);
     }

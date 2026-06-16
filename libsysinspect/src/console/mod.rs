@@ -119,6 +119,17 @@ pub struct ConsoleMinionProcessSignalRequest {
     pub signal: i32,
 }
 
+/// Request parameters for a minion self-upgrade via the master fileserver.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsoleMinionUpgradeSelfRequest {
+    /// Relative subpath of the new binary under the master fileserver root.
+    pub subpath: String,
+    /// Expected SHA-256 checksum of the new binary.
+    pub checksum: String,
+    /// Version label of the new binary.
+    pub version: String,
+}
+
 fn default_top_process_limit() -> usize {
     24
 }
@@ -336,6 +347,32 @@ pub enum ConsolePayload {
         #[serde(default)]
         failures: Vec<String>,
     },
+    /// Current cluster upgrade counts derived from master-side Sled markers.
+    UpgradeStatus {
+        /// Number of minions still marked as requiring upgrade/sync.
+        required: usize,
+        /// Number of marked minions last seen as unreachable during upgrade.
+        unreachable: usize,
+        /// Number of minions pending post-upgrade auto-hopstart.
+        #[serde(default)]
+        pending_post_upgrade: usize,
+    },
+    /// Result summary for one cluster upgrade run.
+    UpgradeSummary {
+        /// Number of offline minions upgraded successfully over SSH.
+        updated: usize,
+        /// Number of online minions that received a self-upgrade command.
+        dispatched: usize,
+        /// Number of minions skipped because they were unavailable or unmanaged.
+        skipped: usize,
+        /// Number of upgrade attempts that failed unexpectedly.
+        failed: usize,
+        /// Number of minions that were offline and had no SSH fallback.
+        offline: usize,
+        /// Human-readable details for skipped or failed minions.
+        #[serde(default)]
+        items: Vec<String>,
+    },
 }
 
 /// One online-minion summary row returned by the master.
@@ -363,6 +400,12 @@ pub struct ConsoleOnlineMinionRow {
     /// Whether the current runtime version is older than the matching repository version.
     #[serde(default)]
     pub outdated: bool,
+    /// Whether this minion is currently marked in the master's upgrade queue.
+    #[serde(default)]
+    pub upgrade_required: bool,
+    /// Whether the latest upgrade attempt marked this minion unreachable.
+    #[serde(default)]
+    pub upgrade_unreachable: bool,
     /// OS distribution reported by minion traits, if present.
     #[serde(default)]
     pub os_distribution: String,

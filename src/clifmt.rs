@@ -416,5 +416,22 @@ pub fn render_console_payload(payload: &ConsolePayload) -> String {
         ConsolePayload::MasterLogs { snapshot: _ } => String::new(),
         ConsolePayload::MasterModuleIndex { .. } => String::new(),
         ConsolePayload::MasterLibraryIndex { .. } => String::new(),
+        ConsolePayload::UpgradeStatus { required, unreachable, .. } => {
+            format!("Cluster upgrade status: required={required}, unreachable={unreachable}")
+        }
+        ConsolePayload::UpgradeSummary { updated, dispatched, skipped, failed, offline, items } => {
+            let mut out = vec![
+                format!("SSH upgraded:         {updated}"),
+                format!("Dispatched to online: {dispatched}"),
+                format!("Skipped:              {skipped}"),
+                format!("Failed:               {failed}"),
+                format!("Offline:              {offline}"),
+            ];
+            if !items.is_empty() {
+                out.push(String::new());
+                out.extend(items.clone());
+            }
+            out.join("\n")
+        }
     }
 }

@@ -64,6 +64,14 @@ impl CycleListItem {
             return vec![Span::styled(display, Style::default().fg(palette::FG))];
         }
 
+        if let Some((model, label)) = display.split_once(':') {
+            return vec![
+                Span::styled(model.to_string(), Style::default().fg(palette::PROCESSING_BASE)),
+                Span::styled(":", Style::default().fg(palette::FG)),
+                Span::styled(label.to_string(), Style::default().fg(palette::PROCESSING_PEAK)),
+            ];
+        }
+
         let parts: Vec<&str> = display.split('/').collect();
         match parts.as_slice() {
             [model, target] => vec![
@@ -76,7 +84,7 @@ impl CycleListItem {
                 Span::styled("/", Style::default().fg(palette::FG)),
                 Span::styled((*target).to_string(), Style::default().fg(palette::PROCESSING_HEAT)),
                 Span::styled("/", Style::default().fg(palette::FG)),
-                Span::styled((*state).to_string(), Style::default().fg(palette::PROCESSING_PEAK)),
+                Span::styled((*state).to_string(), Style::default().fg(palette::PRIMARY)),
             ],
             _ => vec![Span::styled(display, Style::default().fg(palette::FG))],
         }
@@ -241,9 +249,9 @@ impl DbListItem for MinionListItem {
         let _ = hl;
         let HostInfo { ipaddr, hostname } = self.hostname();
         Line::from(vec![
-            Span::styled(ipaddr, Style::default().fg(palette::GRAY_1)),
+            Span::styled(format_ip_octets(&ipaddr), Style::default().fg(palette::GRAY_1)),
             Span::raw(" "),
-            Span::styled(hostname, Style::default().fg(palette::FG)),
+            Span::styled(hostname, Style::default().fg(palette::PROCESSING_PEAK)),
         ])
     }
 
@@ -251,6 +259,11 @@ impl DbListItem for MinionListItem {
         let HostInfo { ipaddr, hostname } = self.hostname();
         format!("{ipaddr} ({hostname})")
     }
+}
+
+fn format_ip_octets(ip: &str) -> String {
+    let octets: Vec<&str> = ip.split('.').collect();
+    if octets.len() == 4 { format!("{:>3}.{:>3}.{:>3}.{:>3}", octets[0], octets[1], octets[2], octets[3]) } else { format!("{:>15}", ip) }
 }
 
 fn right_pad(s: &str, width: usize) -> String {

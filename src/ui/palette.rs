@@ -123,6 +123,9 @@ pub const FORM_LABEL: Color = SUCCESS_PEAK;
 /// Form labels when the associated control is disabled.
 pub const FORM_LABEL_DIMMED: Color = SUCCESS_BASE;
 
+/// Form labels when selected.
+pub const FORM_LABEL_SELECTED: Color = HIGHLIGHT;
+
 /// Work in progress / active processing.
 pub const PROCESSING: Color = Color::Indexed(171);
 
