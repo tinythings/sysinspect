@@ -287,6 +287,7 @@ impl SysMaster {
                     let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let current_sha = minion.get_traits().get("minion.binary.sha256").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let os_dist = minion.get_traits().get("system.os.name").and_then(|v| v.as_str()).unwrap_or_default().to_lowercase();
+                    let os_distribution = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let target_sha = repo_checksums.get(&(os_dist.clone(), arch.clone())).cloned().unwrap_or_default();
                     let target_version = repo_versions.get(&(os_dist.clone(), arch)).cloned().unwrap_or_default();
@@ -305,7 +306,7 @@ impl SysMaster {
                         upgrade_unreachable: upgrade_marker.as_ref().is_some_and(|marker| marker.unreachable),
                         version: current_version,
                         target_version,
-                        os_distribution: os_dist,
+                        os_distribution,
                         os_name,
                         os_version,
                         kernel,

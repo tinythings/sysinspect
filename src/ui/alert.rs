@@ -390,6 +390,25 @@ impl SysInspectUX {
                     Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
                 )
             }
+            4 => Self::_popup_ex(
+                parent,
+                buf,
+                Some("Cluster Operation"),
+                "\nStart every offline minion\nin the cluster?",
+                None,
+                Alignment::Center,
+                self.cluster_confirm_choice.clone(),
+                AlertButtons::YesNo,
+                Some(0),
+                Some(palette::PROCESSING_PEAK),
+                None,
+                None,
+                Some(palette::WHITE),
+                None,
+                None,
+                None,
+                Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
+            ),
             _ => return,
         };
         self.popup_button_rects.set(Some(rects));

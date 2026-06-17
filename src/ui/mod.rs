@@ -22,7 +22,7 @@ use libsysinspect::{
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
+        CLUSTER_CONFIG_RELOAD, CLUSTER_HOPSTART, CLUSTER_LIBRARY_INDEX, CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
         CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
         CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION,
         CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
@@ -1360,10 +1360,12 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 6 {
                     self.open_cluster_confirm(3);
                 } else if self.minions_menu_sel == 7 {
-                    self.open_cluster_confirm(1);
+                    self.open_cluster_confirm(4);
                 } else if self.minions_menu_sel == 8 {
-                    self.open_cluster_confirm(2);
+                    self.open_cluster_confirm(1);
                 } else if self.minions_menu_sel == 9 {
+                    self.open_cluster_confirm(2);
+                } else if self.minions_menu_sel == 10 {
                     self.registration_form.visible = true;
                 }
             }
@@ -1835,6 +1837,10 @@ impl SysInspectUX {
                 self.open_cluster_confirm(1);
                 true
             }
+            KeyCode::Char('h') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_cluster_confirm(4);
+                true
+            }
             KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.open_cluster_confirm(2);
                 true
@@ -1909,6 +1915,7 @@ impl SysInspectUX {
                         1 => self.do_cluster_shutdown(),
                         2 => self.do_cluster_reconnect(),
                         3 => self.do_minion_delete(self.delete_force_remove),
+                        4 => self.do_cluster_hopstart(),
                         _ => {}
                     }
                 }
@@ -1949,6 +1956,20 @@ impl SysInspectUX {
             Err(err) => {
                 self.error_alert_visible = true;
                 self.error_alert_message = format!("Cluster shutdown failed: {err}");
+                self.status_at_minions_browser();
+            }
+        }
+    }
+
+    fn do_cluster_hopstart(&mut self) {
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}"), "*", None, None, None).await })
+        }) {
+            Ok(_) => self.status_at_minions_browser(),
+            Err(err) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cluster start failed: {err}");
                 self.status_at_minions_browser();
             }
         }

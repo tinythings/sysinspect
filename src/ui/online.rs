@@ -12,7 +12,7 @@ use ratatui::{
     prelude::{Buffer, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarState, StatefulWidget, Table, Widget},
 };
 use ratatui_cheese::{
     input::{Input, InputState},
@@ -123,13 +123,11 @@ impl SysInspectUX {
             .try_into()
             .unwrap();
 
-        let max_w = 10u16;
-
         let online_selected = self.minions_online_sel.min(online_filtered.len().saturating_sub(1));
         let offline_selected = self.minions_offline_sel.min(offline_filtered.len().saturating_sub(1));
 
-        Self::_render_pane(self, "Online", &online_filtered, online_pane, buf, focus_enabled && self.minions_focus == 1, online_selected, max_w);
-        Self::_render_pane(self, "Offline", &offline_filtered, offline_pane, buf, focus_enabled && self.minions_focus == 2, offline_selected, max_w);
+        Self::_render_pane(self, "Online", &online_filtered, online_pane, buf, focus_enabled && self.minions_focus == 1, online_selected);
+        Self::_render_pane(self, "Offline", &offline_filtered, offline_pane, buf, focus_enabled && self.minions_focus == 2, offline_selected);
     }
 
     fn _render_filter(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
@@ -156,7 +154,7 @@ impl SysInspectUX {
 
     #[allow(clippy::too_many_arguments)]
     fn _render_pane(
-        &self, title: &str, filtered: &[&&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, active: bool, selected: usize, max_w: u16,
+        &self, title: &str, filtered: &[&&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, active: bool, selected: usize,
     ) {
         let popup_bg = palette::BG_1;
         let t = format!(" {title} ({}) ", filtered.len());
@@ -195,50 +193,79 @@ impl SysInspectUX {
 
         let ip_data: Vec<String> =
             filtered.iter().map(|r| if r.upgrade_unreachable { format!("📦 {}", Self::_fmt_ip(&r.ip)) } else { Self::_fmt_ip(&r.ip) }).collect();
-        let host_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::online_host(r), max_w as usize)).collect();
-        let ver_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&Self::_fmt_version(r), max_w as usize)).collect();
-        let id_data: Vec<String> = filtered.iter().map(|r| Self::shorten_mid(&r.minion_id, 4)).collect();
-        let os_data: Vec<String> = filtered
+        let host_data: Vec<String> = filtered.iter().map(|r| Self::online_host(r)).collect();
+        let ver_data: Vec<String> = filtered.iter().map(|r| Self::_fmt_version(r)).collect();
+        let dist_name_data: Vec<String> = filtered
             .iter()
-            .map(|r| {
-                let name = if r.os_name.is_empty() { "-" } else { r.os_name.as_str() };
-                let dist = if r.os_distribution.is_empty() { "-" } else { r.os_distribution.as_str() };
-                Self::_trunc_ellipsis(&format!("{name}/{dist}"), max_w as usize)
-            })
+            .map(|r| if r.os_distribution.is_empty() { "-".to_string() } else { r.os_distribution.clone() })
             .collect();
-        let osv_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&r.os_version, max_w as usize)).collect();
-        let ker_data: Vec<String> = filtered.iter().map(|r| r.kernel.clone()).collect();
+        let dist_ver_data: Vec<String> = filtered
+            .iter()
+            .map(|r| if r.os_version.is_empty() { "-".to_string() } else { r.os_version.clone() })
+            .collect();
 
         let ip_w = ip_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
         let host_w = host_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(4).max(4);
-        let ver_w = ver_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(7).min(max_w);
-        let id_w = id_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
-        let os_w = os_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
-        let osv_w = osv_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
-        let ker_w = ker_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+        let ver_w = ver_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+        let dist_w = dist_name_data
+            .iter()
+            .zip(dist_ver_data.iter())
+            .map(|(n, v)| (UnicodeWidthStr::width(n.as_str()) + 1 + UnicodeWidthStr::width(v.as_str())) as u16)
+            .max()
+            .unwrap_or(3)
+            .max(3);
 
-        let base_w: Vec<u16> = vec![ip_w, host_w, ver_w, id_w, os_w, osv_w, ker_w];
-        let mut cols: Vec<Constraint> = base_w.into_iter().map(Constraint::Length).collect();
-        cols.push(Constraint::Min(1));
+        let col_spacing: u16 = 1;
+        let fixed_w = ip_w + host_w + ver_w + dist_w + 5 * col_spacing + 1;
+        let ker_avail = inner.width.saturating_sub(fixed_w) as usize;
+        let ker_data: Vec<String> = filtered.iter().map(|r| Self::_trunc_ellipsis(&r.kernel, ker_avail)).collect();
+
+        let cols: Vec<Constraint> = vec![
+            Constraint::Length(ip_w),
+            Constraint::Length(host_w),
+            Constraint::Length(ver_w),
+            Constraint::Length(dist_w),
+            Constraint::Length(ker_avail as u16),
+            Constraint::Length(1),
+        ];
 
         let sel_style = if active { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::SECONDARY) };
         let norm_style = Style::default().fg(palette::FG).bg(popup_bg);
+        let ip_style = Style::default().fg(palette::GRAY_1).bg(popup_bg);
+        let host_style = Style::default().fg(palette::PROCESSING_PEAK).bg(popup_bg);
         let rows: Vec<Row> = filtered
             .iter()
             .enumerate()
             .map(|(idx, _)| {
-                let sty = if idx == selected { sel_style } else { norm_style };
-                Row::new(vec![
-                    ip_data[idx].as_str(),
-                    host_data[idx].as_str(),
-                    ver_data[idx].as_str(),
-                    id_data[idx].as_str(),
-                    os_data[idx].as_str(),
-                    osv_data[idx].as_str(),
-                    ker_data[idx].as_str(),
-                    "",
-                ])
-                .style(sty)
+                if idx == selected {
+                    Row::new(vec![
+                        Cell::from(ip_data[idx].as_str()),
+                        Cell::from(host_data[idx].as_str()),
+                        Cell::from(ver_data[idx].as_str()),
+                        Cell::from(Line::from(vec![
+                            Span::raw(dist_name_data[idx].as_str()),
+                            Span::raw("/"),
+                            Span::raw(dist_ver_data[idx].as_str()),
+                        ])),
+                        Cell::from(ker_data[idx].as_str()),
+                        Cell::from(""),
+                    ])
+                    .style(sel_style)
+                } else {
+                    Row::new(vec![
+                        Cell::from(ip_data[idx].as_str()).style(ip_style),
+                        Cell::from(host_data[idx].as_str()).style(host_style),
+                        Cell::from(ver_data[idx].as_str()).style(Style::default().fg(palette::PROCESSING_GLOW).bg(popup_bg)),
+                        Cell::from(Line::from(vec![
+                            Span::styled(dist_name_data[idx].as_str(), Style::default().fg(palette::PROCESSING_PEAK)),
+                            Span::styled("/", Style::default().fg(palette::FG)),
+                            Span::styled(dist_ver_data[idx].as_str(), Style::default().fg(palette::PRIMARY)),
+                        ])),
+                        Cell::from(ker_data[idx].as_str()).style(Style::default().fg(palette::PROCESSING_GLOW).bg(popup_bg)),
+                        Cell::from(""),
+                    ])
+                    .style(norm_style)
+                }
             })
             .collect();
 
@@ -308,6 +335,10 @@ impl SysInspectUX {
         if ip.is_empty() {
             return "unknown".to_string();
         }
+        let parts: Vec<&str> = ip.split('.').collect();
+        if parts.len() == 4 && parts.iter().all(|p| p.parse::<u8>().is_ok()) {
+            return format!("{:>3}.{:>3}.{:>3}.{:>3}", parts[0], parts[1], parts[2], parts[3]);
+        }
         if ip.len() > 15 {
             return ip.chars().take(15).collect::<String>() + "…";
         }
@@ -333,7 +364,7 @@ impl SysInspectUX {
         let start = if selected < vis_rows { 0 } else { (selected + 1).saturating_sub(vis_rows) };
         let end = (start + vis_rows).min(rows.len());
         let displayed: Vec<Row> = if start < rows.len() { rows[start..end].to_vec() } else { vec![] };
-        Widget::render(Table::new(displayed, cols).column_spacing(2), area, buf);
+        Widget::render(Table::new(displayed, cols).column_spacing(1), area, buf);
         let scroller_area = Rect { x: area.right().saturating_sub(1), y: area.y, width: 1, height: area.height };
         let mut scroller = ScrollbarState::default().content_length(rows.len()).position(selected);
         Scrollbar::default()

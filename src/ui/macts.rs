@@ -25,7 +25,7 @@ const MENU_SECTIONS: &[MenuSection] = &[
     },
     MenuSection {
         title: "Cluster Operations",
-        items: &[("Shutdown everything", "^X"), ("Reconnect all minions", "^A"), ("Register a new minion", "INS")],
+        items: &[("Start all minions", "^H"), ("Shutdown everything", "^X"), ("Reconnect all minions", "^A"), ("Register a new minion", "INS")],
     },
 ];
 
