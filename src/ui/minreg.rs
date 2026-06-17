@@ -461,7 +461,7 @@ pub fn render_progress(progress: &RegistrationProgress, parent: Rect, buf: &mut 
 
 /// Handle keyboard input for the progress popup.
 pub fn handle_progress_key(key: KeyEvent, progress: &mut RegistrationProgress) -> bool {
-    if !progress.visible || progress.done {
+    if !progress.visible || (progress.done && progress.error.is_none()) {
         if matches!(key.code, KeyCode::Esc | KeyCode::Enter) || key.code == KeyCode::Char(' ') {
             return true;
         }

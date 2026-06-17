@@ -2446,7 +2446,14 @@ pub(crate) fn setup(args: &ArgMatches) -> Result<(), SysinspectError> {
         }
     }
 
-    libsetup::mnsetup::MinionSetup::new().set_config(get_minion_config(None)?).set_alt_dir(dir.to_str().unwrap_or_default().to_string()).setup()
+    let cfg = get_minion_config(None)?;
+    libsetup::mnsetup::MinionSetup::new().set_config(cfg.clone()).set_alt_dir(dir.to_str().unwrap_or_default().to_string()).setup()?;
+
+    if !cfg.machine_id_path().exists() {
+        util::write_machine_id(Some(cfg.machine_id_path()))?;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn setup_master_addr(addr: Option<&str>, ssh_ip: Option<String>) -> Result<(String, u32), SysinspectError> {

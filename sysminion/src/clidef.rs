@@ -61,6 +61,12 @@ pub fn cli(version: &'static str, appname: &'static str) -> Command {
                 .action(ArgAction::SetTrue)
                 .help("Display minion info")
         )
+        .arg(
+            Arg::new("id")
+                .long("id")
+                .action(ArgAction::SetTrue)
+                .help("Print minion system ID to stdout and exit")
+        )
 
         .next_help_heading("Minion")
         .subcommand(Command::new("setup").about("Minion local setup").styles(styles.clone()).disable_help_flag(true)

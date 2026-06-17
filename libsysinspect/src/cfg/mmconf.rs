@@ -790,11 +790,7 @@ impl MinionConfig {
         }
 
         let default = PathBuf::from(DEFAULT_MINION_MACHINE_ID);
-        if default.exists() {
-            default
-        } else {
-            self.root_dir().join(DEFAULT_MINION_MACHINE_ID_REL)
-        }
+        if default.exists() { default } else { self.root_dir().join(DEFAULT_MINION_MACHINE_ID_REL) }
     }
 
     /// Return sharelib path

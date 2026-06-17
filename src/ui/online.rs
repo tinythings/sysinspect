@@ -153,9 +153,7 @@ impl SysInspectUX {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn _render_pane(
-        &self, title: &str, filtered: &[&&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, active: bool, selected: usize,
-    ) {
+    fn _render_pane(&self, title: &str, filtered: &[&&ConsoleOnlineMinionRow], area: Rect, buf: &mut Buffer, active: bool, selected: usize) {
         let popup_bg = palette::BG_1;
         let t = format!(" {title} ({}) ", filtered.len());
         let block = if active {
@@ -194,19 +192,28 @@ impl SysInspectUX {
         let ip_data: Vec<String> =
             filtered.iter().map(|r| if r.upgrade_unreachable { format!("📦 {}", Self::_fmt_ip(&r.ip)) } else { Self::_fmt_ip(&r.ip) }).collect();
         let host_data: Vec<String> = filtered.iter().map(|r| Self::online_host(r)).collect();
-        let ver_data: Vec<String> = filtered.iter().map(|r| Self::_fmt_version(r)).collect();
-        let dist_name_data: Vec<String> = filtered
+        let ver_from_data: Vec<String> = filtered.iter().map(|r| if r.version.is_empty() { "-".to_string() } else { r.version.clone() }).collect();
+        let ver_to_data: Vec<String> = filtered
             .iter()
-            .map(|r| if r.os_distribution.is_empty() { "-".to_string() } else { r.os_distribution.clone() })
+            .map(|r| if r.outdated && !r.version.is_empty() && !r.target_version.is_empty() { r.target_version.clone() } else { String::new() })
             .collect();
-        let dist_ver_data: Vec<String> = filtered
-            .iter()
-            .map(|r| if r.os_version.is_empty() { "-".to_string() } else { r.os_version.clone() })
-            .collect();
+        let dist_name_data: Vec<String> =
+            filtered.iter().map(|r| if r.os_distribution.is_empty() { "-".to_string() } else { r.os_distribution.clone() }).collect();
+        let dist_ver_data: Vec<String> =
+            filtered.iter().map(|r| if r.os_version.is_empty() { "-".to_string() } else { r.os_version.clone() }).collect();
 
         let ip_w = ip_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
         let host_w = host_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(4).max(4);
-        let ver_w = ver_data.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+        let ver_w = ver_from_data
+            .iter()
+            .zip(ver_to_data.iter())
+            .map(|(f, t)| {
+                let fw = UnicodeWidthStr::width(f.as_str());
+                if t.is_empty() { fw as u16 } else { (fw + 1 + UnicodeWidthStr::width(t.as_str())) as u16 }
+            })
+            .max()
+            .unwrap_or(2)
+            .max(2);
         let dist_w = dist_name_data
             .iter()
             .zip(dist_ver_data.iter())
@@ -238,24 +245,34 @@ impl SysInspectUX {
             .enumerate()
             .map(|(idx, _)| {
                 if idx == selected {
+                    let ver_cell = if ver_to_data[idx].is_empty() {
+                        Cell::from(ver_from_data[idx].as_str())
+                    } else {
+                        Cell::from(Line::from(vec![Span::raw(ver_from_data[idx].as_str()), Span::raw("→"), Span::raw(ver_to_data[idx].as_str())]))
+                    };
                     Row::new(vec![
                         Cell::from(ip_data[idx].as_str()),
                         Cell::from(host_data[idx].as_str()),
-                        Cell::from(ver_data[idx].as_str()),
-                        Cell::from(Line::from(vec![
-                            Span::raw(dist_name_data[idx].as_str()),
-                            Span::raw("/"),
-                            Span::raw(dist_ver_data[idx].as_str()),
-                        ])),
+                        ver_cell,
+                        Cell::from(Line::from(vec![Span::raw(dist_name_data[idx].as_str()), Span::raw("/"), Span::raw(dist_ver_data[idx].as_str())])),
                         Cell::from(ker_data[idx].as_str()),
                         Cell::from(""),
                     ])
                     .style(sel_style)
                 } else {
+                    let ver_cell = if ver_to_data[idx].is_empty() {
+                        Cell::from(ver_from_data[idx].as_str()).style(Style::default().fg(palette::PROCESSING_GLOW).bg(popup_bg))
+                    } else {
+                        Cell::from(Line::from(vec![
+                            Span::styled(ver_from_data[idx].as_str(), Style::default().fg(palette::PROCESSING_GLOW)),
+                            Span::styled("→", Style::default().fg(palette::ERROR)),
+                            Span::styled(ver_to_data[idx].as_str(), Style::default().fg(palette::WARNING_HEAT)),
+                        ]))
+                    };
                     Row::new(vec![
                         Cell::from(ip_data[idx].as_str()).style(ip_style),
                         Cell::from(host_data[idx].as_str()).style(host_style),
-                        Cell::from(ver_data[idx].as_str()).style(Style::default().fg(palette::PROCESSING_GLOW).bg(popup_bg)),
+                        ver_cell,
                         Cell::from(Line::from(vec![
                             Span::styled(dist_name_data[idx].as_str(), Style::default().fg(palette::PROCESSING_PEAK)),
                             Span::styled("/", Style::default().fg(palette::FG)),

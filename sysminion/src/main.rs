@@ -279,6 +279,17 @@ fn main() -> std::io::Result<()> {
         std::process::exit(0);
     }
 
+    if params.get_flag("id") {
+        let cfg = get_config(&params);
+        let p = cfg.machine_id_path();
+        if p.exists()
+            && let Ok(id) = std::fs::read_to_string(&p)
+        {
+            print!("{}", id.trim());
+        }
+        std::process::exit(0);
+    }
+
     // Setup logger
     if let Err(err) = log::set_boxed_logger(Box::new(RingBufferLogger { nocolor: params.get_flag("no-color") })).map(|()| {
         log::set_max_level(match params.get_count("debug") {
