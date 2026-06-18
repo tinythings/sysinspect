@@ -50,6 +50,10 @@ impl EventHandler for ConstraintHandler {
             return;
         }
 
+        if evt.response.is_not_applicable() {
+            return;
+        }
+
         let prefix = self.get_prefix();
 
         if evt.constraints.is_info() {

@@ -565,6 +565,14 @@ impl ModCall {
         self.state.to_owned()
     }
 
+    pub fn aid(&self) -> &str {
+        &self.aid
+    }
+
+    pub fn eid(&self) -> &str {
+        &self.eid
+    }
+
     /// Get state ref
     pub fn with_state(&self, state: String) -> bool {
         self.state == state

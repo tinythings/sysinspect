@@ -41,8 +41,19 @@ impl EventHandler for StdoutEventHandler {
             }
         }
 
-        if evt.response.retcode() == 0 {
+        if evt.response.is_success() {
             log::info!("{}{}/{} - {}", prefix, evt.eid().bright_cyan(), evt.aid().bright_cyan(), evt.response.message());
+            if verbose && let Some(data) = evt.response.data() {
+                log::info!(
+                    "{}{}/{} - Other data:\n{}",
+                    prefix,
+                    evt.eid().bright_cyan(),
+                    evt.aid().bright_cyan(),
+                    KeyValueFormatter::new(data).format()
+                );
+            }
+        } else if evt.response.is_not_applicable() {
+            log::info!("{}{}/{} (Not applicable) - {}", prefix, evt.eid().bright_cyan(), evt.aid().bright_cyan(), evt.response.message());
             if verbose && let Some(data) = evt.response.data() {
                 log::info!(
                     "{}{}/{} - Other data:\n{}",

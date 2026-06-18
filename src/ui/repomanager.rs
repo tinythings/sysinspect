@@ -43,6 +43,7 @@ pub enum StagingFocus {
 pub enum StagingMode {
     ModuleAdd,
     ModuleDelete,
+    LibraryDelete,
     ProfileModuleAdd,
     ProfileLibraryAdd,
 }
@@ -80,6 +81,7 @@ pub struct RepoManager {
     pub bulk_add_triggered: bool,
     pub bulk_delete_triggered: bool,
     pub needs_reload: bool,
+    pub pending_cluster_upgrade: bool,
 
     // Filter
     pub filter: InputState,
@@ -136,6 +138,7 @@ impl Default for RepoManager {
             bulk_add_triggered: false,
             bulk_delete_triggered: false,
             needs_reload: false,
+            pending_cluster_upgrade: false,
             filter: InputState::new(),
             filter_focus: false,
             info_visible: false,
@@ -271,7 +274,7 @@ impl RepoManager {
                 self.staging_focus = match self.staging_focus {
                     List => AddSelected,
                     AddSelected => {
-                        if self.delete_mode {
+                        if self.delete_mode && matches!(self.staging_mode, StagingMode::ModuleDelete) {
                             CrossPlatformDelete
                         } else {
                             Cancel
@@ -287,7 +290,7 @@ impl RepoManager {
                     List => Cancel,
                     AddSelected => List,
                     Cancel => {
-                        if self.delete_mode {
+                        if self.delete_mode && matches!(self.staging_mode, StagingMode::ModuleDelete) {
                             CrossPlatformDelete
                         } else {
                             AddSelected
@@ -552,7 +555,7 @@ impl RepoManager {
         }
 
         // Cross-platform delete checkbox
-        if self.delete_mode {
+        if self.delete_mode && matches!(self.staging_mode, StagingMode::ModuleDelete) {
             let chk_y = inner.y + list_height + 1;
             let (chk, chk_style) = if self.cross_platform_delete {
                 ("▣", Style::default().fg(palette::SUCCESS))
@@ -574,7 +577,7 @@ impl RepoManager {
         }
 
         // Buttons
-        let btn_y = inner.y + list_height + (if self.delete_mode { 2 } else { 1 });
+        let btn_y = inner.y + list_height + (if self.delete_mode && matches!(self.staging_mode, StagingMode::ModuleDelete) { 2 } else { 1 });
         let action_label = if self.delete_mode { "[ Delete ]" } else { "[ Add Selected ]" };
         let cancel_label = "[ Cancel ]";
         let action_w = action_label.len() as u16;

@@ -25,7 +25,7 @@ use libsysproto::query::{
         CLUSTER_CONFIG_RELOAD, CLUSTER_HOPSTART, CLUSTER_LIBRARY_INDEX, CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
         CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
         CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION,
-        CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
+        CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
     },
 };
 use ratatui::{
@@ -997,7 +997,7 @@ impl SysInspectUX {
                     if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
-                    self.mark_cluster_upgrade_required();
+                    self.mark_repo_sync_pending();
                 }
             } else {
                 // Track that a reload is needed when progress finishes
@@ -1724,6 +1724,10 @@ impl SysInspectUX {
         }
     }
 
+    fn mark_repo_sync_pending(&mut self) {
+        self.repo_manager.pending_cluster_upgrade = true;
+    }
+
     fn start_cluster_upgrade(&mut self) {
         self.cluster_upgrade_progress.visible = true;
         self.cluster_upgrade_progress.message = "Applying repository updates across the cluster...".to_string();
@@ -1744,6 +1748,38 @@ impl SysInspectUX {
                     _ => Err("Unexpected console payload for cluster upgrade".to_string()),
                 })
         }));
+    }
+
+    fn start_cluster_sync(&mut self) {
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, None).await })
+        }) {
+            Ok(resp) => {
+                self.refresh_cluster_upgrade_status();
+                self.refresh_minions();
+                match resp.payload {
+                    ConsolePayload::Ack { items, .. } => {
+                        self.info_alert_visible = true;
+                        self.info_alert_title = "Cluster Sync".to_string();
+                        self.info_alert_styled = None;
+                        self.info_alert_message = if items.is_empty() {
+                            "Cluster sync dispatched".to_string()
+                        } else {
+                            format!("Cluster sync dispatched\n\n{}", items.join("\n"))
+                        };
+                    }
+                    other => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Unexpected console payload for cluster sync: {other:?}");
+                    }
+                }
+            }
+            Err(err) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Failed to run cluster sync: {err}");
+            }
+        }
     }
 
     fn load_selected_minion_info(&mut self) {
@@ -2603,12 +2639,26 @@ impl SysInspectUX {
                     self.error_alert_visible = true;
                     self.error_alert_message = "No items selected".to_string();
                 } else {
+                    let staging_mode = self.repo_manager.staging_mode;
+                    let cross_platform_delete = self.repo_manager.cross_platform_delete;
                     self.repo_manager.exit_staging();
-                    if self.repo_manager.cross_platform_delete {
-                        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
-                        self.bulk_delete_modules(&names);
-                    } else {
-                        self.bulk_delete_single_platform(&checked);
+                    match staging_mode {
+                        repomanager::StagingMode::LibraryDelete => {
+                            let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                            self.bulk_delete_libraries(&names);
+                        }
+                        repomanager::StagingMode::ModuleDelete => {
+                            if cross_platform_delete {
+                                let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                                self.bulk_delete_modules(&names);
+                            } else {
+                                self.bulk_delete_single_platform(&checked);
+                            }
+                        }
+                        _ => {
+                            let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                            self.bulk_delete_modules(&names);
+                        }
                     }
                 }
             }
@@ -2792,9 +2842,14 @@ impl SysInspectUX {
                     }
                     self.repo_manager.models_dirty = false;
                 }
+                let start_repo_sync = self.repo_manager.pending_cluster_upgrade;
+                self.repo_manager.pending_cluster_upgrade = false;
                 self.repo_manager.exit_staging();
                 self.repo_manager.visible = false;
                 self.status_at_cycles();
+                if start_repo_sync {
+                    self.start_cluster_sync();
+                }
             }
             KeyCode::Left => {
                 self.repo_manager.active_tab = self.repo_manager.active_tab.saturating_sub(1);
@@ -2971,6 +3026,7 @@ impl SysInspectUX {
                     }
                 } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
                     self.repo_manager.delete_mode = true;
+                    self.repo_manager.cross_platform_delete = false;
                     self.repo_manager.staged = self
                         .repo_manager
                         .lib_rows
@@ -2985,6 +3041,7 @@ impl SysInspectUX {
                             arch: None,
                         })
                         .collect();
+                    self.repo_manager.staging_mode = repomanager::StagingMode::LibraryDelete;
                     self.repo_manager.staging = true;
                     self.repo_manager.staging_cursor = 0;
                     self.repo_manager.staging_focus = repomanager::StagingFocus::List;
@@ -3192,7 +3249,7 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "new", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
@@ -3200,21 +3257,21 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "delete", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
     fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
     fn do_profile_remove_match(&mut self, name: &str, selector: &str, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "remove", "name": name, "matches": [selector], "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
@@ -3452,7 +3509,6 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(ids)?;
         self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
         self.repo_manager.models_dirty = true;
-        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3501,7 +3557,6 @@ impl SysInspectUX {
         {
             Ok(()) => {
                 self.repo_manager.models_dirty = true;
-                self.mark_cluster_upgrade_required();
                 self.info_alert_visible = true;
                 self.info_alert_title = "Model Import".to_string();
                 self.info_alert_styled = None;
@@ -3525,7 +3580,6 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(enabled_ids.clone())?;
         self.refresh_local_model_rows(&enabled_ids)?;
         self.repo_manager.models_dirty = true;
-        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3696,7 +3750,7 @@ impl SysInspectUX {
             self.error_alert_message = format!("Cannot remove modules: {e}");
         } else {
             let _ = self.load_module_index();
-            self.mark_cluster_upgrade_required();
+            self.mark_repo_sync_pending();
         }
     }
 
@@ -3720,7 +3774,26 @@ impl SysInspectUX {
             }
         }
         let _ = self.load_module_index();
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
+    }
+
+    fn bulk_delete_libraries(&mut self, names: &[String]) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        if let Err(e) = repo.remove_library(names.to_vec()) {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Cannot remove libraries: {e}");
+        } else {
+            let _ = self.load_library_index();
+            self.mark_repo_sync_pending();
+        }
     }
 
     fn process_library_add(&mut self, path: &std::path::Path) {
@@ -3739,7 +3812,7 @@ impl SysInspectUX {
                 self.error_alert_message = format!("Cannot add library: {e}");
             } else {
                 self.load_library_index().ok();
-                self.mark_cluster_upgrade_required();
+                self.mark_repo_sync_pending();
             }
         } else {
             // Single file: wrap in temp dir, use add_library
@@ -3753,7 +3826,7 @@ impl SysInspectUX {
                         self.error_alert_message = format!("Cannot add library file: {e}");
                     } else {
                         self.load_library_index().ok();
-                        self.mark_cluster_upgrade_required();
+                        self.mark_repo_sync_pending();
                     }
                     let _ = std::fs::remove_dir_all(&tmp);
                 }

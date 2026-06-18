@@ -149,19 +149,31 @@ impl EventListItem {
         Cell::from(v).style(Style::default().fg(palette::ERROR).add_modifier(Modifier::BOLD))
     }
 
+    fn outcome(&self) -> String {
+        self.event.get_response().get("outcome").and_then(|value| value.as_str()).map(str::to_string).unwrap_or_else(|| {
+            if as_int(self.event.get_response().get("retcode").cloned()) == 0 { "success".to_string() } else { "error".to_string() }
+        })
+    }
+
     pub fn get_aligned_line(&self, left_pad: usize) -> Line<'static> {
         let arrow = " \u{27A4}  ";
         let t = self.title().replace(" with ", arrow);
+        let (text_style, arrow_style) = match self.outcome().as_str() {
+            "error" => {
+                (Style::default().fg(palette::ERROR).add_modifier(Modifier::BOLD), Style::default().fg(palette::ERROR).add_modifier(Modifier::BOLD))
+            }
+            "not_applicable" => (
+                Style::default().fg(palette::WARNING).add_modifier(Modifier::BOLD),
+                Style::default().fg(palette::WARNING).add_modifier(Modifier::BOLD),
+            ),
+            _ => (Style::default().fg(palette::FG), Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD)),
+        };
         if let Some(pos) = t.find(arrow) {
             let left = right_pad(&t[..pos], left_pad);
             let after = &t[pos + arrow.len()..];
-            Line::from(vec![
-                Span::styled(left, Style::default().fg(palette::FG)),
-                Span::styled(arrow, Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD)),
-                Span::styled(after.to_string(), Style::default().fg(palette::FG)),
-            ])
+            Line::from(vec![Span::styled(left, text_style), Span::styled(arrow, arrow_style), Span::styled(after.to_string(), text_style)])
         } else {
-            Line::from(vec![Span::styled(t, Style::default().fg(palette::FG))])
+            Line::from(vec![Span::styled(t, text_style)])
         }
     }
 
@@ -172,14 +184,15 @@ impl EventListItem {
 
     /// Get events data table
     pub fn get_event_table(&self, keywidth: usize) -> Vec<Row<'_>> {
+        let outcome = self.outcome();
         vec![
             Row::new(vec![Self::yc("Info:".to_string(), keywidth), Self::gc(as_str(self.event.get_response().get("message").cloned()))]),
             Row::new(vec![
-                Self::yc("Return code:".to_string(), keywidth),
-                if as_int(self.event.get_response().get("retcode").cloned()) == 0 {
-                    Self::grc("Success".to_string())
-                } else {
-                    Self::rc(format!("Error - {}", as_int(self.event.get_response().get("retcode").cloned())))
+                Self::yc("Outcome:".to_string(), keywidth),
+                match outcome.as_str() {
+                    "error" => Self::rc(format!("Error - {}", as_int(self.event.get_response().get("retcode").cloned()))),
+                    "not_applicable" => Cell::from("Not Applicable").style(Style::default().fg(palette::WARNING).add_modifier(Modifier::BOLD)),
+                    _ => Self::grc("Success".to_string()),
                 },
             ]),
             Row::new(vec![Self::yc("Occurred:".to_string(), keywidth), Self::gc(self.event.get_timestamp())]),
@@ -195,7 +208,26 @@ impl DbListItem for EventListItem {
     type EventType = EventData;
 
     fn title(&self) -> String {
-        as_str(self.event.get_constraints().get("descr").cloned())
+        let descr = as_str(self.event.get_constraints().get("descr").cloned());
+        if !descr.trim().is_empty() {
+            return descr;
+        }
+
+        let action = self.event.get_action_id();
+        let module =
+            self.event.get_response().get("data").and_then(|data| data.get("module")).map(|value| as_str(Some(value.clone()))).unwrap_or_default();
+
+        if !action.trim().is_empty() && !module.trim().is_empty() {
+            return format!("{action} with {module}");
+        }
+        if !action.trim().is_empty() {
+            return action;
+        }
+        if !module.trim().is_empty() {
+            return module;
+        }
+
+        "failed action".to_string()
     }
 
     /// Stub

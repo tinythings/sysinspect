@@ -6,6 +6,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionOutcome {
+    #[default]
+    Success,
+    Error,
+    NotApplicable,
+}
+
 /// This struct is a future carrier of tracability.
 /// Currently only a single string log message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +127,9 @@ pub struct ActionModResponse {
     // Return code
     retcode: i32,
 
+    #[serde(default)]
+    outcome: ActionOutcome,
+
     // Warnings collection
     warning: Option<Vec<String>>,
 
@@ -131,12 +143,38 @@ pub struct ActionModResponse {
 impl ActionModResponse {
     /// Create new with return code
     pub fn with_retcode(retcode: i32) -> Self {
-        Self { retcode, warning: None, message: String::new(), data: None }
+        Self {
+            retcode,
+            outcome: if retcode == 0 { ActionOutcome::Success } else { ActionOutcome::Error },
+            warning: None,
+            message: String::new(),
+            data: None,
+        }
     }
 
     /// Get a return code
     pub fn retcode(&self) -> i32 {
         self.retcode
+    }
+
+    pub fn outcome(&self) -> ActionOutcome {
+        if self.outcome == ActionOutcome::Success && self.retcode > 0 { ActionOutcome::Error } else { self.outcome }
+    }
+
+    pub fn set_outcome(&mut self, outcome: ActionOutcome) {
+        self.outcome = outcome;
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.outcome() == ActionOutcome::Success
+    }
+
+    pub fn is_error(&self) -> bool {
+        self.outcome() == ActionOutcome::Error
+    }
+
+    pub fn is_not_applicable(&self) -> bool {
+        self.outcome() == ActionOutcome::NotApplicable
     }
 
     /// Return collected warnings
