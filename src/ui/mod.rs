@@ -149,6 +149,25 @@ impl Default for ClusterUpgradeProgressState {
 
 type ClusterUpgradeTaskResult = Result<(usize, usize, usize, usize, usize, Vec<String>), String>;
 
+type ClusterStartTaskResult = Result<(usize, Vec<String>), String>;
+
+#[derive(Debug)]
+pub struct ClusterStartProgressState {
+    pub visible: bool,
+    pub message: String,
+    pub spinner: spinner::Model,
+    pub last_tick: Instant,
+}
+
+impl Default for ClusterStartProgressState {
+    fn default() -> Self {
+        let mut spinner_model = spinner::Model::new();
+        spinner_model.spinner = spinner::Spinner::mini_dot();
+        spinner_model.style = Style::default().fg(palette::PROCESSING_PEAK);
+        Self { visible: false, message: String::new(), spinner: spinner_model, last_tick: Instant::now() }
+    }
+}
+
 #[derive(Debug)]
 pub struct SysInspectUX {
     exit: bool,
@@ -288,6 +307,8 @@ pub struct SysInspectUX {
     pub cluster_upgrade_unreachable_count: usize,
     pub cluster_upgrade_pending_count: usize,
     pub cluster_upgrade_check_message: Option<String>,
+    pub cluster_start_progress: ClusterStartProgressState,
+    pub cluster_start_task: Option<tokio::task::JoinHandle<ClusterStartTaskResult>>,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -413,6 +434,8 @@ impl Default for SysInspectUX {
             cluster_upgrade_unreachable_count: 0,
             cluster_upgrade_pending_count: 0,
             cluster_upgrade_check_message: None,
+            cluster_start_progress: ClusterStartProgressState::default(),
+            cluster_start_task: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -793,6 +816,7 @@ impl SysInspectUX {
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
             || self.cluster_upgrade_progress.visible
+            || self.cluster_start_progress.visible
         {
             Duration::from_millis(50)
         } else {
@@ -854,6 +878,11 @@ impl SysInspectUX {
             self.cluster_upgrade_progress.spinner.update(tick);
             self.cluster_upgrade_progress.last_tick = Instant::now();
         }
+        if self.cluster_start_progress.visible && self.cluster_start_progress.last_tick.elapsed() >= self.cluster_start_progress.spinner.spinner.fps {
+            let tick = self.cluster_start_progress.spinner.tick();
+            self.cluster_start_progress.spinner.update(tick);
+            self.cluster_start_progress.last_tick = Instant::now();
+        }
         if self.delete_progress.visible
             && self.delete_task.as_ref().is_some_and(|task| task.is_finished())
             && let Some(task) = self.delete_task.take()
@@ -911,6 +940,37 @@ impl SysInspectUX {
                 Err(err) => {
                     self.error_alert_visible = true;
                     self.error_alert_message = format!("Failed to join cluster upgrade task: {err}");
+                }
+            }
+        }
+        if self.cluster_start_progress.visible
+            && self.cluster_start_task.as_ref().is_some_and(|task| task.is_finished())
+            && let Some(task) = self.cluster_start_task.take()
+        {
+            let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+            self.cluster_start_progress.visible = false;
+            self.cluster_start_progress.message.clear();
+            self.restore_status();
+            self.status_at_minions_browser();
+            match result {
+                Ok(Ok((count, items))) => {
+                    let failed = items.len();
+                    let ok = count.saturating_sub(failed);
+                    if failed == 0 {
+                        self.info_alert_message = format!("All {ok} minion(s) started successfully");
+                    } else {
+                        self.info_alert_message = format!("{ok}/{count} minions started");
+                    }
+                    self.info_alert_title = "Cluster Start".to_string();
+                    self.info_alert_visible = true;
+                }
+                Ok(Err(err)) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Cluster start task failed: {err}");
                 }
             }
         }
@@ -1585,6 +1645,7 @@ impl SysInspectUX {
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
             || self.cluster_upgrade_progress.visible
+            || self.cluster_start_progress.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1962,17 +2023,23 @@ impl SysInspectUX {
     }
 
     fn do_cluster_hopstart(&mut self) {
-        match tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}"), "*", None, None, None).await })
-        }) {
-            Ok(_) => self.status_at_minions_browser(),
-            Err(err) => {
-                self.error_alert_visible = true;
-                self.error_alert_message = format!("Cluster start failed: {err}");
-                self.status_at_minions_browser();
-            }
-        }
+        self.cluster_start_progress.visible = true;
+        self.cluster_start_progress.message = "Booting cluster, please wait...".to_string();
+        self.cluster_start_progress.last_tick = Instant::now();
+        self.status_text = Line::from(vec![
+            Span::styled(" Esc ", Style::default().fg(palette::FG)),
+            Span::styled("wait for completion", Style::default().fg(palette::FAINT)),
+        ]);
+        let cfg = self.cfg.clone();
+        self.cluster_start_task = Some(tokio::spawn(async move {
+            call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}"), "*", None, None, None)
+                .await
+                .map_err(|err| err.to_string())
+                .and_then(|resp| match resp.payload {
+                    ConsolePayload::Ack { count, items, .. } => Ok((count, items)),
+                    _ => Err("Unexpected console payload for cluster start".to_string()),
+                })
+        }));
     }
 
     fn do_cluster_reconnect(&mut self) {
@@ -4462,6 +4529,10 @@ impl SysInspectUX {
         }
 
         if self.cluster_upgrade_progress.visible {
+            return;
+        }
+
+        if self.cluster_start_progress.visible {
             return;
         }
 

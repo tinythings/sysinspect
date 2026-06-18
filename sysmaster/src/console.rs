@@ -889,13 +889,13 @@ impl SysMaster {
             }
         }
 
-        HopStarter::new(self.cfg.hopstart()).issue(targets.clone()).await;
+        let failed = HopStarter::new(self.cfg.hopstart()).issue(targets.clone()).await;
 
         Ok(ConsoleResponse::ok(ConsolePayload::Ack {
             action: "hopstart_issued".to_string(),
             target: String::new(),
             count: targets.len(),
-            items: vec![],
+            items: failed,
         }))
     }
 
@@ -933,9 +933,9 @@ impl SysMaster {
             HopStartTarget::new(host.to_string(), root.to_string(), user.to_string(), bin.to_string(), config.to_string())
         };
 
-        HopStarter::new(master.lock().await.cfg.hopstart()).issue(vec![target]).await;
+        let failed = HopStarter::new(master.lock().await.cfg.hopstart()).issue(vec![target]).await;
 
-        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_start".to_string(), target: minion_id, count: 1, items: vec![] }))
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_start".to_string(), target: minion_id, count: 1, items: failed }))
     }
 
     async fn minion_shutdown(master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str) -> Result<ConsoleResponse, SysinspectError> {
