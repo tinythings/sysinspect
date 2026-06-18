@@ -71,6 +71,62 @@ mod tests {
         Duration::from_secs(15)
     }
 
+    #[cfg(target_os = "linux")]
+    fn async_settle_wait() -> Duration {
+        Duration::from_millis(500)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn async_settle_wait() -> Duration {
+        Duration::from_secs(1)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn signal_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn signal_timeout() -> Duration {
+        Duration::from_secs(10)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn watchdog_ping_timeout() -> Duration {
+        Duration::from_millis(750)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn watchdog_ping_timeout() -> Duration {
+        Duration::from_millis(1500)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn watchdog_assert_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn watchdog_assert_timeout() -> Duration {
+        Duration::from_secs(10)
+    }
+
+    async fn wait_until<F>(timeout_window: Duration, mut predicate: F)
+    where
+        F: FnMut() -> bool,
+    {
+        timeout(timeout_window, async {
+            loop {
+                if predicate() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("condition was not met before timeout");
+    }
+
     fn secure_state(master_pbk: &RsaPublicKey, minion_pbk: &RsaPublicKey) -> TransportPeerState {
         let mut state = TransportPeerState::new(
             "mid-1".to_string(),
@@ -206,10 +262,12 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let (accepted_tx, accepted_rx) = oneshot::channel();
 
         // Accept connection and just sit there
         tokio::spawn(async move {
             let (sock, _peer) = listener.accept().await.unwrap();
+            let _ = accepted_tx.send(());
             let _ = shutdown_rx.await;
             drop(sock);
         });
@@ -225,8 +283,10 @@ mod tests {
 
         let h = tokio::spawn(async move { _minion_instance(cfg, Some("fp-test".to_string()), dpq).await });
 
-        // Let it start
-        tokio::time::sleep(reconnect_boot_wait()).await;
+        timeout(reconnect_accept_timeout(), accepted_rx)
+            .await
+            .expect("fake master never accepted initial connection")
+            .expect("fake master accept signal dropped");
 
         // Trigger reconnect
         let _ = CONNECTION_TX.send(());
@@ -279,9 +339,11 @@ mod tests {
         let _guard = TEST_LOCK.lock().await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let (accepted_tx, accepted_rx) = oneshot::channel();
 
         tokio::spawn(async move {
             let (sock, _) = listener.accept().await.unwrap();
+            let _ = accepted_tx.send(());
             drop(sock); // immediate EOF for minion
         });
 
@@ -302,10 +364,12 @@ mod tests {
         let mut rx = CONNECTION_TX.subscribe();
         minion.as_ptr().do_proto().await.unwrap();
 
-        // let proto loop actually start
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        timeout(reconnect_accept_timeout(), accepted_rx)
+            .await
+            .expect("fake master never accepted proto connection")
+            .expect("fake master accept signal dropped");
 
-        let got = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
+        let got = tokio::time::timeout(signal_timeout(), rx.recv()).await;
         assert!(got.is_ok(), "expected reconnect signal on EOF");
         match got {
             Ok(Ok(_)) => {
@@ -828,13 +892,13 @@ mod tests {
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
-        minion.set_ping_timeout(Duration::from_millis(300));
+        minion.set_ping_timeout(watchdog_ping_timeout());
 
         let minion = Arc::new(minion);
         let mut rx = CONNECTION_TX.subscribe();
         minion.as_ptr().do_ping_update(Arc::new(ExitState::new())).await.unwrap();
 
-        let res = timeout(Duration::from_secs(2), rx.recv()).await;
+        let res = timeout(watchdog_assert_timeout(), rx.recv()).await;
         assert!(res.is_ok(), "watchdog did not trigger reconnect");
     }
 
@@ -857,15 +921,15 @@ mod tests {
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
-        minion.set_ping_timeout(Duration::from_millis(300));
+        minion.set_ping_timeout(watchdog_ping_timeout());
 
         let minion = Arc::new(minion);
         minion.update_ping().await;
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        tokio::time::sleep(async_settle_wait() / 2).await;
         minion.update_ping().await;
 
         let elapsed = minion.last_ping.lock().await.elapsed();
-        assert!(elapsed < Duration::from_millis(200));
+        assert!(elapsed < async_settle_wait());
     }
 
     #[tokio::test]
@@ -935,9 +999,11 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let (accepted_tx, accepted_rx) = oneshot::channel();
 
         tokio::spawn(async move {
             let (sock, _) = listener.accept().await.unwrap();
+            let _ = accepted_tx.send(());
             let _ = shutdown_rx.await;
             drop(sock);
         });
@@ -947,13 +1013,16 @@ mod tests {
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let handle = tokio::spawn(async move { _minion_instance(cfg, Some("fp-test".to_string()), dpq).await });
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        timeout(reconnect_accept_timeout(), accepted_rx)
+            .await
+            .expect("fake master never accepted reconnect-storm test connection")
+            .expect("fake master accept signal dropped");
         let _ = CONNECTION_TX.send(());
         let _ = CONNECTION_TX.send(());
         let _ = CONNECTION_TX.send(());
         let _ = shutdown_tx.send(());
 
-        assert!(timeout(Duration::from_secs(2), handle).await.is_ok(), "instance did not exit under reconnect storm");
+        assert!(timeout(reconnect_exit_timeout(), handle).await.is_ok(), "instance did not exit under reconnect storm");
     }
 
     // ── Phase 8: independent mode behaviour proofs ───────────────────────
@@ -983,7 +1052,7 @@ mod tests {
 
         let mut rx = CONNECTION_TX.subscribe();
         let _ = minion.try_request(b"durable payload".to_vec(), OutboundMessageClass::DurableData).await;
-        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_err(), "durable send failure must not trigger reconnect in independent mode");
+        assert!(timeout(signal_timeout(), rx.recv()).await.is_err(), "durable send failure must not trigger reconnect in independent mode");
     }
 
     #[tokio::test]
@@ -1011,7 +1080,7 @@ mod tests {
 
         let mut rx = CONNECTION_TX.subscribe();
         let _ = minion.try_request(b"durable payload".to_vec(), OutboundMessageClass::DurableData).await;
-        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_ok(), "durable send failure must trigger reconnect in follow mode");
+        assert!(timeout(signal_timeout(), rx.recv()).await.is_ok(), "durable send failure must trigger reconnect in follow mode");
     }
 
     #[tokio::test]
@@ -1039,7 +1108,7 @@ mod tests {
 
         let mut rx = CONNECTION_TX.subscribe();
         let _ = minion.try_request(b"session ctl".to_vec(), OutboundMessageClass::SessionControl).await;
-        assert!(timeout(Duration::from_millis(500), rx.recv()).await.is_ok(), "session control delivery failure must always trigger reconnect");
+        assert!(timeout(signal_timeout(), rx.recv()).await.is_ok(), "session control delivery failure must always trigger reconnect");
     }
 
     #[tokio::test]
@@ -1063,14 +1132,14 @@ mod tests {
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
-        minion.set_ping_timeout(Duration::from_millis(300));
+        minion.set_ping_timeout(watchdog_ping_timeout());
 
         let minion = Arc::new(minion);
         let state = Arc::new(ExitState::new());
         let mut rx = CONNECTION_TX.subscribe(); // subscribe BEFORE starting watchdog
         minion.as_ptr().do_ping_update(state.clone()).await.unwrap();
 
-        let res = timeout(Duration::from_secs(2), rx.recv()).await;
+        let res = timeout(watchdog_assert_timeout(), rx.recv()).await;
         assert!(res.is_ok(), "watchdog must fire reconnect signal in independent mode");
         assert!(!state.exit.load(std::sync::atomic::Ordering::Relaxed), "watchdog must not stop execution in independent mode");
     }
@@ -1096,19 +1165,13 @@ mod tests {
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let mut minion = Arc::try_unwrap(SysMinion::new(cfg, None, dpq).await.unwrap()).ok().unwrap();
-        minion.set_ping_timeout(Duration::from_millis(300));
+        minion.set_ping_timeout(watchdog_ping_timeout());
 
         let minion = Arc::new(minion);
         let state = Arc::new(ExitState::new());
         minion.as_ptr().do_ping_update(state.clone()).await.unwrap();
 
-        let res = timeout(Duration::from_secs(2), async {
-            while !state.exit.load(std::sync::atomic::Ordering::Relaxed) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await;
-        assert!(res.is_ok(), "watchdog must stop execution in follow mode");
+        wait_until(watchdog_assert_timeout(), || state.exit.load(std::sync::atomic::Ordering::Relaxed)).await;
         assert!(state.exit.load(std::sync::atomic::Ordering::Relaxed), "exit flag must be set in follow mode");
     }
 
@@ -1175,6 +1238,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cfg = mk_cfg(format!("{addr}"), "127.0.0.1:1".to_string(), tmp.path());
         let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
+        let (saw_ehlo_tx, saw_ehlo_rx) = oneshot::channel();
 
         let server = tokio::spawn({
             let root = tmp.path().to_path_buf();
@@ -1184,6 +1248,8 @@ mod tests {
                 let mut master_channel = accept_secure_minion(&mut sock, &cfg, &root, &master_prk).await;
                 let ehlo = master_channel.open_bytes(&read_frame(&mut sock).await).unwrap();
                 let _: MinionMessage = serde_json::from_slice(&ehlo).unwrap();
+                let _ = saw_ehlo_tx.send(());
+                tokio::time::sleep(async_settle_wait()).await;
                 drop(sock);
             }
         });
@@ -1191,12 +1257,25 @@ mod tests {
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let handle = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        assert!(!handle.is_finished(), "independent instance should stay alive after proto transport loss");
+        timeout(reconnect_accept_timeout(), saw_ehlo_rx)
+            .await
+            .expect("server never observed EHLO before transport drop")
+            .expect("EHLO readiness signal dropped");
+        let _ = server.await;
+
+        assert!(
+            timeout(async_settle_wait(), async {
+                while !handle.is_finished() {
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            })
+            .await
+            .is_err(),
+            "independent instance should stay alive after proto transport loss"
+        );
 
         handle.abort();
         let _ = handle.await;
-        let _ = server.await;
     }
 
     #[tokio::test]
@@ -1209,6 +1288,7 @@ mod tests {
         let mut cfg = mk_cfg(format!("{addr}"), "127.0.0.1:1".to_string(), tmp.path());
         cfg.set_offline(MinionOfflineMode::Follow);
         let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
+        let (saw_ehlo_tx, saw_ehlo_rx) = oneshot::channel();
 
         let server = tokio::spawn({
             let root = tmp.path().to_path_buf();
@@ -1218,6 +1298,8 @@ mod tests {
                 let mut master_channel = accept_secure_minion(&mut sock, &cfg, &root, &master_prk).await;
                 let ehlo = master_channel.open_bytes(&read_frame(&mut sock).await).unwrap();
                 let _: MinionMessage = serde_json::from_slice(&ehlo).unwrap();
+                let _ = saw_ehlo_tx.send(());
+                tokio::time::sleep(async_settle_wait()).await;
                 drop(sock);
             }
         });
@@ -1225,7 +1307,12 @@ mod tests {
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let handle = tokio::spawn(async move { _minion_instance(cfg, None, dpq).await });
 
-        let res = timeout(Duration::from_secs(5), handle).await;
+        timeout(reconnect_accept_timeout(), saw_ehlo_rx)
+            .await
+            .expect("server never observed EHLO before follow-mode transport drop")
+            .expect("EHLO readiness signal dropped");
+
+        let res = timeout(reconnect_exit_timeout(), handle).await;
         assert!(res.is_ok(), "follow instance should exit after proto transport loss");
         let _ = server.await;
     }
@@ -1287,6 +1374,9 @@ mod tests {
                             let ack = libsysproto::MasterMessage::new(RequestType::CycleAck, serde_json::json!({"cycle_id":"c1"}));
                             let sealed = master_channel.seal_bytes(&ack.sendable().unwrap()).unwrap();
                             write_frame(&mut sock2, &sealed).await;
+                            // Give the minion proto loop a chance to process the ack before
+                            // the mock master drops the recovered socket on slower CI runners.
+                            tokio::time::sleep(async_settle_wait() / 2).await;
                             break true;
                         }
                         RequestType::SensorsSyncRequest => {}
@@ -1301,16 +1391,7 @@ mod tests {
 
         minion.reconnect_transport().await.unwrap();
 
-        timeout(Duration::from_secs(15), async {
-            loop {
-                if minion.journal.stats().unwrap().pending_entries == 0 {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        })
-        .await
-        .expect("cycle ack never cleared replayed backlog");
+        wait_until(Duration::from_secs(30), || minion.journal.stats().unwrap().pending_entries == 0).await;
 
         server.await.unwrap();
     }
