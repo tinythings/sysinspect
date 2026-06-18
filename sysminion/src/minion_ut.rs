@@ -1330,7 +1330,6 @@ mod tests {
         cfg.set_master_port(addr.port().into());
         cfg.set_root_dir(tmp.path().to_str().unwrap());
         let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
-        let (ack_sent_tx, ack_sent_rx) = oneshot::channel();
 
         let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
         let minion = SysMinion::new(cfg.clone(), None, dpq).await.unwrap();
@@ -1375,7 +1374,6 @@ mod tests {
                             let ack = libsysproto::MasterMessage::new(RequestType::CycleAck, serde_json::json!({"cycle_id":"c1"}));
                             let sealed = master_channel.seal_bytes(&ack.sendable().unwrap()).unwrap();
                             write_frame(&mut sock2, &sealed).await;
-                            let _ = ack_sent_tx.send(());
                             // Give the minion proto loop a chance to process the ack before
                             // the mock master drops the recovered socket on slower CI runners.
                             tokio::time::sleep(async_settle_wait()).await;
@@ -1393,10 +1391,8 @@ mod tests {
 
         minion.reconnect_transport().await.unwrap();
 
-        timeout(Duration::from_secs(30), ack_sent_rx).await.expect("mock master never sent cycle ack").expect("cycle ack readiness signal dropped");
-
         wait_until(Duration::from_secs(30), || minion.journal.stats().unwrap().pending_entries == 0).await;
 
-        server.await.unwrap();
+        timeout(Duration::from_secs(30), server).await.expect("mock master never completed replay/ack flow").unwrap();
     }
 }
