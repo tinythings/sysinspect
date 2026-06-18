@@ -64,6 +64,26 @@ Files in this directory:
 
 Install the model under the `nopython` scope.
 
+This demo also declares an explicit public interface:
+
+```yaml
+interface:
+  entities:
+    - all
+  actions:
+    - python-proof
+```
+
+The `interface` section is optional.
+
+- if `interface` is present, only listed entity and action entrypoints are
+  considered part of the model's public surface
+- if `interface` is absent, the current legacy behavior remains in effect and
+  all inferred entrypoints are public
+
+The interface section does not alter internal execution semantics. It describes
+which entrypoints are intended to be exposed to callers.
+
 Entities exposed by this model:
 
 - `all`
