@@ -70,6 +70,8 @@ pub struct BrowsedModel {
     pub entities: Vec<BrowsedEntity>,
     pub relations: Vec<BrowsedRelation>,
     pub entrypoints: Vec<BrowsedEntrypoint>,
+    pub public_entrypoints: Vec<BrowsedEntrypoint>,
+    pub public_actions: Vec<String>,
     pub actions: Vec<BrowsedAction>,
     /// Deduplicated list of all declared action state keys.
     pub states: Vec<String>,

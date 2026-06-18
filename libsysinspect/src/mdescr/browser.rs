@@ -11,10 +11,12 @@ static CTX_FN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"context\((\w+)
 use crate::{
     cfg::mmconf::MinionConfig,
     intp::{actions::Action, entities::Entity, relations::Relation},
-    mdescr::{DSL_DIR_ACTIONS, DSL_DIR_ENTITIES, DSL_DIR_RELATIONS, DSL_IDX_CHECKBOOK},
+    mdescr::{DSL_DIR_ACTIONS, DSL_DIR_ENTITIES, DSL_DIR_INTERFACE, DSL_DIR_RELATIONS, DSL_IDX_CHECKBOOK},
 };
 
 use super::{browse_types::*, mspec, mspecdef::ModelSpec};
+
+type InterfaceLists = (Option<Vec<String>>, Option<Vec<String>>, Option<Vec<String>>, Vec<ModelBrowseDiagnostic>);
 
 /// Read-only browser for one model.
 ///
@@ -28,6 +30,50 @@ pub struct ModelBrowser {
 }
 
 impl ModelBrowser {
+    fn interface_lists(&self) -> InterfaceLists {
+        let mut diagnostics = Vec::new();
+        let Some(section) = self.spec.top(DSL_DIR_INTERFACE) else {
+            return (None, None, None, diagnostics);
+        };
+        let Some(mapping) = section.as_mapping() else {
+            diagnostics.push(ModelBrowseDiagnostic {
+                level: ModelBrowseDiagnosticLevel::Warning,
+                message: "interface section is not a mapping and will be ignored".to_string(),
+                path: Some("interface".to_string()),
+            });
+            return (None, None, None, diagnostics);
+        };
+
+        let parse_list = |key: &str, diagnostics: &mut Vec<ModelBrowseDiagnostic>| -> Option<Vec<String>> {
+            let raw = mapping.get(serde_yaml::Value::String(key.to_string()))?;
+            let Some(seq) = raw.as_sequence() else {
+                diagnostics.push(ModelBrowseDiagnostic {
+                    level: ModelBrowseDiagnosticLevel::Warning,
+                    message: format!("interface.{key} is not a list and will be ignored"),
+                    path: Some(format!("interface.{key}")),
+                });
+                return None;
+            };
+            let mut items = Vec::new();
+            for item in seq {
+                if let Some(name) = item.as_str() {
+                    if !items.iter().any(|existing| existing == name) {
+                        items.push(name.to_string());
+                    }
+                } else {
+                    diagnostics.push(ModelBrowseDiagnostic {
+                        level: ModelBrowseDiagnosticLevel::Warning,
+                        message: format!("interface.{key} contains a non-string entry and it was ignored"),
+                        path: Some(format!("interface.{key}")),
+                    });
+                }
+            }
+            Some(items)
+        };
+
+        (parse_list("checkbook", &mut diagnostics), parse_list("entities", &mut diagnostics), parse_list("actions", &mut diagnostics), diagnostics)
+    }
+
     /// Load a model from the given directory path.
     ///
     /// Internally calls `mspec::load()` to walk the directory,
@@ -417,6 +463,64 @@ impl ModelBrowser {
         let (actions, a_diags) = self.actions();
         diagnostics.extend(a_diags);
 
+        let (interface_checkbooks, interface_entities, interface_actions, interface_diags) = self.interface_lists();
+        diagnostics.extend(interface_diags);
+
+        let public_entrypoints = if interface_checkbooks.is_none() && interface_entities.is_none() {
+            entrypoints.clone()
+        } else {
+            let mut out = Vec::new();
+            if let Some(labels) = interface_checkbooks {
+                for label in labels {
+                    if let Some(ep) =
+                        entrypoints.iter().find(|ep| matches!(ep, BrowsedEntrypoint::CheckbookLabel { label: existing, .. } if existing == &label))
+                    {
+                        out.push(ep.clone());
+                    } else {
+                        diagnostics.push(ModelBrowseDiagnostic {
+                            level: ModelBrowseDiagnosticLevel::Warning,
+                            message: format!("interface.checkbook references unknown checkbook \"{label}\""),
+                            path: Some("interface.checkbook".to_string()),
+                        });
+                    }
+                }
+            }
+            if let Some(ids) = interface_entities {
+                for id in ids {
+                    if let Some(ep) = entrypoints.iter().find(|ep| matches!(ep, BrowsedEntrypoint::Entity { id: existing, .. } if existing == &id)) {
+                        out.push(ep.clone());
+                    } else {
+                        diagnostics.push(ModelBrowseDiagnostic {
+                            level: ModelBrowseDiagnosticLevel::Warning,
+                            message: format!("interface.entities references unknown entity \"{id}\""),
+                            path: Some("interface.entities".to_string()),
+                        });
+                    }
+                }
+            }
+            out
+        };
+
+        let public_actions = if let Some(interface_actions) = interface_actions {
+            let mut out = Vec::new();
+            for aid in interface_actions {
+                if actions.iter().any(|action| action.action_id == aid) {
+                    if !out.iter().any(|existing| existing == &aid) {
+                        out.push(aid);
+                    }
+                } else {
+                    diagnostics.push(ModelBrowseDiagnostic {
+                        level: ModelBrowseDiagnosticLevel::Warning,
+                        message: format!("interface.actions references unknown action \"{aid}\""),
+                        path: Some("interface.actions".to_string()),
+                    });
+                }
+            }
+            out
+        } else {
+            Vec::new()
+        };
+
         let states = self.states();
 
         // Deduplicate: keep only the first occurrence of each (level, message, path) tuple.
@@ -426,7 +530,17 @@ impl ModelBrowser {
             seen.insert(key)
         });
 
-        Ok(BrowsedModel { metadata: self.metadata(), entities, relations, entrypoints, actions, states, diagnostics })
+        Ok(BrowsedModel {
+            metadata: self.metadata(),
+            entities,
+            relations,
+            entrypoints,
+            public_entrypoints,
+            public_actions,
+            actions,
+            states,
+            diagnostics,
+        })
     }
 
     /// Build entrypoints from already-extracted entities and relations,

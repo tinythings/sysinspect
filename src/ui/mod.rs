@@ -3440,6 +3440,8 @@ impl SysInspectUX {
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
                 let mut entrypoint_kinds: Vec<String> = Vec::new();
+                let mut public_entrypoints: Vec<String> = Vec::new();
+                let mut public_entrypoint_kinds: Vec<String> = Vec::new();
                 #[allow(clippy::type_complexity)]
                 let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
 
@@ -3480,6 +3482,19 @@ impl SysInspectUX {
                     }
                 }
 
+                for ep in &m.public_entrypoints {
+                    match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, .. } => {
+                            public_entrypoints.push(label.clone());
+                            public_entrypoint_kinds.push("checkbook".to_string());
+                        }
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
+                            public_entrypoints.push(id.clone());
+                            public_entrypoint_kinds.push("entity".to_string());
+                        }
+                    }
+                }
+
                 ConsoleModelRow {
                     id: m.metadata.id.clone(),
                     enabled: enabled.contains(&m.metadata.id),
@@ -3488,6 +3503,9 @@ impl SysInspectUX {
                     description: m.metadata.description.clone(),
                     entrypoints,
                     entrypoint_kinds,
+                    public_entrypoints,
+                    public_entrypoint_kinds,
+                    public_actions: m.public_actions.clone(),
                     states: m.states.clone(),
                     target_actions,
                 }
