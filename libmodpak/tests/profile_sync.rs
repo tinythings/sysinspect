@@ -92,9 +92,9 @@ async fn narrow_profile_syncs_only_allowed_artifacts_and_removes_old_ones() {
     repo.new_profile("Alpha").expect("Alpha should be created");
     repo.new_profile("Beta").expect("Beta should be created");
     repo.add_profile_matches("Alpha", vec!["alpha.demo".to_string()], false).expect("Alpha module selector should be added");
-    repo.add_profile_matches("Alpha", vec!["lib/runtime/lua/alpha.lua".to_string()], true).expect("Alpha library selector should be added");
+    repo.add_profile_matches("Alpha", vec!["runtime/lua/alpha.lua".to_string()], true).expect("Alpha library selector should be added");
     repo.add_profile_matches("Beta", vec!["beta.demo".to_string()], false).expect("Beta module selector should be added");
-    repo.add_profile_matches("Beta", vec!["lib/runtime/lua/beta.lua".to_string()], true).expect("Beta library selector should be added");
+    repo.add_profile_matches("Beta", vec!["runtime/lua/beta.lua".to_string()], true).expect("Beta library selector should be added");
 
     let (port, server) = start_fileserver(master.path().join("data")).await;
     let minion = tempfile::tempdir().expect("minion tempdir should be created");
@@ -110,8 +110,8 @@ async fn narrow_profile_syncs_only_allowed_artifacts_and_removes_old_ones() {
     SysInspectModPakMinion::new(cfg.clone()).sync().await.expect("first sync should work");
     assert!(share.path().join("modules/alpha/demo").exists());
     assert!(!share.path().join("modules/beta/demo").exists());
-    assert!(share.path().join("lib/lib/runtime/lua/alpha.lua").exists());
-    assert!(!share.path().join("lib/lib/runtime/lua/beta.lua").exists());
+    assert!(share.path().join("lib/runtime/lua/alpha.lua").exists());
+    assert!(!share.path().join("lib/runtime/lua/beta.lua").exists());
 
     TraitUpdateRequest::from_context(r#"{"op":"set","traits":{"minion.profile":["Beta"]}}"#)
         .expect("set request should parse")
@@ -120,8 +120,8 @@ async fn narrow_profile_syncs_only_allowed_artifacts_and_removes_old_ones() {
     SysInspectModPakMinion::new(cfg).sync().await.expect("second sync should work");
     assert!(!share.path().join("modules/alpha/demo").exists());
     assert!(share.path().join("modules/beta/demo").exists());
-    assert!(!share.path().join("lib/lib/runtime/lua/alpha.lua").exists());
-    assert!(share.path().join("lib/lib/runtime/lua/beta.lua").exists());
+    assert!(!share.path().join("lib/runtime/lua/alpha.lua").exists());
+    assert!(share.path().join("lib/runtime/lua/beta.lua").exists());
 
     server.abort();
 }

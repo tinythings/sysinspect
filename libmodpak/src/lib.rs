@@ -1043,7 +1043,12 @@ impl SysInspectModPak {
             .idx
             .library()
             .into_iter()
-            .filter(|(name, _)| profile.libraries().iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name))))
+            .filter(|(name, _)| {
+                profile.libraries().iter().any(|expr| {
+                    glob::Pattern::new(expr)
+                        .is_ok_and(|pattern| pattern.matches(name) || name.strip_prefix("lib/").is_some_and(|rel| pattern.matches(rel)))
+                })
+            })
             .collect::<Vec<(String, mpk::ModPakRepoLibFile)>>();
         libraries.sort_by(|(a, _), (b, _)| a.cmp(b));
 

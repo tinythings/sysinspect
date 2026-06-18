@@ -447,7 +447,7 @@ mod tests {
         write_module(&mut repo, "netbsd", "noarch", "runtime.lua", "runtime/lua");
         repo.new_profile("toto").expect("profile should be created");
         repo.add_profile_matches("toto", vec!["runtime.lua".to_string()], false).expect("module selector should be added");
-        repo.add_profile_matches("toto", vec!["lib/runtime/lua/*.lua".to_string()], true).expect("library selector should be added");
+        repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true).expect("library selector should be added");
 
         let rendered = repo.show_profile("toto").expect("profile should render");
         let module_pos = rendered.find("runtime.lua").expect("module row should exist");
