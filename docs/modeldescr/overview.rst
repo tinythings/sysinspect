@@ -55,6 +55,14 @@ The declarative approach is much easier to comprehend and use, because it focuse
 system should do, rather than how to achieve it. In this way more readable and maintainable
 configurations are achieved. Maintenance is easier because the configurations remain simple and predictable.
 
+Recent versions of the model description also allow the author to declare an explicit public
+interface for the model. This is useful when a model contains helper entities, gating actions,
+or intermediate implementation details that are necessary for evaluation but are not meant to be
+ presented as first-class query targets to operators. In that situation the model may declare an
+``interface`` section and list only those entrypoints that are intended to be public. If the
+section is omitted, the legacy behaviour remains in effect and every inferred entrypoint is
+considered public.
+
 .. important::
 
    In a nutshell, declarative configurations are easier for teams to understand, update, and share

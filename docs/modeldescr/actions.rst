@@ -26,6 +26,13 @@ Actions are predefined batches of specific acts that are yielding
 the state of an entity, based on its constraints. Actions are binding
 data to modules.
 
+An action normally participates in the internal execution graph of the model. In other words,
+the mere presence of an action definition does not automatically mean that the action should be
+presented as a public query target. When the model author wishes to expose an action explicitly,
+that action may be listed in the model's top-level ``interface.actions`` collection. This keeps
+the distinction clear between the implementation of the model and the public surface that callers
+are expected to use.
+
 .. important::
 
     The following rules are applied to an action:
