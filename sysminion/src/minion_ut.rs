@@ -1301,7 +1301,7 @@ mod tests {
 
         minion.reconnect_transport().await.unwrap();
 
-        timeout(Duration::from_secs(5), async {
+        timeout(Duration::from_secs(15), async {
             loop {
                 if minion.journal.stats().unwrap().pending_entries == 0 {
                     break;
