@@ -836,8 +836,18 @@ impl SysInspectUX {
             }
         } else {
             if !self.offline {
+                let selected_sid = if self.cycles_buf.is_empty() { None } else { Some(self.get_selected_cycle().event().sid().to_string()) };
                 match self.get_cycles() {
-                    Ok(cycles) => self.cycles_buf = cycles,
+                    Ok(cycles) => {
+                        self.cycles_buf = cycles;
+                        if let Some(selected_sid) = selected_sid
+                            && let Some(idx) = self.cycles_buf.iter().position(|cycle| cycle.event().sid() == selected_sid)
+                        {
+                            self.selected_cycle = idx;
+                        } else if self.selected_cycle >= self.cycles_buf.len() {
+                            self.selected_cycle = self.cycles_buf.len().saturating_sub(1);
+                        }
+                    }
                     Err(_) => {
                         self.offline = true;
                         self.evtipc = None;
@@ -848,6 +858,7 @@ impl SysInspectUX {
                     if self.minions_visible {
                         self.refresh_minions();
                     }
+                    self.refresh_selected_cycle_contents_preserve_selection();
                     if self.minion_logs_visible && self.minion_logs_polling && self.minion_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
                         match self.load_selected_minion_logs() {
                             Ok(()) => self.minion_logs_online = true,
@@ -4443,6 +4454,68 @@ impl SysInspectUX {
         }
         if !self.li_events.is_empty() {
             self.event_data = self.li_events[0].event().flatten();
+        }
+    }
+
+    fn refresh_selected_cycle_contents_preserve_selection(&mut self) {
+        if self.cycles_buf.is_empty() {
+            self.li_minions.clear();
+            self.li_events.clear();
+            self.event_data.clear();
+            self.selected_minion = 0;
+            self.selected_event = 0;
+            return;
+        }
+
+        let sid = self.get_selected_cycle().event().sid().to_string();
+        let selected_mid = self.get_selected_minion().map(|mli| mli.event().id().to_string());
+        let selected_event = self.get_selected_event().map(|evt| {
+            let event = evt.event();
+            (event.get_action_id(), event.get_entity_id(), event.get_status_id(), event.get_timestamp())
+        });
+
+        match self.get_minions(&sid) {
+            Ok(minions) => {
+                self.li_minions = minions;
+                if let Some(selected_mid) = selected_mid
+                    && let Some(idx) = self.li_minions.iter().position(|mli| mli.event().id() == selected_mid)
+                {
+                    self.selected_minion = idx;
+                } else if self.selected_minion >= self.li_minions.len() {
+                    self.selected_minion = self.li_minions.len().saturating_sub(1);
+                }
+            }
+            Err(_) => return,
+        }
+
+        let Some(mli) = self.get_selected_minion() else {
+            self.li_events.clear();
+            self.event_data.clear();
+            self.selected_event = 0;
+            return;
+        };
+
+        match self.get_events(&sid, mli.event().id()) {
+            Ok(events) => {
+                self.li_events = events;
+                if let Some((aid, eid, sid, ts)) = selected_event
+                    && let Some(idx) = self.li_events.iter().position(|evt| {
+                        let event = evt.event();
+                        event.get_action_id() == aid && event.get_entity_id() == eid && event.get_status_id() == sid && event.get_timestamp() == ts
+                    })
+                {
+                    self.selected_event = idx;
+                } else if self.selected_event >= self.li_events.len() {
+                    self.selected_event = self.li_events.len().saturating_sub(1);
+                }
+            }
+            Err(_) => return,
+        }
+
+        if let Some(evt) = self.get_selected_event() {
+            self.event_data = evt.event().flatten();
+        } else {
+            self.event_data.clear();
         }
     }
 
