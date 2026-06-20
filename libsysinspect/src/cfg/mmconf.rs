@@ -789,7 +789,8 @@ impl MinionConfig {
             }
         }
 
-        PathBuf::from(DEFAULT_MINION_MACHINE_ID)
+        let default = PathBuf::from(DEFAULT_MINION_MACHINE_ID);
+        if default.exists() { default } else { self.root_dir().join(DEFAULT_MINION_MACHINE_ID_REL) }
     }
 
     /// Return sharelib path
@@ -1307,7 +1308,7 @@ pub struct HopstartConfig {
 
 impl HopstartConfig {
     pub fn batch(&self) -> usize {
-        self.batch.unwrap_or(10)
+        self.batch.unwrap_or(20)
     }
 
     pub fn network_forward(&self) -> bool {

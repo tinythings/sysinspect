@@ -197,7 +197,11 @@ impl SysInspectRunner {
                                                     Err(err) => return Err(err),
                                                 }
                                             } else {
-                                                log::warn!("Action {} skipped due to dependencies results mismatch", ac.id())
+                                                log::warn!("Action {} skipped due to dependencies results mismatch", ac.id());
+                                                if let Some(response) = ac.skipped_response(&self.cstr_s, &self.cstr_f) {
+                                                    log::trace!("Synthetic skipped action response for '{}': {:#?}", ac.id(), response);
+                                                    evtproc.lock().await.receiver().register(response.eid().to_owned(), response);
+                                                }
                                             }
                                         }
                                         Err(err) => return Err(err),

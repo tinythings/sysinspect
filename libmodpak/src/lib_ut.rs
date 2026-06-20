@@ -81,11 +81,11 @@ mod tests {
     fn remove_library_supports_exact_names() {
         let (root, mut repo) = seeded_repo();
 
-        repo.remove_library(vec!["lib/lua/baz.lua".to_string()]).expect("exact library removal should succeed");
+        repo.remove_library(vec!["lua/baz.lua".to_string()]).expect("exact library removal should succeed");
 
-        assert!(!root.path().join("lib/lib/lua/baz.lua").exists());
-        assert!(root.path().join("lib/lib/library/foo.py").exists());
-        assert!(root.path().join("lib/lib/library/bar.py").exists());
+        assert!(!root.path().join("lib/lua/baz.lua").exists());
+        assert!(root.path().join("lib/library/foo.py").exists());
+        assert!(root.path().join("lib/library/bar.py").exists());
     }
 
     #[test]
@@ -94,9 +94,9 @@ mod tests {
 
         repo.remove_library(vec!["library/*".to_string()]).expect("glob library removal should succeed");
 
-        assert!(!root.path().join("lib/lib/library/foo.py").exists());
-        assert!(!root.path().join("lib/lib/library/bar.py").exists());
-        assert!(root.path().join("lib/lib/lua/baz.lua").exists());
+        assert!(!root.path().join("lib/library/foo.py").exists());
+        assert!(!root.path().join("lib/library/bar.py").exists());
+        assert!(root.path().join("lib/lua/baz.lua").exists());
     }
 
     #[test]
@@ -213,7 +213,7 @@ mod tests {
         repo.add_library(src.path().to_path_buf()).expect("library tree should be indexed");
 
         let library = repo.idx.library();
-        let entry = library.get("lib/runtime/wasm/demo.wasm").expect("wasm library entry should exist");
+        let entry = library.get("runtime/wasm/demo.wasm").expect("wasm library entry should exist");
         assert_eq!(entry.kind(), "wasm");
     }
 
@@ -229,8 +229,31 @@ mod tests {
         repo.add_library(src.path().to_path_buf()).expect("library tree should be indexed");
 
         let library = repo.idx.library();
-        let entry = library.get("lib/runtime/native/demo").expect("binary library entry should exist");
+        let entry = library.get("runtime/native/demo").expect("binary library entry should exist");
         assert_eq!(entry.kind(), "binary");
+    }
+
+    #[test]
+    fn add_library_normalizes_nested_lib_root_and_purges_legacy_nested_tree() {
+        let root = tempfile::tempdir().expect("repo tempdir should be created");
+        let src = tempfile::tempdir().expect("src tempdir should be created");
+        let payload = src.path().join("lib/runtime/python3");
+        fs::create_dir_all(&payload).expect("payload dir should be created");
+        fs::write(payload.join("demo.py"), b"print('demo')").expect("payload file should be written");
+
+        let legacy = root.path().join("lib/lib/runtime/python3");
+        fs::create_dir_all(&legacy).expect("legacy nested dir should be created");
+        fs::write(legacy.join("stale.py"), b"print('stale')").expect("legacy stale file should be written");
+
+        let mut repo = SysInspectModPak::new(root.path().to_path_buf()).expect("repo should be created");
+        repo.add_library(src.path().to_path_buf()).expect("library tree should be normalized and indexed");
+
+        assert!(!root.path().join("lib/lib").exists(), "legacy nested lib tree should be removed");
+        assert!(root.path().join("lib/runtime/python3/demo.py").exists(), "normalized runtime payload should exist");
+
+        let library = repo.idx.library();
+        assert!(library.contains_key("runtime/python3/demo.py"));
+        assert!(!library.contains_key("lib/runtime/python3/stale.py"));
     }
 
     #[test]
@@ -424,7 +447,7 @@ mod tests {
         write_module(&mut repo, "netbsd", "noarch", "runtime.lua", "runtime/lua");
         repo.new_profile("toto").expect("profile should be created");
         repo.add_profile_matches("toto", vec!["runtime.lua".to_string()], false).expect("module selector should be added");
-        repo.add_profile_matches("toto", vec!["lib/runtime/lua/*.lua".to_string()], true).expect("library selector should be added");
+        repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true).expect("library selector should be added");
 
         let rendered = repo.show_profile("toto").expect("profile should render");
         let module_pos = rendered.find("runtime.lua").expect("module row should exist");

@@ -765,6 +765,17 @@ impl SysInspectModPak {
         })
     }
 
+    fn normalize_library_source(path: &Path) -> PathBuf {
+        let nested = path.join(DEFAULT_MODULES_LIB_DIR);
+        if path.is_dir() && nested.is_dir() { nested } else { path.to_path_buf() }
+    }
+
+    fn rebuild_library_index_from_repo(&mut self, repo_lib_root: &Path) -> Result<(), SysinspectError> {
+        self.idx.library = IndexMap::new();
+        self.idx.index_library(repo_lib_root)?;
+        Ok(())
+    }
+
     /// Heuristic to determine the OS label of an ELF file, since EI_OSABI is often unreliable.
     fn get_os_label(elf: &goblin::elf::Elf) -> &'static str {
         // Check section names - BSDs put their identity here
@@ -795,23 +806,30 @@ impl SysInspectModPak {
 
     /// Adds a library to the repository.
     pub fn add_library(&mut self, p: PathBuf) -> Result<(), SysinspectError> {
+        let src = Self::normalize_library_source(&p);
         let path = self.root.join("lib");
         if !path.exists() {
             log::info!("Creating module repository at {}", path.display());
             std::fs::create_dir_all(&path)?;
         }
 
+        let malformed_nested = path.join(DEFAULT_MODULES_LIB_DIR);
+        if malformed_nested.exists() {
+            log::warn!("Removing malformed nested library tree at {} before rebuilding the library index", malformed_nested.display());
+            std::fs::remove_dir_all(&malformed_nested)?;
+        }
+
         let mut options = CopyOptions::new();
         options.overwrite = true; // Overwrite existing files if necessary
-        options.copy_inside = true; // Copy the contents inside `p` instead of the directory itself
+        options.copy_inside = true; // Copy the contents inside `src` instead of the directory itself
         options.content_only = true; // Copy only the contents of the directory
 
-        log::info!("Copying library from {} to {}", p.display(), path.display());
-        fs_extra::dir::copy(&p, &path, &options).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {e}")))?;
-        self.idx.index_library(&path)?;
+        log::info!("Copying library from {} to {}", src.display(), path.display());
+        fs_extra::dir::copy(&src, &path, &options).map_err(|e| SysinspectError::MasterGeneralError(format!("Failed to copy library: {e}")))?;
+        self.rebuild_library_index_from_repo(&path)?;
         log::debug!("Writing index to {}", self.root.join(REPO_MOD_INDEX).display().to_string().bright_yellow());
         fs::write(self.root.join(REPO_MOD_INDEX), self.idx.to_yaml()?)?; // XXX: needs flock
-        log::info!("Library {} added to index", p.display().to_string().bright_yellow());
+        log::info!("Library {} added to index", src.display().to_string().bright_yellow());
         Ok(())
     }
 
@@ -1025,7 +1043,12 @@ impl SysInspectModPak {
             .idx
             .library()
             .into_iter()
-            .filter(|(name, _)| profile.libraries().iter().any(|expr| glob::Pattern::new(expr).is_ok_and(|pattern| pattern.matches(name))))
+            .filter(|(name, _)| {
+                profile.libraries().iter().any(|expr| {
+                    glob::Pattern::new(expr)
+                        .is_ok_and(|pattern| pattern.matches(name) || name.strip_prefix("lib/").is_some_and(|rel| pattern.matches(rel)))
+                })
+            })
             .collect::<Vec<(String, mpk::ModPakRepoLibFile)>>();
         libraries.sort_by(|(a, _), (b, _)| a.cmp(b));
 

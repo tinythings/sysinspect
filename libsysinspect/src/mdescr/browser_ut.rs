@@ -1011,6 +1011,103 @@ actions:
 
     // No diagnostics expected for this valid model
     assert!(summary.diagnostics.is_empty());
+    assert_eq!(summary.public_entrypoints.len(), summary.entrypoints.len());
+    assert!(summary.public_actions.is_empty());
+}
+
+#[test]
+fn interface_filters_public_entrypoints_and_actions() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: Interface Test
+version: "0.1"
+description: Explicit public interface.
+maintainer: tester <t@t.t>
+
+interface:
+  entities:
+    - all
+  actions:
+    - python-proof
+
+entities:
+  all:
+    descr: Main public entrypoint
+  helper:
+    descr: Internal helper
+
+actions:
+  python-proof:
+    descr: Public action entrypoint
+    module: sys.run
+    bind: [all]
+    state:
+      $:
+        args:
+          cmd: echo proof
+
+  helper-action:
+    descr: Internal action
+    module: sys.run
+    bind: [helper]
+    state:
+      $:
+        args:
+          cmd: echo helper
+"#,
+    );
+
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load should succeed");
+    let summary = browser.summarize().expect("summarize should succeed");
+
+    assert!(summary.public_entrypoints.iter().any(|ep| matches!(ep, BrowsedEntrypoint::Entity { id, .. } if id == "all")));
+    assert!(!summary.public_entrypoints.iter().any(|ep| matches!(ep, BrowsedEntrypoint::Entity { id, .. } if id == "helper")));
+    assert_eq!(summary.public_actions, vec!["python-proof".to_string()]);
+}
+
+#[test]
+fn interface_unknown_members_emit_diagnostics() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: Interface Diagnostics
+version: "0.1"
+description: Bad interface references.
+maintainer: tester <t@t.t>
+
+interface:
+  checkbook:
+    - main-check
+  entities:
+    - ghost-entity
+  actions:
+    - ghost-action
+
+entities:
+  all:
+    descr: Main entity
+
+actions:
+  real-action:
+    descr: Internal action
+    module: sys.run
+    bind: [all]
+    state:
+      $:
+        args:
+          cmd: echo ok
+"#,
+    );
+
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load should succeed");
+    let summary = browser.summarize().expect("summarize should succeed");
+
+    assert!(summary.diagnostics.iter().any(|d| d.message.contains("interface.checkbook") && d.message.contains("main-check")));
+    assert!(summary.diagnostics.iter().any(|d| d.message.contains("interface.entities") && d.message.contains("ghost-entity")));
+    assert!(summary.diagnostics.iter().any(|d| d.message.contains("interface.actions") && d.message.contains("ghost-action")));
 }
 
 // Smoke test against real example

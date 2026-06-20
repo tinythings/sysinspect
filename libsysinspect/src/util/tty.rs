@@ -34,7 +34,7 @@
 /// # Returns
 /// * `String` - Output string with ANSI escape codes
 /// # Example
-/// ```no_run
+/// ```ignore
 /// let rendered = render_markup("This is [r::b]red text on default background[N] and this is [::bu]bold underlined text[N].");
 /// println!("{}", rendered);
 /// ```
@@ -185,7 +185,7 @@ pub fn render_markup(input: &str) -> String {
 /// # Returns
 /// * `String` - Indented string
 /// # Example
-/// ```no_run
+/// ```ignore
 /// let indented = indent_block("Line 1\nLine 2\nLine 3", ">> ");
 /// println!("{}", indented);
 /// ```

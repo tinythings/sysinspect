@@ -208,8 +208,13 @@ impl DslBrowser {
         if let Some(row) = self.resolved_model() {
             let mut checkbook: Vec<String> = Vec::new();
             let mut entities: Vec<String> = Vec::new();
-            for (i, entrypoint) in row.entrypoints.iter().enumerate() {
-                let kind = row.entrypoint_kinds.get(i).map(|s| s.as_str()).unwrap_or("entity");
+            let (entrypoints, entrypoint_kinds) = if !row.public_entrypoints.is_empty() || !row.public_actions.is_empty() {
+                (&row.public_entrypoints, &row.public_entrypoint_kinds)
+            } else {
+                (&row.entrypoints, &row.entrypoint_kinds)
+            };
+            for (i, entrypoint) in entrypoints.iter().enumerate() {
+                let kind = entrypoint_kinds.get(i).map(|s| s.as_str()).unwrap_or("entity");
                 if kind == "checkbook" {
                     checkbook.push(entrypoint.clone());
                 } else {

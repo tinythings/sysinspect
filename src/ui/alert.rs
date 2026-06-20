@@ -390,6 +390,25 @@ impl SysInspectUX {
                     Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
                 )
             }
+            4 => Self::_popup_ex(
+                parent,
+                buf,
+                Some("Cluster Operation"),
+                "\nStart every offline minion\nin the cluster?",
+                None,
+                Alignment::Center,
+                self.cluster_confirm_choice.clone(),
+                AlertButtons::YesNo,
+                Some(0),
+                Some(palette::PROCESSING_PEAK),
+                None,
+                None,
+                Some(palette::WHITE),
+                None,
+                None,
+                None,
+                Some((10.0, &[palette::GRAY_0, palette::BG_2] as &[Color])),
+            ),
             _ => return,
         };
         self.popup_button_rects.set(Some(rects));
@@ -454,6 +473,44 @@ impl SysInspectUX {
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(palette::WARNING_PEAK))
+            .padding(Padding::horizontal(2))
+            .style(Style::default().bg(palette::POPUP_BG_BASE));
+        let popup_inner = popup_block.inner(canvas);
+        popup_block.render(canvas, buf);
+
+        let [_, text_area, _]: [Rect; 3] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(0)])
+            .split(popup_inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+        Paragraph::new(text).alignment(Alignment::Center).render(text_area, buf);
+
+        Self::draw_popup_shadow(buf, canvas, height);
+    }
+
+    pub fn dialog_cluster_start_progress(&self, parent: Rect, buf: &mut Buffer) {
+        if !self.cluster_start_progress.visible {
+            return;
+        }
+
+        let text = Line::from(vec![Span::styled(
+            format!("{} {}", self.cluster_start_progress.spinner.view(), self.cluster_start_progress.message),
+            Style::default().fg(palette::FG),
+        )]);
+        let width = (UnicodeWidthStr::width(self.cluster_start_progress.message.as_str()) as u16 + 12).max(48);
+        let height = 5u16;
+        let x = parent.x + (parent.width.saturating_sub(width)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(height)) / 2;
+        let canvas = Rect { x, y, width, height };
+
+        Clear.render(canvas, buf);
+
+        let popup_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_PEAK))
             .padding(Padding::horizontal(2))
             .style(Style::default().bg(palette::POPUP_BG_BASE));
         let popup_inner = popup_block.inner(canvas);

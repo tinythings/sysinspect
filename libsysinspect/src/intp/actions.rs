@@ -1,5 +1,8 @@
 use super::{
-    actproc::{modfinder::ModCall, response::ActionResponse},
+    actproc::{
+        modfinder::ModCall,
+        response::{ActionModResponse, ActionOutcome, ActionResponse, ConstraintResponse},
+    },
     constraints::Expression,
     functions,
     inspector::SysInspector,
@@ -9,6 +12,7 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use serde_yaml::Value;
 use std::fmt::Display;
 
@@ -232,6 +236,32 @@ impl Action {
         r.response.set_data(data);
 
         Ok(r_opt)
+    }
+
+    pub fn skipped_response(&self, passed_constraints: &[String], failed_constraints: &[String]) -> Option<ActionResponse> {
+        let call = self.call.as_ref()?;
+        let if_true = self.if_true();
+        let if_false = self.if_false();
+        let missing_true = if_true.iter().filter(|c| !passed_constraints.contains(*c)).cloned().collect::<Vec<String>>();
+        let missing_false = if_false.iter().filter(|c| !failed_constraints.contains(*c)).cloned().collect::<Vec<String>>();
+
+        let mut response = ActionModResponse::with_retcode(0);
+        response.set_outcome(ActionOutcome::NotApplicable);
+        response.set_message("Branch not selected by DSL constraints".to_string());
+        response.set_data(json!({
+            "not_applicable": true,
+            "reason": "dependencies_mismatch",
+            "required_true": if_true,
+            "required_false": if_false,
+            "missing_true": missing_true,
+            "missing_false": missing_false,
+            "matched_true": passed_constraints,
+            "matched_false": failed_constraints,
+            "module": self.module(),
+            "description": self.descr(),
+        }));
+
+        Some(ActionResponse::new(call.eid().to_string(), call.aid().to_string(), call.state(), response, ConstraintResponse::default()))
     }
 
     /// Forward logs value (string/array/anything) to internal logger.

@@ -476,6 +476,15 @@ pub struct ConsoleModelRow {
     /// Entrypoint kind for each entry in `entrypoints`: "checkbook" or "entity".
     #[serde(default)]
     pub entrypoint_kinds: Vec<String>,
+    /// Public entrypoint ids after applying the optional `interface:` section.
+    #[serde(default)]
+    pub public_entrypoints: Vec<String>,
+    /// Entrypoint kind for each entry in `public_entrypoints`.
+    #[serde(default)]
+    pub public_entrypoint_kinds: Vec<String>,
+    /// Public direct action entrypoints exported through `interface.actions`.
+    #[serde(default)]
+    pub public_actions: Vec<String>,
     /// Declared state names across all actions.
     #[serde(default)]
     pub states: Vec<String>,

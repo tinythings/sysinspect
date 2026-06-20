@@ -67,7 +67,7 @@ fn master_cmdb_update_accepts_humantime_override() {
 fn master_hopstart_defaults_are_used_when_not_configured() {
     let cfg = MasterConfig::new(write_master_cfg("config:\n  master:\n    fileserver.models: []\n")).unwrap();
 
-    assert_eq!(cfg.hopstart().batch(), 10);
+    assert_eq!(cfg.hopstart().batch(), 20);
     assert!(!cfg.hopstart().network_forward());
     assert!(!cfg.hopstart().on_start());
 }

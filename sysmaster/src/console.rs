@@ -287,6 +287,7 @@ impl SysMaster {
                     let current_version = minion.get_traits().get("minion.version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let current_sha = minion.get_traits().get("minion.binary.sha256").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let os_dist = minion.get_traits().get("system.os.name").and_then(|v| v.as_str()).unwrap_or_default().to_lowercase();
+                    let os_distribution = minion.get_traits().get("system.os.distribution").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let arch = minion.get_traits().get("system.arch").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                     let target_sha = repo_checksums.get(&(os_dist.clone(), arch.clone())).cloned().unwrap_or_default();
                     let target_version = repo_versions.get(&(os_dist.clone(), arch)).cloned().unwrap_or_default();
@@ -305,7 +306,7 @@ impl SysMaster {
                         upgrade_unreachable: upgrade_marker.as_ref().is_some_and(|marker| marker.unreachable),
                         version: current_version,
                         target_version,
-                        os_distribution: os_dist,
+                        os_distribution,
                         os_name,
                         os_version,
                         kernel,
@@ -511,6 +512,8 @@ impl SysMaster {
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
                 let mut entrypoint_kinds: Vec<String> = Vec::new();
+                let mut public_entrypoints: Vec<String> = Vec::new();
+                let mut public_entrypoint_kinds: Vec<String> = Vec::new();
                 #[allow(clippy::type_complexity)]
                 let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
 
@@ -551,6 +554,19 @@ impl SysMaster {
                     }
                 }
 
+                for ep in &m.public_entrypoints {
+                    match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, .. } => {
+                            public_entrypoints.push(label.clone());
+                            public_entrypoint_kinds.push("checkbook".to_string());
+                        }
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
+                            public_entrypoints.push(id.clone());
+                            public_entrypoint_kinds.push("entity".to_string());
+                        }
+                    }
+                }
+
                 ConsoleModelRow {
                     id: m.metadata.id.clone(),
                     enabled: enabled_models.contains(&m.metadata.id),
@@ -559,6 +575,9 @@ impl SysMaster {
                     description: m.metadata.description.clone(),
                     entrypoints,
                     entrypoint_kinds,
+                    public_entrypoints,
+                    public_entrypoint_kinds,
+                    public_actions: m.public_actions.clone(),
                     states: m.states.clone(),
                     target_actions,
                 }
@@ -888,13 +907,13 @@ impl SysMaster {
             }
         }
 
-        HopStarter::new(self.cfg.hopstart()).issue(targets.clone()).await;
+        let failed = HopStarter::new(self.cfg.hopstart()).issue(targets.clone()).await;
 
         Ok(ConsoleResponse::ok(ConsolePayload::Ack {
             action: "hopstart_issued".to_string(),
             target: String::new(),
             count: targets.len(),
-            items: vec![],
+            items: failed,
         }))
     }
 
@@ -932,9 +951,9 @@ impl SysMaster {
             HopStartTarget::new(host.to_string(), root.to_string(), user.to_string(), bin.to_string(), config.to_string())
         };
 
-        HopStarter::new(master.lock().await.cfg.hopstart()).issue(vec![target]).await;
+        let failed = HopStarter::new(master.lock().await.cfg.hopstart()).issue(vec![target]).await;
 
-        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_start".to_string(), target: minion_id, count: 1, items: vec![] }))
+        Ok(ConsoleResponse::ok(ConsolePayload::Ack { action: "minion_start".to_string(), target: minion_id, count: 1, items: failed }))
     }
 
     async fn minion_shutdown(master: Arc<Mutex<Self>>, query: &str, traits: &str, mid: &str) -> Result<ConsoleResponse, SysinspectError> {

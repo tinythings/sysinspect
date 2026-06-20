@@ -615,7 +615,8 @@ impl HostSetup {
     }
 
     fn read_minion_id(&self, ssh: &SSHSession) -> Result<Option<String>, SysinspectError> {
-        let rsp = ssh.exec(&RemoteCommand::new(format!("cat {} 2>/dev/null || true", shell_quote(&self.target.layout.machine_id))))?;
+        let cmd = format!("{} -c {} --id", shell_quote(&self.target.layout.install_bin), shell_quote(&self.target.layout.config));
+        let rsp = ssh.exec(&RemoteCommand::new(cmd))?;
         let mid = rsp.stdout.trim();
         Ok((!mid.is_empty()).then(|| mid.to_string()))
     }

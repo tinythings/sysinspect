@@ -20,6 +20,9 @@ mod minion_ut;
 mod minion_sha_ut;
 
 #[cfg(test)]
+mod reconnect_signal_ut;
+
+#[cfg(test)]
 mod proto_ut;
 
 #[cfg(test)]
@@ -276,6 +279,17 @@ fn main() -> std::io::Result<()> {
 
     // Print helps, versions etc
     if help(&mut cli, params.clone()) {
+        std::process::exit(0);
+    }
+
+    if params.get_flag("id") {
+        let cfg = get_config(&params);
+        let p = cfg.machine_id_path();
+        if p.exists()
+            && let Ok(id) = std::fs::read_to_string(&p)
+        {
+            print!("{}", id.trim());
+        }
         std::process::exit(0);
     }
 

@@ -111,11 +111,15 @@ struct QueryParser;
 /// Parse a very simple traits query. It returns an array of OR arrays, containing AND values.
 /// Example:
 ///
-///     "foo and bar or baz"
+/// ```text
+/// foo and bar or baz
+/// ```
 ///
 /// This yields to the following structure:
 ///
-///     [[foo, bar], [baz]]
+/// ```text
+/// [[foo, bar], [baz]]
+/// ```
 ///
 /// Each inner array should be treated with AND operator.
 pub fn parse_traits_query(input: &str) -> Result<Vec<Vec<String>>, SysinspectError> {

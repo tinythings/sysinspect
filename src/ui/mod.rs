@@ -22,10 +22,10 @@ use libsysinspect::{
 use libsysproto::query::{
     SCHEME_COMMAND,
     commands::{
-        CLUSTER_CONFIG_RELOAD, CLUSTER_LIBRARY_INDEX, CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
+        CLUSTER_CONFIG_RELOAD, CLUSTER_HOPSTART, CLUSTER_LIBRARY_INDEX, CLUSTER_MARK_UPGRADE_REQUIRED, CLUSTER_MASTER_LOGS, CLUSTER_MINION_HOPSTART,
         CLUSTER_MINION_INFO, CLUSTER_MINION_LOGS, CLUSTER_MINION_PROCESS_SIGNAL, CLUSTER_MINION_RECONNECT, CLUSTER_MINION_SHUTDOWN,
         CLUSTER_MINION_TOP, CLUSTER_MODELS, CLUSTER_MODULE_INDEX, CLUSTER_ONLINE_MINIONS, CLUSTER_PROFILE, CLUSTER_RECONNECT, CLUSTER_REMOVE_MINION,
-        CLUSTER_SHUTDOWN, CLUSTER_TRAITS_UPDATE, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
+        CLUSTER_SHUTDOWN, CLUSTER_SYNC, CLUSTER_TRAITS_UPDATE, CLUSTER_UPGRADE_MINIONS, CLUSTER_UPGRADE_STATUS,
     },
 };
 use ratatui::{
@@ -148,6 +148,25 @@ impl Default for ClusterUpgradeProgressState {
 }
 
 type ClusterUpgradeTaskResult = Result<(usize, usize, usize, usize, usize, Vec<String>), String>;
+
+type ClusterStartTaskResult = Result<(usize, Vec<String>), String>;
+
+#[derive(Debug)]
+pub struct ClusterStartProgressState {
+    pub visible: bool,
+    pub message: String,
+    pub spinner: spinner::Model,
+    pub last_tick: Instant,
+}
+
+impl Default for ClusterStartProgressState {
+    fn default() -> Self {
+        let mut spinner_model = spinner::Model::new();
+        spinner_model.spinner = spinner::Spinner::mini_dot();
+        spinner_model.style = Style::default().fg(palette::PROCESSING_PEAK);
+        Self { visible: false, message: String::new(), spinner: spinner_model, last_tick: Instant::now() }
+    }
+}
 
 #[derive(Debug)]
 pub struct SysInspectUX {
@@ -288,6 +307,8 @@ pub struct SysInspectUX {
     pub cluster_upgrade_unreachable_count: usize,
     pub cluster_upgrade_pending_count: usize,
     pub cluster_upgrade_check_message: Option<String>,
+    pub cluster_start_progress: ClusterStartProgressState,
+    pub cluster_start_task: Option<tokio::task::JoinHandle<ClusterStartTaskResult>>,
 
     // Exit-after-popup state (for setup config-written notice)
     pub pending_exit: bool,
@@ -413,6 +434,8 @@ impl Default for SysInspectUX {
             cluster_upgrade_unreachable_count: 0,
             cluster_upgrade_pending_count: 0,
             cluster_upgrade_check_message: None,
+            cluster_start_progress: ClusterStartProgressState::default(),
+            cluster_start_task: None,
 
             pending_exit: false,
             pending_exit_message: None,
@@ -793,6 +816,7 @@ impl SysInspectUX {
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
             || self.cluster_upgrade_progress.visible
+            || self.cluster_start_progress.visible
         {
             Duration::from_millis(50)
         } else {
@@ -812,8 +836,18 @@ impl SysInspectUX {
             }
         } else {
             if !self.offline {
+                let selected_sid = if self.cycles_buf.is_empty() { None } else { Some(self.get_selected_cycle().event().sid().to_string()) };
                 match self.get_cycles() {
-                    Ok(cycles) => self.cycles_buf = cycles,
+                    Ok(cycles) => {
+                        self.cycles_buf = cycles;
+                        if let Some(selected_sid) = selected_sid
+                            && let Some(idx) = self.cycles_buf.iter().position(|cycle| cycle.event().sid() == selected_sid)
+                        {
+                            self.selected_cycle = idx;
+                        } else if self.selected_cycle >= self.cycles_buf.len() {
+                            self.selected_cycle = self.cycles_buf.len().saturating_sub(1);
+                        }
+                    }
                     Err(_) => {
                         self.offline = true;
                         self.evtipc = None;
@@ -824,6 +858,7 @@ impl SysInspectUX {
                     if self.minions_visible {
                         self.refresh_minions();
                     }
+                    self.refresh_selected_cycle_contents_preserve_selection();
                     if self.minion_logs_visible && self.minion_logs_polling && self.minion_logs_last_fetch.elapsed() >= Duration::from_secs(3) {
                         match self.load_selected_minion_logs() {
                             Ok(()) => self.minion_logs_online = true,
@@ -853,6 +888,11 @@ impl SysInspectUX {
             let tick = self.cluster_upgrade_progress.spinner.tick();
             self.cluster_upgrade_progress.spinner.update(tick);
             self.cluster_upgrade_progress.last_tick = Instant::now();
+        }
+        if self.cluster_start_progress.visible && self.cluster_start_progress.last_tick.elapsed() >= self.cluster_start_progress.spinner.spinner.fps {
+            let tick = self.cluster_start_progress.spinner.tick();
+            self.cluster_start_progress.spinner.update(tick);
+            self.cluster_start_progress.last_tick = Instant::now();
         }
         if self.delete_progress.visible
             && self.delete_task.as_ref().is_some_and(|task| task.is_finished())
@@ -914,6 +954,37 @@ impl SysInspectUX {
                 }
             }
         }
+        if self.cluster_start_progress.visible
+            && self.cluster_start_task.as_ref().is_some_and(|task| task.is_finished())
+            && let Some(task) = self.cluster_start_task.take()
+        {
+            let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+            self.cluster_start_progress.visible = false;
+            self.cluster_start_progress.message.clear();
+            self.restore_status();
+            self.status_at_minions_browser();
+            match result {
+                Ok(Ok((count, items))) => {
+                    let failed = items.len();
+                    let ok = count.saturating_sub(failed);
+                    if failed == 0 {
+                        self.info_alert_message = format!("All {ok} minion(s) started successfully");
+                    } else {
+                        self.info_alert_message = format!("{ok}/{count} minions started");
+                    }
+                    self.info_alert_title = "Cluster Start".to_string();
+                    self.info_alert_visible = true;
+                }
+                Ok(Err(err)) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                }
+                Err(err) => {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = format!("Cluster start task failed: {err}");
+                }
+            }
+        }
         // Process file picker result for repo manager
         if self.repo_manager.visible
             && let Some(path) = self.file_picker.selected.take()
@@ -937,7 +1008,7 @@ impl SysInspectUX {
                     if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
-                    self.mark_cluster_upgrade_required();
+                    self.mark_repo_sync_pending();
                 }
             } else {
                 // Track that a reload is needed when progress finishes
@@ -1360,10 +1431,12 @@ impl SysInspectUX {
                 } else if self.minions_menu_sel == 6 {
                     self.open_cluster_confirm(3);
                 } else if self.minions_menu_sel == 7 {
-                    self.open_cluster_confirm(1);
+                    self.open_cluster_confirm(4);
                 } else if self.minions_menu_sel == 8 {
-                    self.open_cluster_confirm(2);
+                    self.open_cluster_confirm(1);
                 } else if self.minions_menu_sel == 9 {
+                    self.open_cluster_confirm(2);
+                } else if self.minions_menu_sel == 10 {
                     self.registration_form.visible = true;
                 }
             }
@@ -1583,6 +1656,7 @@ impl SysInspectUX {
             || self.registration_progress.lock().unwrap().visible
             || self.delete_progress.visible
             || self.cluster_upgrade_progress.visible
+            || self.cluster_start_progress.visible
     }
 
     fn sync_main_focus_for_overlays(&mut self) {
@@ -1661,6 +1735,10 @@ impl SysInspectUX {
         }
     }
 
+    fn mark_repo_sync_pending(&mut self) {
+        self.repo_manager.pending_cluster_upgrade = true;
+    }
+
     fn start_cluster_upgrade(&mut self) {
         self.cluster_upgrade_progress.visible = true;
         self.cluster_upgrade_progress.message = "Applying repository updates across the cluster...".to_string();
@@ -1681,6 +1759,38 @@ impl SysInspectUX {
                     _ => Err("Unexpected console payload for cluster upgrade".to_string()),
                 })
         }));
+    }
+
+    fn start_cluster_sync(&mut self) {
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_SYNC}"), "*", None, None, None).await })
+        }) {
+            Ok(resp) => {
+                self.refresh_cluster_upgrade_status();
+                self.refresh_minions();
+                match resp.payload {
+                    ConsolePayload::Ack { items, .. } => {
+                        self.info_alert_visible = true;
+                        self.info_alert_title = "Cluster Sync".to_string();
+                        self.info_alert_styled = None;
+                        self.info_alert_message = if items.is_empty() {
+                            "Cluster sync dispatched".to_string()
+                        } else {
+                            format!("Cluster sync dispatched\n\n{}", items.join("\n"))
+                        };
+                    }
+                    other => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Unexpected console payload for cluster sync: {other:?}");
+                    }
+                }
+            }
+            Err(err) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Failed to run cluster sync: {err}");
+            }
+        }
     }
 
     fn load_selected_minion_info(&mut self) {
@@ -1835,6 +1945,10 @@ impl SysInspectUX {
                 self.open_cluster_confirm(1);
                 true
             }
+            KeyCode::Char('h') if e.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_cluster_confirm(4);
+                true
+            }
             KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.open_cluster_confirm(2);
                 true
@@ -1909,6 +2023,7 @@ impl SysInspectUX {
                         1 => self.do_cluster_shutdown(),
                         2 => self.do_cluster_reconnect(),
                         3 => self.do_minion_delete(self.delete_force_remove),
+                        4 => self.do_cluster_hopstart(),
                         _ => {}
                     }
                 }
@@ -1952,6 +2067,26 @@ impl SysInspectUX {
                 self.status_at_minions_browser();
             }
         }
+    }
+
+    fn do_cluster_hopstart(&mut self) {
+        self.cluster_start_progress.visible = true;
+        self.cluster_start_progress.message = "Booting cluster, please wait...".to_string();
+        self.cluster_start_progress.last_tick = Instant::now();
+        self.status_text = Line::from(vec![
+            Span::styled(" Esc ", Style::default().fg(palette::FG)),
+            Span::styled("wait for completion", Style::default().fg(palette::FAINT)),
+        ]);
+        let cfg = self.cfg.clone();
+        self.cluster_start_task = Some(tokio::spawn(async move {
+            call_master_console(&cfg, &format!("{SCHEME_COMMAND}{CLUSTER_HOPSTART}"), "*", None, None, None)
+                .await
+                .map_err(|err| err.to_string())
+                .and_then(|resp| match resp.payload {
+                    ConsolePayload::Ack { count, items, .. } => Ok((count, items)),
+                    _ => Err("Unexpected console payload for cluster start".to_string()),
+                })
+        }));
     }
 
     fn do_cluster_reconnect(&mut self) {
@@ -2515,12 +2650,26 @@ impl SysInspectUX {
                     self.error_alert_visible = true;
                     self.error_alert_message = "No items selected".to_string();
                 } else {
+                    let staging_mode = self.repo_manager.staging_mode;
+                    let cross_platform_delete = self.repo_manager.cross_platform_delete;
                     self.repo_manager.exit_staging();
-                    if self.repo_manager.cross_platform_delete {
-                        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
-                        self.bulk_delete_modules(&names);
-                    } else {
-                        self.bulk_delete_single_platform(&checked);
+                    match staging_mode {
+                        repomanager::StagingMode::LibraryDelete => {
+                            let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                            self.bulk_delete_libraries(&names);
+                        }
+                        repomanager::StagingMode::ModuleDelete => {
+                            if cross_platform_delete {
+                                let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                                self.bulk_delete_modules(&names);
+                            } else {
+                                self.bulk_delete_single_platform(&checked);
+                            }
+                        }
+                        _ => {
+                            let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                            self.bulk_delete_modules(&names);
+                        }
                     }
                 }
             }
@@ -2704,9 +2853,14 @@ impl SysInspectUX {
                     }
                     self.repo_manager.models_dirty = false;
                 }
+                let start_repo_sync = self.repo_manager.pending_cluster_upgrade;
+                self.repo_manager.pending_cluster_upgrade = false;
                 self.repo_manager.exit_staging();
                 self.repo_manager.visible = false;
                 self.status_at_cycles();
+                if start_repo_sync {
+                    self.start_cluster_sync();
+                }
             }
             KeyCode::Left => {
                 self.repo_manager.active_tab = self.repo_manager.active_tab.saturating_sub(1);
@@ -2883,6 +3037,7 @@ impl SysInspectUX {
                     }
                 } else if self.repo_manager.active_tab == 1 && !self.repo_manager.lib_rows.is_empty() {
                     self.repo_manager.delete_mode = true;
+                    self.repo_manager.cross_platform_delete = false;
                     self.repo_manager.staged = self
                         .repo_manager
                         .lib_rows
@@ -2897,6 +3052,7 @@ impl SysInspectUX {
                             arch: None,
                         })
                         .collect();
+                    self.repo_manager.staging_mode = repomanager::StagingMode::LibraryDelete;
                     self.repo_manager.staging = true;
                     self.repo_manager.staging_cursor = 0;
                     self.repo_manager.staging_focus = repomanager::StagingFocus::List;
@@ -3104,7 +3260,7 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "new", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
@@ -3112,21 +3268,21 @@ impl SysInspectUX {
         let ctx = serde_json::json!({"op": "delete", "name": name}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.load_profile_list()?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
     fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
     fn do_profile_remove_match(&mut self, name: &str, selector: &str, library: bool) -> Result<(), String> {
         let ctx = serde_json::json!({"op": "remove", "name": name, "matches": [selector], "library": library}).to_string();
         self.call_profile_rpc(&ctx)?;
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
         Ok(())
     }
 
@@ -3284,6 +3440,8 @@ impl SysInspectUX {
             .map(|m| {
                 let mut entrypoints: Vec<String> = Vec::new();
                 let mut entrypoint_kinds: Vec<String> = Vec::new();
+                let mut public_entrypoints: Vec<String> = Vec::new();
+                let mut public_entrypoint_kinds: Vec<String> = Vec::new();
                 #[allow(clippy::type_complexity)]
                 let mut target_actions: Vec<(String, Vec<(String, Vec<String>, Vec<(String, String, bool)>)>)> = Vec::new();
 
@@ -3324,6 +3482,19 @@ impl SysInspectUX {
                     }
                 }
 
+                for ep in &m.public_entrypoints {
+                    match ep {
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::CheckbookLabel { label, .. } => {
+                            public_entrypoints.push(label.clone());
+                            public_entrypoint_kinds.push("checkbook".to_string());
+                        }
+                        libsysinspect::mdescr::browse_types::BrowsedEntrypoint::Entity { id, .. } => {
+                            public_entrypoints.push(id.clone());
+                            public_entrypoint_kinds.push("entity".to_string());
+                        }
+                    }
+                }
+
                 ConsoleModelRow {
                     id: m.metadata.id.clone(),
                     enabled: enabled.contains(&m.metadata.id),
@@ -3332,6 +3503,9 @@ impl SysInspectUX {
                     description: m.metadata.description.clone(),
                     entrypoints,
                     entrypoint_kinds,
+                    public_entrypoints,
+                    public_entrypoint_kinds,
+                    public_actions: m.public_actions.clone(),
                     states: m.states.clone(),
                     target_actions,
                 }
@@ -3364,7 +3538,6 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(ids)?;
         self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
         self.repo_manager.models_dirty = true;
-        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3413,7 +3586,6 @@ impl SysInspectUX {
         {
             Ok(()) => {
                 self.repo_manager.models_dirty = true;
-                self.mark_cluster_upgrade_required();
                 self.info_alert_visible = true;
                 self.info_alert_title = "Model Import".to_string();
                 self.info_alert_styled = None;
@@ -3437,7 +3609,6 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(enabled_ids.clone())?;
         self.refresh_local_model_rows(&enabled_ids)?;
         self.repo_manager.models_dirty = true;
-        self.mark_cluster_upgrade_required();
         Ok(())
     }
 
@@ -3608,7 +3779,7 @@ impl SysInspectUX {
             self.error_alert_message = format!("Cannot remove modules: {e}");
         } else {
             let _ = self.load_module_index();
-            self.mark_cluster_upgrade_required();
+            self.mark_repo_sync_pending();
         }
     }
 
@@ -3632,7 +3803,26 @@ impl SysInspectUX {
             }
         }
         let _ = self.load_module_index();
-        self.mark_cluster_upgrade_required();
+        self.mark_repo_sync_pending();
+    }
+
+    fn bulk_delete_libraries(&mut self, names: &[String]) {
+        let repo_root = self.cfg.fileserver_root().join("repo");
+        let mut repo = match SysInspectModPak::new(repo_root) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_alert_visible = true;
+                self.error_alert_message = format!("Cannot open repository: {e}");
+                return;
+            }
+        };
+        if let Err(e) = repo.remove_library(names.to_vec()) {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Cannot remove libraries: {e}");
+        } else {
+            let _ = self.load_library_index();
+            self.mark_repo_sync_pending();
+        }
     }
 
     fn process_library_add(&mut self, path: &std::path::Path) {
@@ -3651,7 +3841,7 @@ impl SysInspectUX {
                 self.error_alert_message = format!("Cannot add library: {e}");
             } else {
                 self.load_library_index().ok();
-                self.mark_cluster_upgrade_required();
+                self.mark_repo_sync_pending();
             }
         } else {
             // Single file: wrap in temp dir, use add_library
@@ -3665,7 +3855,7 @@ impl SysInspectUX {
                         self.error_alert_message = format!("Cannot add library file: {e}");
                     } else {
                         self.load_library_index().ok();
-                        self.mark_cluster_upgrade_required();
+                        self.mark_repo_sync_pending();
                     }
                     let _ = std::fs::remove_dir_all(&tmp);
                 }
@@ -4285,6 +4475,68 @@ impl SysInspectUX {
         }
     }
 
+    fn refresh_selected_cycle_contents_preserve_selection(&mut self) {
+        if self.cycles_buf.is_empty() {
+            self.li_minions.clear();
+            self.li_events.clear();
+            self.event_data.clear();
+            self.selected_minion = 0;
+            self.selected_event = 0;
+            return;
+        }
+
+        let sid = self.get_selected_cycle().event().sid().to_string();
+        let selected_mid = self.get_selected_minion().map(|mli| mli.event().id().to_string());
+        let selected_event = self.get_selected_event().map(|evt| {
+            let event = evt.event();
+            (event.get_action_id(), event.get_entity_id(), event.get_status_id(), event.get_timestamp())
+        });
+
+        match self.get_minions(&sid) {
+            Ok(minions) => {
+                self.li_minions = minions;
+                if let Some(selected_mid) = selected_mid
+                    && let Some(idx) = self.li_minions.iter().position(|mli| mli.event().id() == selected_mid)
+                {
+                    self.selected_minion = idx;
+                } else if self.selected_minion >= self.li_minions.len() {
+                    self.selected_minion = self.li_minions.len().saturating_sub(1);
+                }
+            }
+            Err(_) => return,
+        }
+
+        let Some(mli) = self.get_selected_minion() else {
+            self.li_events.clear();
+            self.event_data.clear();
+            self.selected_event = 0;
+            return;
+        };
+
+        match self.get_events(&sid, mli.event().id()) {
+            Ok(events) => {
+                self.li_events = events;
+                if let Some((aid, eid, sid, ts)) = selected_event
+                    && let Some(idx) = self.li_events.iter().position(|evt| {
+                        let event = evt.event();
+                        event.get_action_id() == aid && event.get_entity_id() == eid && event.get_status_id() == sid && event.get_timestamp() == ts
+                    })
+                {
+                    self.selected_event = idx;
+                } else if self.selected_event >= self.li_events.len() {
+                    self.selected_event = self.li_events.len().saturating_sub(1);
+                }
+            }
+            Err(_) => return,
+        }
+
+        if let Some(evt) = self.get_selected_event() {
+            self.event_data = evt.event().flatten();
+        } else {
+            self.event_data.clear();
+        }
+    }
+
     fn on_mouse_move(&mut self, me: MouseEvent) {
         let rects = match self.popup_button_rects.get() {
             Some(r) => r,
@@ -4441,6 +4693,10 @@ impl SysInspectUX {
         }
 
         if self.cluster_upgrade_progress.visible {
+            return;
+        }
+
+        if self.cluster_start_progress.visible {
             return;
         }
 

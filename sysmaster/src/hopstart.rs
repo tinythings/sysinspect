@@ -2,7 +2,8 @@ use colored::Colorize;
 use libcommon::SysinspectError;
 use libsysinspect::cfg::mmconf::HopstartConfig;
 use std::sync::{Arc, OnceLock};
-use tokio::{process::Command, sync::Semaphore};
+use std::time::Duration;
+use tokio::{net::TcpStream, process::Command, sync::Semaphore};
 
 /// Shared semaphore capping concurrent hopstart SSH calls across all callers.
 pub(crate) static HOPSTART_SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
@@ -44,6 +45,10 @@ impl HopStartTarget {
     }
 
     pub(crate) async fn issue(&self) -> Result<(), SysinspectError> {
+        if !is_port_available(&self.host, 22, Duration::from_secs(5)).await {
+            return Err(SysinspectError::MasterGeneralError(format!("Hop-start aborted: host {} is unreachable via SSH", self.host)));
+        }
+
         let status = Command::new("ssh").arg(self.ssh_target()).arg(self.remote_command()).status().await?;
 
         if status.success() {
@@ -67,30 +72,52 @@ impl HopStarter {
         Self { cfg }
     }
 
-    pub(crate) async fn issue(&self, targets: Vec<HopStartTarget>) {
+    pub(crate) async fn issue(&self, targets: Vec<HopStartTarget>) -> Vec<String> {
         let limit = hopstart_semaphore();
-        let mut tasks = Vec::with_capacity(targets.len());
+        let total = targets.len();
+        let mut tasks = Vec::with_capacity(total);
 
         for target in targets {
             tasks.push(tokio::spawn({
                 let limit = Arc::clone(&limit);
                 async move {
-                    if let Ok(_permit) = limit.acquire_owned().await {
-                        target.log_issue();
-                        if let Err(err) = target.issue().await {
+                    let _permit = limit.acquire_owned().await.ok()?;
+                    target.log_issue();
+                    Some(match target.issue().await {
+                        Ok(()) => Ok(target.host),
+                        Err(err) => {
                             log::error!("{err}");
+                            Err(target.host)
                         }
-                    }
+                    })
                 }
             }));
         }
 
+        let mut failed = Vec::new();
+        let mut ok = 0usize;
         for task in tasks {
-            if let Err(err) = task.await {
-                log::error!("Hop-start task failed: {err}");
+            match task.await {
+                Ok(Some(Ok(_))) => ok += 1,
+                Ok(Some(Err(host))) => failed.push(host),
+                _ => {}
             }
         }
+
+        let fail_count = failed.len();
+        if fail_count == 0 {
+            log::info!("Hop-start complete: all {total} minion(s) started");
+        } else {
+            log::warn!("Hop-start finished: {ok} started, {fail_count} failed out of {total}");
+        }
+
+        failed
     }
+}
+
+async fn is_port_available(host: &str, port: u16, timeout: Duration) -> bool {
+    let addr = format!("{host}:{port}");
+    tokio::time::timeout(timeout, TcpStream::connect(&addr)).await.map(|r| r.is_ok()).unwrap_or(false)
 }
 
 pub(crate) fn shell_quote(value: &str) -> String {

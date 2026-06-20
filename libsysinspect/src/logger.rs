@@ -157,12 +157,12 @@ impl log::Log for MemoryLogger {
 /// IMPORTANT: The formatting must be equal!
 ///
 /// Expected wire format:
-/// ```
+/// ```text
 /// "[..timestamp..] - LEVEL: [highlight] message"
 /// ```
 ///
 /// Example log line:
-/// ```
+/// ```text
 /// 2024-10-05 14:23:01 - INFO: [ModuleXYZ] This is a log message
 /// ```
 pub fn log_forward(line: &str) {

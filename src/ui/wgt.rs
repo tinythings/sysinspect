@@ -453,6 +453,7 @@ impl Widget for &SysInspectUX {
         self.dialog_cluster_confirm(area, buf);
         self.dialog_delete_progress(area, buf);
         self.dialog_cluster_upgrade_progress(area, buf);
+        self.dialog_cluster_start_progress(area, buf);
         self.dialog_master_confirm(area, buf);
         self.master_actions_menu(area, buf);
         self.repo_manager.render(area, buf);
