@@ -21,7 +21,7 @@ ed25519-dalek = { version = "2.2.0", features = [
 rand = "0.9.4"
 rustls = "0.23.40"
 rustls-pemfile = "2.2.0"
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full", "test-util"] }
 libsysinspect = { path = "../libsysinspect" }
 libsetup = { path = "../libsetup" }
 libmodpak = { path = "../libmodpak" }

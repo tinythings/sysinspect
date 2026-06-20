@@ -95,7 +95,7 @@ impl ModelTplRender {
     /// Namespaces are created from key of a IndexMap and the value
     /// is just a JSON. Example:
     ///
-    /// ```rust
+    /// ```ignore
     ///     let mut data = IndexMap::new();
     ///     data.insert("somebody.name", json!("Toto"));
     /// ```

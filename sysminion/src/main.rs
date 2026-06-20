@@ -20,6 +20,9 @@ mod minion_ut;
 mod minion_sha_ut;
 
 #[cfg(test)]
+mod reconnect_signal_ut;
+
+#[cfg(test)]
 mod proto_ut;
 
 #[cfg(test)]

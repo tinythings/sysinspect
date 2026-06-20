@@ -91,6 +91,7 @@ use std::{
     vec,
 };
 use tokio::sync::Mutex;
+use tokio::sync::watch;
 use tokio::{io::AsyncReadExt, time::sleep};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
 use tokio::{
@@ -101,8 +102,11 @@ use uuid::Uuid;
 
 #[cfg(test)]
 use crate::minion_sha_ut::compute_binary_sha256;
+#[cfg(test)]
+use crate::reconnect_signal_ut::notify_reconnect_signal;
 
 const RUNNER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+const RECOVERY_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const LOG_RING_CAPACITY: usize = 2000;
 
 /// In-memory unified ring buffer for log capture.
@@ -169,6 +173,13 @@ impl BacklogSnapshot {
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
+
+fn emit_reconnect_signal() {
+    #[cfg(test)]
+    notify_reconnect_signal();
+
+    let _ = CONNECTION_TX.send(());
+}
 
 fn minion_traits(cfg: &MinionConfig, q: bool, include_binary_sha: bool) -> SystemTraits {
     let mut traits = if q { traits::get_minion_traits_nolog(Some(cfg)) } else { traits::get_minion_traits(Some(cfg)) };
@@ -261,6 +272,8 @@ pub struct SysMinion {
     pub(crate) ping_task: Mutex<Option<JoinHandle<()>>>,
     pub(crate) proto_task: Mutex<Option<JoinHandle<()>>>,
     pub(crate) stats_task: Mutex<Option<JoinHandle<()>>>,
+    recovery_epoch: AtomicU64,
+    recovery_ready_tx: watch::Sender<u64>,
 }
 
 impl SysMinion {
@@ -293,6 +306,29 @@ impl SysMinion {
         .await
         .ok()
         .flatten()
+    }
+
+    fn begin_recovery_wait(&self) -> (u64, watch::Receiver<u64>) {
+        let epoch = self.recovery_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        (epoch, self.recovery_ready_tx.subscribe())
+    }
+
+    async fn wait_for_recovery_completion(rx: &mut watch::Receiver<u64>, epoch: u64) -> Result<(), SysinspectError> {
+        tokio::time::timeout(RECOVERY_WAIT_TIMEOUT, async {
+            loop {
+                if *rx.borrow() >= epoch {
+                    return Ok(());
+                }
+                rx.changed().await.map_err(|_| SysinspectError::ProtoError("Recovery completion channel closed".to_string()))?;
+            }
+        })
+        .await
+        .map_err(|_| SysinspectError::ProtoError(format!("Timed out waiting for logical recovery epoch {epoch}")))?
+    }
+
+    fn signal_recovery_complete(&self) {
+        let epoch = self.recovery_epoch.load(Ordering::SeqCst);
+        let _ = self.recovery_ready_tx.send(epoch);
     }
 
     fn classify_execution_failure(err: &SysinspectError) -> &'static str {
@@ -407,6 +443,8 @@ impl SysMinion {
             Err(err) => return Err(err.into()),
         };
 
+        let (recovery_ready_tx, _) = watch::channel(0u64);
+
         let instance = SysMinion {
             cfg: cfg.clone(),
             fingerprint,
@@ -429,6 +467,8 @@ impl SysMinion {
             ping_task: Mutex::new(None),
             proto_task: Mutex::new(None),
             stats_task: Mutex::new(None),
+            recovery_epoch: AtomicU64::new(0),
+            recovery_ready_tx,
         };
         log::debug!("Instance set up with root directory at {}", cfg.root_dir().to_str().unwrap_or_default());
         instance.init()?;
@@ -573,11 +613,11 @@ impl SysMinion {
         match (self.cfg.offline(), class) {
             (MinionOfflineMode::Follow, _) => {
                 log::warn!("Follow mode: delivery failure triggers reconnect");
-                let _ = CONNECTION_TX.send(());
+                emit_reconnect_signal();
             }
             (MinionOfflineMode::Independent, OutboundMessageClass::SessionControl) => {
                 log::warn!("Independent mode: session/control delivery failed; triggering reconnect");
-                let _ = CONNECTION_TX.send(());
+                emit_reconnect_signal();
             }
             (MinionOfflineMode::Independent, OutboundMessageClass::DurableData) => {
                 log::warn!("Independent mode: durable data delivery failed; execution continues, transport degraded");
@@ -634,6 +674,7 @@ impl SysMinion {
     /// - therefore local execution and durable-delivery recovery stay decoupled
     pub(crate) async fn reconnect_transport(self: &Arc<Self>) -> Result<(), SysinspectError> {
         log::info!("Re-establishing transport to master {}...", self.cfg.master());
+        let (recovery_epoch, mut recovery_rx) = self.begin_recovery_wait();
 
         // 1. Stop proto, ping, and stats tasks so they don't fight for the old streams.
         Arc::clone(self).stop_background().await;
@@ -665,6 +706,7 @@ impl SysMinion {
         // until the master asks for fresh Traits, which confirms the logical
         // session is live again.
         Arc::clone(self).send_ehlo().await?;
+        Self::wait_for_recovery_completion(&mut recovery_rx, recovery_epoch).await?;
         // Resync sensors after reconnection.
         if let Err(err) = Arc::clone(self).send_sensors_sync().await {
             log::warn!("Sensors sync after transport recovery failed: {err}");
@@ -777,7 +819,6 @@ impl SysMinion {
     /// that would indicate that the Master is either dead or disconnected or not available.
     /// That should kick Minion to start reconnecting.
     pub async fn do_ping_update(self: Arc<Self>, state: Arc<ExitState>) -> Result<(), SysinspectError> {
-        let reconnect_sender = CONNECTION_TX.clone();
         let h = tokio::spawn({
             let this = self.clone();
             async move {
@@ -806,7 +847,7 @@ impl SysMinion {
                                 );
                             }
                         }
-                        let _ = reconnect_sender.send(());
+                        emit_reconnect_signal();
                         break;
                     }
                 }
@@ -1027,7 +1068,7 @@ impl SysMinion {
                                 );
                             }
                         }
-                        let _ = CONNECTION_TX.send(());
+                        emit_reconnect_signal();
                         break;
                     }
                 };
@@ -1048,7 +1089,7 @@ impl SysMinion {
                                 );
                             }
                         }
-                        let _ = CONNECTION_TX.send(());
+                        emit_reconnect_signal();
                         break;
                     }
                 };
@@ -1091,7 +1132,7 @@ impl SysMinion {
                                             let err = "Registration reply did not include the master public key".to_string();
                                             log::error!("{err}");
                                             *this.registration.lock().await = RegistrationOutcome::Rejected(err);
-                                            let _ = CONNECTION_TX.send(());
+                                            emit_reconnect_signal();
                                             break;
                                         }
                                     };
@@ -1101,7 +1142,7 @@ impl SysMinion {
                                             let err = "Registration reply did not include the master fingerprint".to_string();
                                             log::error!("{err}");
                                             *this.registration.lock().await = RegistrationOutcome::Rejected(err);
-                                            let _ = CONNECTION_TX.send(());
+                                            emit_reconnect_signal();
                                             break;
                                         }
                                     };
@@ -1131,13 +1172,13 @@ impl SysMinion {
                         } else {
                             log::warn!("Master requires reconnection: {}", msg.payload());
                         }
-                        let _ = CONNECTION_TX.send(());
+                        emit_reconnect_signal();
                         break;
                     }
 
                     RequestType::Remove => {
                         log::debug!("Master asks to unregister");
-                        let _ = CONNECTION_TX.send(());
+                        emit_reconnect_signal();
                         break;
                     }
 
@@ -1199,7 +1240,7 @@ impl SysMinion {
                             ProtoErrorCode::AlreadyConnected => {
                                 if !this.is_connected() {
                                     log::error!("Another minion from this machine is already connected");
-                                    let _ = CONNECTION_TX.send(());
+                                    emit_reconnect_signal();
                                     break;
                                 }
                             }
@@ -1218,10 +1259,8 @@ impl SysMinion {
                             Ok(_) => {
                                 log::info!("Connected");
                                 this.set_connected(true);
-                                let this = this.clone();
-                                tokio::spawn(async move {
-                                    this.replay_pending().await;
-                                });
+                                this.clone().replay_pending().await;
+                                this.signal_recovery_complete();
                             }
                             Err(err) => log::error!("Unable to send traits: {err}"),
                         }
@@ -1233,7 +1272,7 @@ impl SysMinion {
                             Ok(val) => val,
                             Err(err) => {
                                 log::error!("Failed to parse PEM: {err}");
-                                let _ = CONNECTION_TX.send(());
+                                emit_reconnect_signal();
                                 break;
                             }
                         };
@@ -1242,7 +1281,7 @@ impl SysMinion {
                             Some(key) => key,
                             None => {
                                 log::error!("No public key found in PEM");
-                                let _ = CONNECTION_TX.send(());
+                                emit_reconnect_signal();
                                 break;
                             }
                         };
@@ -1251,14 +1290,14 @@ impl SysMinion {
                             Ok(fp) => fp,
                             Err(err) => {
                                 log::error!("Failed to get fingerprint: {err}");
-                                let _ = CONNECTION_TX.send(());
+                                emit_reconnect_signal();
                                 break;
                             }
                         };
 
                         log::error!("Minion is not registered");
                         log::info!("Master fingerprint: {fpt}");
-                        let _ = CONNECTION_TX.send(());
+                        emit_reconnect_signal();
                         break;
                     }
 
@@ -1305,7 +1344,7 @@ impl SysMinion {
 
                     RequestType::ByeAck => {
                         log::info!("Master confirmed shutdown");
-                        let _ = CONNECTION_TX.send(());
+                        emit_reconnect_signal();
                         break;
                     }
 
@@ -1895,19 +1934,19 @@ impl SysMinion {
                 log::info!("Requesting forced reconnect from the console");
                 self.as_ptr().send_command_reply(cycle_id, Ok(json!({"status": "reconnecting"}))).await;
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                let _ = CONNECTION_TX.send(());
+                emit_reconnect_signal();
             }
             CLUSTER_REBOOT => {
                 log::warn!("Command \"reboot\" is not implemented yet");
             }
             CLUSTER_RECONNECT => {
                 log::info!("Requesting cluster-wide reconnect from the master");
-                let _ = CONNECTION_TX.send(());
+                emit_reconnect_signal();
             }
             CLUSTER_ROTATE => match self.clone().apply_rotation_command(context).await {
                 Ok(_) => {
                     if !context.is_empty() {
-                        let _ = CONNECTION_TX.send(());
+                        emit_reconnect_signal();
                     }
                 }
                 Err(err) => log::error!("Failed to apply rotate command: {err}"),
