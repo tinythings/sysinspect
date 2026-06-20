@@ -1,5 +1,3 @@
-#[cfg(test)]
-use crate::minion_sha_ut::test_binary_sha256;
 use crate::{
     callbacks::{ActionResponseCallback, ModelResponseCallback},
     filedata::{MinionFiledata, SensorsFiledata},
@@ -100,6 +98,9 @@ use tokio::{
     task::JoinHandle,
 };
 use uuid::Uuid;
+
+#[cfg(test)]
+use crate::minion_sha_ut::compute_binary_sha256;
 
 const RUNNER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 const LOG_RING_CAPACITY: usize = 2000;
@@ -268,11 +269,20 @@ impl SysMinion {
             return;
         }
 
-        #[cfg(test)]
-        let sha = Some(test_binary_sha256());
-
         #[cfg(not(test))]
-        let sha = tokio::task::spawn_blocking(|| {
+        let sha = Self::compute_binary_sha256().await;
+
+        #[cfg(test)]
+        let sha = compute_binary_sha256().await;
+
+        if let Some(sha) = sha {
+            let _ = MINION_BINARY_SHA256.set(sha);
+        }
+    }
+
+    #[cfg(not(test))]
+    async fn compute_binary_sha256() -> Option<String> {
+        tokio::task::spawn_blocking(|| {
             if MINION_BINARY_SHA256.get().is_some() {
                 return None;
             }
@@ -282,11 +292,7 @@ impl SysMinion {
         })
         .await
         .ok()
-        .flatten();
-
-        if let Some(sha) = sha {
-            let _ = MINION_BINARY_SHA256.set(sha);
-        }
+        .flatten()
     }
 
     fn classify_execution_failure(err: &SysinspectError) -> &'static str {
