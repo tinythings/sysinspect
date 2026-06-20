@@ -20,7 +20,7 @@ mod tests {
     };
     use libsysproto::rqtypes::OutboundMessageClass;
     use libsysproto::secure::{SECURE_PROTOCOL_VERSION, SecureFrame};
-    use libsysproto::{MasterMessage, MinionMessage, ProtoConversion, rqtypes::RequestType};
+    use libsysproto::{MasterMessage, MinionMessage, MinionTarget, ProtoConversion, rqtypes::RequestType};
     use once_cell::sync::Lazy;
     use rsa::{RsaPrivateKey, RsaPublicKey};
     use serde_json::json;
@@ -1197,6 +1197,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reconnect_replays_journal_and_cycle_ack_clears_backlog() {
+        let _guard = TEST_LOCK.lock().await;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let mut cfg = MinionConfig::default();
+        cfg.set_master_ip(&addr.ip().to_string());
+        cfg.set_master_port(addr.port().into());
+        cfg.set_root_dir(tmp.path().to_str().unwrap());
+        let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
+
+        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
+        let minion = SysMinion::new(cfg.clone(), None, dpq).await.unwrap();
+
+        let cycle_id = "cycle-replay-1";
+        let replay_msg = MinionMessage::new("test-minion".to_string(), RequestType::Event, json!({"eid":"e1","aid":"a1","sid":"s1","cid":cycle_id}))
+            .sendable()
+            .unwrap();
+        minion.journal.append(cycle_id, &replay_msg).unwrap();
+        assert_eq!(minion.journal.stats().unwrap().pending_entries, 1);
+
+        drop(listener);
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server = tokio::spawn({
+            let root = tmp.path().to_path_buf();
+            let cfg = cfg.clone();
+            async move {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut master_channel = accept_secure_minion(&mut sock, &cfg, &root, &master_prk).await;
+
+                let ehlo = master_channel.open_bytes(&read_frame(&mut sock).await).unwrap();
+                let ehlo: MinionMessage = serde_json::from_slice(&ehlo).unwrap();
+                assert_eq!(ehlo.req_type(), &RequestType::Ehlo);
+
+                let mut traits_req = MasterMessage::new(RequestType::Traits, json!({}));
+                traits_req.set_target(MinionTarget::new(ehlo.id(), ""));
+                write_frame(&mut sock, &master_channel.seal_bytes(&traits_req.sendable().unwrap()).unwrap()).await;
+
+                let traits_reply = master_channel.open_bytes(&read_frame(&mut sock).await).unwrap();
+                let traits_reply: MinionMessage = serde_json::from_slice(&traits_reply).unwrap();
+                assert_eq!(traits_reply.req_type(), &RequestType::Traits);
+
+                let replayed = master_channel.open_bytes(&read_frame(&mut sock).await).unwrap();
+                let replayed: MinionMessage = serde_json::from_slice(&replayed).unwrap();
+                assert_eq!(replayed.req_type(), &RequestType::Event);
+                assert_eq!(replayed.payload().get("cid").and_then(|v| v.as_str()), Some(cycle_id));
+
+                let cycle_ack = MasterMessage::new(RequestType::CycleAck, json!({"cycle_id": cycle_id}));
+                write_frame(&mut sock, &master_channel.seal_bytes(&cycle_ack.sendable().unwrap()).unwrap()).await;
+
+                let _ = timeout(signal_timeout(), read_frame(&mut sock)).await;
+            }
+        });
+
+        minion.as_ptr().reconnect_transport().await.unwrap();
+        server.await.unwrap();
+
+        wait_until(signal_timeout(), || minion.journal.stats().unwrap().pending_entries == 0).await;
+        let stats = minion.journal.stats().unwrap();
+        assert_eq!(stats.pending_cycles, 0);
+        assert_eq!(stats.pending_entries, 0);
+    }
+
+    #[tokio::test]
     async fn proto_transport_loss_keeps_independent_instance_alive() {
         let _guard = TEST_LOCK.lock().await;
 
@@ -1281,92 +1347,5 @@ mod tests {
         let res = timeout(reconnect_exit_timeout(), handle).await;
         assert!(res.is_ok(), "follow instance should exit after proto transport loss");
         let _ = server.await;
-    }
-
-    #[tokio::test]
-    async fn reconnect_replays_journal_and_cycle_ack_clears_backlog() {
-        let _guard = TEST_LOCK.lock().await;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let tmp = tempfile::tempdir().unwrap();
-
-        let mut cfg = MinionConfig::default();
-        cfg.set_master_ip(&addr.ip().to_string());
-        cfg.set_master_port(addr.port().into());
-        cfg.set_root_dir(tmp.path().to_str().unwrap());
-        let master_prk = seed_managed_transport_with_master(&cfg, tmp.path());
-        let (ack_sent_tx, ack_sent_rx) = oneshot::channel();
-        let (close_tx, close_rx) = oneshot::channel();
-
-        let dpq = Arc::new(DiskPersistentQueue::open(tmp.path().join("pending-tasks")).unwrap());
-        let minion = SysMinion::new(cfg.clone(), None, dpq).await.unwrap();
-
-        let event = MinionMessage::new(
-            "test-minion".to_string(),
-            RequestType::Event,
-            serde_json::json!({"eid":"e1","aid":"a1","sid":"s1","cid":"c1","timestamp":"t1","response":{"retcode":1,"warning":null,"message":"ok","data":{}},"constraints":{},"telemetry":{}}),
-        )
-        .sendable()
-        .unwrap();
-        minion.journal.append("c1", &event).unwrap();
-        assert_eq!(minion.journal.stats().unwrap().pending_entries, 1);
-
-        let server = tokio::spawn({
-            let root = tmp.path().to_path_buf();
-            let cfg = cfg.clone();
-            async move {
-                let (sock1, _) = listener.accept().await.unwrap();
-                drop(sock1);
-
-                let (mut sock2, _) = listener.accept().await.unwrap();
-                let mut master_channel = accept_secure_minion(&mut sock2, &cfg, &root, &master_prk).await;
-                let mut saw_traits = false;
-                let saw_event = loop {
-                    let raw = read_frame(&mut sock2).await;
-                    let opened = master_channel.open_bytes(&raw).unwrap();
-                    let msg: MinionMessage = serde_json::from_slice(&opened).unwrap();
-
-                    match msg.req_type() {
-                        RequestType::Ehlo => {
-                            let mut traits = libsysproto::MasterMessage::new(RequestType::Traits, serde_json::json!(msg.sid()));
-                            traits.set_target(libsysproto::MinionTarget::new(msg.id(), msg.sid()));
-                            traits.set_retcode(libsysproto::errcodes::ProtoErrorCode::Success);
-                            let sealed = master_channel.seal_bytes(&traits.sendable().unwrap()).unwrap();
-                            write_frame(&mut sock2, &sealed).await;
-                        }
-                        RequestType::Traits => {
-                            saw_traits = true;
-                        }
-                        RequestType::Event => {
-                            let ack = libsysproto::MasterMessage::new(RequestType::CycleAck, serde_json::json!({"cycle_id":"c1"}));
-                            let sealed = master_channel.seal_bytes(&ack.sendable().unwrap()).unwrap();
-                            write_frame(&mut sock2, &sealed).await;
-                            let _ = ack_sent_tx.send(());
-                            let _ = close_rx.await;
-                            break true;
-                        }
-                        RequestType::SensorsSyncRequest => {}
-                        other => panic!("unexpected minion message during recovery test: {other:?}"),
-                    }
-                };
-
-                assert!(saw_traits, "reconnect recovery must re-establish Traits session before replay");
-                assert!(saw_event, "reconnect recovery must replay durable journaled event");
-            }
-        });
-
-        minion.reconnect_transport().await.unwrap();
-
-        timeout(reconnect_accept_timeout(), ack_sent_rx)
-            .await
-            .expect("mock master never sent cycle ack")
-            .expect("cycle ack readiness signal dropped");
-
-        wait_until(Duration::from_secs(30), || minion.journal.stats().unwrap().pending_entries == 0).await;
-
-        let _ = close_tx.send(());
-
-        timeout(Duration::from_secs(30), server).await.expect("mock master never completed replay/ack flow").unwrap();
     }
 }
