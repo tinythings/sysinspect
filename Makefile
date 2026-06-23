@@ -16,11 +16,11 @@ C_OFF := \033[0m
 
 
 .PHONY: help release mxrun mxrun-init mxrun-toggle set-local-builds set-remote-builds build dev all all-dev modules modules-dev modules-dist-dev modules-refresh-dev modules-refresh clean check fix setup smoke-test \
-	stats man test test-core test-modules test-sensors test-integration tar dev-tls advisory \
+	stats man test test-core test-modules test-sensors test-integration tar dev-tls advisory dist \
 	_dev _all_dev _all _build _modules_dev _modules _modules_dist_dev _test _test_core _test_modules _test_sensors _test_integration
 
 ifeq ($(UNAME_S),Linux)
-.PHONY: musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64
+.PHONY: musl-aarch64-dev musl-aarch64 musl-x86_64-dev musl-x86_64 musl-x86_64-dist musl-aarch64-dist
 endif
 
 help:
@@ -37,6 +37,7 @@ help:
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "all" "Compile core plus modules in release mode."
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules" "Compile modules only in release mode."
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "modules-refresh" "Rebuild Linux musl module repo and refresh current minion slot."
+	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "dist" "Assemble release distribution tree for current platform."
 ifeq ($(UNAME_S),Linux)
 	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Cross Build"
 	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
@@ -47,14 +48,8 @@ ifeq ($(UNAME_S),Linux)
 	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-modules-dist-dev" "Build static x86_64 Linux debug modules distribution."
 	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist" "Build static AArch64 Linux release modules distribution."
 	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist-dev" "Build static AArch64 Linux debug modules distribution."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64" "Build static x86_64 Linux release artifacts."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-dev" "Build static x86_64 Linux debug artifacts."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64" "Build static AArch64 Linux release artifacts."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-dev" "Build static AArch64 Linux debug artifacts."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-modules-dist" "Build static x86_64 Linux release modules distribution."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-modules-dist-dev" "Build static x86_64 Linux debug modules distribution."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist" "Build static AArch64 Linux release modules distribution."
-	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-modules-dist-dev" "Build static AArch64 Linux debug modules distribution."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-x86_64-dist" "Assemble static x86_64 release distribution tree."
+	@printf '    $(C_BLD)%-30s$(C_OFF) %s\n' "musl-aarch64-dist" "Assemble static AArch64 release distribution tree."
 endif
 	@printf '\n$(C_GRN)%s$(C_OFF)\n' "Testing"
 	@printf '    $(C_MX)%-20s$(C_OFF) %s\n' "test" "Run the full nextest suite for this platform."
@@ -106,6 +101,9 @@ set-remote-builds:
 
 release: build
 
+dist: setup all
+	@sh scripts/assemble-dist.sh
+
 mxrun-init: setup
 	@command -v $(MXRUN_BIN) >/dev/null 2>&1 || { echo "Missing $(MXRUN_BIN). Install it first." >&2; exit 1; }
 	@if [ ! -f mxrun.conf ]; then echo "local" > mxrun.conf; fi
@@ -153,6 +151,9 @@ musl-aarch64:
 	$(call stage_profile_modules,release,aarch64-unknown-linux-musl)
 	$(call stage_profile_minion,release,aarch64-unknown-linux-musl)
 
+musl-aarch64-dist: setup musl-aarch64
+	@sh scripts/assemble-dist.sh --musl aarch64-unknown-linux-musl
+
 musl-x86_64-dev:
 	@sh scripts/run-musl-cargo.sh x86_64-unknown-linux-musl x86_64-linux-musl-gcc build -v --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call stage_profile_modules,debug,x86_64-unknown-linux-musl)
@@ -162,6 +163,9 @@ musl-x86_64:
 	@sh scripts/run-musl-cargo.sh x86_64-unknown-linux-musl x86_64-linux-musl-gcc build --release --workspace $(MUSL_WORKSPACE_EXCLUDES) --target x86_64-unknown-linux-musl
 	$(call stage_profile_modules,release,x86_64-unknown-linux-musl)
 	$(call stage_profile_minion,release,x86_64-unknown-linux-musl)
+
+musl-x86_64-dist: setup musl-x86_64
+	@sh scripts/assemble-dist.sh --musl x86_64-unknown-linux-musl
 endif
 
 musl-x86_64-modules-dist-dev:
