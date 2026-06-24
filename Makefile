@@ -193,7 +193,7 @@ musl-aarch64-modules-dist:
 	$(call stage_modules_dist_from,release,aarch64-unknown-linux-musl,$(MUSL_MODULE_PACKAGE_SPECS),$(call musl_modules_dist_dir,aarch64,release))
 
 all-dev:
-	@scripts/maybe-mxrun.sh all-dev || $(MAKE) _all_dev
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _all_dev; else scripts/maybe-mxrun.sh all-dev || $(MAKE) _all_dev; fi
 
 _all_dev:
 	cargo build -v --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
@@ -202,7 +202,7 @@ _all_dev:
 	$(call write_mxrun_manifest,all-dev,)
 
 all:
-	@scripts/maybe-mxrun.sh all || $(MAKE) _all
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _all; else scripts/maybe-mxrun.sh all || $(MAKE) _all; fi
 
 _all:
 	cargo build --release --workspace $(PLATFORM_WORKSPACE_EXCLUDES)
@@ -211,7 +211,7 @@ _all:
 	$(call write_mxrun_manifest,all,)
 
 dev:
-	@scripts/maybe-mxrun.sh dev || $(MAKE) _dev
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _dev; else scripts/maybe-mxrun.sh dev || $(MAKE) _dev; fi
 
 _dev:
 	cargo build -v --workspace $(CORE_EXCLUDES)
@@ -220,7 +220,7 @@ _dev:
 	$(call write_mxrun_manifest,dev,)
 
 build:
-	@scripts/maybe-mxrun.sh release || $(MAKE) _build
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _build; else scripts/maybe-mxrun.sh release || $(MAKE) _build; fi
 
 _build:
 	cargo build --release --workspace $(CORE_EXCLUDES)
@@ -229,7 +229,7 @@ _build:
 	$(call write_mxrun_manifest,release,)
 
 modules-dev:
-	@scripts/maybe-mxrun.sh modules-dev || $(MAKE) _modules_dev
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _modules_dev; else scripts/maybe-mxrun.sh modules-dev || $(MAKE) _modules_dev; fi
 
 _modules_dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build -v $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
@@ -237,7 +237,7 @@ _modules_dev:
 	$(call write_mxrun_manifest,modules-dev,)
 
 modules:
-	@scripts/maybe-mxrun.sh modules || $(MAKE) _modules
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _modules; else scripts/maybe-mxrun.sh modules || $(MAKE) _modules; fi
 
 _modules:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
@@ -245,7 +245,7 @@ _modules:
 	$(call write_mxrun_manifest,modules,)
 
 modules-dist-dev:
-	@scripts/maybe-mxrun.sh modules-dist-dev || $(MAKE) _modules_dist_dev
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _modules_dist_dev; else scripts/maybe-mxrun.sh modules-dist-dev || $(MAKE) _modules_dist_dev; fi
 
 _modules_dist_dev:
 	@CARGO_BUILD_JOBS=$(MODULE_BUILD_JOBS) cargo build --release $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg))
@@ -254,31 +254,31 @@ _modules_dist_dev:
 	$(call write_mxrun_manifest,modules-dist-dev,with-dist)
 
 test: setup
-	@scripts/maybe-mxrun.sh test || $(MAKE) _test
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _test; else scripts/maybe-mxrun.sh test || $(MAKE) _test; fi
 
 _test:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast --workspace $(PLATFORM_WORKSPACE_EXCLUDES) --test-threads $(TEST_RUN_THREADS)
 
 test-core: setup
-	@scripts/maybe-mxrun.sh test-core || $(MAKE) _test_core
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _test_core; else scripts/maybe-mxrun.sh test-core || $(MAKE) _test_core; fi
 
 _test_core:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(CORE_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-modules: setup
-	@scripts/maybe-mxrun.sh test-modules || $(MAKE) _test_modules
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _test_modules; else scripts/maybe-mxrun.sh test-modules || $(MAKE) _test_modules; fi
 
 _test_modules:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(MODULE_PACKAGE_SPECS),-p $(pkg)) --bins --test-threads $(TEST_RUN_THREADS)
 
 test-sensors: setup
-	@scripts/maybe-mxrun.sh test-sensors || $(MAKE) _test_sensors
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _test_sensors; else scripts/maybe-mxrun.sh test-sensors || $(MAKE) _test_sensors; fi
 
 _test_sensors:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(foreach pkg,$(SENSOR_PACKAGE_SPECS),-p $(pkg)) --lib --bins --test-threads $(TEST_RUN_THREADS)
 
 test-integration: setup
-	@scripts/maybe-mxrun.sh test-integration || $(MAKE) _test_integration
+	@if [ -n "$$SSH_CONNECTION" ]; then $(MAKE) _test_integration; else scripts/maybe-mxrun.sh test-integration || $(MAKE) _test_integration; fi
 
 _test_integration:
 	@CARGO_BUILD_JOBS=$(TEST_BUILD_JOBS) cargo nextest run --no-fail-fast $(INTEGRATION_TEST_TARGETS) --test-threads $(TEST_RUN_THREADS)
