@@ -3222,12 +3222,7 @@ impl SysInspectUX {
     fn load_profile_detail(
         &mut self, name: &str,
     ) -> Result<
-        (
-            Vec<profiles::ResolvedModule>,
-            Vec<profiles::ResolvedModelGroup>,
-            Vec<profiles::ResolvedModule>,
-            Vec<profiles::ResolvedLibrary>,
-        ),
+        (Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedModelGroup>, Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedLibrary>),
         String,
     > {
         if self.repo_manager.model_rows.is_empty() {
@@ -3324,10 +3319,8 @@ impl SysInspectUX {
         let names: Vec<String> = if library {
             checked.iter().map(|m| m.name.clone()).collect()
         } else {
-            let mut modules: Vec<String> = checked
-                .iter()
-                .flat_map(|m| if m.profile_modules.is_empty() { vec![m.name.clone()] } else { m.profile_modules.clone() })
-                .collect();
+            let mut modules: Vec<String> =
+                checked.iter().flat_map(|m| if m.profile_modules.is_empty() { vec![m.name.clone()] } else { m.profile_modules.clone() }).collect();
             modules.sort();
             modules.dedup();
             modules

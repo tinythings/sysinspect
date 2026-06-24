@@ -115,25 +115,11 @@ pub struct SetupProgress {
 
 impl SetupProgress {
     pub fn new() -> Self {
-        Self {
-            visible: true,
-            current: 0,
-            total: 2,
-            message: "Preparing setup...".to_string(),
-            done: false,
-            error: None,
-        }
+        Self { visible: true, current: 0, total: 2, message: "Preparing setup...".to_string(), done: false, error: None }
     }
 
     pub fn hidden() -> Self {
-        Self {
-            visible: false,
-            current: 0,
-            total: 2,
-            message: String::new(),
-            done: false,
-            error: None,
-        }
+        Self { visible: false, current: 0, total: 2, message: String::new(), done: false, error: None }
     }
 }
 
@@ -642,12 +628,7 @@ pub fn render_progress(progress: &SetupProgress, parent: Rect, buf: &mut Buffer)
     );
 
     let msg = if progress.message.is_empty() { "Preparing setup..." } else { &progress.message };
-    buf.set_string(
-        inner.x + 1,
-        inner.y + 1,
-        truncate_str(msg, inner.width.saturating_sub(2) as usize),
-        Style::default().fg(palette::FG),
-    );
+    buf.set_string(inner.x + 1, inner.y + 1, truncate_str(msg, inner.width.saturating_sub(2) as usize), Style::default().fg(palette::FG));
 
     let bar_y = inner.y + 3;
     let bar_w = inner.width.saturating_sub(2);
@@ -656,18 +637,10 @@ pub fn render_progress(progress: &SetupProgress, parent: Rect, buf: &mut Buffer)
         buf.set_string(inner.x + 1, bar_y, "█".repeat(filled as usize), Style::default().fg(palette::PROCESSING_PEAK));
     }
     if filled < bar_w {
-        buf.set_string(
-            inner.x + 1 + filled,
-            bar_y,
-            "─".repeat((bar_w - filled) as usize),
-            Style::default().fg(palette::MUTED),
-        );
+        buf.set_string(inner.x + 1 + filled, bar_y, "─".repeat((bar_w - filled) as usize), Style::default().fg(palette::MUTED));
     }
 
-    let pct = (progress.current * 100)
-        .checked_div(progress.total.max(1))
-        .map(|p| format!("{p}%"))
-        .unwrap_or_else(|| "0%".into());
+    let pct = (progress.current * 100).checked_div(progress.total.max(1)).map(|p| format!("{p}%")).unwrap_or_else(|| "0%".into());
     let pct_x = inner.x + (inner.width.saturating_sub(pct.len() as u16)) / 2;
     buf.set_string(pct_x, inner.y + 4, &pct, Style::default().fg(palette::FG).add_modifier(Modifier::BOLD));
 }
@@ -678,12 +651,12 @@ impl SetupRequest {
     }
 
     fn root_dir(&self) -> PathBuf {
-        let root = match self.installation_mode {
+        
+
+        match self.installation_mode {
             InstallationMode::SystemWide => std::path::PathBuf::from("/etc/sysinspect"),
             InstallationMode::Custom => std::path::PathBuf::from(&self.custom_destination),
-        };
-
-        root
+        }
     }
 
     fn installed_sysinspect_path(&self) -> String {
@@ -715,10 +688,7 @@ impl SetupRequest {
                     "Master installation files were written successfully. Now please quit",
                     Style::default().fg(palette::FG),
                 )]),
-                Line::from(vec![Span::styled(
-                    "this UI and go  to the installation target at:",
-                    Style::default().fg(palette::FG),
-                )]),
+                Line::from(vec![Span::styled("this UI and go  to the installation target at:", Style::default().fg(palette::FG))]),
                 Line::from(""),
                 Line::from(vec![Span::styled(format!("    {root}"), Style::default().fg(palette::PRIMARY))]),
                 Line::from(""),
