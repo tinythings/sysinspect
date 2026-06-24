@@ -142,6 +142,7 @@ pub struct SysMaster {
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
     peer_direct_tx: HashMap<String, mpsc::Sender<OutgoingFrame>>,
+    peer_cancel_tx: HashMap<String, tokio::sync::watch::Sender<bool>>,
     pending_console_replies: HashMap<String, oneshot::Sender<MinionCommandReply>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
@@ -204,6 +205,7 @@ impl SysMaster {
             vmcluster,
             conn_to_mid: HashMap::new(),
             peer_direct_tx: HashMap::new(),
+            peer_cancel_tx: HashMap::new(),
             pending_console_replies: HashMap::new(),
             peer_transport: PeerTransport::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
@@ -721,6 +723,9 @@ impl SysMaster {
             log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
         }
         self.peer_transport.remove_peer(minion_addr);
+        if let Some(cancel) = self.peer_cancel_tx.remove(minion_addr) {
+            let _ = cancel.send(true);
+        }
     }
 
     /// Process a plaintext registration request and emit the one-shot registration response.
@@ -781,6 +786,7 @@ impl SysMaster {
         if !self.mkr().is_registered(minion_id) {
             log::info!("Minion at {minion_addr} ({minion_id}) is not registered");
             self.to_drop.insert(minion_addr.to_owned());
+            self.peer_transport.allow_plaintext(minion_addr);
             _ = bcast.send(self.msg_not_registered(minion_id.to_string()));
             return;
         }
@@ -1594,6 +1600,9 @@ impl SysMaster {
         }
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
         let cancel_writer = cancel_tx.clone();
+        {
+            master.lock().await.peer_cancel_tx.insert(peer_addr.clone(), cancel_tx.clone());
+        }
 
         tokio::spawn(async move {
             Self::write_peer_frames(c_master_writer, writer, writer_peer_addr, bcast_sub, direct_rx, cancel_writer).await;
@@ -1612,9 +1621,12 @@ impl SysMaster {
 
             loop {
                 tokio::select! {
-                    // Accept a new connection
                     Ok((socket, _)) = listener.accept() => {
                         Self::handle_peer_connection(Arc::clone(&master), tx.clone(), &bcast, socket).await;
+                    }
+                    else => {
+                        log::error!("Listener accept error, sleeping 1 s before retry");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
             }
