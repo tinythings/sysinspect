@@ -26,6 +26,7 @@ pub struct StagedModule {
     pub version: Option<String>,
     pub descr: String,
     pub path: std::path::PathBuf,
+    pub profile_modules: Vec<String>,
     pub checked: bool,
     pub platform: Option<String>,
     pub arch: Option<String>,
@@ -45,6 +46,7 @@ pub enum StagingMode {
     ModuleDelete,
     LibraryDelete,
     ProfileModuleAdd,
+    ProfileModelAdd,
     ProfileLibraryAdd,
 }
 
@@ -224,6 +226,7 @@ impl RepoManager {
                 version: r.version.clone(),
                 descr: r.descr.clone(),
                 path: std::path::PathBuf::new(),
+                profile_modules: Vec::new(),
                 checked: false,
                 platform: Some(r.platform.clone()),
                 arch: Some(r.arch.clone()),
@@ -238,6 +241,31 @@ impl RepoManager {
         self.delete_mode = false;
     }
 
+    pub fn enter_profile_model_staging(&mut self) {
+        self.staged = self
+            .model_rows
+            .iter()
+            .filter(|row| row.enabled && !row.modules.is_empty())
+            .map(|row| StagedModule {
+                name: if row.name.trim().is_empty() { row.id.clone() } else { row.name.clone() },
+                version: Some(row.version.clone()),
+                descr: format!("{} module{}", row.modules.len(), if row.modules.len() == 1 { "" } else { "s" }),
+                path: std::path::PathBuf::new(),
+                profile_modules: row.modules.clone(),
+                checked: false,
+                platform: None,
+                arch: None,
+            })
+            .collect();
+        self.staging_cursor = 0;
+        self.staging_scroll = Cell::new(0);
+        self.staging_focus = StagingFocus::List;
+        self.staging_mode = StagingMode::ProfileModelAdd;
+        self.profiles.detail_visible = false;
+        self.staging = true;
+        self.delete_mode = false;
+    }
+
     pub fn enter_profile_library_staging(&mut self) {
         self.staged = self
             .lib_rows
@@ -247,6 +275,7 @@ impl RepoManager {
                 version: Some(r.kind.clone()),
                 descr: r.checksum.clone(),
                 path: std::path::PathBuf::new(),
+                profile_modules: Vec::new(),
                 checked: false,
                 platform: None,
                 arch: None,

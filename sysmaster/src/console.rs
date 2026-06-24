@@ -578,6 +578,7 @@ impl SysMaster {
                     public_entrypoints,
                     public_entrypoint_kinds,
                     public_actions: m.public_actions.clone(),
+                    modules: m.modules.clone(),
                     states: m.states.clone(),
                     target_actions,
                 }

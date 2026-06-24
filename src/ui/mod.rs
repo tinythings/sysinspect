@@ -57,6 +57,8 @@ mod online;
 mod palette;
 mod platforms;
 mod profiles;
+#[cfg(test)]
+mod profiles_ut;
 mod rawlogs;
 mod repomanager;
 mod setup;
@@ -2632,6 +2634,9 @@ impl SysInspectUX {
                         repomanager::StagingMode::ProfileModuleAdd => {
                             self.bulk_add_profile_matches(checked, false);
                         }
+                        repomanager::StagingMode::ProfileModelAdd => {
+                            self.bulk_add_profile_matches(checked, false);
+                        }
                         repomanager::StagingMode::ProfileLibraryAdd => {
                             self.bulk_add_profile_matches(checked, true);
                         }
@@ -2672,7 +2677,12 @@ impl SysInspectUX {
                 }
             }
             if !self.repo_manager.staging
-                && matches!(self.repo_manager.staging_mode, repomanager::StagingMode::ProfileModuleAdd | repomanager::StagingMode::ProfileLibraryAdd)
+                && matches!(
+                    self.repo_manager.staging_mode,
+                    repomanager::StagingMode::ProfileModuleAdd
+                        | repomanager::StagingMode::ProfileModelAdd
+                        | repomanager::StagingMode::ProfileLibraryAdd
+                )
             {
                 self.repo_manager.profiles.detail_visible = true;
                 self.status_at_profiles();
@@ -2784,6 +2794,14 @@ impl SysInspectUX {
                     match self.repo_manager.profiles.detail_focus {
                         profiles::ProfDetailFocus::AddModuleBtn => {
                             self.repo_manager.enter_profile_module_staging();
+                        }
+                        profiles::ProfDetailFocus::AddFromModelBtn => {
+                            if let Err(err) = self.load_model_list() {
+                                self.error_alert_visible = true;
+                                self.error_alert_message = err;
+                                return true;
+                            }
+                            self.repo_manager.enter_profile_model_staging();
                         }
                         profiles::ProfDetailFocus::AddLibraryBtn => {
                             self.repo_manager.enter_profile_library_staging();
@@ -2979,8 +2997,8 @@ impl SysInspectUX {
                         None => return true,
                     };
                     match self.load_profile_detail(&name) {
-                        Ok((modules, libraries)) => {
-                            self.repo_manager.profiles.enter_detail(name, modules, libraries);
+                        Ok((modules, model_groups, ungrouped_modules, libraries)) => {
+                            self.repo_manager.profiles.enter_detail(name, modules, model_groups, ungrouped_modules, libraries);
                             self.status_at_profiles();
                         }
                         Err(e) => {
@@ -3045,6 +3063,7 @@ impl SysInspectUX {
                             version: Some(r.kind.clone()),
                             descr: r.checksum.clone(),
                             path: std::path::PathBuf::new(),
+                            profile_modules: Vec::new(),
                             checked: false,
                             platform: None,
                             arch: None,
@@ -3064,6 +3083,7 @@ impl SysInspectUX {
                                     version: r.version.clone(),
                                     descr: r.descr.clone(),
                                     path: std::path::PathBuf::new(),
+                                    profile_modules: Vec::new(),
                                     checked: false,
                                     platform: Some(r.platform.clone()),
                                     arch: Some(r.arch.clone()),
@@ -3199,7 +3219,20 @@ impl SysInspectUX {
         }
     }
 
-    fn load_profile_detail(&mut self, name: &str) -> Result<(Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedLibrary>), String> {
+    fn load_profile_detail(
+        &mut self, name: &str,
+    ) -> Result<
+        (
+            Vec<profiles::ResolvedModule>,
+            Vec<profiles::ResolvedModelGroup>,
+            Vec<profiles::ResolvedModule>,
+            Vec<profiles::ResolvedLibrary>,
+        ),
+        String,
+    > {
+        if self.repo_manager.model_rows.is_empty() {
+            self.load_model_list()?;
+        }
         let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
         let payload_mods = self.call_profile_rpc(&ctx_mods)?;
         let module_selectors: Vec<String> = match payload_mods {
@@ -3251,7 +3284,10 @@ impl SysInspectUX {
             })
             .collect();
 
-        Ok((resolved_modules, resolved_libraries))
+        let enabled_models: Vec<ConsoleModelRow> = self.repo_manager.model_rows.iter().filter(|row| row.enabled).cloned().collect();
+        let (model_groups, ungrouped_modules) = profiles::group_modules_by_models(&enabled_models, &resolved_modules);
+
+        Ok((resolved_modules, model_groups, ungrouped_modules, resolved_libraries))
     }
 
     fn do_profile_create(&mut self, name: &str) -> Result<(), String> {
@@ -3285,7 +3321,17 @@ impl SysInspectUX {
     }
 
     fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool) {
-        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+        let names: Vec<String> = if library {
+            checked.iter().map(|m| m.name.clone()).collect()
+        } else {
+            let mut modules: Vec<String> = checked
+                .iter()
+                .flat_map(|m| if m.profile_modules.is_empty() { vec![m.name.clone()] } else { m.profile_modules.clone() })
+                .collect();
+            modules.sort();
+            modules.dedup();
+            modules
+        };
         let name = self.repo_manager.profiles.detail_name.clone();
         if let Err(e) = self.do_profile_add_matches(&name, names, library) {
             self.error_alert_visible = true;
@@ -3293,8 +3339,8 @@ impl SysInspectUX {
             return;
         }
         match self.load_profile_detail(&name) {
-            Ok((modules, libraries)) => {
-                self.repo_manager.profiles.enter_detail(name, modules, libraries);
+            Ok((modules, model_groups, ungrouped_modules, libraries)) => {
+                self.repo_manager.profiles.enter_detail(name, modules, model_groups, ungrouped_modules, libraries);
             }
             Err(e) => {
                 self.error_alert_visible = true;
@@ -3504,6 +3550,7 @@ impl SysInspectUX {
                     public_entrypoints,
                     public_entrypoint_kinds,
                     public_actions: m.public_actions.clone(),
+                    modules: m.modules.clone(),
                     states: m.states.clone(),
                     target_actions,
                 }
@@ -3654,6 +3701,7 @@ impl SysInspectUX {
                     version,
                     descr,
                     path: path.to_path_buf(),
+                    profile_modules: Vec::new(),
                     checked: true,
                     platform: None,
                     arch: None,
@@ -3686,6 +3734,7 @@ impl SysInspectUX {
                 version,
                 descr,
                 path: if bin.exists() { bin } else { spec },
+                profile_modules: Vec::new(),
                 checked: true,
                 platform: None,
                 arch: None,
