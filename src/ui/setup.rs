@@ -14,7 +14,7 @@ use ratatui::{
 use ratatui_cheese::input::{Input, InputState};
 use ratatui_glamour::color::blend_2d;
 use ratatui_glamour::rule::dashed_title;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -115,11 +115,11 @@ pub struct SetupProgress {
 
 impl SetupProgress {
     pub fn new() -> Self {
-        Self { visible: true, current: 0, total: 2, message: "Preparing setup...".to_string(), done: false, error: None }
+        Self { visible: true, current: 0, total: 0, message: "Scanning setup artifacts...".to_string(), done: false, error: None }
     }
 
     pub fn hidden() -> Self {
-        Self { visible: false, current: 0, total: 2, message: String::new(), done: false, error: None }
+        Self { visible: false, current: 0, total: 0, message: String::new(), done: false, error: None }
     }
 }
 
@@ -138,6 +138,13 @@ pub struct SetupRequest {
     bind_port: String,
     fs_port: String,
     api_enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SetupCopyEntry {
+    source: PathBuf,
+    destination: PathBuf,
+    label: String,
 }
 
 impl Default for MasterSetupWizard {
@@ -646,13 +653,139 @@ pub fn render_progress(progress: &SetupProgress, parent: Rect, buf: &mut Buffer)
 }
 
 impl SetupRequest {
+    fn total_progress_steps(entry_count: usize) -> usize {
+        entry_count.saturating_add(1)
+    }
+
+    fn dist_root_from_current_exe() -> Result<PathBuf, String> {
+        let exe = std::env::current_exe().map_err(|e| format!("Cannot locate sysinspect binary: {e}"))?;
+        exe.parent().and_then(Path::parent).map(Path::to_path_buf).ok_or_else(|| format!("Cannot resolve dist root from {}", exe.display()))
+    }
+
+    fn dist_platform_arch_from_current_exe() -> Result<(String, String), String> {
+        let dist_root = Self::dist_root_from_current_exe()?;
+        let platform = dist_root
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+            .ok_or_else(|| format!("Cannot resolve platform from {}", dist_root.display()))?;
+        let label =
+            dist_root.file_name().and_then(|name| name.to_str()).ok_or_else(|| format!("Cannot resolve dist label from {}", dist_root.display()))?;
+        let parts: Vec<&str> = label.split('-').collect();
+        if parts.len() < 3 {
+            return Err(format!("Cannot resolve architecture from dist label {label}"));
+        }
+        let arch = parts[1..parts.len() - 1].join("-");
+        if arch.is_empty() {
+            return Err(format!("Cannot resolve architecture from dist label {label}"));
+        }
+        Ok((platform, arch))
+    }
+
+    fn collect_dir_entries(source_root: &Path, dest_root: &Path, label_prefix: &str, entries: &mut Vec<SetupCopyEntry>) -> Result<(), String> {
+        let read_dir = std::fs::read_dir(source_root).map_err(|e| format!("Cannot read {}: {e}", source_root.display()))?;
+        for entry in read_dir {
+            let entry = entry.map_err(|e| format!("Cannot read directory entry in {}: {e}", source_root.display()))?;
+            let path = entry.path();
+            let name = entry.file_name();
+            let dest = dest_root.join(&name);
+            let label =
+                if label_prefix.is_empty() { name.to_string_lossy().to_string() } else { format!("{label_prefix}/{}", name.to_string_lossy()) };
+            if path.is_dir() {
+                Self::collect_dir_entries(&path, &dest, &label, entries)?;
+            } else if path.is_file() {
+                entries.push(SetupCopyEntry { source: path, destination: dest, label });
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_dist_entries(&self, root: &Path) -> Result<Vec<SetupCopyEntry>, String> {
+        let mut entries = Vec::new();
+        let bin_dir = root.join("bin");
+        let sysmaster_src = PathBuf::from(&self.sysmaster_path);
+        let sysinspect_src = std::env::current_exe().map_err(|e| format!("Cannot locate sysinspect binary: {e}"))?;
+        entries.push(SetupCopyEntry { source: sysmaster_src, destination: bin_dir.join("sysmaster"), label: "bin/sysmaster".to_string() });
+        entries.push(SetupCopyEntry { source: sysinspect_src, destination: bin_dir.join("sysinspect"), label: "bin/sysinspect".to_string() });
+
+        let dist_root = Self::dist_root_from_current_exe()?;
+        let (platform, arch) = Self::dist_platform_arch_from_current_exe()?;
+        let payload_root = root.join("dist").join(&platform).join(&arch);
+        let minion_src = dist_root.join("bin/sysminion");
+        if minion_src.exists() {
+            entries.push(SetupCopyEntry {
+                source: minion_src,
+                destination: payload_root.join("platform").join("sysminion"),
+                label: format!("dist/{platform}/{arch}/platform/sysminion"),
+            });
+        }
+
+        let models_src = dist_root.join("models");
+        if models_src.exists() {
+            Self::collect_dir_entries(&models_src, &payload_root.join("models"), &format!("dist/{platform}/{arch}/models"), &mut entries)?;
+        }
+
+        let modules_src = dist_root.join("modules");
+        if modules_src.exists() {
+            Self::collect_dir_entries(&modules_src, &payload_root.join("modules"), &format!("dist/{platform}/{arch}/modules"), &mut entries)?;
+        }
+
+        Ok(entries)
+    }
+
+    fn prepare_copy_entries(&self) -> Result<Vec<SetupCopyEntry>, String> {
+        let root = self.root_dir();
+
+        std::fs::create_dir_all(&root).map_err(|e| format!("Cannot create root dir: {e}"))?;
+        let telemetry_dir = root.join("telemetry");
+        let datastore_dir = root.join("datastore");
+        let log_dir = root.join("log");
+        std::fs::create_dir_all(&telemetry_dir).map_err(|e| format!("Cannot create telemetry dir: {e}"))?;
+        std::fs::create_dir_all(&datastore_dir).map_err(|e| format!("Cannot create datastore dir: {e}"))?;
+        std::fs::create_dir_all(&log_dir).map_err(|e| format!("Cannot create log dir: {e}"))?;
+
+        let is_system = matches!(self.installation_mode, InstallationMode::SystemWide);
+        let config_dir = if is_system { root.clone() } else { root.join("etc") };
+        std::fs::create_dir_all(&config_dir).map_err(|e| format!("Cannot create config dir: {e}"))?;
+
+        if is_system { Ok(Vec::new()) } else { self.collect_dist_entries(&root) }
+    }
+
+    fn apply_copy_entries(entries: &[SetupCopyEntry], progress: Option<&Arc<Mutex<SetupProgress>>>) -> Result<(), String> {
+        if let Some(progress) = progress
+            && let Ok(mut state) = progress.lock()
+        {
+            state.current = 0;
+            state.total = Self::total_progress_steps(entries.len());
+            state.message =
+                if let Some(first) = entries.first() { format!("Copying {}...", first.label) } else { "Writing sysinspect.conf...".to_string() };
+        }
+
+        for (idx, entry) in entries.iter().enumerate() {
+            if let Some(parent) = entry.destination.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+            }
+            std::fs::copy(&entry.source, &entry.destination)
+                .map_err(|e| format!("Cannot copy {} to {}: {e}", entry.source.display(), entry.destination.display()))?;
+            if let Some(progress) = progress
+                && let Ok(mut state) = progress.lock()
+            {
+                state.current = idx + 1;
+                state.total = Self::total_progress_steps(entries.len());
+                state.message =
+                    if idx + 1 < entries.len() { format!("Copying {}...", entries[idx + 1].label) } else { "Writing sysinspect.conf...".to_string() };
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn run_with_progress(self, progress: Arc<Mutex<SetupProgress>>) -> Result<SetupCompletion, String> {
         self.run(Some(progress))
     }
 
     fn root_dir(&self) -> PathBuf {
-        
-
         match self.installation_mode {
             InstallationMode::SystemWide => std::path::PathBuf::from("/etc/sysinspect"),
             InstallationMode::Custom => std::path::PathBuf::from(&self.custom_destination),
@@ -726,44 +859,21 @@ impl SetupRequest {
 
     fn run(self, progress: Option<Arc<Mutex<SetupProgress>>>) -> Result<SetupCompletion, String> {
         let root = self.root_dir();
+        let entries = self.prepare_copy_entries()?;
 
-        let set_progress = |current: usize, message: &str| {
-            if let Some(progress) = progress.as_ref()
-                && let Ok(mut state) = progress.lock()
-            {
-                state.current = current;
-                state.message = message.to_string();
-            }
-        };
+        if let Some(progress) = progress.as_ref()
+            && let Ok(mut state) = progress.lock()
+        {
+            state.current = 0;
+            state.total = Self::total_progress_steps(entries.len());
+            state.message =
+                if let Some(first) = entries.first() { format!("Copying {}...", first.label) } else { "Writing sysinspect.conf...".to_string() };
+        }
 
-        // Create root and subdirs
-        std::fs::create_dir_all(&root).map_err(|e| format!("Cannot create root dir: {e}"))?;
-        let telemetry_dir = root.join("telemetry");
-        let datastore_dir = root.join("datastore");
-        let log_dir = root.join("log");
-        std::fs::create_dir_all(&telemetry_dir).map_err(|e| format!("Cannot create telemetry dir: {e}"))?;
-        std::fs::create_dir_all(&datastore_dir).map_err(|e| format!("Cannot create datastore dir: {e}"))?;
-        std::fs::create_dir_all(&log_dir).map_err(|e| format!("Cannot create log dir: {e}"))?;
-
-        // Determine config path and pre-create bin/ for self-contained layouts
         let is_system = matches!(self.installation_mode, InstallationMode::SystemWide);
         let config_dir = if is_system { root.clone() } else { root.join("etc") };
-        std::fs::create_dir_all(&config_dir).map_err(|e| format!("Cannot create config dir: {e}"))?;
         if !is_system {
-            let bin_dir = root.join("bin");
-            std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Cannot create bin dir: {e}"))?;
-            set_progress(0, "Copying sysmaster...");
-            let src = std::path::PathBuf::from(&self.sysmaster_path);
-            let dest = bin_dir.join("sysmaster");
-            std::fs::copy(&src, &dest).map_err(|e| format!("Cannot copy sysmaster to {}: {e}", dest.display()))?;
-            set_progress(1, "Copying sysinspect...");
-            let self_src = std::env::current_exe().map_err(|e| format!("Cannot locate sysinspect binary: {e}"))?;
-            let self_dest = bin_dir.join("sysinspect");
-            std::fs::copy(&self_src, &self_dest).map_err(|e| format!("Cannot copy sysinspect to {}: {e}", self_dest.display()))?;
-            set_progress(2, "Finalizing setup...");
-        } else {
-            set_progress(1, "Using selected sysmaster binary...");
-            set_progress(2, "Using current sysinspect binary...");
+            Self::apply_copy_entries(&entries, progress.as_ref())?;
         }
         let config_path = config_dir.join("sysinspect.conf");
 
@@ -785,6 +895,12 @@ impl SetupRequest {
         let master_cfg: MasterConfig = serde_yaml::from_str(&partial).map_err(|e| format!("Cannot construct config: {e}"))?;
         let yaml = SysInspectConfig::default().set_master_config(master_cfg).to_yaml();
         std::fs::write(&config_path, yaml).map_err(|e| format!("Cannot write config: {e}"))?;
+        if let Some(progress) = progress.as_ref()
+            && let Ok(mut state) = progress.lock()
+        {
+            state.current = state.total;
+            state.message = "Setup complete".to_string();
+        }
 
         let (info_message, info_styled) = self.completion_message();
 
