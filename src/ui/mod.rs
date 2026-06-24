@@ -151,6 +151,8 @@ type ClusterUpgradeTaskResult = Result<(usize, usize, usize, usize, usize, Vec<S
 
 type ClusterStartTaskResult = Result<(usize, Vec<String>), String>;
 
+type SetupTaskResult = Result<setup::SetupCompletion, String>;
+
 #[derive(Debug)]
 pub struct ClusterStartProgressState {
     pub visible: bool,
@@ -297,6 +299,8 @@ pub struct SysInspectUX {
     pub registration_form: minreg::RegistrationForm,
     pub registration_progress: Arc<std::sync::Mutex<minreg::RegistrationProgress>>,
     pub registration_task: Option<tokio::task::JoinHandle<()>>,
+    pub setup_progress: Arc<std::sync::Mutex<setup::SetupProgress>>,
+    pub setup_task: Option<tokio::task::JoinHandle<SetupTaskResult>>,
     pub delete_progress: DeleteProgressState,
     pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
     pub delete_success_message: String,
@@ -424,6 +428,8 @@ impl Default for SysInspectUX {
             registration_form: minreg::RegistrationForm::default(),
             registration_progress: Arc::new(std::sync::Mutex::new(minreg::RegistrationProgress::placeholder())),
             registration_task: None,
+            setup_progress: Arc::new(std::sync::Mutex::new(setup::SetupProgress::hidden())),
+            setup_task: None,
             delete_progress: DeleteProgressState::default(),
             delete_task: None,
             delete_success_message: String::new(),
@@ -510,61 +516,52 @@ impl SysInspectUX {
                     self.setup_wizard.ok_pressed = false;
                     self.setup_wizard.focus = setup::SetupFocus::SysMasterPath;
                 } else {
-                    match self.setup_wizard.write_config() {
-                        Ok(config_path) => {
-                            self.setup_wizard.ok_pressed = false;
-                            self.setup_wizard.visible = false;
-
-                            // Spawn master in daemon mode (no TUI output pollution)
-                            let master_bin = if self.setup_wizard.installation_mode == setup::InstallationMode::Custom {
-                                std::path::PathBuf::from(self.setup_wizard.custom_destination.value()).join("bin/sysmaster")
-                            } else {
-                                std::path::PathBuf::from(self.setup_wizard.sysmaster_path.value())
-                            };
-                            std::process::Command::new(&master_bin)
-                                .arg("--daemon")
-                                .arg("-c")
-                                .arg(config_path.to_string_lossy().as_ref())
-                                .stdout(std::process::Stdio::null())
-                                .stderr(std::process::Stdio::null())
-                                .spawn()
-                                .map(|c| {
-                                    std::thread::spawn(move || {
-                                        c.wait_with_output().ok();
-                                    });
-                                })
-                                .ok();
-
-                            // Wait for master to come up
-                            for _ in 0..10 {
-                                std::thread::sleep(std::time::Duration::from_millis(500));
-                                if self.try_reconnect_silent().is_ok() {
-                                    return self.run_normal_loop(term);
-                                }
-                            }
-
-                            // Not yet up — stay in setup loop, will auto-reconnect
-                            self.info_alert_visible = true;
-                            self.info_alert_title = "Setup Complete".to_string();
-                            self.info_alert_styled = None;
-                            self.info_alert_message = format!(
-                                "Config written to:\n{}\n\nMaster is starting in the background.\nThe UI will reconnect automatically.",
-                                config_path.display(),
-                            );
-                        }
-                        Err(e) => {
-                            self.error_alert_visible = true;
-                            self.error_alert_message = e;
-                            self.setup_wizard.ok_pressed = false;
-                        }
+                    self.setup_wizard.ok_pressed = false;
+                    self.setup_wizard.visible = false;
+                    let request = self.setup_wizard.to_request();
+                    let progress = self.setup_progress.clone();
+                    if let Ok(mut state) = progress.lock() {
+                        *state = setup::SetupProgress::new();
+                    }
+                    self.setup_task = Some(tokio::task::spawn_blocking(move || request.run_with_progress(progress)));
+                }
+            }
+            if self.setup_task.as_ref().is_some_and(|task| task.is_finished())
+                && let Some(task) = self.setup_task.take()
+            {
+                let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+                if let Ok(mut progress) = self.setup_progress.lock() {
+                    *progress = setup::SetupProgress::hidden();
+                }
+                match result {
+                    Ok(Ok(done)) => {
+                        self.pending_exit = true;
+                        self.info_alert_visible = true;
+                        self.info_alert_title = "Master Installation Complete".to_string();
+                        self.info_alert_styled = Some(done.info_styled);
+                        self.info_alert_message = done.info_message;
+                    }
+                    Ok(Err(err)) => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err;
+                        self.setup_wizard.visible = true;
+                    }
+                    Err(err) => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Setup task failed: {err}");
+                        self.setup_wizard.visible = true;
                     }
                 }
             }
-            if !self.error_alert_visible && !self.setup_wizard.visible && self.try_reconnect_silent().is_ok() {
+            if self.setup_task.is_none() && !self.error_alert_visible && !self.setup_wizard.visible && self.try_reconnect_silent().is_ok() {
                 return self.run_normal_loop(term);
             }
             // Periodic silent reconnect in setup mode
-            if !self.setup_wizard.ok_pressed && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) && self.evtipc.is_some() {
+            if self.setup_task.is_none()
+                && !self.setup_wizard.ok_pressed
+                && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5)
+                && self.evtipc.is_some()
+            {
                 self.last_reconnect_attempt = Instant::now();
                 if self.try_reconnect_silent().is_ok() {
                     return self.run_normal_loop(term);
@@ -702,7 +699,8 @@ impl SysInspectUX {
     }
 
     fn on_events_setup(&mut self) -> io::Result<()> {
-        if event::poll(Duration::from_secs(1))?
+        let poll_dur = if self.setup_progress.lock().unwrap().visible { Duration::from_millis(50) } else { Duration::from_secs(1) };
+        if event::poll(poll_dur)?
             && let Event::Key(e) = event::read()?
             && e.kind == KeyEventKind::Press
         {

@@ -8,11 +8,14 @@ use ratatui::{
     layout::Position,
     prelude::{Buffer, Rect},
     style::{Color, Modifier, Style},
+    text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Clear, StatefulWidget, Widget},
 };
 use ratatui_cheese::input::{Input, InputState};
 use ratatui_glamour::color::blend_2d;
 use ratatui_glamour::rule::dashed_title;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InstallationMode {
@@ -100,6 +103,57 @@ pub struct MasterSetupWizard {
     pub error_message: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SetupProgress {
+    pub visible: bool,
+    pub current: usize,
+    pub total: usize,
+    pub message: String,
+    pub done: bool,
+    pub error: Option<String>,
+}
+
+impl SetupProgress {
+    pub fn new() -> Self {
+        Self {
+            visible: true,
+            current: 0,
+            total: 2,
+            message: "Preparing setup...".to_string(),
+            done: false,
+            error: None,
+        }
+    }
+
+    pub fn hidden() -> Self {
+        Self {
+            visible: false,
+            current: 0,
+            total: 2,
+            message: String::new(),
+            done: false,
+            error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SetupCompletion {
+    pub info_message: String,
+    pub info_styled: Text<'static>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetupRequest {
+    installation_mode: InstallationMode,
+    sysmaster_path: String,
+    custom_destination: String,
+    bind_addr: String,
+    bind_port: String,
+    fs_port: String,
+    api_enabled: bool,
+}
+
 impl Default for MasterSetupWizard {
     fn default() -> Self {
         let cwd = std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
@@ -144,6 +198,18 @@ impl Default for MasterSetupWizard {
 }
 
 impl MasterSetupWizard {
+    pub fn to_request(&self) -> SetupRequest {
+        SetupRequest {
+            installation_mode: self.installation_mode,
+            sysmaster_path: self.sysmaster_path.value().to_string(),
+            custom_destination: self.custom_destination.value().to_string(),
+            bind_addr: self.bind_addr.value().to_string(),
+            bind_port: self.bind_port.value().to_string(),
+            fs_port: self.fs_port.value().to_string(),
+            api_enabled: self.api_enabled,
+        }
+    }
+
     pub fn from_config(cfg: &libsysinspect::cfg::mmconf::MasterConfig) -> Self {
         let root = cfg.root_dir();
         let is_system = root == *"/etc/sysinspect";
@@ -522,9 +588,182 @@ impl MasterSetupWizard {
 
     /// Write config file, create directories, return the config path on success.
     pub fn write_config(&self) -> Result<std::path::PathBuf, String> {
+        self.to_request().run(None).map(|done| {
+            let _ = done;
+            self.root_dir_for_write_config().join(if matches!(self.installation_mode, InstallationMode::SystemWide) {
+                "sysinspect.conf"
+            } else {
+                "etc/sysinspect.conf"
+            })
+        })
+    }
+}
+
+pub fn render_progress(progress: &SetupProgress, parent: Rect, buf: &mut Buffer) {
+    if !progress.visible {
+        return;
+    }
+
+    let dlg_w = (parent.width / 2).clamp(50, 80);
+    let dlg_h = 7u16;
+    let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
+    let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
+    let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
+
+    Clear.render(canvas, buf);
+
+    let grad = blend_2d(canvas.width as usize, canvas.height as usize, 13.0, &[palette::GRAY_0, palette::PROCESSING_GLOW] as &[Color]);
+    for row in 0..canvas.height {
+        for col in 0..canvas.width {
+            let idx = row as usize * canvas.width as usize + col as usize;
+            if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                cell.set_bg(grad[idx]);
+            }
+        }
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+        .style(Style::default());
+    let inner = block.inner(canvas);
+    block.render(canvas, buf);
+
+    let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+    title::overlay_gradient_title(
+        buf,
+        canvas,
+        &title_style,
+        &[
+            TitleSegment { text: " Master ".into(), bg: palette::PROCESSING_GLOW, fg: palette::WHITE, modifier: Modifier::empty() },
+            TitleSegment { text: " Setup ".into(), bg: palette::PROCESSING_HEAT, fg: palette::WHITE, modifier: Modifier::empty() },
+        ],
+    );
+
+    let msg = if progress.message.is_empty() { "Preparing setup..." } else { &progress.message };
+    buf.set_string(
+        inner.x + 1,
+        inner.y + 1,
+        truncate_str(msg, inner.width.saturating_sub(2) as usize),
+        Style::default().fg(palette::FG),
+    );
+
+    let bar_y = inner.y + 3;
+    let bar_w = inner.width.saturating_sub(2);
+    let filled = (bar_w as usize * progress.current).checked_div(progress.total.max(1)).map(|v| v as u16).unwrap_or(0);
+    if filled > 0 {
+        buf.set_string(inner.x + 1, bar_y, "█".repeat(filled as usize), Style::default().fg(palette::PROCESSING_PEAK));
+    }
+    if filled < bar_w {
+        buf.set_string(
+            inner.x + 1 + filled,
+            bar_y,
+            "─".repeat((bar_w - filled) as usize),
+            Style::default().fg(palette::MUTED),
+        );
+    }
+
+    let pct = (progress.current * 100)
+        .checked_div(progress.total.max(1))
+        .map(|p| format!("{p}%"))
+        .unwrap_or_else(|| "0%".into());
+    let pct_x = inner.x + (inner.width.saturating_sub(pct.len() as u16)) / 2;
+    buf.set_string(pct_x, inner.y + 4, &pct, Style::default().fg(palette::FG).add_modifier(Modifier::BOLD));
+}
+
+impl SetupRequest {
+    pub fn run_with_progress(self, progress: Arc<Mutex<SetupProgress>>) -> Result<SetupCompletion, String> {
+        self.run(Some(progress))
+    }
+
+    fn root_dir(&self) -> PathBuf {
         let root = match self.installation_mode {
             InstallationMode::SystemWide => std::path::PathBuf::from("/etc/sysinspect"),
-            InstallationMode::Custom => std::path::PathBuf::from(self.custom_destination.value()),
+            InstallationMode::Custom => std::path::PathBuf::from(&self.custom_destination),
+        };
+
+        root
+    }
+
+    fn installed_sysinspect_path(&self) -> String {
+        if self.installation_mode == InstallationMode::Custom {
+            self.root_dir().join("bin/sysinspect").display().to_string()
+        } else {
+            "sysinspect".to_string()
+        }
+    }
+
+    fn completion_message(&self) -> (String, Text<'static>) {
+        let root = self.root_dir().display().to_string();
+        let command = format!("{} --ui", self.installed_sysinspect_path());
+
+        let plain = if self.installation_mode == InstallationMode::Custom {
+            format!(
+                "Master installation files were written successfully. Now please quit\nthis UI and go  to the installation target at:\n\n    {root}\n\nThen run the following command:\n\n    {command}\n\nThat new instance will then ask whether to start master in daemon mode."
+            )
+        } else {
+            format!(
+                "Master installation files were written successfully. Now please quit\nthis UI.\n\nThen run the following command:\n\n    {command}\n\nThat new instance will then ask whether to start master in daemon mode."
+            )
+        };
+
+        let styled = if self.installation_mode == InstallationMode::Custom {
+            Text::from(vec![
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Master installation files were written successfully. Now please quit",
+                    Style::default().fg(palette::FG),
+                )]),
+                Line::from(vec![Span::styled(
+                    "this UI and go  to the installation target at:",
+                    Style::default().fg(palette::FG),
+                )]),
+                Line::from(""),
+                Line::from(vec![Span::styled(format!("    {root}"), Style::default().fg(palette::PRIMARY))]),
+                Line::from(""),
+                Line::from(vec![Span::styled("Then run the following command:", Style::default().fg(palette::FG))]),
+                Line::from(""),
+                Line::from(vec![Span::styled(format!("    {command}"), Style::default().fg(palette::PRIMARY))]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "That new instance will then ask whether to start master in daemon mode.",
+                    Style::default().fg(palette::FG),
+                )]),
+            ])
+        } else {
+            Text::from(vec![
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Master installation files were written successfully. Now please quit",
+                    Style::default().fg(palette::FG),
+                )]),
+                Line::from(vec![Span::styled("this UI.", Style::default().fg(palette::FG))]),
+                Line::from(""),
+                Line::from(vec![Span::styled("Then run the following command:", Style::default().fg(palette::FG))]),
+                Line::from(""),
+                Line::from(vec![Span::styled(format!("    {command}"), Style::default().fg(palette::PRIMARY))]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "That new instance will then ask whether to start master in daemon mode.",
+                    Style::default().fg(palette::FG),
+                )]),
+            ])
+        };
+
+        (plain, styled)
+    }
+
+    fn run(self, progress: Option<Arc<Mutex<SetupProgress>>>) -> Result<SetupCompletion, String> {
+        let root = self.root_dir();
+
+        let set_progress = |current: usize, message: &str| {
+            if let Some(progress) = progress.as_ref()
+                && let Ok(mut state) = progress.lock()
+            {
+                state.current = current;
+                state.message = message.to_string();
+            }
         };
 
         // Create root and subdirs
@@ -543,18 +782,24 @@ impl MasterSetupWizard {
         if !is_system {
             let bin_dir = root.join("bin");
             std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Cannot create bin dir: {e}"))?;
-            let src = std::path::PathBuf::from(self.sysmaster_path.value());
+            set_progress(0, "Copying sysmaster...");
+            let src = std::path::PathBuf::from(&self.sysmaster_path);
             let dest = bin_dir.join("sysmaster");
             std::fs::copy(&src, &dest).map_err(|e| format!("Cannot copy sysmaster to {}: {e}", dest.display()))?;
+            set_progress(1, "Copying sysinspect...");
             let self_src = std::env::current_exe().map_err(|e| format!("Cannot locate sysinspect binary: {e}"))?;
             let self_dest = bin_dir.join("sysinspect");
             std::fs::copy(&self_src, &self_dest).map_err(|e| format!("Cannot copy sysinspect to {}: {e}", self_dest.display()))?;
+            set_progress(2, "Finalizing setup...");
+        } else {
+            set_progress(1, "Using selected sysmaster binary...");
+            set_progress(2, "Using current sysinspect binary...");
         }
         let config_path = config_dir.join("sysinspect.conf");
 
-        let bind_addr = self.bind_addr.value();
-        let bind_port: u32 = self.bind_port.value().parse().map_err(|_| "Invalid bind port".to_string())?;
-        let fs_port: u32 = self.fs_port.value().parse().map_err(|_| "Invalid fileserver port".to_string())?;
+        let bind_addr = &self.bind_addr;
+        let bind_port: u32 = self.bind_port.parse().map_err(|_| "Invalid bind port".to_string())?;
+        let fs_port: u32 = self.fs_port.parse().map_err(|_| "Invalid fileserver port".to_string())?;
 
         let partial = format!(
             "root: \"{}\"\nbind.ip: \"{}\"\nbind.port: {}\nfileserver.bind.ip: \"{}\"\nfileserver.bind.port: {}\nfileserver.models: []\napi.enabled: {}\nlog.stream: \"{}/log/sysmaster.standard.log\"\nlog.errors: \"{}/log/sysmaster.errors.log\"\n",
@@ -571,6 +816,30 @@ impl MasterSetupWizard {
         let yaml = SysInspectConfig::default().set_master_config(master_cfg).to_yaml();
         std::fs::write(&config_path, yaml).map_err(|e| format!("Cannot write config: {e}"))?;
 
-        Ok(config_path)
+        let (info_message, info_styled) = self.completion_message();
+
+        Ok(SetupCompletion { info_message, info_styled })
     }
+}
+
+impl MasterSetupWizard {
+    fn root_dir_for_write_config(&self) -> PathBuf {
+        match self.installation_mode {
+            InstallationMode::SystemWide => PathBuf::from("/etc/sysinspect"),
+            InstallationMode::Custom => PathBuf::from(self.custom_destination.value()),
+        }
+    }
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_string();
+    }
+    if max <= 1 {
+        return "…".to_string();
+    }
+    let mut out = s.chars().take(max - 1).collect::<String>();
+    out.push('…');
+    out
 }
