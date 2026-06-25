@@ -225,7 +225,18 @@ impl SysInspectUX {
         } else if p.create_visible {
             self.status_text = Line::from(vec![key("Tab "), desc("switch  "), key("Enter "), desc("create  "), key("Esc "), desc("cancel")]);
         } else if p.detail_visible {
-            self.status_text = Line::from(vec![key("Tab "), desc("switch section  "), key("d/Del "), desc("remove  "), key("Esc "), desc("close")]);
+            self.status_text = Line::from(vec![
+                key("Tab "),
+                desc("switch section  "),
+                key("\u{2190}/\u{2192} "),
+                desc("view  "),
+                key("+/- "),
+                desc("expand/collapse  "),
+                key("Enter "),
+                desc("toggle  "),
+                key("Esc "),
+                desc("close"),
+            ]);
         } else {
             self.status_text = Line::from(vec![
                 key("\u{2191}\u{2193} "),
