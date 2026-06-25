@@ -118,11 +118,7 @@ fn bytes_sha256_hex(data: &[u8]) -> String {
 }
 
 fn timestamp_now() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .to_string()
+    std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs().to_string()
 }
 
 fn canonical_auth_material(method: &str, path: &str, query: &str, timestamp: &str, body_sha256: &str) -> String {
@@ -141,18 +137,11 @@ fn machine_id_path(rq: &ModRequest) -> PathBuf {
         return PathBuf::from(mid);
     }
     let default = PathBuf::from(DEFAULT_MINION_MACHINE_ID);
-    if default.exists() {
-        default
-    } else {
-        cfg_root(rq).join(DEFAULT_MINION_MACHINE_ID_REL)
-    }
+    if default.exists() { default } else { cfg_root(rq).join(DEFAULT_MINION_MACHINE_ID_REL) }
 }
 
 fn load_minion_auth(rq: &ModRequest) -> Result<MinionAuth, String> {
-    let minion_id = fs::read_to_string(machine_id_path(rq))
-        .map_err(|e| format!("Unable to read minion identity: {e}"))?
-        .trim()
-        .to_string();
+    let minion_id = fs::read_to_string(machine_id_path(rq)).map_err(|e| format!("Unable to read minion identity: {e}"))?.trim().to_string();
     if minion_id.is_empty() {
         return Err("Minion identity is empty".to_string());
     }
@@ -194,18 +183,14 @@ fn bearer_request(client: &reqwest::blocking::Client, token: &str, method: reqwe
 
 fn api_base(rq: &ModRequest) -> String {
     let ip = cfg_str(rq, "master.ip").unwrap_or_else(|| "127.0.0.1".to_string());
-    let port = arg_str(rq, "port")
-        .and_then(|v| v.parse::<u32>().ok())
-        .unwrap_or(DEFAULT_API_PORT);
+    let port = arg_str(rq, "port").and_then(|v| v.parse::<u32>().ok()).unwrap_or(DEFAULT_API_PORT);
     let scheme = if arg_bool(rq, "tls").unwrap_or(true) { "https" } else { "http" };
     format!("{scheme}://{ip}:{port}")
 }
 
 fn bootstrap_datastore_token(client: &reqwest::blocking::Client, auth: &MinionAuth, base: &str) -> Result<String, String> {
     let url = format!("{base}/store/auth/minion");
-    let rsp = authed_request(client, auth, reqwest::Method::POST, &url, &[], "")?
-        .send()
-        .map_err(|e| format!("store auth request failed: {e}"))?;
+    let rsp = authed_request(client, auth, reqwest::Method::POST, &url, &[], "")?.send().map_err(|e| format!("store auth request failed: {e}"))?;
     if !rsp.status().is_success() {
         return Err(format!("store auth request failed: HTTP {}", rsp.status()));
     }
@@ -283,16 +268,7 @@ fn mk_ctx(rq: &ModRequest) -> Result<Ctx, String> {
     let base = api_base(rq);
     let token = bootstrap_datastore_token(&cl, &auth, &base)?;
 
-    Ok(Ctx {
-        cl,
-        b: base,
-        t: token,
-        s,
-        f: arg_str(rq, "file"),
-        d: arg_str(rq, "dst"),
-        m: arg_str(rq, "mode"),
-        force: rq.has_option("force"),
-    })
+    Ok(Ctx { cl, b: base, t: token, s, f: arg_str(rq, "file"), d: arg_str(rq, "dst"), m: arg_str(rq, "mode"), force: rq.has_option("force") })
 }
 
 fn local_p(c: &Ctx) -> PathBuf {
@@ -383,12 +359,8 @@ fn do_pull(c: &Ctx) -> Result<(bool, String, JsonMap), String> {
 
 fn do_sync_dir(c: &Ctx) -> Result<(bool, String, JsonMap), String> {
     let mut d = JsonMap::new();
-    let dst_dir = c
-        .f
-        .clone()
-        .or_else(|| c.d.clone())
-        .map(PathBuf::from)
-        .ok_or_else(|| "Argument \"file\" or \"dst\" is required for sync-dir".to_string())?;
+    let dst_dir =
+        c.f.clone().or_else(|| c.d.clone()).map(PathBuf::from).ok_or_else(|| "Argument \"file\" or \"dst\" is required for sync-dir".to_string())?;
     fs::create_dir_all(&dst_dir).map_err(|e| format!("Unable to create destination directory '{}': {e}", dst_dir.display()))?;
 
     let metas = list_meta(&c.cl, &c.t, &c.b, &c.s)?;
@@ -402,13 +374,13 @@ fn do_sync_dir(c: &Ctx) -> Result<(bool, String, JsonMap), String> {
             continue;
         };
         let dst = dst_dir.join(name);
-        if dst.exists() && !c.force {
-            if let Ok(h) = file_sha256(&dst)
-                && h == meta.sha256
-            {
-                synced += 1;
-                continue;
-            }
+        if dst.exists()
+            && !c.force
+            && let Ok(h) = file_sha256(&dst)
+            && h == meta.sha256
+        {
+            synced += 1;
+            continue;
         }
 
         let url = format!("{}/store/{}/blob", c.b, meta.sha256);
