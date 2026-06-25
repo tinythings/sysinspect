@@ -1406,7 +1406,7 @@ impl RepoManager {
             ("Id:", model.id.clone()),
             ("Enabled:", if model.enabled { "yes".to_string() } else { "no".to_string() }),
             ("Version:", model.version.clone()),
-            ("Entrypts:", model.entrypoints.join(", ")),
+            ("Entries:", model.entrypoints.join(", ")),
             ("States:", model.states.join(", ")),
         ];
         for (i, (label, value)) in lines.iter().enumerate() {
