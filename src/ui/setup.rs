@@ -4,6 +4,15 @@ use super::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use libsysinspect::cfg::mmconf::{MasterConfig, SysInspectConfig};
+use openssl::{
+    asn1::Asn1Time,
+    bn::{BigNum, MsbOption},
+    hash::MessageDigest,
+    nid::Nid,
+    pkey::PKey,
+    rsa::Rsa,
+    x509::{X509, X509NameBuilder},
+};
 use ratatui::{
     layout::Position,
     prelude::{Buffer, Rect},
@@ -16,6 +25,32 @@ use ratatui_glamour::color::blend_2d;
 use ratatui_glamour::rule::dashed_title;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+fn resolve_user_path(raw: &str) -> PathBuf {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return PathBuf::new();
+    }
+
+    if trimmed == "~"
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home);
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+
+    let path = PathBuf::from(trimmed);
+    if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InstallationMode {
@@ -33,12 +68,13 @@ pub enum SetupFocus {
     BindPort,
     FsPort,
     ApiCheck,
+    ApiSelfSignedCheck,
     Ok,
     Cancel,
 }
 
 impl SetupFocus {
-    fn next(self, mode: InstallationMode) -> Self {
+    fn next(self, mode: InstallationMode, api_enabled: bool) -> Self {
         use SetupFocus::*;
 
         match self {
@@ -55,13 +91,20 @@ impl SetupFocus {
             BindAddr => BindPort,
             BindPort => FsPort,
             FsPort => ApiCheck,
-            ApiCheck => Ok,
+            ApiCheck => {
+                if api_enabled {
+                    ApiSelfSignedCheck
+                } else {
+                    Ok
+                }
+            }
+            ApiSelfSignedCheck => Ok,
             Ok => Cancel,
             Cancel => SysMasterPath,
         }
     }
 
-    fn prev(self, mode: InstallationMode) -> Self {
+    fn prev(self, mode: InstallationMode, api_enabled: bool) -> Self {
         use SetupFocus::*;
 
         match self {
@@ -79,7 +122,14 @@ impl SetupFocus {
             BindPort => BindAddr,
             FsPort => BindPort,
             ApiCheck => FsPort,
-            Ok => ApiCheck,
+            ApiSelfSignedCheck => ApiCheck,
+            Ok => {
+                if api_enabled {
+                    ApiSelfSignedCheck
+                } else {
+                    ApiCheck
+                }
+            }
             Cancel => Ok,
         }
     }
@@ -97,6 +147,7 @@ pub struct MasterSetupWizard {
     pub bind_port: InputState,
     pub fs_port: InputState,
     pub api_enabled: bool,
+    pub api_self_signed_tls: bool,
     pub focus: SetupFocus,
     pub ok_pressed: bool,
     pub quit_requested: bool,
@@ -138,6 +189,7 @@ pub struct SetupRequest {
     bind_port: String,
     fs_port: String,
     api_enabled: bool,
+    api_self_signed_tls: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +234,7 @@ impl Default for MasterSetupWizard {
             bind_port,
             fs_port,
             api_enabled: true,
+            api_self_signed_tls: false,
             focus: SetupFocus::SysMasterPath,
             ok_pressed: false,
             quit_requested: false,
@@ -200,6 +253,7 @@ impl MasterSetupWizard {
             bind_port: self.bind_port.value().to_string(),
             fs_port: self.fs_port.value().to_string(),
             api_enabled: self.api_enabled,
+            api_self_signed_tls: self.api_self_signed_tls,
         }
     }
 
@@ -220,6 +274,7 @@ impl MasterSetupWizard {
         w.fs_port.set_value(fs.split(':').nth(1).unwrap_or("4201").to_string());
 
         w.api_enabled = cfg.api_enabled();
+        w.api_self_signed_tls = false;
 
         if !is_system {
             w.custom_destination.set_value(root.to_string_lossy().to_string());
@@ -244,13 +299,13 @@ impl MasterSetupWizard {
         match key.code {
             KeyCode::Tab => {
                 self.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
-                    self.focus.prev(self.installation_mode)
+                    self.focus.prev(self.installation_mode, self.api_enabled)
                 } else {
-                    self.focus.next(self.installation_mode)
+                    self.focus.next(self.installation_mode, self.api_enabled)
                 };
             }
             KeyCode::BackTab => {
-                self.focus = self.focus.prev(self.installation_mode);
+                self.focus = self.focus.prev(self.installation_mode, self.api_enabled);
             }
             KeyCode::Enter => match self.focus {
                 SetupFocus::SysMasterPath => {
@@ -274,6 +329,11 @@ impl MasterSetupWizard {
                 SetupFocus::ApiCheck => {
                     self.api_enabled = !self.api_enabled;
                 }
+                SetupFocus::ApiSelfSignedCheck => {
+                    if self.api_enabled {
+                        self.api_self_signed_tls = !self.api_self_signed_tls;
+                    }
+                }
                 _ => {} // input fields — Enter does nothing (text is handled by char keys)
             },
             KeyCode::Esc => {
@@ -282,6 +342,8 @@ impl MasterSetupWizard {
             KeyCode::Char(' ') => {
                 if self.focus == SetupFocus::ApiCheck {
                     self.api_enabled = !self.api_enabled;
+                } else if self.focus == SetupFocus::ApiSelfSignedCheck && self.api_enabled {
+                    self.api_self_signed_tls = !self.api_self_signed_tls;
                 }
             }
             KeyCode::Backspace => {
@@ -344,7 +406,7 @@ impl MasterSetupWizard {
             return;
         }
         let dlg_w = (parent.width * 3 / 4).clamp(60, 72);
-        let dlg_h = if self.installation_mode == InstallationMode::Custom { 15u16 } else { 14u16 };
+        let dlg_h = if self.installation_mode == InstallationMode::Custom { 16u16 } else { 15u16 };
         let x = parent.x + (parent.width.saturating_sub(dlg_w)) / 2;
         let y = parent.y + (parent.height.saturating_sub(dlg_h)) / 2;
         let canvas = Rect { x, y, width: dlg_w, height: dlg_h };
@@ -488,6 +550,21 @@ impl MasterSetupWizard {
         let api_chk = if self.api_enabled { " ▣  Enable Web API" } else { " □  Enable Web API" };
         let api_style = if self.is_focused(SetupFocus::ApiCheck) { focus_style } else { muted };
         buf.set_string(inner.x + 1, row_y, api_chk, api_style);
+        row_y += 1;
+
+        let self_signed_chk = if self.api_self_signed_tls {
+            " ▣  Setup with self-signed TLS certificate"
+        } else {
+            " □  Setup with self-signed TLS certificate"
+        };
+        let self_signed_style = if !self.api_enabled {
+            Style::default().fg(palette::MUTED)
+        } else if self.is_focused(SetupFocus::ApiSelfSignedCheck) {
+            focus_style
+        } else {
+            muted
+        };
+        buf.set_string(inner.x + 1, row_y, self_signed_chk, self_signed_style);
         row_y += 1;
 
         // spacing
@@ -653,6 +730,80 @@ pub fn render_progress(progress: &SetupProgress, parent: Rect, buf: &mut Buffer)
 }
 
 impl SetupRequest {
+    fn config_path(&self) -> PathBuf {
+        let root = self.root_dir();
+        if matches!(self.installation_mode, InstallationMode::SystemWide) {
+            root.join("sysinspect.conf")
+        } else {
+            root.join("etc/sysinspect.conf")
+        }
+    }
+
+    fn config_dropin_dir(&self) -> PathBuf {
+        let config_path = self.config_path();
+        let stem = config_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        config_path.with_file_name(format!("{stem}.d"))
+    }
+
+    fn self_signed_tls_paths(&self) -> (PathBuf, PathBuf) {
+        let etc_dir = self.root_dir().join("etc");
+        (etc_dir.join("api.crt"), etc_dir.join("api.key"))
+    }
+
+    fn write_webapi_tls_dropin(&self, cert_path: &Path, key_path: &Path) -> Result<(), String> {
+        let dropin_dir = self.config_dropin_dir();
+        std::fs::create_dir_all(&dropin_dir).map_err(|e| format!("Cannot create {}: {e}", dropin_dir.display()))?;
+        let dropin = dropin_dir.join("99-webapi-tls.conf");
+        let body = format!(
+            "config:\n  master:\n    api.enabled: true\n    api.tls.enabled: true\n    api.tls.cert-file: {}\n    api.tls.key-file: {}\n    api.tls.allow-insecure: true\n",
+            cert_path.display(),
+            key_path.display()
+        );
+        std::fs::write(&dropin, body).map_err(|e| format!("Cannot write {}: {e}", dropin.display()))
+    }
+
+    fn generate_self_signed_webapi_cert(&self) -> Result<(), String> {
+        let (cert_path, key_path) = self.self_signed_tls_paths();
+        if let Some(parent) = cert_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
+
+        let rsa = Rsa::generate(2048).map_err(|e| format!("Cannot generate RSA key: {e}"))?;
+        let pkey = PKey::from_rsa(rsa).map_err(|e| format!("Cannot convert RSA key: {e}"))?;
+
+        let mut name = X509NameBuilder::new().map_err(|e| format!("Cannot create certificate subject: {e}"))?;
+        name.append_entry_by_nid(Nid::COMMONNAME, "sysinspect-webapi")
+            .map_err(|e| format!("Cannot set certificate subject: {e}"))?;
+        let name = name.build();
+
+        let mut builder = X509::builder().map_err(|e| format!("Cannot build certificate: {e}"))?;
+        let mut serial = BigNum::new().map_err(|e| format!("Cannot allocate serial number: {e}"))?;
+        serial.rand(128, MsbOption::MAYBE_ZERO, false).map_err(|e| format!("Cannot generate serial number: {e}"))?;
+        let serial = serial.to_asn1_integer().map_err(|e| format!("Cannot encode serial number: {e}"))?;
+        builder.set_version(2).map_err(|e| format!("Cannot set certificate version: {e}"))?;
+        builder.set_serial_number(&serial).map_err(|e| format!("Cannot set serial number: {e}"))?;
+        builder.set_subject_name(&name).map_err(|e| format!("Cannot set subject: {e}"))?;
+        builder.set_issuer_name(&name).map_err(|e| format!("Cannot set issuer: {e}"))?;
+        builder.set_pubkey(&pkey).map_err(|e| format!("Cannot set public key: {e}"))?;
+        builder
+            .set_not_before(Asn1Time::days_from_now(0).map_err(|e| format!("Cannot set not-before time: {e}"))?.as_ref())
+            .map_err(|e| format!("Cannot apply not-before time: {e}"))?;
+        builder
+            .set_not_after(Asn1Time::days_from_now(3650).map_err(|e| format!("Cannot set not-after time: {e}"))?.as_ref())
+            .map_err(|e| format!("Cannot apply not-after time: {e}"))?;
+        builder.sign(&pkey, MessageDigest::sha256()).map_err(|e| format!("Cannot sign certificate: {e}"))?;
+
+        std::fs::write(&cert_path, builder.build().to_pem().map_err(|e| format!("Cannot export certificate: {e}"))?)
+            .map_err(|e| format!("Cannot write {}: {e}", cert_path.display()))?;
+        std::fs::write(
+            &key_path,
+            pkey.private_key_to_pem_pkcs8().map_err(|e| format!("Cannot export private key: {e}"))?,
+        )
+        .map_err(|e| format!("Cannot write {}: {e}", key_path.display()))?;
+
+        self.write_webapi_tls_dropin(&cert_path, &key_path)
+    }
+
     fn total_progress_steps(entry_count: usize) -> usize {
         entry_count.saturating_add(1)
     }
@@ -788,7 +939,7 @@ impl SetupRequest {
     fn root_dir(&self) -> PathBuf {
         match self.installation_mode {
             InstallationMode::SystemWide => std::path::PathBuf::from("/etc/sysinspect"),
-            InstallationMode::Custom => std::path::PathBuf::from(&self.custom_destination),
+            InstallationMode::Custom => resolve_user_path(&self.custom_destination),
         }
     }
 
@@ -895,6 +1046,9 @@ impl SetupRequest {
         let master_cfg: MasterConfig = serde_yaml::from_str(&partial).map_err(|e| format!("Cannot construct config: {e}"))?;
         let yaml = SysInspectConfig::default().set_master_config(master_cfg).to_yaml();
         std::fs::write(&config_path, yaml).map_err(|e| format!("Cannot write config: {e}"))?;
+        if self.api_enabled && self.api_self_signed_tls {
+            self.generate_self_signed_webapi_cert()?;
+        }
         if let Some(progress) = progress.as_ref()
             && let Ok(mut state) = progress.lock()
         {
@@ -912,7 +1066,7 @@ impl MasterSetupWizard {
     fn root_dir_for_write_config(&self) -> PathBuf {
         match self.installation_mode {
             InstallationMode::SystemWide => PathBuf::from("/etc/sysinspect"),
-            InstallationMode::Custom => PathBuf::from(self.custom_destination.value()),
+            InstallationMode::Custom => resolve_user_path(self.custom_destination.value()),
         }
     }
 }
