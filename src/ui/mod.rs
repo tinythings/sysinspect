@@ -2699,18 +2699,6 @@ impl SysInspectUX {
                     }
                 }
             }
-            if !self.repo_manager.staging
-                && self.repo_manager.active_tab == 3
-                && matches!(
-                    self.repo_manager.staging_mode,
-                    repomanager::StagingMode::ProfileModuleAdd
-                        | repomanager::StagingMode::ProfileModelAdd
-                        | repomanager::StagingMode::ProfileLibraryAdd
-                )
-            {
-                self.repo_manager.profiles.detail_visible = true;
-                self.status_at_profiles();
-            }
             return handled;
         }
         if self.repo_manager.info_visible {
@@ -2858,7 +2846,6 @@ impl SysInspectUX {
                         }
                         profiles::ProfDetailFocus::CloseBtn => {
                             self.repo_manager.profiles.detail_visible = false;
-                            self.repo_manager.staging_mode = repomanager::StagingMode::ModuleAdd;
                             self.status_at_profiles();
                         }
                         profiles::ProfDetailFocus::AssignBtn => {

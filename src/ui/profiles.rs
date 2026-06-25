@@ -394,11 +394,11 @@ impl ProfilesManager {
                     ts.collapse_all();
                 }
             }
-            KeyCode::Left if self.detail_focus == ProfDetailFocus::Modules => {
-                self.detail_module_view.set(ProfileModuleView::All);
-            }
-            KeyCode::Right if self.detail_focus == ProfDetailFocus::Modules => {
-                self.detail_module_view.set(ProfileModuleView::All);
+            KeyCode::Left | KeyCode::Right if self.detail_focus == ProfDetailFocus::Modules => {
+                self.detail_module_view.set(match self.detail_module_view.get() {
+                    ProfileModuleView::PerModel => ProfileModuleView::All,
+                    ProfileModuleView::All => ProfileModuleView::PerModel,
+                });
             }
             KeyCode::Enter => {
                 if self.detail_focus == ProfDetailFocus::Modules {
@@ -558,7 +558,7 @@ impl ProfilesManager {
             );
         }
         *self.detail_tree_state.borrow_mut() = None;
-        self.detail_module_view.set(ProfileModuleView::PerModel);
+        self.detail_module_view.set(ProfileModuleView::All);
         self.detail_all_scroll.set(0);
         self.detail_loffset.set(0);
         self.detail_visible = true;
