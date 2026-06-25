@@ -14,6 +14,12 @@ use std::cell::{Cell, RefCell};
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileModuleView {
+    PerModel,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfDetailFocus {
     Modules,
     Libraries,
@@ -34,13 +40,14 @@ impl ProfDetailFocus {
                 Libraries => AddModuleBtn,
                 AddModuleBtn => AddFromModelBtn,
                 AddFromModelBtn => AddLibraryBtn,
-                AddLibraryBtn => CloseBtn,
-                CloseBtn => AssignBtn,
-                AssignBtn => Modules,
+                AddLibraryBtn => AssignBtn,
+                AssignBtn => CloseBtn,
+                CloseBtn => Modules,
             };
             match cur {
                 Modules if !has_modules => continue,
                 Libraries if !has_libraries => continue,
+                AddLibraryBtn if !has_libraries => continue,
                 _ => return cur,
             }
         }
@@ -51,17 +58,18 @@ impl ProfDetailFocus {
         let mut cur = self;
         loop {
             cur = match cur {
-                Modules => AssignBtn,
+                Modules => CloseBtn,
                 Libraries => Modules,
                 AddModuleBtn => Libraries,
                 AddFromModelBtn => AddModuleBtn,
                 AddLibraryBtn => AddFromModelBtn,
-                CloseBtn => AddLibraryBtn,
-                AssignBtn => CloseBtn,
+                AssignBtn => AddLibraryBtn,
+                CloseBtn => AssignBtn,
             };
             match cur {
                 Modules if !has_modules => continue,
                 Libraries if !has_libraries => continue,
+                AddLibraryBtn if !has_libraries => continue,
                 _ => return cur,
             }
         }
@@ -134,6 +142,7 @@ pub struct ResolvedModelGroup {
     pub id: String,
     pub name: String,
     pub modules: Vec<ResolvedModule>,
+    pub broken: bool,
 }
 
 pub type LoadedProfileDetail = (Vec<String>, Vec<ResolvedModule>, Vec<ResolvedModelGroup>, Vec<ResolvedModule>, Vec<ResolvedLibrary>);
@@ -155,6 +164,8 @@ pub struct ProfilesManager {
     pub detail_libraries: Vec<ResolvedLibrary>,
     pub detail_focus: ProfDetailFocus,
     pub detail_tree_state: RefCell<Option<TreeState>>,
+    pub detail_module_view: Cell<ProfileModuleView>,
+    pub detail_all_scroll: Cell<usize>,
     pub detail_loffset: Cell<usize>,
 
     // Create overlay
@@ -186,6 +197,8 @@ impl Default for ProfilesManager {
             detail_libraries: Vec::new(),
             detail_focus: ProfDetailFocus::Modules,
             detail_tree_state: RefCell::new(None),
+            detail_module_view: Cell::new(ProfileModuleView::PerModel),
+            detail_all_scroll: Cell::new(0),
             detail_loffset: Cell::new(0),
             create_visible: false,
             create_input: InputState::new(),
@@ -261,13 +274,17 @@ impl ProfilesManager {
             }
             KeyCode::Up => match self.detail_focus {
                 Modules => {
-                    let groups = self.build_profile_tree();
-                    if groups.is_empty() {
-                        return true;
+                    if self.detail_module_view.get() == ProfileModuleView::All {
+                        self.detail_all_scroll.set(self.detail_all_scroll.get().saturating_sub(1));
+                    } else {
+                        let groups = self.build_profile_tree();
+                        if groups.is_empty() {
+                            return true;
+                        }
+                        let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::new(groups.len()));
+                        ts.select_prev(&groups);
+                        *self.detail_tree_state.borrow_mut() = Some(ts);
                     }
-                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
-                    ts.select_prev(&groups);
-                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -277,13 +294,20 @@ impl ProfilesManager {
             },
             KeyCode::Down => match self.detail_focus {
                 Modules => {
-                    let groups = self.build_profile_tree();
-                    if groups.is_empty() {
-                        return true;
+                    if self.detail_module_view.get() == ProfileModuleView::All {
+                        let items = self.build_all_modules_list();
+                        let view_h = 10usize;
+                        let max = items.len().saturating_sub(view_h);
+                        self.detail_all_scroll.set((self.detail_all_scroll.get() + 1).min(max));
+                    } else {
+                        let groups = self.build_profile_tree();
+                        if groups.is_empty() {
+                            return true;
+                        }
+                        let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::new(groups.len()));
+                        ts.select_next(&groups);
+                        *self.detail_tree_state.borrow_mut() = Some(ts);
                     }
-                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
-                    ts.select_next(&groups);
-                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -295,15 +319,19 @@ impl ProfilesManager {
             },
             KeyCode::PageUp => match self.detail_focus {
                 Modules => {
-                    let groups = self.build_profile_tree();
-                    if groups.is_empty() {
-                        return true;
+                    if self.detail_module_view.get() == ProfileModuleView::All {
+                        self.detail_all_scroll.set(self.detail_all_scroll.get().saturating_sub(10));
+                    } else {
+                        let groups = self.build_profile_tree();
+                        if groups.is_empty() {
+                            return true;
+                        }
+                        let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::new(groups.len()));
+                        for _ in 0..10 {
+                            ts.select_prev(&groups);
+                        }
+                        *self.detail_tree_state.borrow_mut() = Some(ts);
                     }
-                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
-                    for _ in 0..10 {
-                        ts.select_prev(&groups);
-                    }
-                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -313,15 +341,22 @@ impl ProfilesManager {
             },
             KeyCode::PageDown => match self.detail_focus {
                 Modules => {
-                    let groups = self.build_profile_tree();
-                    if groups.is_empty() {
-                        return true;
+                    if self.detail_module_view.get() == ProfileModuleView::All {
+                        let items = self.build_all_modules_list();
+                        let view_h = 10usize;
+                        let max = items.len().saturating_sub(view_h);
+                        self.detail_all_scroll.set((self.detail_all_scroll.get() + 10).min(max));
+                    } else {
+                        let groups = self.build_profile_tree();
+                        if groups.is_empty() {
+                            return true;
+                        }
+                        let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::new(groups.len()));
+                        for _ in 0..10 {
+                            ts.select_next(&groups);
+                        }
+                        *self.detail_tree_state.borrow_mut() = Some(ts);
                     }
-                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
-                    for _ in 0..10 {
-                        ts.select_next(&groups);
-                    }
-                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -340,13 +375,19 @@ impl ProfilesManager {
                     ts.collapse_all();
                 }
             }
+            KeyCode::Left if self.detail_focus == ProfDetailFocus::Modules => {
+                self.detail_module_view.set(ProfileModuleView::PerModel);
+            }
+            KeyCode::Right if self.detail_focus == ProfDetailFocus::Modules => {
+                self.detail_module_view.set(ProfileModuleView::All);
+            }
             KeyCode::Enter => {
                 if self.detail_focus == ProfDetailFocus::Modules {
                     let groups = self.build_profile_tree();
                     if groups.is_empty() {
                         return true;
                     }
-                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
+                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::new(groups.len()));
                     ts.toggle_selected();
                     *self.detail_tree_state.borrow_mut() = Some(ts);
                     return true;
@@ -495,6 +536,8 @@ impl ProfilesManager {
             ProfDetailFocus::AddModuleBtn
         };
         *self.detail_tree_state.borrow_mut() = None;
+        self.detail_module_view.set(ProfileModuleView::PerModel);
+        self.detail_all_scroll.set(0);
         self.detail_loffset.set(0);
         self.detail_visible = true;
     }
@@ -657,10 +700,11 @@ impl ProfilesManager {
         let mut row_y = inner.y;
 
         // ── Modules section ──
+        let view_label = if self.detail_module_view.get() == ProfileModuleView::PerModel { " Modules (per model) " } else { " Modules (all) " };
         dashed_title(
             Rect { x: inner.x, y: row_y, width: inner.width, height: 1 },
             buf,
-            " Modules ",
+            view_label,
             palette::PROCESSING,
             palette::PRIMARY,
             palette::PROCESSING_DIMMED,
@@ -670,48 +714,77 @@ impl ProfilesManager {
         if mod_h > 0 {
             let mod_area = Rect { x: inner.x, y: row_y, width: inner.width.saturating_sub(1), height: mod_h.saturating_sub(1) };
             let focused = self.detail_focus == ProfDetailFocus::Modules;
-            let groups = self.build_profile_tree();
-            let n_groups = groups.len();
-            if n_groups == 0 {
-                let msg = "(no models in this profile)";
-                let x = mod_area.x + (mod_area.width.saturating_sub(msg.len() as u16)) / 2;
-                let y = mod_area.y + mod_area.height / 2;
-                buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
-                row_y = mod_area.bottom() + 1;
-            } else {
-                let total_items: usize = n_groups + groups.iter().map(|g| g.children_slice().len()).sum::<usize>();
-                let treesel = if focused {
-                    Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
+            if self.detail_module_view.get() == ProfileModuleView::PerModel {
+                let groups = self.build_profile_tree();
+                let n_groups = groups.len();
+                if n_groups == 0 {
+                    let msg = "(no models in this profile)";
+                    let x = mod_area.x + (mod_area.width.saturating_sub(msg.len() as u16)) / 2;
+                    let y = mod_area.y + mod_area.height / 2;
+                    buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+                    row_y = mod_area.bottom() + 1;
                 } else {
-                    Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
-                };
-                let tree_styles = TreeStyles {
-                    parent: Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD),
-                    child: Style::default().fg(palette::FG),
-                    selected: treesel,
-                    chevron: Style::default().fg(palette::MUTED),
-                    chevron_active: Style::default().fg(palette::MUTED),
-                    chevron_dim: Style::default().fg(palette::MUTED),
-                    count: Style::default().fg(palette::GRAY_1),
-                    icon: Style::default().fg(palette::ERROR),
-                };
-                let tree = Tree::default().groups(groups).styles(tree_styles).chevron_collapsed("▸ ").chevron_expanded("▾ ");
-                let tree_inner = Rect::new(mod_area.x, mod_area.y, mod_area.width.saturating_sub(1), mod_area.height);
-                let mut state = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(n_groups));
-                StatefulWidget::render(&tree, tree_inner, buf, &mut state);
-                *self.detail_tree_state.borrow_mut() = Some(state.clone());
+                    let total_items: usize = n_groups + groups.iter().map(|g| g.children_slice().len()).sum::<usize>();
+                    let treesel = if focused { Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT) } else { Style::default().fg(palette::FG) };
+                    let tree_styles = TreeStyles {
+                        parent: Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD),
+                        child: Style::default().fg(palette::FG),
+                        selected: treesel,
+                        chevron: Style::default().fg(palette::MUTED),
+                        chevron_active: Style::default().fg(palette::MUTED),
+                        chevron_dim: Style::default().fg(palette::MUTED),
+                        count: Style::default().fg(palette::GRAY_1),
+                        icon: Style::default().fg(palette::ERROR),
+                    };
+                    let tree = Tree::default().groups(groups).styles(tree_styles).chevron_collapsed("▸ ").chevron_expanded("▾ ");
+                    let tree_inner = Rect::new(mod_area.x, mod_area.y, mod_area.width.saturating_sub(1), mod_area.height);
+                    let mut state = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::new(n_groups));
+                    StatefulWidget::render(&tree, tree_inner, buf, &mut state);
+                    *self.detail_tree_state.borrow_mut() = Some(state.clone());
 
-                let scroller_area = Rect::new(tree_inner.right().saturating_sub(1), tree_inner.y, 1, tree_inner.height);
-                let mut scroller = ScrollbarState::default().content_length(total_items).position(state.selected().0);
-                Scrollbar::default()
-                    .begin_symbol(None)
-                    .end_symbol(None)
-                    .track_symbol(Some("\u{28FF}"))
-                    .thumb_symbol("█")
-                    .track_style(Style::default().bg(palette::BG_3))
-                    .thumb_style(Style::default().fg(palette::GRAY_1))
-                    .render(scroller_area, buf, &mut scroller);
+                    let scroller_area = Rect::new(tree_inner.right().saturating_sub(1), tree_inner.y, 1, tree_inner.height);
+                    let mut scroller = ScrollbarState::default().content_length(total_items).position(state.selected().0);
+                    Scrollbar::default()
+                        .begin_symbol(None)
+                        .end_symbol(None)
+                        .track_symbol(Some("\u{28FF}"))
+                        .thumb_symbol("█")
+                        .track_style(Style::default().bg(palette::BG_3))
+                        .thumb_style(Style::default().fg(palette::GRAY_1))
+                        .render(scroller_area, buf, &mut scroller);
 
+                    row_y = mod_area.bottom() + 1;
+                }
+            } else {
+                let items = self.build_all_modules_list();
+                let total = items.len();
+                let view_h = mod_area.height as usize;
+                let max_scroll = total.saturating_sub(view_h);
+                let mut s = self.detail_all_scroll.get();
+                if s > max_scroll {
+                    s = max_scroll;
+                }
+                self.detail_all_scroll.set(s);
+
+                if total == 0 {
+                    let msg = "(no modules in this profile)";
+                    let x = mod_area.x + (mod_area.width.saturating_sub(msg.len() as u16)) / 2;
+                    let y = mod_area.y + mod_area.height / 2;
+                    buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+                } else {
+                    for i in 0..view_h.min(total.saturating_sub(s)) {
+                        let (covered, name, ver, descr) = &items[s + i];
+                        let ry = mod_area.y + i as u16;
+                        let row_style = if focused { Style::default().fg(palette::FG) } else { Style::default().fg(palette::MUTED) };
+                        let icon = if *covered { "  " } else { "✖ " };
+                        let icon_style = if *covered { row_style } else { Style::default().fg(palette::ERROR) };
+                        let row = format!("{name}  {ver}{descr}");
+                        let max_w = (mod_area.width as usize).saturating_sub(2);
+                        buf.set_string(mod_area.x, ry, icon, icon_style);
+                        buf.set_string(mod_area.x + 2, ry, truncate_str(&row, max_w), row_style);
+                    }
+                }
+                Self::draw_scrollbar(buf, mod_area, s, total, view_h, focused);
                 row_y = mod_area.bottom() + 1;
             }
         }
@@ -739,7 +812,7 @@ impl ProfilesManager {
 
         // ── Buttons ──
         let btn_y = inner.bottom().saturating_sub(2);
-        let btn_labels = ["[ Add Module ]", "[ Add From Model ]", "[ Add Library ]", "[  Close  ]", "[ Assign ]"];
+        let btn_labels = ["[ Add Module ]", "[ Add From Model ]", "[ Add Library ]", "[ Assign ]", "[  Close  ]"];
         let btn_widths: Vec<u16> = btn_labels.iter().map(|l| l.len() as u16).collect();
         let total_btn_w: u16 = btn_widths.iter().sum::<u16>() + (btn_widths.len() as u16 - 1) * 2;
         let mut btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
@@ -748,15 +821,21 @@ impl ProfilesManager {
             ProfDetailFocus::AddModuleBtn => 0,
             ProfDetailFocus::AddFromModelBtn => 1,
             ProfDetailFocus::AddLibraryBtn => 2,
-            ProfDetailFocus::CloseBtn => 3,
-            ProfDetailFocus::AssignBtn => 4,
+            ProfDetailFocus::AssignBtn => 3,
+            ProfDetailFocus::CloseBtn => 4,
             _ => usize::MAX,
         };
         let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
         let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2);
 
         for (i, label) in btn_labels.iter().enumerate() {
-            let style = if i == focus_idx { sel_btn } else { unsel_btn };
+            let style = if i == focus_idx {
+                sel_btn
+            } else if *label == "[ Add Library ]" && self.detail_libraries.is_empty() {
+                Style::default().fg(palette::MUTED).bg(palette::BG_2)
+            } else {
+                unsel_btn
+            };
             buf.set_string(btn_x, btn_y, *label, style);
             btn_x += btn_widths[i] + 2;
         }
@@ -776,10 +855,14 @@ impl ProfilesManager {
         }
         ver_w = ver_w.max(4);
         for group in &self.detail_model_groups {
+            let mut broken = false;
             let children: Vec<TreeItem> = group
                 .modules
                 .iter()
                 .map(|m| {
+                    if !m.covered {
+                        broken = true;
+                    }
                     let (icon, ver, descr) = if m.covered {
                         ("  ", format!("{: <ver_w$}", m.version, ver_w = ver_w), format!("  {}", m.descr))
                     } else {
@@ -789,7 +872,8 @@ impl ProfilesManager {
                     TreeItem::new(format!("{padded_name}  {ver}{descr}")).icon(icon)
                 })
                 .collect();
-            groups.push(TreeGroup::new(TreeItem::new(group.name.clone())).children(children));
+            let parent_text = if broken { format!("✖ {}", group.name) } else { group.name.clone() };
+            groups.push(TreeGroup::new(TreeItem::new(parent_text)).children(children));
         }
         groups
     }
@@ -797,6 +881,58 @@ impl ProfilesManager {
     fn pad_to_width(s: &str, target: usize) -> String {
         let w = UnicodeWidthStr::width(s);
         if w >= target { s.to_string() } else { format!("{}{}", s, " ".repeat(target - w)) }
+    }
+
+    fn build_all_modules_list(&self) -> Vec<(bool, String, String, String)> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut items = Vec::new();
+        let mut name_w = 0usize;
+        let mut ver_w = 0usize;
+        for g in &self.detail_model_groups {
+            for m in &g.modules {
+                if !seen.insert(m.name.clone()) {
+                    continue;
+                }
+                name_w = name_w.max(UnicodeWidthStr::width(&m.name[..]));
+                ver_w = ver_w.max(if m.covered { UnicodeWidthStr::width(&m.version[..]) } else { 0 });
+            }
+        }
+        for m in &self.detail_ungrouped_modules {
+            if !seen.insert(m.name.clone()) {
+                continue;
+            }
+            name_w = name_w.max(UnicodeWidthStr::width(&m.name[..]));
+            ver_w = ver_w.max(if m.covered { UnicodeWidthStr::width(&m.version[..]) } else { 0 });
+        }
+        ver_w = ver_w.max(4);
+        let mut seen = std::collections::BTreeSet::new();
+        for g in &self.detail_model_groups {
+            for m in &g.modules {
+                if !seen.insert(m.name.clone()) {
+                    continue;
+                }
+                let (ver, descr) = if m.covered {
+                    (format!("{: <ver_w$}", m.version, ver_w = ver_w), format!("  {}", m.descr))
+                } else {
+                    ("N/A".to_string(), "  (missing)".to_string())
+                };
+                let padded = Self::pad_to_width(&m.name, name_w);
+                items.push((m.covered, padded, ver, descr));
+            }
+        }
+        for m in &self.detail_ungrouped_modules {
+            if !seen.insert(m.name.clone()) {
+                continue;
+            }
+            let (ver, descr) = if m.covered {
+                (format!("{: <ver_w$}", m.version, ver_w = ver_w), format!("  {}", m.descr))
+            } else {
+                ("N/A".to_string(), "  (missing)".to_string())
+            };
+            let padded = Self::pad_to_width(&m.name, name_w);
+            items.push((m.covered, padded, ver, descr));
+        }
+        items
     }
 
     fn render_resolved_libraries(&self, area: Rect, buf: &mut Buffer, focused: bool) {
@@ -1183,10 +1319,12 @@ pub fn group_modules_by_models(
             }
         }
         if !entries.is_empty() {
+            let broken = entries.iter().any(|m| !m.covered);
             groups.push(ResolvedModelGroup {
                 id: model.id.clone(),
                 name: if model.name.trim().is_empty() { model.id.clone() } else { model.name.clone() },
                 modules: entries,
+                broken,
             });
         }
     }

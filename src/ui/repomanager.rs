@@ -473,7 +473,11 @@ impl RepoManager {
     }
 
     fn render_staging(&self, parent: Rect, buf: &mut Buffer) {
-        let dlg_w = (parent.width * 3 / 4).clamp(70, 110);
+        let dlg_w = if matches!(self.staging_mode, StagingMode::ProfileModelAdd) {
+            (parent.width as f32 * 0.7) as u16
+        } else {
+            (parent.width * 3 / 4).clamp(70, 110) + 12
+        };
         let module_rows = self.staged.len().min(20) as u16;
         let btn_height: u16 = 2;
         let dlg_h = (module_rows + btn_height + 2).clamp(8, parent.height * 3 / 4);
@@ -985,6 +989,7 @@ impl RepoManager {
         let state_w: u16 = 4;
         let name_w = list_area.width.saturating_sub(36);
         let ver_w: u16 = 14;
+        let known_modules: std::collections::BTreeSet<&str> = self.module_groups.values().flatten().map(|r| r.name.as_str()).collect();
         for i in 0..view_h.min(total.saturating_sub(s)) {
             let fi = s + i;
             let (_oi, row) = filtered[fi];
@@ -1012,14 +1017,18 @@ impl RepoManager {
                 Style::default().fg(palette::MUTED)
             };
             buf.set_string(list_area.x + 1, ry, if row.enabled { "▣" } else { "□" }, check_style);
+            let model_broken = !row.modules.is_empty() && row.modules.iter().any(|m| !known_modules.contains(m.as_str()));
             let name_style = if sel {
                 row_style
+            } else if model_broken {
+                Style::default().fg(palette::ERROR)
             } else if row.enabled {
                 Style::default().fg(palette::PROCESSING)
             } else {
                 Style::default().fg(palette::MUTED)
             };
-            buf.set_string(list_area.x + 1 + state_w + 1, ry, truncate_str(&row.name, name_w as usize), name_style);
+            let name_label = if model_broken { format!("✖ {}", row.name) } else { row.name.clone() };
+            buf.set_string(list_area.x + 1 + state_w + 1, ry, truncate_str(&name_label, name_w as usize), name_style);
             let ver_style = if sel {
                 row_style
             } else if row.enabled {
