@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use base64::{Engine, engine::general_purpose::STANDARD};
 use crate::{MasterInterfaceType, api::v1::minions::authorise_request, sessions::get_session_store};
 use actix_files::NamedFile;
 use actix_web::Result as ActixResult;
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use libdatastore::resources::DataItemMeta;
 use libsysinspect::rsa::keys::{RsaKey, key_from_file, verify_sign};
@@ -59,13 +59,7 @@ fn minion_auth_material(method: &str, path: &str, query: &str, timestamp: &str, 
 
 async fn verify_minion_bootstrap(req: &HttpRequest, master: &web::Data<MasterInterfaceType>) -> Result<String, libcommon::SysinspectError> {
     let reject = |msg: String| {
-        log::warn!(
-            "Datastore minion-auth bootstrap rejected for {} {} from {:?}: {}",
-            req.method(),
-            req.uri(),
-            req.peer_addr(),
-            msg
-        );
+        log::warn!("Datastore minion-auth bootstrap rejected for {} {} from {:?}: {}", req.method(), req.uri(), req.peer_addr(), msg);
         libcommon::SysinspectError::WebAPIError(msg)
     };
 
@@ -96,9 +90,7 @@ async fn verify_minion_bootstrap(req: &HttpRequest, master: &web::Data<MasterInt
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map_err(|e| reject(format!("Unable to read system time: {e}")))?
         .as_secs();
-    let ts = timestamp
-        .parse::<u64>()
-        .map_err(|_| reject("Invalid X-Sysinspect-Timestamp header".to_string()))?;
+    let ts = timestamp.parse::<u64>().map_err(|_| reject("Invalid X-Sysinspect-Timestamp header".to_string()))?;
     if now.abs_diff(ts) > MINION_AUTH_SKEW_SECS {
         return Err(reject("Expired minion-auth timestamp".to_string()));
     }
@@ -108,20 +100,14 @@ async fn verify_minion_bootstrap(req: &HttpRequest, master: &web::Data<MasterInt
         master.cfg().await.clone()
     };
     let key_path = cfg.minion_keys_root().join(format!("{minion_id}.rsa.pub"));
-    let public_key = match key_from_file(key_path.to_str().unwrap_or_default())
-        .map_err(|e| reject(format!("Unable to load minion public key: {e}")))?
-    {
-        Some(RsaKey::Public(pbk)) => pbk,
-        _ => {
-            return Err(reject(format!("Unknown minion or invalid public key for {}", minion_id)))
-        }
-    };
-    let signature = STANDARD
-        .decode(signature_b64)
-        .map_err(|e| reject(format!("Invalid minion-auth signature encoding: {e}")))?;
+    let public_key =
+        match key_from_file(key_path.to_str().unwrap_or_default()).map_err(|e| reject(format!("Unable to load minion public key: {e}")))? {
+            Some(RsaKey::Public(pbk)) => pbk,
+            _ => return Err(reject(format!("Unknown minion or invalid public key for {}", minion_id))),
+        };
+    let signature = STANDARD.decode(signature_b64).map_err(|e| reject(format!("Invalid minion-auth signature encoding: {e}")))?;
     let material = minion_auth_material(req.method().as_str(), req.path(), req.query_string(), timestamp, body_sha256);
-    let verified = verify_sign(&public_key, material.as_bytes(), signature)
-        .map_err(|e| reject(format!("Minion-auth verification failed: {e}")))?;
+    let verified = verify_sign(&public_key, material.as_bytes(), signature).map_err(|e| reject(format!("Minion-auth verification failed: {e}")))?;
     if !verified {
         return Err(reject("Invalid minion-auth signature".to_string()));
     }

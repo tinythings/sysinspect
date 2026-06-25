@@ -3,8 +3,8 @@ use crate::api::v1::{
     minions::{QueryError, QueryRequest, QueryResponse, query_handler},
     model::{ModelNameResponse, model_descr_handler, model_names_handler},
     store::{
-        StoreListQuery, StoreMetaResponse, StoreMinionAuthResponse, StoreResolveQuery, store_blob_handler, store_list_handler,
-        store_meta_handler, store_minion_auth_handler, store_resolve_handler, store_upload_handler,
+        StoreListQuery, StoreMetaResponse, StoreMinionAuthResponse, StoreResolveQuery, store_blob_handler, store_list_handler, store_meta_handler,
+        store_minion_auth_handler, store_resolve_handler, store_upload_handler,
     },
     system::{AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
