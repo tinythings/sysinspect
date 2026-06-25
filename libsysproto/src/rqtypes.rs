@@ -134,6 +134,14 @@ pub enum RequestType {
     /// Master→Minion: model cycle acknowledged.
     #[serde(rename = "cack")]
     CycleAck,
+
+    /// Master→Minion: model configuration changed on the master.
+    #[serde(rename = "mupd")]
+    ModelUpdated,
+
+    /// Master→Minion: model configuration removed from the master.
+    #[serde(rename = "mrm")]
+    ModelRemoved,
 }
 
 /// Classifies an outbound minion message so the transport layer can decide

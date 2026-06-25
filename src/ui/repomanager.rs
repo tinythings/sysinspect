@@ -247,7 +247,7 @@ impl RepoManager {
             .iter()
             .filter(|row| row.enabled && !row.modules.is_empty())
             .map(|row| StagedModule {
-                name: if row.name.trim().is_empty() { row.id.clone() } else { row.name.clone() },
+                name: row.id.clone(),
                 version: Some(row.version.clone()),
                 descr: format!("{} module{}", row.modules.len(), if row.modules.len() == 1 { "" } else { "s" }),
                 path: std::path::PathBuf::new(),
@@ -385,6 +385,9 @@ impl RepoManager {
         }
         if self.profiles.delete_visible {
             self.profiles.render_delete(parent, buf);
+        }
+        if self.profiles.assign.visible {
+            self.profiles.render_assign(parent, buf);
         }
         if self.platforms.delete_visible {
             self.platforms.render_delete(parent, buf);

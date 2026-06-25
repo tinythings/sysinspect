@@ -14,7 +14,10 @@ use crate::{
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
     transport::{IncomingFrame, OutgoingFrame, PeerTransport},
 };
+use async_trait::async_trait;
 use colored::Colorize;
+use filescream::FileScream;
+use filescream::events::{FileScreamEvent, FileScreamMask};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdatastore::{cfg::DataStorageConfig, resources::DataStorage};
@@ -48,9 +51,12 @@ use libsysproto::{
     rqtypes::{ProtoKey, ProtoValue, RequestType},
     secure::SECURE_PROTOCOL_VERSION,
 };
+use omnitrace_core::callbacks::{Callback, CallbackHub};
+use omnitrace_core::sensor::SensorCtx;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::path::Path;
 use std::time::Duration as StdDuration;
 use std::{
     collections::{HashMap, HashSet},
@@ -67,6 +73,7 @@ use tokio::sync::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time;
 use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 
 // Session singleton
 pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
@@ -146,6 +153,50 @@ pub struct SysMaster {
     pending_console_replies: HashMap<String, oneshot::Sender<MinionCommandReply>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
+}
+
+fn model_id_from_path(path: &Path) -> Option<&str> {
+    if path.file_name()?.to_str()? != "model.cfg" {
+        return None;
+    }
+    path.parent()?.file_name()?.to_str()
+}
+
+struct ModelChangeCallback {
+    broadcast: tokio::sync::broadcast::Sender<MasterMessage>,
+}
+
+#[async_trait]
+impl Callback<FileScreamEvent> for ModelChangeCallback {
+    fn mask(&self) -> u64 {
+        FileScreamMask::CREATED.bits() | FileScreamMask::CHANGED.bits() | FileScreamMask::REMOVED.bits()
+    }
+
+    async fn call(&self, event: &FileScreamEvent) -> Option<serde_json::Value> {
+        let path = match event {
+            FileScreamEvent::Created { path } | FileScreamEvent::Changed { path } => path,
+            FileScreamEvent::Removed { path } => {
+                if let Some(id) = model_id_from_path(path) {
+                    let mut msg = MasterMessage::new(RequestType::ModelRemoved, json!({"id": id}));
+                    msg.set_target(MinionTarget::new("*", ""));
+                    let _ = self.broadcast.send(msg);
+                }
+                return None;
+            }
+        };
+        let model_id = model_id_from_path(path).map(|s| s.to_string())?;
+        let broadcast = self.broadcast.clone();
+        let path = path.clone();
+        tokio::spawn(async move {
+            if let Ok(reducer) = FunctionReducer::new(path, model_id.clone()).load_model(&MODEL_CACHE).await {
+                drop(reducer);
+                let mut msg = MasterMessage::new(RequestType::ModelUpdated, json!({"id": model_id}));
+                msg.set_target(MinionTarget::new("*", ""));
+                let _ = broadcast.send(msg);
+            }
+        });
+        None
+    }
 }
 
 impl SysMaster {
@@ -316,7 +367,17 @@ impl SysMaster {
         }
         self.backfill_cmdb().await?;
         self.vmcluster.init().await?;
+        self.watch_models();
         Ok(())
+    }
+
+    fn watch_models(&self) {
+        let mut hub = CallbackHub::<FileScreamEvent>::new();
+        hub.add(ModelChangeCallback { broadcast: self.broadcast.clone() });
+        let ctx = SensorCtx { cancel: CancellationToken::new(), hub: Arc::new(hub) };
+        let mut fs = FileScream::new(None);
+        fs.watch(self.cfg.fileserver_root().join(CFG_MODELS_ROOT));
+        tokio::spawn(async move { fs.run(ctx).await });
     }
 
     pub fn cfg(&self) -> MasterConfig {
@@ -1563,7 +1624,9 @@ impl SysMaster {
             if tokio::select! {
                 _ = cancel_rx.changed() => { return; }
                 result = reader.read_exact(&mut len_buf) => result,
-            }.is_err() {
+            }
+            .is_err()
+            {
                 let _ = client_tx.send((Vec::new(), peer_addr.clone())).await;
                 return;
             }
@@ -1573,7 +1636,9 @@ impl SysMaster {
             if tokio::select! {
                 _ = cancel_rx.changed() => { return; }
                 result = reader.read_exact(&mut msg) => result,
-            }.is_err() {
+            }
+            .is_err()
+            {
                 let _ = client_tx.send((Vec::new(), peer_addr.clone())).await;
                 return;
             }

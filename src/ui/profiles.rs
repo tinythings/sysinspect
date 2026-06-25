@@ -5,11 +5,13 @@ use libsysinspect::console::ConsoleModelRow;
 use ratatui::layout::{Position, Rect};
 use ratatui::prelude::Buffer;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Widget};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Scrollbar, ScrollbarState, StatefulWidget, Widget};
 use ratatui_cheese::input::InputState;
+use ratatui_cheese::tree::{Tree, TreeGroup, TreeItem, TreeState, TreeStyles};
 use ratatui_glamour::color::blend_2d;
 use ratatui_glamour::rule::dashed_title;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfDetailFocus {
@@ -19,6 +21,7 @@ pub enum ProfDetailFocus {
     AddFromModelBtn,
     AddLibraryBtn,
     CloseBtn,
+    AssignBtn,
 }
 
 impl ProfDetailFocus {
@@ -32,7 +35,8 @@ impl ProfDetailFocus {
                 AddModuleBtn => AddFromModelBtn,
                 AddFromModelBtn => AddLibraryBtn,
                 AddLibraryBtn => CloseBtn,
-                CloseBtn => Modules,
+                CloseBtn => AssignBtn,
+                AssignBtn => Modules,
             };
             match cur {
                 Modules if !has_modules => continue,
@@ -47,12 +51,13 @@ impl ProfDetailFocus {
         let mut cur = self;
         loop {
             cur = match cur {
-                Modules => CloseBtn,
+                Modules => AssignBtn,
                 Libraries => Modules,
                 AddModuleBtn => Libraries,
                 AddFromModelBtn => AddModuleBtn,
                 AddLibraryBtn => AddFromModelBtn,
                 CloseBtn => AddLibraryBtn,
+                AssignBtn => CloseBtn,
             };
             match cur {
                 Modules if !has_modules => continue,
@@ -76,12 +81,44 @@ pub enum ProfDeleteFocus {
     NoBtn,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfAssignFocus {
+    MinionList,
+    TagBtn,
+    UntagBtn,
+    CloseBtn,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProfileAssignState {
+    pub visible: bool,
+    pub profile_name: String,
+    pub focus: ProfAssignFocus,
+    pub minions: Vec<(String, bool)>,
+    pub mcursor: usize,
+    pub mscroll: Cell<usize>,
+}
+
+impl Default for ProfileAssignState {
+    fn default() -> Self {
+        Self {
+            visible: false,
+            profile_name: String::new(),
+            focus: ProfAssignFocus::MinionList,
+            minions: Vec::new(),
+            mcursor: 0,
+            mscroll: Cell::new(0),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedModule {
     pub name: String,
     pub version: String,
     pub descr: String,
     pub selector: String,
+    pub covered: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +136,8 @@ pub struct ResolvedModelGroup {
     pub modules: Vec<ResolvedModule>,
 }
 
+pub type LoadedProfileDetail = (Vec<String>, Vec<ResolvedModule>, Vec<ResolvedModelGroup>, Vec<ResolvedModule>, Vec<ResolvedLibrary>);
+
 #[derive(Debug)]
 pub struct ProfilesManager {
     // List
@@ -109,12 +148,13 @@ pub struct ProfilesManager {
     // Detail overlay
     pub detail_visible: bool,
     pub detail_name: String,
+    pub detail_models: Vec<String>,
     pub detail_modules: Vec<ResolvedModule>,
     pub detail_model_groups: Vec<ResolvedModelGroup>,
     pub detail_ungrouped_modules: Vec<ResolvedModule>,
     pub detail_libraries: Vec<ResolvedLibrary>,
     pub detail_focus: ProfDetailFocus,
-    pub detail_moffset: Cell<usize>,
+    pub detail_tree_state: RefCell<Option<TreeState>>,
     pub detail_loffset: Cell<usize>,
 
     // Create overlay
@@ -126,6 +166,9 @@ pub struct ProfilesManager {
     pub delete_visible: bool,
     pub delete_name: String,
     pub delete_focus: ProfDeleteFocus,
+
+    // Assign overlay
+    pub assign: ProfileAssignState,
 }
 
 impl Default for ProfilesManager {
@@ -136,12 +179,13 @@ impl Default for ProfilesManager {
             scroll: Cell::new(0),
             detail_visible: false,
             detail_name: String::new(),
+            detail_models: Vec::new(),
             detail_modules: Vec::new(),
             detail_model_groups: Vec::new(),
             detail_ungrouped_modules: Vec::new(),
             detail_libraries: Vec::new(),
             detail_focus: ProfDetailFocus::Modules,
-            detail_moffset: Cell::new(0),
+            detail_tree_state: RefCell::new(None),
             detail_loffset: Cell::new(0),
             create_visible: false,
             create_input: InputState::new(),
@@ -149,6 +193,7 @@ impl Default for ProfilesManager {
             delete_visible: false,
             delete_name: String::new(),
             delete_focus: ProfDeleteFocus::YesBtn,
+            assign: ProfileAssignState::default(),
         }
     }
 }
@@ -192,6 +237,10 @@ impl ProfilesManager {
         self.profiles.iter().filter(|n| n.to_lowercase().contains(&f)).count()
     }
 
+    fn has_modules(&self) -> bool {
+        !self.detail_model_groups.is_empty() || !self.detail_ungrouped_modules.is_empty()
+    }
+
     // ── Detail key handling ──
 
     pub fn handle_detail_key(&mut self, key: KeyCode) -> bool {
@@ -201,19 +250,22 @@ impl ProfilesManager {
                 self.detail_visible = false;
             }
             KeyCode::Tab => {
-                let hm = self.detail_module_row_count() > 0;
+                let hm = self.has_modules();
                 let hl = !self.detail_libraries.is_empty();
                 self.detail_focus = self.detail_focus.next(hm, hl);
             }
             KeyCode::BackTab => {
-                let hm = self.detail_module_row_count() > 0;
+                let hm = self.has_modules();
                 let hl = !self.detail_libraries.is_empty();
                 self.detail_focus = self.detail_focus.prev(hm, hl);
             }
             KeyCode::Up => match self.detail_focus {
                 Modules => {
-                    let o = self.detail_moffset.get();
-                    self.detail_moffset.set(o.saturating_sub(1));
+                    let groups = self.build_profile_tree();
+                    if groups.is_empty() { return true; }
+                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
+                    ts.select_prev(&groups);
+                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -223,10 +275,11 @@ impl ProfilesManager {
             },
             KeyCode::Down => match self.detail_focus {
                 Modules => {
-                    let o = self.detail_moffset.get();
-                    let view_h = 10usize; // approximate, clamped in render
-                    let max = self.detail_module_row_count().saturating_sub(view_h);
-                    self.detail_moffset.set((o + 1).min(max));
+                    let groups = self.build_profile_tree();
+                    if groups.is_empty() { return true; }
+                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
+                    ts.select_next(&groups);
+                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -238,8 +291,11 @@ impl ProfilesManager {
             },
             KeyCode::PageUp => match self.detail_focus {
                 Modules => {
-                    let o = self.detail_moffset.get();
-                    self.detail_moffset.set(o.saturating_sub(10));
+                    let groups = self.build_profile_tree();
+                    if groups.is_empty() { return true; }
+                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
+                    for _ in 0..10 { ts.select_prev(&groups); }
+                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -249,9 +305,11 @@ impl ProfilesManager {
             },
             KeyCode::PageDown => match self.detail_focus {
                 Modules => {
-                    let o = self.detail_moffset.get();
-                    let max = self.detail_module_row_count().saturating_sub(10);
-                    self.detail_moffset.set((o + 10).min(max));
+                    let groups = self.build_profile_tree();
+                    if groups.is_empty() { return true; }
+                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
+                    for _ in 0..10 { ts.select_next(&groups); }
+                    *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
                     let o = self.detail_loffset.get();
@@ -260,7 +318,27 @@ impl ProfilesManager {
                 }
                 _ => {}
             },
-            KeyCode::Enter => return false,
+            KeyCode::Char('+') if self.detail_focus == ProfDetailFocus::Modules => {
+                if let Some(ref mut ts) = *self.detail_tree_state.borrow_mut() {
+                    ts.expand_all();
+                }
+            }
+            KeyCode::Char('-') if self.detail_focus == ProfDetailFocus::Modules => {
+                if let Some(ref mut ts) = *self.detail_tree_state.borrow_mut() {
+                    ts.collapse_all();
+                }
+            }
+            KeyCode::Enter => {
+                if self.detail_focus == ProfDetailFocus::Modules {
+                    let groups = self.build_profile_tree();
+                    if groups.is_empty() { return true; }
+                    let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
+                    ts.toggle_selected();
+                    *self.detail_tree_state.borrow_mut() = Some(ts);
+                    return true;
+                }
+                return false;
+            }
             _ => {}
         }
         true
@@ -341,25 +419,68 @@ impl ProfilesManager {
         true
     }
 
+    // ── Assign key handling ──
+
+    pub fn handle_assign_key(&mut self, key: KeyCode) -> bool {
+        use ProfAssignFocus::*;
+        match key {
+            KeyCode::Esc => {
+                self.assign.visible = false;
+            }
+            KeyCode::Tab => {
+                self.assign.focus = match self.assign.focus {
+                    MinionList => TagBtn,
+                    TagBtn => UntagBtn,
+                    UntagBtn => CloseBtn,
+                    CloseBtn => MinionList,
+                };
+            }
+            KeyCode::BackTab => {
+                self.assign.focus = match self.assign.focus {
+                    MinionList => CloseBtn,
+                    TagBtn => MinionList,
+                    UntagBtn => TagBtn,
+                    CloseBtn => UntagBtn,
+                };
+            }
+            KeyCode::Up if self.assign.focus == MinionList => {
+                self.assign.mcursor = self.assign.mcursor.saturating_sub(1);
+            }
+            KeyCode::Down if self.assign.focus == MinionList => {
+                let max = self.assign.minions.len().saturating_sub(1);
+                self.assign.mcursor = (self.assign.mcursor + 1).min(max);
+            }
+            KeyCode::Char(' ') if self.assign.focus == MinionList => {
+                if let Some((_, checked)) = self.assign.minions.get_mut(self.assign.mcursor) {
+                    *checked = !*checked;
+                }
+            }
+            KeyCode::Enter => return false,
+            _ => {}
+        }
+        true
+    }
+
     // ── State management ──
 
     pub fn enter_detail(
-        &mut self, name: String, modules: Vec<ResolvedModule>, model_groups: Vec<ResolvedModelGroup>, ungrouped_modules: Vec<ResolvedModule>,
-        libraries: Vec<ResolvedLibrary>,
+        &mut self, name: String, models: Vec<String>, modules: Vec<ResolvedModule>, model_groups: Vec<ResolvedModelGroup>,
+        ungrouped_modules: Vec<ResolvedModule>, libraries: Vec<ResolvedLibrary>,
     ) {
         self.detail_name = name;
+        self.detail_models = models;
         self.detail_modules = modules;
         self.detail_model_groups = model_groups;
         self.detail_ungrouped_modules = ungrouped_modules;
         self.detail_libraries = libraries;
-        self.detail_focus = if self.detail_module_row_count() > 0 {
+        self.detail_focus = if self.has_modules() {
             ProfDetailFocus::Modules
         } else if !self.detail_libraries.is_empty() {
             ProfDetailFocus::Libraries
         } else {
             ProfDetailFocus::AddModuleBtn
         };
-        self.detail_moffset.set(0);
+        *self.detail_tree_state.borrow_mut() = None;
         self.detail_loffset.set(0);
         self.detail_visible = true;
     }
@@ -534,8 +655,51 @@ impl ProfilesManager {
 
         if mod_h > 0 {
             let mod_area = Rect { x: inner.x, y: row_y, width: inner.width.saturating_sub(1), height: mod_h.saturating_sub(1) };
-            self.render_resolved_modules(mod_area, buf, self.detail_focus == ProfDetailFocus::Modules);
+            let focused = self.detail_focus == ProfDetailFocus::Modules;
+            let groups = self.build_profile_tree();
+            let n_groups = groups.len();
+            if n_groups == 0 {
+                let msg = "(no models in this profile)";
+                let x = mod_area.x + (mod_area.width.saturating_sub(msg.len() as u16)) / 2;
+                let y = mod_area.y + mod_area.height / 2;
+                buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+                row_y = mod_area.bottom() + 1;
+            } else {
+            let total_items: usize = n_groups + groups.iter().map(|g| g.children_slice().len()).sum::<usize>();
+            let treesel = if focused {
+                Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
+            } else {
+                Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
+            };
+            let tree_styles = TreeStyles {
+                parent: Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD),
+                child: Style::default().fg(palette::FG),
+                selected: treesel,
+                chevron: Style::default().fg(palette::MUTED),
+                chevron_active: Style::default().fg(palette::MUTED),
+                chevron_dim: Style::default().fg(palette::MUTED),
+                count: Style::default().fg(palette::GRAY_1),
+                icon: Style::default().fg(palette::ERROR),
+            };
+            let tree = Tree::default().groups(groups).styles(tree_styles).chevron_collapsed("▸ ").chevron_expanded("▾ ");
+            let tree_inner = Rect::new(mod_area.x, mod_area.y, mod_area.width.saturating_sub(1), mod_area.height);
+            let mut state = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(n_groups));
+            StatefulWidget::render(&tree, tree_inner, buf, &mut state);
+            *self.detail_tree_state.borrow_mut() = Some(state.clone());
+
+            let scroller_area = Rect::new(tree_inner.right().saturating_sub(1), tree_inner.y, 1, tree_inner.height);
+            let mut scroller = ScrollbarState::default()
+                .content_length(total_items)
+                .position(state.selected().0);
+            Scrollbar::default()
+                .begin_symbol(None).end_symbol(None)
+                .track_symbol(Some("\u{28FF}")).thumb_symbol("█")
+                .track_style(Style::default().bg(palette::BG_3))
+                .thumb_style(Style::default().fg(palette::GRAY_1))
+                .render(scroller_area, buf, &mut scroller);
+
             row_y = mod_area.bottom() + 1;
+            }
         }
 
         // ── Libraries section ──
@@ -561,9 +725,9 @@ impl ProfilesManager {
 
         // ── Buttons ──
         let btn_y = inner.bottom().saturating_sub(2);
-        let btn_labels = ["[ Add Module ]", "[ Add From Model ]", "[ Add Library ]", "[ Close ]"];
+        let btn_labels = ["[ Add Module ]", "[ Add From Model ]", "[ Add Library ]", "[  Close  ]", "[ Assign ]"];
         let btn_widths: Vec<u16> = btn_labels.iter().map(|l| l.len() as u16).collect();
-        let total_btn_w: u16 = btn_widths.iter().sum::<u16>() + 6;
+        let total_btn_w: u16 = btn_widths.iter().sum::<u16>() + (btn_widths.len() as u16 - 1) * 2;
         let mut btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
 
         let focus_idx = match self.detail_focus {
@@ -571,6 +735,7 @@ impl ProfilesManager {
             ProfDetailFocus::AddFromModelBtn => 1,
             ProfDetailFocus::AddLibraryBtn => 2,
             ProfDetailFocus::CloseBtn => 3,
+            ProfDetailFocus::AssignBtn => 4,
             _ => usize::MAX,
         };
         let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
@@ -585,99 +750,35 @@ impl ProfilesManager {
         Self::draw_shadow(buf, canvas, w, h);
     }
 
-    fn render_resolved_modules(&self, area: Rect, buf: &mut Buffer, focused: bool) {
-        let total = self.detail_module_row_count();
-        if total == 0 {
-            let msg = "(no modules in this profile)";
-            let x = area.x + (area.width.saturating_sub(msg.len() as u16)) / 2;
-            let y = area.y + area.height / 2;
-            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
-            Self::draw_scrollbar(buf, area, 0, 1, area.height as usize, focused);
-            return;
+    fn build_profile_tree(&self) -> Vec<TreeGroup> {
+        let mut groups = Vec::new();
+        let mut name_w = 0usize;
+        let mut ver_w = 0usize;
+        for g in &self.detail_model_groups {
+            for m in &g.modules {
+                name_w = name_w.max(UnicodeWidthStr::width(&m.name[..]));
+                ver_w = ver_w.max(if m.covered { UnicodeWidthStr::width(&m.version[..]) } else { 0 });
+            }
         }
-
-        let view_h = area.height as usize;
-        let max_scroll = total.saturating_sub(view_h);
-        let s = self.detail_moffset.get().min(max_scroll);
-        self.detail_moffset.set(s);
-
-        for i in 0..view_h.min(total.saturating_sub(s)) {
-            let idx = s + i;
-            let ry = area.y + i as u16;
-            self.render_detail_module_row(area, ry, idx, focused, buf);
-        }
-
-        Self::draw_scrollbar(buf, area, s, total, view_h, focused);
-    }
-
-    fn detail_module_row_count(&self) -> usize {
-        let mut total = 0usize;
+        ver_w = ver_w.max(4);
         for group in &self.detail_model_groups {
-            if !group.modules.is_empty() {
-                total += 1 + group.modules.len();
-            }
+            let children: Vec<TreeItem> = group.modules.iter().map(|m| {
+                let (icon, ver, descr) = if m.covered {
+                    ("  ", format!("{: <ver_w$}", m.version, ver_w = ver_w), format!("  {}", m.descr))
+                } else {
+                    ("✖ ", "N/A".to_string(), "  (missing)".to_string())
+                };
+                let padded_name = Self::pad_to_width(&m.name, name_w);
+                TreeItem::new(format!("{padded_name}  {ver}{descr}")).icon(icon)
+            }).collect();
+            groups.push(TreeGroup::new(TreeItem::new(group.name.clone())).children(children));
         }
-        if !self.detail_ungrouped_modules.is_empty() {
-            total += 1 + self.detail_ungrouped_modules.len();
-        }
-        total
+        groups
     }
 
-    fn render_detail_module_row(&self, area: Rect, ry: u16, idx: usize, focused: bool, buf: &mut Buffer) {
-        let fg = if focused { palette::FG } else { palette::MUTED };
-        let heading_style = Style::default().fg(if focused { palette::PROCESSING } else { palette::PROCESSING_DIMMED }).add_modifier(Modifier::BOLD);
-        if let Some((heading, module)) = self.detail_module_row(idx) {
-            if let Some(name) = heading {
-                let label = format!("▾ {}", name);
-                buf.set_string(area.x + 1, ry, truncate_str(&label, area.width.saturating_sub(2) as usize), heading_style);
-            } else if let Some(m) = module {
-                let name_w: u16 = 24;
-                let ver_w: u16 = 6;
-                let row_style = Style::default().fg(fg);
-                let ver_fg = if focused { palette::HIGHLIGHT } else { palette::MUTED };
-                let desc_fg = if focused { palette::GRAY_1 } else { palette::MUTED };
-                let name = format!("└─ {}", truncate_str(&m.name, name_w as usize));
-                buf.set_string(area.x + 3, ry, name, row_style);
-                buf.set_string(area.x + 3 + name_w + 3, ry, truncate_str(&m.version, ver_w as usize), Style::default().fg(ver_fg));
-                let desc_x = area.x + 3 + name_w + 3 + ver_w + 1;
-                let max_desc = area.width.saturating_sub(desc_x.saturating_sub(area.x) + 1) as usize;
-                if max_desc > 0 {
-                    buf.set_string(desc_x, ry, truncate_str(&m.descr, max_desc), Style::default().fg(desc_fg));
-                }
-            }
-        }
-    }
-
-    fn detail_module_row(&self, idx: usize) -> Option<(Option<&str>, Option<&ResolvedModule>)> {
-        let mut row = 0usize;
-        for group in &self.detail_model_groups {
-            if group.modules.is_empty() {
-                continue;
-            }
-            if row == idx {
-                return Some((Some(group.name.as_str()), None));
-            }
-            row += 1;
-            for module in &group.modules {
-                if row == idx {
-                    return Some((None, Some(module)));
-                }
-                row += 1;
-            }
-        }
-        if !self.detail_ungrouped_modules.is_empty() {
-            if row == idx {
-                return Some((Some("Ungrouped"), None));
-            }
-            row += 1;
-            for module in &self.detail_ungrouped_modules {
-                if row == idx {
-                    return Some((None, Some(module)));
-                }
-                row += 1;
-            }
-        }
-        None
+    fn pad_to_width(s: &str, target: usize) -> String {
+        let w = UnicodeWidthStr::width(s);
+        if w >= target { s.to_string() } else { format!("{}{}", s, " ".repeat(target - w)) }
     }
 
     fn render_resolved_libraries(&self, area: Rect, buf: &mut Buffer, focused: bool) {
@@ -919,6 +1020,80 @@ impl ProfilesManager {
         }
     }
 
+    pub fn render_assign(&self, parent: Rect, buf: &mut Buffer) {
+        let w = (parent.width as f32 * 0.7) as u16;
+        let h = 18u16;
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect::new(x, y, w, h);
+
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_2, palette::BG_1] as &[Color]);
+        for row in 0..canvas.height {
+            for col in 0..canvas.width {
+                let idx = row as usize * canvas.width as usize + col as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + col, canvas.y + row)) {
+                    cell.set_bg(grad[idx]);
+                }
+            }
+        }
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::SUCCESS));
+        buf.set_string(canvas.x + 2, canvas.y, format!(" Assign: {} ", self.assign.profile_name), Style::default().fg(palette::SUCCESS_PEAK));
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let row_y = inner.y + 1;
+        let list_w = inner.width.saturating_sub(2);
+        let list_h = (h.saturating_sub(6)) as usize;
+        let list_area = Rect::new(inner.x + 1, row_y, list_w, list_h as u16);
+
+        let focused = self.assign.focus == ProfAssignFocus::MinionList;
+        let sel_style = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
+        let unsel_style = Style::default().fg(if focused { palette::FG } else { palette::MUTED });
+        let check_on = if focused { "▣" } else { "x" };
+        let check_off = if focused { "□" } else { " " };
+
+        let view_h = list_h.min(self.assign.minions.len());
+        let scroll = self.assign.mscroll.get().min(self.assign.minions.len().saturating_sub(view_h));
+        self.assign.mscroll.set(scroll);
+
+        for i in 0..view_h {
+            let idx = scroll + i;
+            let (hostname, checked) = &self.assign.minions[idx];
+            let style = if idx == self.assign.mcursor && focused { sel_style } else { unsel_style };
+            let check = if *checked { check_on } else { check_off };
+            let label = format!(" {check}  {hostname}");
+            buf.set_string(list_area.x, list_area.y + i as u16, truncate_str(&label, list_area.width as usize), style);
+        }
+
+        Self::draw_scrollbar(buf, list_area, scroll, self.assign.minions.len(), view_h, focused);
+
+        let btn_y = inner.y + list_h as u16 + 2;
+        let btn_labels = ["[  Tag  ]", "[ Untag ]", "[ Close ]"];
+        let btn_widths: Vec<u16> = btn_labels.iter().map(|l| l.len() as u16).collect();
+        let total_btn_w: u16 = btn_widths.iter().sum::<u16>() + (btn_widths.len() as u16 - 1) * 2;
+        let mut btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
+
+        let focus_idx = match self.assign.focus {
+            ProfAssignFocus::TagBtn => 0,
+            ProfAssignFocus::UntagBtn => 1,
+            ProfAssignFocus::CloseBtn => 2,
+            _ => usize::MAX,
+        };
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2);
+
+        for (i, label) in btn_labels.iter().enumerate() {
+            let style = if i == focus_idx { sel_btn } else { unsel_btn };
+            buf.set_string(btn_x, btn_y, *label, style);
+            btn_x += btn_widths[i] + 2;
+        }
+
+        Self::draw_shadow(buf, canvas, w, h);
+    }
+
     fn draw_shadow(buf: &mut Buffer, canvas: Rect, dlg_w: u16, dlg_h: u16) {
         let buf_area = buf.area();
         let x = canvas.x;
@@ -956,43 +1131,49 @@ fn truncate_str(s: &str, max_w: usize) -> String {
     if s.len() <= max_w { s.to_string() } else { format!("{}…", &s[..max_w.saturating_sub(1)]) }
 }
 
-pub fn group_modules_by_models(models: &[ConsoleModelRow], modules: &[ResolvedModule]) -> (Vec<ResolvedModelGroup>, Vec<ResolvedModule>) {
+pub fn group_modules_by_models(profile_model_ids: &[String], model_rows: &[ConsoleModelRow], modules: &[ResolvedModule]) -> (Vec<ResolvedModelGroup>, Vec<ResolvedModule>) {
     let mut groups = Vec::new();
-    let mut matched_names = std::collections::BTreeSet::new();
+    let mut covered_set = std::collections::BTreeSet::new();
 
-    for model in models {
-        let mut grouped = Vec::new();
+    for model_id in profile_model_ids {
+        let Some(model) = model_rows.iter().find(|r| &r.id == model_id) else {
+            continue;
+        };
+        let mut entries = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
-        for module in modules {
-            if model.modules.iter().any(|name| name == &module.name) && seen.insert(module.name.clone()) {
-                matched_names.insert(module.name.clone());
-                grouped.push(ResolvedModule {
-                    name: module.name.clone(),
-                    version: module.version.clone(),
-                    descr: module.descr.clone(),
-                    selector: module.selector.clone(),
+        for module_name in &model.modules {
+            if !seen.insert(module_name.clone()) {
+                continue;
+            }
+            let matched = modules.iter().find(|m| &m.name == module_name);
+            if let Some(m) = matched {
+                covered_set.insert(m.name.clone());
+                entries.push(ResolvedModule {
+                    name: m.name.clone(),
+                    version: m.version.clone(),
+                    descr: m.descr.clone(),
+                    selector: m.selector.clone(),
+                    covered: true,
+                });
+            } else {
+                entries.push(ResolvedModule {
+                    name: module_name.clone(),
+                    version: String::new(),
+                    descr: String::new(),
+                    selector: String::new(),
+                    covered: false,
                 });
             }
         }
-        if !grouped.is_empty() {
+        if !entries.is_empty() {
             groups.push(ResolvedModelGroup {
                 id: model.id.clone(),
                 name: if model.name.trim().is_empty() { model.id.clone() } else { model.name.clone() },
-                modules: grouped,
+                modules: entries,
             });
         }
     }
 
-    let ungrouped = modules
-        .iter()
-        .filter(|module| !matched_names.contains(&module.name))
-        .map(|module| ResolvedModule {
-            name: module.name.clone(),
-            version: module.version.clone(),
-            descr: module.descr.clone(),
-            selector: module.selector.clone(),
-        })
-        .collect();
-
-    (groups, ungrouped)
+    let extras = modules.iter().filter(|m| !covered_set.contains(&m.name)).cloned().collect();
+    (groups, extras)
 }

@@ -15,7 +15,7 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdpq::{DiskPersistentQueue, WorkItem};
-use libmodpak::{MODPAK_SYNC_STATE, SysInspectModPakMinion};
+use libmodpak::{MODPAK_SYNC_STATE, SysInspectModPakMinion, mpk::ModPakProfile};
 use libsensors::sensors::SensorCtx;
 use libsensors::sensors::menotify::MeNotifySensor;
 use libsensors::service::SensorService;
@@ -1209,6 +1209,11 @@ impl SysMinion {
                                         log::debug!("Dropped internal master command for another minion");
                                     }
                                 } else {
+                                    let model_id = msg.target().scheme().split('/').next().unwrap_or_default();
+                                    if !model_id.is_empty() && !this.is_model_allowed_in_profiles(model_id).await {
+                                        log::debug!("Dropped command for model {}: not in any assigned profile", model_id);
+                                        continue;
+                                    }
                                     if !matches_target(&msg, this.get_minion_id(), &minion_traits(&this.cfg, true, false)) {
                                         log::debug!("Dropped master model command for another minion");
                                         continue;
@@ -1796,6 +1801,21 @@ impl SysMinion {
         }
 
         Err(SysinspectError::MinionGeneralError("File was not downloaded".to_string()))
+    }
+
+    async fn is_model_allowed_in_profiles(self: &Arc<Self>, model_id: &str) -> bool {
+        let profiles = effective_profiles(&self.cfg);
+        for profile_name in profiles {
+            let Ok(data) = self.as_ptr().download_file(&format!("/profiles/{profile_name}.profile")).await else {
+                continue;
+            };
+            if let Ok(profile) = serde_yaml::from_slice::<ModPakProfile>(&data)
+                && profile.models().contains(&model_id.to_string())
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// Launch sysinspect

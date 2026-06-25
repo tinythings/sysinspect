@@ -2632,13 +2632,20 @@ impl SysInspectUX {
                     self.repo_manager.exit_staging();
                     match self.repo_manager.staging_mode {
                         repomanager::StagingMode::ProfileModuleAdd => {
-                            self.bulk_add_profile_matches(checked, false);
+                            self.bulk_add_profile_matches(checked, false, false);
                         }
                         repomanager::StagingMode::ProfileModelAdd => {
-                            self.bulk_add_profile_matches(checked, false);
+                            self.bulk_add_profile_matches(checked.clone(), false, false);
+                            let model_ids: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                            let profile_name = self.repo_manager.profiles.detail_name.clone();
+                            let _ = self.do_profile_add_matches(&profile_name, model_ids, false, true);
+                            if let Err(e) = self.load_profile_detail(&profile_name) {
+                                self.error_alert_visible = true;
+                                self.error_alert_message = e;
+                            }
                         }
                         repomanager::StagingMode::ProfileLibraryAdd => {
-                            self.bulk_add_profile_matches(checked, true);
+                            self.bulk_add_profile_matches(checked, true, false);
                         }
                         _ => {
                             self.bulk_add_modules(checked);
@@ -2767,6 +2774,34 @@ impl SysInspectUX {
                 }
                 return true;
             }
+            if self.repo_manager.profiles.assign.visible {
+                let handled = self.repo_manager.profiles.handle_assign_key(e.code);
+                if !handled && e.code == KeyCode::Enter {
+                    let profile_name = self.repo_manager.profiles.assign.profile_name.clone();
+                    let selected: Vec<String> = self.repo_manager.profiles.assign.minions.iter()
+                        .filter(|(_, checked)| *checked)
+                        .map(|(host, _)| host.clone())
+                        .collect();
+                    match self.repo_manager.profiles.assign.focus {
+                        profiles::ProfAssignFocus::TagBtn if !selected.is_empty() => {
+                            let _ = self.do_profile_tag(&profile_name, &selected);
+                            self.repo_manager.profiles.assign.visible = false;
+                            self.status_at_profiles();
+                        }
+                        profiles::ProfAssignFocus::UntagBtn if !selected.is_empty() => {
+                            let _ = self.do_profile_untag(&profile_name, &selected);
+                            self.repo_manager.profiles.assign.visible = false;
+                            self.status_at_profiles();
+                        }
+                        profiles::ProfAssignFocus::CloseBtn => {
+                            self.repo_manager.profiles.assign.visible = false;
+                            self.status_at_profiles();
+                        }
+                        _ => {}
+                    }
+                }
+                return true;
+            }
             if self.repo_manager.profiles.create_visible {
                 let handled = self.repo_manager.profiles.handle_create_key(e.code);
                 if !handled && e.code == KeyCode::Enter {
@@ -2809,6 +2844,16 @@ impl SysInspectUX {
                         profiles::ProfDetailFocus::CloseBtn => {
                             self.repo_manager.profiles.detail_visible = false;
                             self.status_at_profiles();
+                        }
+                        profiles::ProfDetailFocus::AssignBtn => {
+                            if let Some(name) = self.repo_manager.profiles.selected_profile_name().map(|s| s.to_string()) {
+                                self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| {
+                                    (m.hostname.clone(), false)
+                                }).collect();
+                                self.repo_manager.profiles.assign.profile_name = name;
+                                self.repo_manager.profiles.assign.visible = true;
+                                self.status_at_profiles();
+                            }
                         }
                         _ => {}
                     }
@@ -2997,8 +3042,8 @@ impl SysInspectUX {
                         None => return true,
                     };
                     match self.load_profile_detail(&name) {
-                        Ok((modules, model_groups, ungrouped_modules, libraries)) => {
-                            self.repo_manager.profiles.enter_detail(name, modules, model_groups, ungrouped_modules, libraries);
+                        Ok((profile_models, modules, model_groups, ungrouped_modules, libraries)) => {
+                            self.repo_manager.profiles.enter_detail(name, profile_models, modules, model_groups, ungrouped_modules, libraries);
                             self.status_at_profiles();
                         }
                         Err(e) => {
@@ -3219,12 +3264,7 @@ impl SysInspectUX {
         }
     }
 
-    fn load_profile_detail(
-        &mut self, name: &str,
-    ) -> Result<
-        (Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedModelGroup>, Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedLibrary>),
-        String,
-    > {
+    fn load_profile_detail(&mut self, name: &str) -> Result<profiles::LoadedProfileDetail, String> {
         if self.repo_manager.model_rows.is_empty() {
             self.load_model_list()?;
         }
@@ -3242,6 +3282,13 @@ impl SysInspectUX {
             _ => return Err("Unexpected payload for profile library selectors".to_string()),
         };
 
+        let ctx_models = serde_json::json!({"op": "list", "name": name, "model": true}).to_string();
+        let payload_models = self.call_profile_rpc(&ctx_models)?;
+        let profile_models: Vec<String> = match payload_models {
+            ConsolePayload::StringList { items } => items.iter().filter_map(|s| s.split_once(": ").map(|x| x.1.to_string())).collect(),
+            _ => vec![],
+        };
+
         let resolved_modules: Vec<profiles::ResolvedModule> = module_selectors
             .iter()
             .filter_map(|s| s.split_once(": ").map(|x| x.1))
@@ -3256,6 +3303,7 @@ impl SysInspectUX {
                         version: r.version.clone().unwrap_or_default(),
                         descr: r.descr.clone(),
                         selector: sel.to_string(),
+                        covered: true,
                     })
                     .collect::<Vec<_>>()
             })
@@ -3279,10 +3327,9 @@ impl SysInspectUX {
             })
             .collect();
 
-        let enabled_models: Vec<ConsoleModelRow> = self.repo_manager.model_rows.iter().filter(|row| row.enabled).cloned().collect();
-        let (model_groups, ungrouped_modules) = profiles::group_modules_by_models(&enabled_models, &resolved_modules);
+        let (model_groups, ungrouped_modules) = profiles::group_modules_by_models(&profile_models, &self.repo_manager.model_rows, &resolved_modules);
 
-        Ok((resolved_modules, model_groups, ungrouped_modules, resolved_libraries))
+        Ok((profile_models, resolved_modules, model_groups, ungrouped_modules, resolved_libraries))
     }
 
     fn do_profile_create(&mut self, name: &str) -> Result<(), String> {
@@ -3301,8 +3348,8 @@ impl SysInspectUX {
         Ok(())
     }
 
-    fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
-        let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
+    fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool, model: bool) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library, "model": model}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.mark_repo_sync_pending();
         Ok(())
@@ -3315,8 +3362,52 @@ impl SysInspectUX {
         Ok(())
     }
 
-    fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool) {
-        let names: Vec<String> = if library {
+    fn do_profile_tag(&mut self, profile_name: &str, minion_ids: &[String]) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "tag", "profiles": [profile_name]}).to_string();
+        for mid in minion_ids {
+            let ctx = ctx.clone();
+            let mid = mid.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    call_master_console(
+                        &self.cfg,
+                        &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"),
+                        "*",
+                        None,
+                        Some(&mid),
+                        Some(&ctx),
+                    ).await
+                })
+            }).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn do_profile_untag(&mut self, profile_name: &str, minion_ids: &[String]) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "untag", "profiles": [profile_name]}).to_string();
+        for mid in minion_ids {
+            let ctx = ctx.clone();
+            let mid = mid.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    call_master_console(
+                        &self.cfg,
+                        &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"),
+                        "*",
+                        None,
+                        Some(&mid),
+                        Some(&ctx),
+                    ).await
+                })
+            }).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool, model: bool) {
+        let names: Vec<String> = if model {
+            checked.iter().map(|m| m.name.clone()).collect()
+        } else if library {
             checked.iter().map(|m| m.name.clone()).collect()
         } else {
             let mut modules: Vec<String> =
@@ -3326,14 +3417,14 @@ impl SysInspectUX {
             modules
         };
         let name = self.repo_manager.profiles.detail_name.clone();
-        if let Err(e) = self.do_profile_add_matches(&name, names, library) {
+        if let Err(e) = self.do_profile_add_matches(&name, names, library, model) {
             self.error_alert_visible = true;
             self.error_alert_message = e;
             return;
         }
         match self.load_profile_detail(&name) {
-            Ok((modules, model_groups, ungrouped_modules, libraries)) => {
-                self.repo_manager.profiles.enter_detail(name, modules, model_groups, ungrouped_modules, libraries);
+            Ok((profile_models, modules, model_groups, ungrouped_modules, libraries)) => {
+                self.repo_manager.profiles.enter_detail(name, profile_models, modules, model_groups, ungrouped_modules, libraries);
             }
             Err(e) => {
                 self.error_alert_visible = true;
