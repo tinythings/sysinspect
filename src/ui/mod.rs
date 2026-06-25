@@ -57,6 +57,8 @@ mod online;
 mod palette;
 mod platforms;
 mod profiles;
+#[cfg(test)]
+mod profiles_ut;
 mod rawlogs;
 mod repomanager;
 mod setup;
@@ -150,6 +152,8 @@ impl Default for ClusterUpgradeProgressState {
 type ClusterUpgradeTaskResult = Result<(usize, usize, usize, usize, usize, Vec<String>), String>;
 
 type ClusterStartTaskResult = Result<(usize, Vec<String>), String>;
+
+type SetupTaskResult = Result<setup::SetupCompletion, String>;
 
 #[derive(Debug)]
 pub struct ClusterStartProgressState {
@@ -297,6 +301,8 @@ pub struct SysInspectUX {
     pub registration_form: minreg::RegistrationForm,
     pub registration_progress: Arc<std::sync::Mutex<minreg::RegistrationProgress>>,
     pub registration_task: Option<tokio::task::JoinHandle<()>>,
+    pub setup_progress: Arc<std::sync::Mutex<setup::SetupProgress>>,
+    pub setup_task: Option<tokio::task::JoinHandle<SetupTaskResult>>,
     pub delete_progress: DeleteProgressState,
     pub delete_task: Option<tokio::task::JoinHandle<Result<String, String>>>,
     pub delete_success_message: String,
@@ -424,6 +430,8 @@ impl Default for SysInspectUX {
             registration_form: minreg::RegistrationForm::default(),
             registration_progress: Arc::new(std::sync::Mutex::new(minreg::RegistrationProgress::placeholder())),
             registration_task: None,
+            setup_progress: Arc::new(std::sync::Mutex::new(setup::SetupProgress::hidden())),
+            setup_task: None,
             delete_progress: DeleteProgressState::default(),
             delete_task: None,
             delete_success_message: String::new(),
@@ -510,61 +518,52 @@ impl SysInspectUX {
                     self.setup_wizard.ok_pressed = false;
                     self.setup_wizard.focus = setup::SetupFocus::SysMasterPath;
                 } else {
-                    match self.setup_wizard.write_config() {
-                        Ok(config_path) => {
-                            self.setup_wizard.ok_pressed = false;
-                            self.setup_wizard.visible = false;
-
-                            // Spawn master in daemon mode (no TUI output pollution)
-                            let master_bin = if self.setup_wizard.installation_mode == setup::InstallationMode::Custom {
-                                std::path::PathBuf::from(self.setup_wizard.custom_destination.value()).join("bin/sysmaster")
-                            } else {
-                                std::path::PathBuf::from(self.setup_wizard.sysmaster_path.value())
-                            };
-                            std::process::Command::new(&master_bin)
-                                .arg("--daemon")
-                                .arg("-c")
-                                .arg(config_path.to_string_lossy().as_ref())
-                                .stdout(std::process::Stdio::null())
-                                .stderr(std::process::Stdio::null())
-                                .spawn()
-                                .map(|c| {
-                                    std::thread::spawn(move || {
-                                        c.wait_with_output().ok();
-                                    });
-                                })
-                                .ok();
-
-                            // Wait for master to come up
-                            for _ in 0..10 {
-                                std::thread::sleep(std::time::Duration::from_millis(500));
-                                if self.try_reconnect_silent().is_ok() {
-                                    return self.run_normal_loop(term);
-                                }
-                            }
-
-                            // Not yet up — stay in setup loop, will auto-reconnect
-                            self.info_alert_visible = true;
-                            self.info_alert_title = "Setup Complete".to_string();
-                            self.info_alert_styled = None;
-                            self.info_alert_message = format!(
-                                "Config written to:\n{}\n\nMaster is starting in the background.\nThe UI will reconnect automatically.",
-                                config_path.display(),
-                            );
-                        }
-                        Err(e) => {
-                            self.error_alert_visible = true;
-                            self.error_alert_message = e;
-                            self.setup_wizard.ok_pressed = false;
-                        }
+                    self.setup_wizard.ok_pressed = false;
+                    self.setup_wizard.visible = false;
+                    let request = self.setup_wizard.to_request();
+                    let progress = self.setup_progress.clone();
+                    if let Ok(mut state) = progress.lock() {
+                        *state = setup::SetupProgress::new();
+                    }
+                    self.setup_task = Some(tokio::task::spawn_blocking(move || request.run_with_progress(progress)));
+                }
+            }
+            if self.setup_task.as_ref().is_some_and(|task| task.is_finished())
+                && let Some(task) = self.setup_task.take()
+            {
+                let result = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(task));
+                if let Ok(mut progress) = self.setup_progress.lock() {
+                    *progress = setup::SetupProgress::hidden();
+                }
+                match result {
+                    Ok(Ok(done)) => {
+                        self.pending_exit = true;
+                        self.info_alert_visible = true;
+                        self.info_alert_title = "Master Installation Complete".to_string();
+                        self.info_alert_styled = Some(done.info_styled);
+                        self.info_alert_message = done.info_message;
+                    }
+                    Ok(Err(err)) => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err;
+                        self.setup_wizard.visible = true;
+                    }
+                    Err(err) => {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = format!("Setup task failed: {err}");
+                        self.setup_wizard.visible = true;
                     }
                 }
             }
-            if !self.error_alert_visible && !self.setup_wizard.visible && self.try_reconnect_silent().is_ok() {
+            if self.setup_task.is_none() && !self.error_alert_visible && !self.setup_wizard.visible && self.try_reconnect_silent().is_ok() {
                 return self.run_normal_loop(term);
             }
             // Periodic silent reconnect in setup mode
-            if !self.setup_wizard.ok_pressed && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5) && self.evtipc.is_some() {
+            if self.setup_task.is_none()
+                && !self.setup_wizard.ok_pressed
+                && self.last_reconnect_attempt.elapsed() >= Duration::from_secs(5)
+                && self.evtipc.is_some()
+            {
                 self.last_reconnect_attempt = Instant::now();
                 if self.try_reconnect_silent().is_ok() {
                     return self.run_normal_loop(term);
@@ -702,7 +701,8 @@ impl SysInspectUX {
     }
 
     fn on_events_setup(&mut self) -> io::Result<()> {
-        if event::poll(Duration::from_secs(1))?
+        let poll_dur = if self.setup_progress.lock().unwrap().visible { Duration::from_millis(50) } else { Duration::from_secs(1) };
+        if event::poll(poll_dur)?
             && let Event::Key(e) = event::read()?
             && e.kind == KeyEventKind::Press
         {
@@ -1005,9 +1005,19 @@ impl SysInspectUX {
                 if self.repo_manager.needs_reload {
                     self.repo_manager.needs_reload = false;
                     let _ = self.load_module_index();
+                    let _ = self.load_model_list();
+                    let _ = self.load_library_index();
                     if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
+                    self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
+                    self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
+                    if self.minions_rows.is_empty()
+                        && let Ok(rows) = self.fetch_minions()
+                    {
+                        self.minions_rows = rows;
+                    }
+                    self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
                     self.mark_repo_sync_pending();
                 }
             } else {
@@ -2632,10 +2642,32 @@ impl SysInspectUX {
                     self.repo_manager.exit_staging();
                     match self.repo_manager.staging_mode {
                         repomanager::StagingMode::ProfileModuleAdd => {
-                            self.bulk_add_profile_matches(checked, false);
+                            self.bulk_add_profile_matches(checked, false, false);
+                        }
+                        repomanager::StagingMode::ProfileModelAdd => {
+                            self.bulk_add_profile_matches(checked.clone(), false, false);
+                            let model_ids: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+                            let profile_name = self.repo_manager.profiles.detail_name.clone();
+                            let _ = self.do_profile_add_matches(&profile_name, model_ids, false, true);
+                            match self.load_profile_detail(&profile_name) {
+                                Ok((models, modules, model_groups, ungrouped_modules, libraries)) => {
+                                    self.repo_manager.profiles.enter_detail(
+                                        profile_name,
+                                        models,
+                                        modules,
+                                        model_groups,
+                                        ungrouped_modules,
+                                        libraries,
+                                    );
+                                }
+                                Err(e) => {
+                                    self.error_alert_visible = true;
+                                    self.error_alert_message = e;
+                                }
+                            }
                         }
                         repomanager::StagingMode::ProfileLibraryAdd => {
-                            self.bulk_add_profile_matches(checked, true);
+                            self.bulk_add_profile_matches(checked, true, false);
                         }
                         _ => {
                             self.bulk_add_modules(checked);
@@ -2672,12 +2704,6 @@ impl SysInspectUX {
                         }
                     }
                 }
-            }
-            if !self.repo_manager.staging
-                && matches!(self.repo_manager.staging_mode, repomanager::StagingMode::ProfileModuleAdd | repomanager::StagingMode::ProfileLibraryAdd)
-            {
-                self.repo_manager.profiles.detail_visible = true;
-                self.status_at_profiles();
             }
             return handled;
         }
@@ -2759,6 +2785,52 @@ impl SysInspectUX {
                 }
                 return true;
             }
+            if self.repo_manager.profiles.assign.visible {
+                let handled = self.repo_manager.profiles.handle_assign_key(e.code);
+                if !handled && e.code == KeyCode::Enter {
+                    let profile_name = self.repo_manager.profiles.assign.profile_name.clone();
+                    let selected: Vec<String> = self
+                        .repo_manager
+                        .profiles
+                        .assign
+                        .minions
+                        .iter()
+                        .filter(|(_, checked)| *checked)
+                        .map(|(row, _)| row.minion_id.clone())
+                        .collect();
+                    match self.repo_manager.profiles.assign.focus {
+                        profiles::ProfAssignFocus::SelectAll => {
+                            self.repo_manager.profiles.assign_select_all_visible();
+                        }
+                        profiles::ProfAssignFocus::TagBtn if !selected.is_empty() => match self.do_profile_tag(&profile_name, &selected) {
+                            Ok(()) => {
+                                self.repo_manager.profiles.assign.visible = false;
+                                self.status_at_profiles();
+                            }
+                            Err(e) => {
+                                self.error_alert_visible = true;
+                                self.error_alert_message = format!("Tag failed: {e}");
+                            }
+                        },
+                        profiles::ProfAssignFocus::UntagBtn if !selected.is_empty() => match self.do_profile_untag(&profile_name, &selected) {
+                            Ok(()) => {
+                                self.repo_manager.profiles.assign.visible = false;
+                                self.status_at_profiles();
+                            }
+                            Err(e) => {
+                                self.error_alert_visible = true;
+                                self.error_alert_message = format!("Untag failed: {e}");
+                            }
+                        },
+                        profiles::ProfAssignFocus::CloseBtn => {
+                            self.repo_manager.profiles.assign.visible = false;
+                            self.status_at_profiles();
+                        }
+                        _ => {}
+                    }
+                }
+                return true;
+            }
             if self.repo_manager.profiles.create_visible {
                 let handled = self.repo_manager.profiles.handle_create_key(e.code);
                 if !handled && e.code == KeyCode::Enter {
@@ -2787,12 +2859,33 @@ impl SysInspectUX {
                         profiles::ProfDetailFocus::AddModuleBtn => {
                             self.repo_manager.enter_profile_module_staging();
                         }
+                        profiles::ProfDetailFocus::AddFromModelBtn => {
+                            if let Err(err) = self.load_model_list() {
+                                self.error_alert_visible = true;
+                                self.error_alert_message = err;
+                                return true;
+                            }
+                            self.repo_manager.enter_profile_model_staging();
+                        }
                         profiles::ProfDetailFocus::AddLibraryBtn => {
                             self.repo_manager.enter_profile_library_staging();
                         }
                         profiles::ProfDetailFocus::CloseBtn => {
                             self.repo_manager.profiles.detail_visible = false;
                             self.status_at_profiles();
+                        }
+                        profiles::ProfDetailFocus::AssignBtn => {
+                            self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
+                            if let Some(name) = self.repo_manager.profiles.selected_profile_name().map(|s| s.to_string()) {
+                                self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| (m.clone(), false)).collect();
+                                self.repo_manager.profiles.assign.profile_name = name;
+                                self.repo_manager.profiles.assign.focus = profiles::ProfAssignFocus::Query;
+                                self.repo_manager.profiles.assign.filter = ratatui_cheese::input::InputState::new();
+                                self.repo_manager.profiles.assign.mcursor = 0;
+                                self.repo_manager.profiles.assign.mscroll.set(0);
+                                self.repo_manager.profiles.assign.visible = true;
+                                self.status_at_profiles();
+                            }
                         }
                         _ => {}
                     }
@@ -2981,8 +3074,8 @@ impl SysInspectUX {
                         None => return true,
                     };
                     match self.load_profile_detail(&name) {
-                        Ok((modules, libraries)) => {
-                            self.repo_manager.profiles.enter_detail(name, modules, libraries);
+                        Ok((profile_models, modules, model_groups, ungrouped_modules, libraries)) => {
+                            self.repo_manager.profiles.enter_detail(name, profile_models, modules, model_groups, ungrouped_modules, libraries);
                             self.status_at_profiles();
                         }
                         Err(e) => {
@@ -3047,6 +3140,7 @@ impl SysInspectUX {
                             version: Some(r.kind.clone()),
                             descr: r.checksum.clone(),
                             path: std::path::PathBuf::new(),
+                            profile_modules: Vec::new(),
                             checked: false,
                             platform: None,
                             arch: None,
@@ -3066,6 +3160,7 @@ impl SysInspectUX {
                                     version: r.version.clone(),
                                     descr: r.descr.clone(),
                                     path: std::path::PathBuf::new(),
+                                    profile_modules: Vec::new(),
                                     checked: false,
                                     platform: Some(r.platform.clone()),
                                     arch: Some(r.arch.clone()),
@@ -3201,7 +3296,16 @@ impl SysInspectUX {
         }
     }
 
-    fn load_profile_detail(&mut self, name: &str) -> Result<(Vec<profiles::ResolvedModule>, Vec<profiles::ResolvedLibrary>), String> {
+    fn load_profile_detail(&mut self, name: &str) -> Result<profiles::LoadedProfileDetail, String> {
+        self.load_model_list()?;
+        self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
+        self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
+        if self.minions_rows.is_empty()
+            && let Ok(rows) = self.fetch_minions()
+        {
+            self.minions_rows = rows;
+        }
+        self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
         let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
         let payload_mods = self.call_profile_rpc(&ctx_mods)?;
         let module_selectors: Vec<String> = match payload_mods {
@@ -3214,6 +3318,13 @@ impl SysInspectUX {
         let library_selectors: Vec<String> = match payload_libs {
             ConsolePayload::StringList { items } => items,
             _ => return Err("Unexpected payload for profile library selectors".to_string()),
+        };
+
+        let ctx_models = serde_json::json!({"op": "list", "name": name, "model": true}).to_string();
+        let payload_models = self.call_profile_rpc(&ctx_models)?;
+        let profile_models: Vec<String> = match payload_models {
+            ConsolePayload::StringList { items } => items.iter().filter_map(|s| s.split_once(": ").map(|x| x.1.to_string())).collect(),
+            _ => vec![],
         };
 
         let resolved_modules: Vec<profiles::ResolvedModule> = module_selectors
@@ -3230,6 +3341,7 @@ impl SysInspectUX {
                         version: r.version.clone().unwrap_or_default(),
                         descr: r.descr.clone(),
                         selector: sel.to_string(),
+                        covered: true,
                     })
                     .collect::<Vec<_>>()
             })
@@ -3253,7 +3365,9 @@ impl SysInspectUX {
             })
             .collect();
 
-        Ok((resolved_modules, resolved_libraries))
+        let (model_groups, ungrouped_modules) = profiles::group_modules_by_models(&profile_models, &self.repo_manager.model_rows, &resolved_modules);
+
+        Ok((profile_models, resolved_modules, model_groups, ungrouped_modules, resolved_libraries))
     }
 
     fn do_profile_create(&mut self, name: &str) -> Result<(), String> {
@@ -3272,8 +3386,8 @@ impl SysInspectUX {
         Ok(())
     }
 
-    fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool) -> Result<(), String> {
-        let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library}).to_string();
+    fn do_profile_add_matches(&mut self, name: &str, matches: Vec<String>, library: bool, model: bool) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "add", "name": name, "matches": matches, "library": library, "model": model}).to_string();
         self.call_profile_rpc(&ctx)?;
         self.mark_repo_sync_pending();
         Ok(())
@@ -3286,17 +3400,57 @@ impl SysInspectUX {
         Ok(())
     }
 
-    fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool) {
-        let names: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
+    fn do_profile_tag(&mut self, profile_name: &str, minion_ids: &[String]) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "tag", "profiles": [profile_name]}).to_string();
+        for mid in minion_ids {
+            let ctx = ctx.clone();
+            let mid = mid.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), "*", None, Some(&mid), Some(&ctx)).await
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn do_profile_untag(&mut self, profile_name: &str, minion_ids: &[String]) -> Result<(), String> {
+        let ctx = serde_json::json!({"op": "untag", "profiles": [profile_name]}).to_string();
+        for mid in minion_ids {
+            let ctx = ctx.clone();
+            let mid = mid.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), "*", None, Some(&mid), Some(&ctx)).await
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn bulk_add_profile_matches(&mut self, checked: Vec<repomanager::StagedModule>, library: bool, model: bool) {
+        let names: Vec<String> = if model {
+            checked.iter().map(|m| m.name.clone()).collect()
+        } else if library {
+            checked.iter().map(|m| m.name.clone()).collect()
+        } else {
+            let mut modules: Vec<String> =
+                checked.iter().flat_map(|m| if m.profile_modules.is_empty() { vec![m.name.clone()] } else { m.profile_modules.clone() }).collect();
+            modules.sort();
+            modules.dedup();
+            modules
+        };
         let name = self.repo_manager.profiles.detail_name.clone();
-        if let Err(e) = self.do_profile_add_matches(&name, names, library) {
+        if let Err(e) = self.do_profile_add_matches(&name, names, library, model) {
             self.error_alert_visible = true;
             self.error_alert_message = e;
             return;
         }
         match self.load_profile_detail(&name) {
-            Ok((modules, libraries)) => {
-                self.repo_manager.profiles.enter_detail(name, modules, libraries);
+            Ok((profile_models, modules, model_groups, ungrouped_modules, libraries)) => {
+                self.repo_manager.profiles.enter_detail(name, profile_models, modules, model_groups, ungrouped_modules, libraries);
             }
             Err(e) => {
                 self.error_alert_visible = true;
@@ -3506,6 +3660,7 @@ impl SysInspectUX {
                     public_entrypoints,
                     public_entrypoint_kinds,
                     public_actions: m.public_actions.clone(),
+                    modules: m.modules.clone(),
                     states: m.states.clone(),
                     target_actions,
                 }
@@ -3536,6 +3691,7 @@ impl SysInspectUX {
             ids.retain(|id| id != model_id);
         }
         self.write_enabled_models_dropin(ids)?;
+        self.reload_master_config()?;
         self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
         self.repo_manager.models_dirty = true;
         Ok(())
@@ -3582,6 +3738,7 @@ impl SysInspectUX {
         let enabled_ids = self.enabled_model_ids_with(&model_id, true);
         match Self::copy_dir_recursive(path, &dst)
             .and_then(|_| self.write_enabled_models_dropin(enabled_ids.clone()))
+            .and_then(|_| self.reload_master_config())
             .and_then(|_| self.refresh_local_model_rows(&enabled_ids))
         {
             Ok(()) => {
@@ -3630,6 +3787,24 @@ impl SysInspectUX {
 
     fn process_module_add(&mut self, path: &std::path::Path) {
         if path.is_dir() {
+            let dir_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let module_spec = path.join(format!("{dir_name}.spec"));
+            if module_spec.exists() {
+                let module_name = Self::read_spec_name(&module_spec).unwrap_or_else(|| dir_name.clone());
+                let (version, descr) = Self::read_spec_version_descr(&module_spec);
+                let bin = path.join(&dir_name);
+                self.repo_manager.enter_staging(vec![repomanager::StagedModule {
+                    name: module_name,
+                    version,
+                    descr,
+                    path: if bin.exists() { bin } else { module_spec },
+                    profile_modules: Vec::new(),
+                    checked: true,
+                    platform: None,
+                    arch: None,
+                }]);
+                return;
+            }
             let mut staged = Self::scan_dir_for_modules(path);
             if staged.is_empty() {
                 self.error_alert_visible = true;
@@ -3649,13 +3824,14 @@ impl SysInspectUX {
         } else {
             let spec = path.with_extension("spec");
             if spec.exists() {
-                let module_name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                let module_name = Self::read_spec_name(&spec).unwrap_or_else(|| path.file_stem().unwrap_or_default().to_string_lossy().to_string());
                 let (version, descr) = Self::read_spec_version_descr(&spec);
                 self.repo_manager.enter_staging(vec![repomanager::StagedModule {
                     name: module_name,
                     version,
                     descr,
                     path: path.to_path_buf(),
+                    profile_modules: Vec::new(),
                     checked: true,
                     platform: None,
                     arch: None,
@@ -3688,6 +3864,7 @@ impl SysInspectUX {
                 version,
                 descr,
                 path: if bin.exists() { bin } else { spec },
+                profile_modules: Vec::new(),
                 checked: true,
                 platform: None,
                 arch: None,

@@ -91,10 +91,10 @@ async fn narrow_profile_syncs_only_allowed_artifacts_and_removes_old_ones() {
     set_script_modules(&master.path().join("data/repo"), &["alpha.demo", "beta.demo"]);
     repo.new_profile("Alpha").expect("Alpha should be created");
     repo.new_profile("Beta").expect("Beta should be created");
-    repo.add_profile_matches("Alpha", vec!["alpha.demo".to_string()], false).expect("Alpha module selector should be added");
-    repo.add_profile_matches("Alpha", vec!["runtime/lua/alpha.lua".to_string()], true).expect("Alpha library selector should be added");
-    repo.add_profile_matches("Beta", vec!["beta.demo".to_string()], false).expect("Beta module selector should be added");
-    repo.add_profile_matches("Beta", vec!["runtime/lua/beta.lua".to_string()], true).expect("Beta library selector should be added");
+    repo.add_profile_matches("Alpha", vec!["alpha.demo".to_string()], false, false).expect("Alpha module selector should be added");
+    repo.add_profile_matches("Alpha", vec!["runtime/lua/alpha.lua".to_string()], true, false).expect("Alpha library selector should be added");
+    repo.add_profile_matches("Beta", vec!["beta.demo".to_string()], false, false).expect("Beta module selector should be added");
+    repo.add_profile_matches("Beta", vec!["runtime/lua/beta.lua".to_string()], true, false).expect("Beta library selector should be added");
 
     let (port, server) = start_fileserver(master.path().join("data")).await;
     let minion = tempfile::tempdir().expect("minion tempdir should be created");
@@ -136,8 +136,8 @@ async fn overlapping_multi_profile_sync_merges_by_union_and_dedup() {
     set_script_modules(&master.path().join("data/repo"), &["alpha.demo", "beta.demo", "gamma.demo"]);
     repo.new_profile("One").expect("One should be created");
     repo.new_profile("Two").expect("Two should be created");
-    repo.add_profile_matches("One", vec!["alpha.demo".to_string(), "beta.demo".to_string()], false).expect("One selectors should be added");
-    repo.add_profile_matches("Two", vec!["beta.demo".to_string(), "gamma.demo".to_string()], false).expect("Two selectors should be added");
+    repo.add_profile_matches("One", vec!["alpha.demo".to_string(), "beta.demo".to_string()], false, false).expect("One selectors should be added");
+    repo.add_profile_matches("Two", vec!["beta.demo".to_string(), "gamma.demo".to_string()], false, false).expect("Two selectors should be added");
 
     let (port, server) = start_fileserver(master.path().join("data")).await;
     let minion = tempfile::tempdir().expect("minion tempdir should be created");
@@ -165,7 +165,7 @@ async fn sync_fails_if_effective_profiles_are_missing_from_profiles_index() {
     add_script_module(&master.path().join("data/repo"), "alpha.demo", "# alpha");
     set_script_modules(&master.path().join("data/repo"), &["alpha.demo"]);
     repo.new_profile("Existing").expect("Existing should be created");
-    repo.add_profile_matches("Existing", vec!["alpha.demo".to_string()], false).expect("Existing selector should be added");
+    repo.add_profile_matches("Existing", vec!["alpha.demo".to_string()], false, false).expect("Existing selector should be added");
 
     let (port, server) = start_fileserver(master.path().join("data")).await;
     let minion = tempfile::tempdir().expect("minion tempdir should be created");
@@ -212,7 +212,7 @@ async fn sync_allows_implicit_default_when_profiles_index_has_named_profiles() {
     add_script_module(&master.path().join("data/repo"), "alpha.demo", "# alpha");
     set_script_modules(&master.path().join("data/repo"), &["alpha.demo"]);
     repo.new_profile("Existing").expect("Existing should be created");
-    repo.add_profile_matches("Existing", vec!["alpha.demo".to_string()], false).expect("Existing selector should be added");
+    repo.add_profile_matches("Existing", vec!["alpha.demo".to_string()], false, false).expect("Existing selector should be added");
 
     let (port, server) = start_fileserver(master.path().join("data")).await;
     let minion = tempfile::tempdir().expect("minion tempdir should be created");
@@ -258,7 +258,7 @@ async fn sync_fails_if_downloaded_profile_checksum_does_not_match_index() {
     add_script_module(&master.path().join("data/repo"), "alpha.demo", "# alpha");
     set_script_modules(&master.path().join("data/repo"), &["alpha.demo"]);
     repo.new_profile("Broken").expect("Broken should be created");
-    repo.add_profile_matches("Broken", vec!["alpha.demo".to_string()], false).expect("Broken selector should be added");
+    repo.add_profile_matches("Broken", vec!["alpha.demo".to_string()], false, false).expect("Broken selector should be added");
     fs::write(master.path().join("data/profiles.index"), "profiles:\n  Broken:\n    file: broken.profile\n    checksum: deadbeef\n")
         .expect("profiles index should be overwritten");
 

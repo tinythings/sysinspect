@@ -176,6 +176,8 @@ impl ModPakProfileRef {
 pub struct ModPakProfile {
     name: String,
     #[serde(default)]
+    models: Vec<String>,
+    #[serde(default)]
     modules: Vec<String>,
     #[serde(default)]
     libraries: Vec<String>,
@@ -200,6 +202,11 @@ impl ModPakProfile {
     /// Return the library selector list.
     pub fn libraries(&self) -> &[String] {
         &self.libraries
+    }
+
+    /// Return the model identifier list.
+    pub fn models(&self) -> &[String] {
+        &self.models
     }
 }
 
@@ -338,6 +345,20 @@ impl ModPakProfile {
     /// Remove matching library selectors.
     pub fn remove_libraries(&mut self, libraries: Vec<String>) {
         self.libraries.retain(|library| !libraries.contains(library));
+    }
+
+    /// Add model identifiers, keeping insertion order and skipping duplicates.
+    pub fn add_models(&mut self, models: Vec<String>) {
+        for model in models {
+            if !self.models.contains(&model) {
+                self.models.push(model);
+            }
+        }
+    }
+
+    /// Remove matching model identifiers.
+    pub fn remove_models(&mut self, models: Vec<String>) {
+        self.models.retain(|model| !models.contains(model));
     }
 
     /// Serialize one profile file to YAML.

@@ -1129,10 +1129,12 @@ impl SysInspectModPak {
         self.remove_profile_entry(name)
     }
 
-    /// Add module or library selectors to the named profile.
-    pub fn add_profile_matches(&self, name: &str, matches: Vec<String>, library: bool) -> Result<(), SysinspectError> {
+    /// Add module, model, or library selectors to the named profile.
+    pub fn add_profile_matches(&self, name: &str, matches: Vec<String>, library: bool, model: bool) -> Result<(), SysinspectError> {
         let mut profile = self.get_profile(name)?;
-        if library {
+        if model {
+            profile.add_models(matches);
+        } else if library {
             profile.add_libraries(matches);
         } else {
             profile.add_modules(matches);
@@ -1140,10 +1142,12 @@ impl SysInspectModPak {
         self.set_profile(name, &profile)
     }
 
-    /// Remove module or library selectors from the named profile.
-    pub fn remove_profile_matches(&self, name: &str, matches: Vec<String>, library: bool) -> Result<(), SysinspectError> {
+    /// Remove module, model, or library selectors from the named profile.
+    pub fn remove_profile_matches(&self, name: &str, matches: Vec<String>, library: bool, model: bool) -> Result<(), SysinspectError> {
         let mut profile = self.get_profile(name)?;
-        if library {
+        if model {
+            profile.remove_models(matches);
+        } else if library {
             profile.remove_libraries(matches);
         } else {
             profile.remove_modules(matches);
@@ -1151,12 +1155,19 @@ impl SysInspectModPak {
         self.set_profile(name, &profile)
     }
 
-    /// List module or library selectors for profiles matching the optional glob expression.
-    pub fn list_profile_matches(&self, expr: Option<&str>, library: bool) -> Result<Vec<String>, SysinspectError> {
+    /// List module, model, or library selectors for profiles matching the optional glob expression.
+    pub fn list_profile_matches(&self, expr: Option<&str>, library: bool, model: bool) -> Result<Vec<String>, SysinspectError> {
         let mut out = Vec::new();
         for profile in self.list_profiles(expr)? {
             let data = self.get_profile(&profile)?;
-            for entry in if library { data.libraries() } else { data.modules() } {
+            let entries: &[String] = if model {
+                data.models()
+            } else if library {
+                data.libraries()
+            } else {
+                data.modules()
+            };
+            for entry in entries {
                 out.push(format!("{profile}: {entry}"));
             }
         }

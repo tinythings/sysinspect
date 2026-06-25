@@ -462,6 +462,7 @@ impl ModelBrowser {
 
         let (actions, a_diags) = self.actions();
         diagnostics.extend(a_diags);
+        let modules = action_modules(&actions);
 
         let (interface_checkbooks, interface_entities, interface_actions, interface_diags) = self.interface_lists();
         diagnostics.extend(interface_diags);
@@ -538,6 +539,7 @@ impl ModelBrowser {
             public_entrypoints,
             public_actions,
             actions,
+            modules,
             states,
             diagnostics,
         })
@@ -602,6 +604,13 @@ impl ModelBrowser {
 
         (entrypoints, diagnostics)
     }
+}
+
+fn action_modules(actions: &[BrowsedAction]) -> Vec<String> {
+    let mut modules: Vec<String> = actions.iter().map(|action| action.module.clone()).filter(|name| !name.trim().is_empty()).collect();
+    modules.sort();
+    modules.dedup();
+    modules
 }
 
 /// Convert a serde_yaml Value to a human-readable display string.

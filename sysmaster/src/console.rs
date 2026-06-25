@@ -578,6 +578,7 @@ impl SysMaster {
                     public_entrypoints,
                     public_entrypoint_kinds,
                     public_actions: m.public_actions.clone(),
+                    modules: m.modules.clone(),
                     states: m.states.clone(),
                     target_actions,
                 }
@@ -1637,7 +1638,7 @@ impl SysMaster {
                     items: if request.name().is_empty() {
                         repo.list_profiles(None)?
                     } else {
-                        repo.list_profile_matches(Some(request.name()), request.library())?
+                        repo.list_profile_matches(Some(request.name()), request.library(), request.model())?
                     },
                 }),
                 vec![],
@@ -1652,7 +1653,7 @@ impl SysMaster {
             "add" => Ok((
                 {
                     Self::require_profile_name(request)?;
-                    repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
+                    repo.add_profile_matches(request.name(), request.matches().to_vec(), request.library(), request.model())?;
                     ConsoleResponse::ok(ConsolePayload::Ack {
                         action: "update_profile".to_string(),
                         target: request.name().to_string(),
@@ -1665,7 +1666,7 @@ impl SysMaster {
             "remove" => Ok((
                 {
                     Self::require_profile_name(request)?;
-                    repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library())?;
+                    repo.remove_profile_matches(request.name(), request.matches().to_vec(), request.library(), request.model())?;
                     ConsoleResponse::ok(ConsolePayload::Ack {
                         action: "update_profile".to_string(),
                         target: request.name().to_string(),

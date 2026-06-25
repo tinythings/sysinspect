@@ -197,6 +197,11 @@ impl SysInspectUX {
     }
 
     pub(crate) fn status_at_repo_manager(&mut self) {
+        let p = &self.repo_manager.profiles;
+        if p.detail_visible || p.create_visible || p.delete_visible || p.assign.visible {
+            self.status_at_profiles();
+            return;
+        }
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
         self.status_text = Line::from(vec![
@@ -225,7 +230,18 @@ impl SysInspectUX {
         } else if p.create_visible {
             self.status_text = Line::from(vec![key("Tab "), desc("switch  "), key("Enter "), desc("create  "), key("Esc "), desc("cancel")]);
         } else if p.detail_visible {
-            self.status_text = Line::from(vec![key("Tab "), desc("switch section  "), key("d/Del "), desc("remove  "), key("Esc "), desc("close")]);
+            self.status_text = Line::from(vec![
+                key("Tab "),
+                desc("switch section  "),
+                key("\u{2190}/\u{2192} "),
+                desc("all modules/per model  "),
+                key("+/- "),
+                desc("expand/collapse  "),
+                key("Enter "),
+                desc("toggle  "),
+                key("Esc "),
+                desc("close"),
+            ]);
         } else {
             self.status_text = Line::from(vec![
                 key("\u{2191}\u{2193} "),

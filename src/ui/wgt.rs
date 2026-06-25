@@ -1,7 +1,7 @@
 use super::{
     SysInspectUX, UISizes,
     elements::{ActiveBox, DbListItem, EventListItem},
-    minreg, palette, title,
+    minreg, palette, setup, title,
     title::{TitleSegment, TitleStyle},
     typecolors,
 };
@@ -435,6 +435,9 @@ impl Widget for &SysInspectUX {
         // Catch dialogs
         if !self.error_alert_visible && !self.file_picker.visible {
             self.setup_wizard.render(area, buf);
+        }
+        if let Ok(progress) = self.setup_progress.lock() {
+            setup::render_progress(&progress, area, buf);
         }
         self.registration_form.render(area, buf);
         if let Ok(p) = self.registration_progress.lock() {

@@ -91,6 +91,8 @@ pub struct ProfileConsoleRequest {
     #[serde(default)]
     library: bool,
     #[serde(default)]
+    model: bool,
+    #[serde(default)]
     profiles: Vec<String>,
 }
 
@@ -118,6 +120,11 @@ impl ProfileConsoleRequest {
     /// Return whether the request targets library selectors instead of module selectors.
     pub fn library(&self) -> bool {
         self.library
+    }
+
+    /// Return whether the request targets model identifiers instead of module selectors.
+    pub fn model(&self) -> bool {
+        self.model
     }
 
     /// Return the profile names carried by tag or untag requests.

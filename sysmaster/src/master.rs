@@ -14,7 +14,10 @@ use crate::{
     telemetry::{otel::OtelLogger, rds::FunctionReducer},
     transport::{IncomingFrame, OutgoingFrame, PeerTransport},
 };
+use async_trait::async_trait;
 use colored::Colorize;
+use filescream::FileScream;
+use filescream::events::{FileScreamEvent, FileScreamMask};
 use indexmap::IndexMap;
 use libcommon::SysinspectError;
 use libdatastore::{cfg::DataStorageConfig, resources::DataStorage};
@@ -48,9 +51,12 @@ use libsysproto::{
     rqtypes::{ProtoKey, ProtoValue, RequestType},
     secure::SECURE_PROTOCOL_VERSION,
 };
+use omnitrace_core::callbacks::{Callback, CallbackHub};
+use omnitrace_core::sensor::SensorCtx;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::path::Path;
 use std::time::Duration as StdDuration;
 use std::{
     collections::{HashMap, HashSet},
@@ -67,6 +73,7 @@ use tokio::sync::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time;
 use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 
 // Session singleton
 pub static SHARED_SESSION: Lazy<Arc<Mutex<SessionKeeper>>> = Lazy::new(|| Arc::new(Mutex::new(SessionKeeper::new(30))));
@@ -142,9 +149,56 @@ pub struct SysMaster {
     vmcluster: VirtualMinionsCluster,
     conn_to_mid: HashMap<String, String>, // Map connection addresses to minion IDs
     peer_direct_tx: HashMap<String, mpsc::Sender<OutgoingFrame>>,
+    peer_cancel_tx: HashMap<String, tokio::sync::watch::Sender<bool>>,
     pending_console_replies: HashMap<String, oneshot::Sender<MinionCommandReply>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
+    model_watcher_token: Option<CancellationToken>,
+}
+
+fn model_id_from_path(path: &Path) -> Option<&str> {
+    if path.file_name()?.to_str()? != "model.cfg" {
+        return None;
+    }
+    path.parent()?.file_name()?.to_str()
+}
+
+struct ModelChangeCallback {
+    broadcast: tokio::sync::broadcast::Sender<MasterMessage>,
+}
+
+#[async_trait]
+impl Callback<FileScreamEvent> for ModelChangeCallback {
+    fn mask(&self) -> u64 {
+        FileScreamMask::CREATED.bits() | FileScreamMask::CHANGED.bits() | FileScreamMask::REMOVED.bits()
+    }
+
+    async fn call(&self, event: &FileScreamEvent) -> Option<serde_json::Value> {
+        let path = match event {
+            FileScreamEvent::Created { path } | FileScreamEvent::Changed { path } => path,
+            FileScreamEvent::Removed { path } => {
+                if let Some(id) = model_id_from_path(path) {
+                    let mut msg = MasterMessage::new(RequestType::ModelRemoved, json!({"id": id}));
+                    msg.set_target(MinionTarget::new("*", ""));
+                    let _ = self.broadcast.send(msg);
+                }
+                return None;
+            }
+        };
+        let model_id = model_id_from_path(path).map(|s| s.to_string())?;
+        let broadcast = self.broadcast.clone();
+        let path = path.clone();
+        tokio::spawn(async move {
+            MODEL_CACHE.lock().await.remove(&path);
+            if let Ok(reducer) = FunctionReducer::new(path, model_id.clone()).load_model(&MODEL_CACHE).await {
+                drop(reducer);
+                let mut msg = MasterMessage::new(RequestType::ModelUpdated, json!({"id": model_id}));
+                msg.set_target(MinionTarget::new("*", ""));
+                let _ = broadcast.send(msg);
+            }
+        });
+        None
+    }
 }
 
 impl SysMaster {
@@ -204,9 +258,11 @@ impl SysMaster {
             vmcluster,
             conn_to_mid: HashMap::new(),
             peer_direct_tx: HashMap::new(),
+            peer_cancel_tx: HashMap::new(),
             pending_console_replies: HashMap::new(),
             peer_transport: PeerTransport::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
+            model_watcher_token: None,
         })
     }
 
@@ -314,7 +370,22 @@ impl SysMaster {
         }
         self.backfill_cmdb().await?;
         self.vmcluster.init().await?;
+        self.watch_models();
         Ok(())
+    }
+
+    fn watch_models(&mut self) {
+        if let Some(token) = self.model_watcher_token.take() {
+            token.cancel();
+        }
+        let cancel = CancellationToken::new();
+        self.model_watcher_token = Some(cancel.clone());
+        let mut hub = CallbackHub::<FileScreamEvent>::new();
+        hub.add(ModelChangeCallback { broadcast: self.broadcast.clone() });
+        let ctx = SensorCtx { cancel, hub: Arc::new(hub) };
+        let mut fs = FileScream::new(None);
+        fs.watch(self.cfg.fileserver_root().join(CFG_MODELS_ROOT));
+        tokio::spawn(async move { fs.run(ctx).await });
     }
 
     pub fn cfg(&self) -> MasterConfig {
@@ -329,6 +400,7 @@ impl SysMaster {
         let path = self.cfg.config_path();
         log::info!("Reloading master configuration from {}", path.display());
         self.cfg = MasterConfig::new(path)?;
+        self.watch_models();
         log::info!("Master configuration reloaded successfully");
         Ok(())
     }
@@ -421,6 +493,10 @@ impl SysMaster {
         }
         self.get_session().lock().await.remove(minion_id);
         self.peer_transport.remove_peer(peer_addr);
+        self.peer_direct_tx.remove(peer_addr);
+        if let Some(cancel) = self.peer_cancel_tx.remove(peer_addr) {
+            let _ = cancel.send(true);
+        }
     }
 
     /// Drop one existing runtime session for a reconnecting minion when the supervisor reuses the same sid.
@@ -429,9 +505,17 @@ impl SysMaster {
             log::warn!("Replacing stale runtime session {} for minion {}", addr, minion_id);
             self.conn_to_mid.remove(&addr);
             self.peer_transport.remove_peer(&addr);
+            self.peer_direct_tx.remove(&addr);
+            if let Some(cancel) = self.peer_cancel_tx.remove(&addr) {
+                let _ = cancel.send(true);
+            }
         } else if let Some(addr) = self.peer_transport.peer_addr(minion_id, minion_addr) {
             log::warn!("Replacing stale pre-EHLO peer {} for minion {}", addr, minion_id);
             self.peer_transport.remove_peer(&addr);
+            self.peer_direct_tx.remove(&addr);
+            if let Some(cancel) = self.peer_cancel_tx.remove(&addr) {
+                let _ = cancel.send(true);
+            }
         }
         self.get_session().lock().await.remove(minion_id);
     }
@@ -721,6 +805,10 @@ impl SysMaster {
             log::debug!("Disconnect from {}, but no minion id mapped yet", minion_addr);
         }
         self.peer_transport.remove_peer(minion_addr);
+        self.peer_direct_tx.remove(minion_addr);
+        if let Some(cancel) = self.peer_cancel_tx.remove(minion_addr) {
+            let _ = cancel.send(true);
+        }
     }
 
     /// Process a plaintext registration request and emit the one-shot registration response.
@@ -781,6 +869,7 @@ impl SysMaster {
         if !self.mkr().is_registered(minion_id) {
             log::info!("Minion at {minion_addr} ({minion_id}) is not registered");
             self.to_drop.insert(minion_addr.to_owned());
+            self.peer_transport.allow_plaintext(minion_addr);
             _ = bcast.send(self.msg_not_registered(minion_id.to_string()));
             return;
         }
@@ -843,6 +932,10 @@ impl SysMaster {
         self.conn_to_mid.remove(minion_addr);
         self.get_session().lock().await.remove(minion_id);
         self.peer_transport.remove_peer(minion_addr);
+        self.peer_direct_tx.remove(minion_addr);
+        if let Some(cancel) = self.peer_cancel_tx.remove(minion_addr) {
+            let _ = cancel.send(true);
+        }
         _ = bcast.send(self.msg_bye_ack(minion_id.to_string(), payload.to_string()));
     }
 
@@ -1532,24 +1625,29 @@ impl SysMaster {
     /// Read framed peer traffic, decode it through the peer transport object, and forward logical messages inward.
     async fn read_peer_frames(
         master: Arc<Mutex<Self>>, reader: OwnedReadHalf, peer_addr: String, client_tx: mpsc::Sender<(Vec<u8>, String)>,
-        direct_tx: mpsc::Sender<OutgoingFrame>, cancel_tx: tokio::sync::watch::Sender<bool>, cancel_rx: tokio::sync::watch::Receiver<bool>,
+        direct_tx: mpsc::Sender<OutgoingFrame>, cancel_tx: tokio::sync::watch::Sender<bool>, mut cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) {
         let mut reader = TokioBufReader::new(reader);
         loop {
-            if *cancel_rx.borrow() {
-                log::info!("Process terminated");
-                return;
-            }
-
             let mut len_buf = [0u8; 4];
-            if reader.read_exact(&mut len_buf).await.is_err() {
+            if tokio::select! {
+                _ = cancel_rx.changed() => { return; }
+                result = reader.read_exact(&mut len_buf) => result,
+            }
+            .is_err()
+            {
                 let _ = client_tx.send((Vec::new(), peer_addr.clone())).await;
                 return;
             }
 
             let msg_len = u32::from_be_bytes(len_buf) as usize;
             let mut msg = vec![0u8; msg_len];
-            if reader.read_exact(&mut msg).await.is_err() {
+            if tokio::select! {
+                _ = cancel_rx.changed() => { return; }
+                result = reader.read_exact(&mut msg) => result,
+            }
+            .is_err()
+            {
                 let _ = client_tx.send((Vec::new(), peer_addr.clone())).await;
                 return;
             }
@@ -1594,6 +1692,9 @@ impl SysMaster {
         }
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
         let cancel_writer = cancel_tx.clone();
+        {
+            master.lock().await.peer_cancel_tx.insert(peer_addr.clone(), cancel_tx.clone());
+        }
 
         tokio::spawn(async move {
             Self::write_peer_frames(c_master_writer, writer, writer_peer_addr, bcast_sub, direct_rx, cancel_writer).await;
@@ -1612,9 +1713,12 @@ impl SysMaster {
 
             loop {
                 tokio::select! {
-                    // Accept a new connection
                     Ok((socket, _)) = listener.accept() => {
                         Self::handle_peer_connection(Arc::clone(&master), tx.clone(), &bcast, socket).await;
+                    }
+                    else => {
+                        log::error!("Listener accept error, sleeping 1 s before retry");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
             }

@@ -485,6 +485,9 @@ pub struct ConsoleModelRow {
     /// Public direct action entrypoints exported through `interface.actions`.
     #[serde(default)]
     pub public_actions: Vec<String>,
+    /// Deduplicated module ids referenced by the model's actions.
+    #[serde(default)]
+    pub modules: Vec<String>,
     /// Declared state names across all actions.
     #[serde(default)]
     pub states: Vec<String>,

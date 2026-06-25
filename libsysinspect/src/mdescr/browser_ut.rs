@@ -1549,3 +1549,50 @@ actions:
     assert_eq!(first.1, "Optional host override");
     assert!(!first.2, "explicit [false, ...] should be optional");
 }
+
+#[test]
+fn summarize_collects_deduped_modules() {
+    let td = tempfile::TempDir::new().unwrap();
+    write_model(
+        &td,
+        r#"
+name: Module Summary
+version: "0.1"
+description: Summary contains modules.
+maintainer: tester <t@t.t>
+entities:
+  e1:
+    descr: Test
+actions:
+  a1:
+    description: First action.
+    module: module.one
+    bind: [e1]
+    state:
+      $:
+        args:
+          cmd: echo
+  a2:
+    description: Second action.
+    module: module.one
+    bind: [e1]
+    state:
+      $:
+        args:
+          cmd: echo
+  a3:
+    description: Third action.
+    module: foo.bar
+    bind: [e1]
+    state:
+      $:
+        args:
+          cmd: echo
+"#,
+    );
+
+    let browser = ModelBrowser::load(Arc::new(MinionConfig::default()), td.path()).expect("load");
+    let summary = browser.summarize().expect("summarize");
+
+    assert_eq!(summary.modules, vec!["foo.bar".to_string(), "module.one".to_string()]);
+}

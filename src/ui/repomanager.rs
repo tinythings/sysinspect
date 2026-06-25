@@ -26,6 +26,7 @@ pub struct StagedModule {
     pub version: Option<String>,
     pub descr: String,
     pub path: std::path::PathBuf,
+    pub profile_modules: Vec<String>,
     pub checked: bool,
     pub platform: Option<String>,
     pub arch: Option<String>,
@@ -45,6 +46,7 @@ pub enum StagingMode {
     ModuleDelete,
     LibraryDelete,
     ProfileModuleAdd,
+    ProfileModelAdd,
     ProfileLibraryAdd,
 }
 
@@ -224,6 +226,7 @@ impl RepoManager {
                 version: r.version.clone(),
                 descr: r.descr.clone(),
                 path: std::path::PathBuf::new(),
+                profile_modules: Vec::new(),
                 checked: false,
                 platform: Some(r.platform.clone()),
                 arch: Some(r.arch.clone()),
@@ -238,6 +241,31 @@ impl RepoManager {
         self.delete_mode = false;
     }
 
+    pub fn enter_profile_model_staging(&mut self) {
+        self.staged = self
+            .model_rows
+            .iter()
+            .filter(|row| row.enabled && !row.modules.is_empty())
+            .map(|row| StagedModule {
+                name: row.id.clone(),
+                version: Some(row.version.clone()),
+                descr: format!("{} module{}", row.modules.len(), if row.modules.len() == 1 { "" } else { "s" }),
+                path: std::path::PathBuf::new(),
+                profile_modules: row.modules.clone(),
+                checked: false,
+                platform: None,
+                arch: None,
+            })
+            .collect();
+        self.staging_cursor = 0;
+        self.staging_scroll = Cell::new(0);
+        self.staging_focus = StagingFocus::List;
+        self.staging_mode = StagingMode::ProfileModelAdd;
+        self.profiles.detail_visible = false;
+        self.staging = true;
+        self.delete_mode = false;
+    }
+
     pub fn enter_profile_library_staging(&mut self) {
         self.staged = self
             .lib_rows
@@ -247,6 +275,7 @@ impl RepoManager {
                 version: Some(r.kind.clone()),
                 descr: r.checksum.clone(),
                 path: std::path::PathBuf::new(),
+                profile_modules: Vec::new(),
                 checked: false,
                 platform: None,
                 arch: None,
@@ -357,6 +386,9 @@ impl RepoManager {
         if self.profiles.delete_visible {
             self.profiles.render_delete(parent, buf);
         }
+        if self.profiles.assign.visible {
+            self.profiles.render_assign(parent, buf);
+        }
         if self.platforms.delete_visible {
             self.platforms.render_delete(parent, buf);
         }
@@ -441,7 +473,11 @@ impl RepoManager {
     }
 
     fn render_staging(&self, parent: Rect, buf: &mut Buffer) {
-        let dlg_w = (parent.width * 3 / 4).clamp(70, 110);
+        let dlg_w = if matches!(self.staging_mode, StagingMode::ProfileModelAdd) {
+            (parent.width as f32 * 0.7) as u16
+        } else {
+            (parent.width * 3 / 4).clamp(70, 110) + 12
+        };
         let module_rows = self.staged.len().min(20) as u16;
         let btn_height: u16 = 2;
         let dlg_h = (module_rows + btn_height + 2).clamp(8, parent.height * 3 / 4);
@@ -953,6 +989,7 @@ impl RepoManager {
         let state_w: u16 = 4;
         let name_w = list_area.width.saturating_sub(36);
         let ver_w: u16 = 14;
+        let known_modules: std::collections::BTreeSet<&str> = self.module_groups.values().flatten().map(|r| r.name.as_str()).collect();
         for i in 0..view_h.min(total.saturating_sub(s)) {
             let fi = s + i;
             let (_oi, row) = filtered[fi];
@@ -980,14 +1017,18 @@ impl RepoManager {
                 Style::default().fg(palette::MUTED)
             };
             buf.set_string(list_area.x + 1, ry, if row.enabled { "▣" } else { "□" }, check_style);
+            let model_broken = !row.modules.is_empty() && row.modules.iter().any(|m| !known_modules.contains(m.as_str()));
             let name_style = if sel {
                 row_style
+            } else if model_broken {
+                Style::default().fg(palette::ERROR)
             } else if row.enabled {
                 Style::default().fg(palette::PROCESSING)
             } else {
                 Style::default().fg(palette::MUTED)
             };
-            buf.set_string(list_area.x + 1 + state_w + 1, ry, truncate_str(&row.name, name_w as usize), name_style);
+            let name_label = if model_broken { format!("✖ {}", row.name) } else { row.name.clone() };
+            buf.set_string(list_area.x + 1 + state_w + 1, ry, truncate_str(&name_label, name_w as usize), name_style);
             let ver_style = if sel {
                 row_style
             } else if row.enabled {
@@ -1365,7 +1406,7 @@ impl RepoManager {
             ("Id:", model.id.clone()),
             ("Enabled:", if model.enabled { "yes".to_string() } else { "no".to_string() }),
             ("Version:", model.version.clone()),
-            ("Entrypts:", model.entrypoints.join(", ")),
+            ("Entries:", model.entrypoints.join(", ")),
             ("States:", model.states.join(", ")),
         ];
         for (i, (label, value)) in lines.iter().enumerate() {

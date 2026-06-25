@@ -446,7 +446,7 @@ class _SysinspectHost:
 host = _SysinspectHost()
 "#;
         match vm.run_code_obj(
-            match vm.compile(prelude, Exec, "<sysinspect-prelude>".to_string()) {
+            match vm.compile(prelude, Exec, "<sysinspect-prelude>") {
                 Ok(code) => code,
                 Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python prelude: {err}"))),
             },
@@ -471,7 +471,7 @@ host = _SysinspectHost()
     /// * `Result<()>` - Result of the operation
     fn exec_scope_code(&self, vm: &VirtualMachine, scope: rustpython_vm::scope::Scope, code: &str, filename: &str) -> Result<()> {
         match vm.run_code_obj(
-            match vm.compile(code, Exec, filename.to_string()) {
+            match vm.compile(code, Exec, filename) {
                 Ok(code) => code,
                 Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile Python source {filename}: {err}"))),
             },
@@ -519,7 +519,7 @@ host = _SysinspectHost()
             }
 
             if let Err(err) = vm.run_code_obj(
-                match vm.compile(code, Exec, filename.to_string()) {
+                match vm.compile(code, Exec, filename) {
                     Ok(obj) => obj,
                     Err(err) => return Err(Py3RuntimeError::Vm(format!("Unable to compile source code for {modname}: {err}"))),
                 },
