@@ -78,7 +78,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_yaml::Value as YamlValue;
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
@@ -173,6 +173,7 @@ impl BacklogSnapshot {
 
 /// Session Id of the minion
 pub static MINION_SID: Lazy<String> = Lazy::new(|| Uuid::new_v4().to_string());
+static PROFILE_MODELS_CACHE: Lazy<Mutex<HashMap<String, Vec<String>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn emit_reconnect_signal() {
     #[cfg(test)]
@@ -1365,6 +1366,7 @@ impl SysMinion {
                         }
                     }
 
+                    // Models are fetched fresh per-command via download_file(); no local invalidation needed.
                     RequestType::ModelUpdated | RequestType::ModelRemoved => {}
 
                     _ => log::error!("Unknown request type"),
@@ -1807,14 +1809,26 @@ impl SysMinion {
 
     async fn is_model_allowed_in_profiles(self: &Arc<Self>, model_id: &str) -> bool {
         let profiles = effective_profiles(&self.cfg);
+        // Unassigned minions get the synthetic "default" entry only.
+        if profiles.len() == 1 && profiles[0] == "default" {
+            return true;
+        }
         for profile_name in profiles {
-            let Ok(data) = self.as_ptr().download_file(&format!("/profiles/{profile_name}.profile")).await else {
+            if let Some(cached) = PROFILE_MODELS_CACHE.lock().await.get(&profile_name) {
+                if cached.contains(&model_id.to_string()) {
+                    return true;
+                }
                 continue;
-            };
-            if let Ok(profile) = serde_yaml::from_slice::<ModPakProfile>(&data)
-                && profile.models().contains(&model_id.to_string())
+            }
+            if let Ok(data) = self.as_ptr().download_file(&format!("/profiles/{profile_name}.profile")).await
+                && let Ok(profile) = serde_yaml::from_slice::<ModPakProfile>(&data)
             {
-                return true;
+                let models: Vec<String> = profile.models().to_vec();
+                let allowed = models.contains(&model_id.to_string());
+                PROFILE_MODELS_CACHE.lock().await.insert(profile_name, models);
+                if allowed {
+                    return true;
+                }
             }
         }
         false

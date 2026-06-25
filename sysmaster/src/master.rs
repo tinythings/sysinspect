@@ -400,6 +400,7 @@ impl SysMaster {
         let path = self.cfg.config_path();
         log::info!("Reloading master configuration from {}", path.display());
         self.cfg = MasterConfig::new(path)?;
+        self.watch_models();
         log::info!("Master configuration reloaded successfully");
         Ok(())
     }

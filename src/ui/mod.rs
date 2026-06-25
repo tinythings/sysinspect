@@ -2802,16 +2802,26 @@ impl SysInspectUX {
                         profiles::ProfAssignFocus::SelectAll => {
                             self.repo_manager.profiles.assign_select_all_visible();
                         }
-                        profiles::ProfAssignFocus::TagBtn if !selected.is_empty() => {
-                            let _ = self.do_profile_tag(&profile_name, &selected);
-                            self.repo_manager.profiles.assign.visible = false;
-                            self.status_at_profiles();
-                        }
-                        profiles::ProfAssignFocus::UntagBtn if !selected.is_empty() => {
-                            let _ = self.do_profile_untag(&profile_name, &selected);
-                            self.repo_manager.profiles.assign.visible = false;
-                            self.status_at_profiles();
-                        }
+                        profiles::ProfAssignFocus::TagBtn if !selected.is_empty() => match self.do_profile_tag(&profile_name, &selected) {
+                            Ok(()) => {
+                                self.repo_manager.profiles.assign.visible = false;
+                                self.status_at_profiles();
+                            }
+                            Err(e) => {
+                                self.error_alert_visible = true;
+                                self.error_alert_message = format!("Tag failed: {e}");
+                            }
+                        },
+                        profiles::ProfAssignFocus::UntagBtn if !selected.is_empty() => match self.do_profile_untag(&profile_name, &selected) {
+                            Ok(()) => {
+                                self.repo_manager.profiles.assign.visible = false;
+                                self.status_at_profiles();
+                            }
+                            Err(e) => {
+                                self.error_alert_visible = true;
+                                self.error_alert_message = format!("Untag failed: {e}");
+                            }
+                        },
                         profiles::ProfAssignFocus::CloseBtn => {
                             self.repo_manager.profiles.assign.visible = false;
                             self.status_at_profiles();
@@ -2869,6 +2879,10 @@ impl SysInspectUX {
                             if let Some(name) = self.repo_manager.profiles.selected_profile_name().map(|s| s.to_string()) {
                                 self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| (m.clone(), false)).collect();
                                 self.repo_manager.profiles.assign.profile_name = name;
+                                self.repo_manager.profiles.assign.focus = profiles::ProfAssignFocus::Query;
+                                self.repo_manager.profiles.assign.filter = ratatui_cheese::input::InputState::new();
+                                self.repo_manager.profiles.assign.mcursor = 0;
+                                self.repo_manager.profiles.assign.mscroll.set(0);
                                 self.repo_manager.profiles.assign.visible = true;
                                 self.status_at_profiles();
                             }
