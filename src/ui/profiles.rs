@@ -1,7 +1,7 @@
 use super::palette;
 use super::title::{self, TitleSegment, TitleStyle};
 use crossterm::event::KeyCode;
-use libsysinspect::console::ConsoleModelRow;
+use libsysinspect::console::{ConsoleModelRow, ConsoleOnlineMinionRow};
 use ratatui::layout::{Position, Rect};
 use ratatui::prelude::Buffer;
 use ratatui::style::{Color, Modifier, Style};
@@ -97,20 +97,22 @@ pub enum ProfDeleteFocus {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfAssignFocus {
-    MinionList,
+    Query,
+    SelectAll,
     TagBtn,
     UntagBtn,
     CloseBtn,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ProfileAssignState {
     pub visible: bool,
     pub profile_name: String,
     pub focus: ProfAssignFocus,
-    pub minions: Vec<(String, bool)>,
+    pub minions: Vec<(ConsoleOnlineMinionRow, bool)>,
     pub mcursor: usize,
     pub mscroll: Cell<usize>,
+    pub filter: InputState,
 }
 
 impl Default for ProfileAssignState {
@@ -118,10 +120,11 @@ impl Default for ProfileAssignState {
         Self {
             visible: false,
             profile_name: String::new(),
-            focus: ProfAssignFocus::MinionList,
+            focus: ProfAssignFocus::Query,
             minions: Vec::new(),
             mcursor: 0,
             mscroll: Cell::new(0),
+            filter: InputState::new(),
         }
     }
 }
@@ -495,6 +498,79 @@ impl ProfilesManager {
 
     // ── Assign key handling ──
 
+    pub fn assign_select_all_visible(&mut self) {
+        let indices = self.assign_filtered_indices();
+        for idx in indices {
+            if let Some((_, checked)) = self.assign.minions.get_mut(idx) {
+                *checked = true;
+            }
+        }
+    }
+
+    fn matches_assign_query(host: &str, query: &str) -> bool {
+        if query.is_empty() {
+            return true;
+        }
+        let q = query.to_lowercase();
+        let host = host.to_lowercase();
+        match (q.starts_with('*'), q.ends_with('*')) {
+            (true, true) => {
+                let inner = &q[1..q.len() - 1];
+                host.contains(inner)
+            }
+            (true, false) => {
+                let suffix = &q[1..];
+                host.ends_with(suffix)
+            }
+            (false, true) => {
+                let prefix = &q[..q.len() - 1];
+                host.starts_with(prefix)
+            }
+            (false, false) => host == q,
+        }
+    }
+
+    fn assign_filtered_indices(&self) -> Vec<usize> {
+        let filter_val = self.assign.filter.value();
+        if filter_val.is_empty() {
+            (0..self.assign.minions.len()).collect()
+        } else {
+            self.assign
+                .minions
+                .iter()
+                .enumerate()
+                .filter(|(_, (row, _))| Self::matches_assign_query(&row.fqdn, filter_val) || Self::matches_assign_query(&row.hostname, filter_val))
+                .map(|(i, _)| i)
+                .collect()
+        }
+    }
+
+    fn online_host(row: &ConsoleOnlineMinionRow) -> String {
+        if !row.fqdn.trim().is_empty() {
+            row.fqdn.clone()
+        } else if !row.hostname.trim().is_empty() {
+            row.hostname.clone()
+        } else {
+            "unknown".to_string()
+        }
+    }
+
+    fn fmt_octal_ip(ip: &str) -> String {
+        if ip.is_empty() {
+            return "unknown".to_string();
+        }
+        let parts: Vec<&str> = ip.split('.').collect();
+        if parts.len() == 4 && parts.iter().all(|p| p.parse::<u8>().is_ok()) {
+            format!("{:>3}.{:>3}.{:>3}.{:>3}", parts[0], parts[1], parts[2], parts[3])
+        } else {
+            ip.to_string()
+        }
+    }
+
+    fn trunc_kernel(s: &str, max: usize) -> String {
+        if s.chars().count() <= max { s.to_string() } else { format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>()) }
+    }
+
     pub fn handle_assign_key(&mut self, key: KeyCode) -> bool {
         use ProfAssignFocus::*;
         match key {
@@ -503,31 +579,63 @@ impl ProfilesManager {
             }
             KeyCode::Tab => {
                 self.assign.focus = match self.assign.focus {
-                    MinionList => TagBtn,
+                    Query => SelectAll,
+                    SelectAll => TagBtn,
                     TagBtn => UntagBtn,
                     UntagBtn => CloseBtn,
-                    CloseBtn => MinionList,
+                    CloseBtn => Query,
                 };
             }
             KeyCode::BackTab => {
                 self.assign.focus = match self.assign.focus {
-                    MinionList => CloseBtn,
-                    TagBtn => MinionList,
+                    Query => CloseBtn,
+                    SelectAll => Query,
+                    TagBtn => SelectAll,
                     UntagBtn => TagBtn,
                     CloseBtn => UntagBtn,
                 };
             }
-            KeyCode::Up if self.assign.focus == MinionList => {
+            KeyCode::Up => {
                 self.assign.mcursor = self.assign.mcursor.saturating_sub(1);
             }
-            KeyCode::Down if self.assign.focus == MinionList => {
-                let max = self.assign.minions.len().saturating_sub(1);
+            KeyCode::Down => {
+                let max = self.assign_filtered_indices().len().saturating_sub(1);
                 self.assign.mcursor = (self.assign.mcursor + 1).min(max);
             }
-            KeyCode::Char(' ') if self.assign.focus == MinionList => {
-                if let Some((_, checked)) = self.assign.minions.get_mut(self.assign.mcursor) {
+            KeyCode::Char(' ') => {
+                let indices = self.assign_filtered_indices();
+                if let Some(&real_idx) = indices.get(self.assign.mcursor)
+                    && let Some((_, checked)) = self.assign.minions.get_mut(real_idx)
+                {
                     *checked = !*checked;
                 }
+            }
+            KeyCode::Char(c) if self.assign.focus == Query => {
+                self.assign.filter.insert_char(c);
+                let max = self.assign_filtered_indices().len().saturating_sub(1);
+                self.assign.mcursor = self.assign.mcursor.min(max);
+            }
+            KeyCode::Backspace if self.assign.focus == Query => {
+                self.assign.filter.delete_before();
+                let max = self.assign_filtered_indices().len().saturating_sub(1);
+                self.assign.mcursor = self.assign.mcursor.min(max);
+            }
+            KeyCode::Delete if self.assign.focus == Query => {
+                self.assign.filter.delete_at();
+                let max = self.assign_filtered_indices().len().saturating_sub(1);
+                self.assign.mcursor = self.assign.mcursor.min(max);
+            }
+            KeyCode::Left if self.assign.focus == Query => {
+                self.assign.filter.move_left();
+            }
+            KeyCode::Right if self.assign.focus == Query => {
+                self.assign.filter.move_right();
+            }
+            KeyCode::Home if self.assign.focus == Query => {
+                self.assign.filter.home();
+            }
+            KeyCode::End if self.assign.focus == Query => {
+                self.assign.filter.end();
             }
             KeyCode::Enter => return false,
             _ => {}
@@ -1223,42 +1331,122 @@ impl ProfilesManager {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let row_y = inner.y + 1;
+        let query_focused = self.assign.focus == ProfAssignFocus::Query;
+        let filter_row_width = inner.width;
+        if query_focused {
+            for cx in 0..filter_row_width {
+                if let Some(cell) = buf.cell_mut(Position::new(inner.x + cx, inner.y + 1)) {
+                    cell.set_bg(palette::HIGHLIGHT);
+                }
+            }
+        }
+        let filter_rect = Rect::new(inner.x + 2, inner.y + 1, inner.width.saturating_sub(4), 1);
+        Self::render_assign_filter(filter_rect, buf, query_focused, &self.assign.filter);
+
+        let filtered_indices = self.assign_filtered_indices();
+
+        let list_y = inner.y + 2;
         let list_w = inner.width.saturating_sub(2);
         let list_h = (h.saturating_sub(6)) as usize;
-        let list_area = Rect::new(inner.x + 1, row_y, list_w, list_h as u16);
+        let list_area = Rect::new(inner.x + 1, list_y, list_w, list_h as u16);
 
-        let focused = self.assign.focus == ProfAssignFocus::MinionList;
-        let sel_style = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
-        let unsel_style = Style::default().fg(if focused { palette::FG } else { palette::MUTED });
-        let check_on = if focused { "▣" } else { "x" };
-        let check_off = if focused { "□" } else { " " };
-
-        let view_h = list_h.min(self.assign.minions.len());
-        let scroll = self.assign.mscroll.get().min(self.assign.minions.len().saturating_sub(view_h));
+        let total_filtered = filtered_indices.len();
+        let view_h = list_h.min(total_filtered);
+        let scroll = self.assign.mscroll.get().min(total_filtered.saturating_sub(view_h));
         self.assign.mscroll.set(scroll);
 
-        for i in 0..view_h {
-            let idx = scroll + i;
-            let (hostname, checked) = &self.assign.minions[idx];
-            let style = if idx == self.assign.mcursor && focused { sel_style } else { unsel_style };
-            let check = if *checked { check_on } else { check_off };
-            let label = format!(" {check}  {hostname}");
-            buf.set_string(list_area.x, list_area.y + i as u16, truncate_str(&label, list_area.width as usize), style);
+        if total_filtered == 0 {
+            let msg = "(no matching minions)";
+            let cx = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
+            let cy = list_area.y + list_area.height / 2;
+            buf.set_string(cx, cy, msg, Style::default().fg(palette::MUTED));
+        } else {
+            let visible_rows: Vec<&ConsoleOnlineMinionRow> = filtered_indices.iter().map(|&idx| &self.assign.minions[idx].0).collect();
+            let checked_by_ri: Vec<bool> = filtered_indices.iter().map(|&idx| self.assign.minions[idx].1).collect();
+
+            let ips: Vec<String> = visible_rows.iter().map(|r| Self::fmt_octal_ip(&r.ip)).collect();
+            let hosts: Vec<String> = visible_rows.iter().map(|r| Self::online_host(r)).collect();
+            let vers: Vec<String> = visible_rows.iter().map(|r| if r.version.is_empty() { "-".to_string() } else { r.version.clone() }).collect();
+            let distros: Vec<String> = visible_rows
+                .iter()
+                .map(|r| {
+                    if r.os_distribution.is_empty() && r.os_version.is_empty() {
+                        "-".to_string()
+                    } else if r.os_version.is_empty() {
+                        r.os_distribution.clone()
+                    } else if r.os_distribution.is_empty() {
+                        r.os_version.clone()
+                    } else {
+                        format!("{}/{}", r.os_distribution, r.os_version)
+                    }
+                })
+                .collect();
+
+            let ip_w = ips.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+            let host_w = hosts.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(4).max(4);
+            let ver_w = vers.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(2).max(2);
+            let dist_w = distros.iter().map(|s| UnicodeWidthStr::width(s.as_str()) as u16).max().unwrap_or(3).max(3);
+
+            let cb_w: u16 = 3;
+            let fixed_w = cb_w + ip_w + host_w + ver_w + dist_w + 10;
+            let ker_avail = list_area.width.saturating_sub(fixed_w) as usize;
+            let kers: Vec<String> = visible_rows.iter().map(|r| Self::trunc_kernel(&r.kernel, ker_avail)).collect();
+
+            for i in 0..view_h {
+                let f_idx = scroll + i;
+                let ry = list_area.y + i as u16;
+                let sel = f_idx == self.assign.mcursor;
+
+                if sel {
+                    for cx in 0..inner.width {
+                        if let Some(cell) = buf.cell_mut(Position::new(inner.x + cx, ry)) {
+                            cell.set_bg(palette::PROCESSING_HEAT);
+                        }
+                    }
+                }
+
+                let row_fg = if sel { palette::WHITE } else { palette::FG };
+                let ip_fg = if sel { palette::BLACK } else { palette::GRAY_1 };
+                let host_fg = if sel { palette::WHITE } else { palette::PROCESSING_PEAK };
+                let ver_fg = if sel { palette::WHITE } else { palette::PROCESSING_GLOW };
+                let dist_fg = if sel { palette::WHITE } else { palette::PRIMARY };
+                let ker_fg = if sel { palette::BLACK } else { palette::GRAY_1 };
+
+                let check = if checked_by_ri[f_idx] { "▣" } else { "□" };
+                let mut col_x = list_area.x;
+
+                buf.set_string(col_x, ry, format!("{check} "), Style::default().fg(row_fg));
+                col_x += cb_w + 1;
+
+                buf.set_string(col_x, ry, Self::pad_to_width(&ips[f_idx], ip_w as usize), Style::default().fg(ip_fg));
+                col_x += ip_w + 2;
+
+                buf.set_string(col_x, ry, Self::pad_to_width(&hosts[f_idx], host_w as usize), Style::default().fg(host_fg));
+                col_x += host_w + 2;
+
+                buf.set_string(col_x, ry, Self::pad_to_width(&vers[f_idx], ver_w as usize), Style::default().fg(ver_fg));
+                col_x += ver_w + 2;
+
+                buf.set_string(col_x, ry, Self::pad_to_width(&distros[f_idx], dist_w as usize), Style::default().fg(dist_fg));
+                col_x += dist_w + 2;
+
+                buf.set_string(col_x, ry, &kers[f_idx], Style::default().fg(ker_fg));
+            }
         }
 
-        Self::draw_scrollbar(buf, list_area, scroll, self.assign.minions.len(), view_h, focused);
+        Self::draw_scrollbar(buf, list_area, scroll, total_filtered, view_h, true);
 
-        let btn_y = inner.y + list_h as u16 + 2;
-        let btn_labels = ["[  Tag  ]", "[ Untag ]", "[ Close ]"];
+        let btn_y = list_y + list_h as u16;
+        let btn_labels = ["[Select All]", "[  Tag  ]", "[ Untag ]", "[ Close ]"];
         let btn_widths: Vec<u16> = btn_labels.iter().map(|l| l.len() as u16).collect();
         let total_btn_w: u16 = btn_widths.iter().sum::<u16>() + (btn_widths.len() as u16 - 1) * 2;
         let mut btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
 
         let focus_idx = match self.assign.focus {
-            ProfAssignFocus::TagBtn => 0,
-            ProfAssignFocus::UntagBtn => 1,
-            ProfAssignFocus::CloseBtn => 2,
+            ProfAssignFocus::SelectAll => 0,
+            ProfAssignFocus::TagBtn => 1,
+            ProfAssignFocus::UntagBtn => 2,
+            ProfAssignFocus::CloseBtn => 3,
             _ => usize::MAX,
         };
         let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT);
@@ -1271,6 +1459,36 @@ impl ProfilesManager {
         }
 
         Self::draw_shadow(buf, canvas, w, h);
+    }
+
+    fn render_assign_filter(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
+        let label_style =
+            if focused { Style::default().fg(palette::FORM_LABEL).add_modifier(Modifier::BOLD) } else { Style::default().fg(palette::FORM_LABEL) };
+        buf.set_string(area.x, area.y, "Query: ", label_style);
+
+        let input_x = area.x + 8u16;
+        let input_w = area.width.saturating_sub(8);
+        if input_w == 0 {
+            return;
+        }
+
+        let field_bg = if focused { palette::HIGHLIGHT } else { palette::GRAY_1 };
+        for cx in input_x..input_x + input_w {
+            if let Some(cell) = buf.cell_mut(Position::new(cx, area.y)) {
+                cell.set_bg(field_bg);
+            }
+        }
+
+        let mut is = InputState::new();
+        is.set_value(filter_state.value().to_string());
+        is.set_focused(focused);
+        let fc = filter_state.cursor_pos();
+        while is.cursor_pos() < fc {
+            is.move_right();
+        }
+        let styles = ratatui_cheese::input::InputStyles { text: Style::default().fg(palette::BG_1), ..Default::default() };
+        let inp = ratatui_cheese::input::Input::new("").prompt("").placeholder("hostname filter...").styles(styles);
+        ratatui::widgets::StatefulWidget::render(&inp, Rect::new(input_x, area.y, input_w, 1), buf, &mut is);
     }
 
     fn draw_shadow(buf: &mut Buffer, canvas: Rect, dlg_w: u16, dlg_h: u16) {

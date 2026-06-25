@@ -1012,10 +1012,10 @@ impl SysInspectUX {
                     }
                     self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
                     self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
-                    if self.minions_rows.is_empty() {
-                        if let Ok(rows) = self.fetch_minions() {
-                            self.minions_rows = rows;
-                        }
+                    if self.minions_rows.is_empty()
+                        && let Ok(rows) = self.fetch_minions()
+                    {
+                        self.minions_rows = rows;
                     }
                     self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
                     self.mark_repo_sync_pending();
@@ -2789,9 +2789,19 @@ impl SysInspectUX {
                 let handled = self.repo_manager.profiles.handle_assign_key(e.code);
                 if !handled && e.code == KeyCode::Enter {
                     let profile_name = self.repo_manager.profiles.assign.profile_name.clone();
-                    let selected: Vec<String> =
-                        self.repo_manager.profiles.assign.minions.iter().filter(|(_, checked)| *checked).map(|(host, _)| host.clone()).collect();
+                    let selected: Vec<String> = self
+                        .repo_manager
+                        .profiles
+                        .assign
+                        .minions
+                        .iter()
+                        .filter(|(_, checked)| *checked)
+                        .map(|(row, _)| row.minion_id.clone())
+                        .collect();
                     match self.repo_manager.profiles.assign.focus {
+                        profiles::ProfAssignFocus::SelectAll => {
+                            self.repo_manager.profiles.assign_select_all_visible();
+                        }
                         profiles::ProfAssignFocus::TagBtn if !selected.is_empty() => {
                             let _ = self.do_profile_tag(&profile_name, &selected);
                             self.repo_manager.profiles.assign.visible = false;
@@ -2857,7 +2867,7 @@ impl SysInspectUX {
                         profiles::ProfDetailFocus::AssignBtn => {
                             self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
                             if let Some(name) = self.repo_manager.profiles.selected_profile_name().map(|s| s.to_string()) {
-                                self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| (m.hostname.clone(), false)).collect();
+                                self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| (m.clone(), false)).collect();
                                 self.repo_manager.profiles.assign.profile_name = name;
                                 self.repo_manager.profiles.assign.visible = true;
                                 self.status_at_profiles();
@@ -3276,10 +3286,10 @@ impl SysInspectUX {
         self.load_model_list()?;
         self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
         self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
-        if self.minions_rows.is_empty() {
-            if let Ok(rows) = self.fetch_minions() {
-                self.minions_rows = rows;
-            }
+        if self.minions_rows.is_empty()
+            && let Ok(rows) = self.fetch_minions()
+        {
+            self.minions_rows = rows;
         }
         self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
         let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
@@ -3763,6 +3773,24 @@ impl SysInspectUX {
 
     fn process_module_add(&mut self, path: &std::path::Path) {
         if path.is_dir() {
+            let dir_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let module_spec = path.join(format!("{dir_name}.spec"));
+            if module_spec.exists() {
+                let module_name = Self::read_spec_name(&module_spec).unwrap_or_else(|| dir_name.clone());
+                let (version, descr) = Self::read_spec_version_descr(&module_spec);
+                let bin = path.join(&dir_name);
+                self.repo_manager.enter_staging(vec![repomanager::StagedModule {
+                    name: module_name,
+                    version,
+                    descr,
+                    path: if bin.exists() { bin } else { module_spec },
+                    profile_modules: Vec::new(),
+                    checked: true,
+                    platform: None,
+                    arch: None,
+                }]);
+                return;
+            }
             let mut staged = Self::scan_dir_for_modules(path);
             if staged.is_empty() {
                 self.error_alert_visible = true;
@@ -3782,7 +3810,7 @@ impl SysInspectUX {
         } else {
             let spec = path.with_extension("spec");
             if spec.exists() {
-                let module_name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                let module_name = Self::read_spec_name(&spec).unwrap_or_else(|| path.file_stem().unwrap_or_default().to_string_lossy().to_string());
                 let (version, descr) = Self::read_spec_version_descr(&spec);
                 self.repo_manager.enter_staging(vec![repomanager::StagedModule {
                     name: module_name,
