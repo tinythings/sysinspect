@@ -1012,6 +1012,12 @@ impl SysInspectUX {
                     }
                     self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
                     self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
+                    if self.minions_rows.is_empty() {
+                        if let Ok(rows) = self.fetch_minions() {
+                            self.minions_rows = rows;
+                        }
+                    }
+                    self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
                     self.mark_repo_sync_pending();
                 }
             } else {
@@ -3270,6 +3276,12 @@ impl SysInspectUX {
         self.load_model_list()?;
         self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
         self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
+        if self.minions_rows.is_empty() {
+            if let Ok(rows) = self.fetch_minions() {
+                self.minions_rows = rows;
+            }
+        }
+        self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
         let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
         let payload_mods = self.call_profile_rpc(&ctx_mods)?;
         let module_selectors: Vec<String> = match payload_mods {
