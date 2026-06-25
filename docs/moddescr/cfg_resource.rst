@@ -17,12 +17,59 @@ It can:
 The module is designed for resource workflows where models only describe
 **what** to place and **where**.
 
-At the moment, transport is resolved internally as:
+Transport is resolved internally against ``master.ip`` from Minion
+configuration and can be controlled explicitly with module args:
 
-- ``http://<master.ip>:4202``
+- ``tls: true`` => ``https://<master.ip>:<port>``
+- ``tls: false`` => ``http://<master.ip>:<port>``
 
-where ``master.ip`` comes from Minion configuration, and ``4202`` is the current default API port.
-Authentication headers are not used yet in this module version.
+Authentication Model
+--------------------
+
+There are two different authentication contexts around ``cfg.resource``:
+
+- **Operator / external Web API access**
+  The embedded Web API uses normal HTTPS transport plus bearer-token
+  authentication for human or external API clients.
+
+- **Minion-internal resource access**
+  ``cfg.resource`` is intended to be used from minion-side model actions.
+  In that flow the minion is already trusted by the Master over the normal
+  Sysinspect transport, so datastore access should be transparent and must not
+  require PAM login prompts or operator bearer-token handling inside models.
+
+The current design for ``cfg.resource`` is therefore:
+
+- keep bearer-token auth for normal external Web API users
+- allow datastore endpoints to accept **minion-auth** for minion-originated
+  requests
+- keep the module itself stateless
+
+Current minion-auth bootstrap shape:
+
+- ``X-Sysinspect-Minion-Id``
+- ``X-Sysinspect-Timestamp``
+- ``X-Sysinspect-Signature``
+- ``X-Sysinspect-Body-Sha256``
+
+The bootstrap signature covers a small canonical request string:
+
+- HTTP method
+- request path
+- query string
+- timestamp
+- body hash
+
+The module first authenticates on:
+
+- ``POST /store/auth/minion``
+
+and receives a short-lived datastore bearer token. Subsequent datastore calls
+for that module run then use normal ``Authorization: Bearer`` headers, but the
+token was bootstrapped transparently from the minion's registered RSA identity.
+
+This keeps datastore access transparent for internal model execution while
+still preventing unauthenticated external callers from using the same API.
 
 In simple words for day-to-day usage:
 
@@ -43,6 +90,10 @@ The following options are available:
   ``force``
     Disable checksum skip logic. Always push/pull even if data already matches.
 
+  ``sync-dir``
+    Resolve all datastore items whose logical id matches the prefix from ``src``
+    and materialise them into a local directory.
+
 
 The following keyword arguments are available:
 
@@ -62,9 +113,23 @@ The following keyword arguments are available:
   ``dst`` (type: string, optional)
     Alias for ``file``.
 
+    For ``sync-dir`` it should point to a destination directory.
+
   ``mode`` (type: string, optional)
     File mode for pull result (octal, for example ``0644``).
     If omitted, mode from datastore metadata is applied.
+
+  ``tls`` (type: bool, optional)
+    Whether to use HTTPS for the datastore API transport.
+    Default: ``true``.
+
+  ``tls-accept-insecure`` (type: bool, optional)
+    Allow self-signed or otherwise invalid TLS certificates.
+    Default: ``false``.
+
+  ``port`` (type: integer, optional)
+    Web API port on the master.
+    Default: ``4202``.
 
 
 Behavior Notes
@@ -73,8 +138,13 @@ Behavior Notes
 - If ``file`` and ``dst`` are both absent, module uses ``src`` as local path.
 - ``pull`` checks local checksum first and skips download when already up to date (unless ``force``).
 - ``push`` checks datastore checksum first and skips upload when already up to date (unless ``force``).
-- Module transport/auth details are not passed from model arguments.
-  They are taken from runtime Minion config injected automatically during module call.
+- Only ``master.ip`` comes from runtime Minion config.
+- Protocol and API port can be overridden explicitly through ``tls``,
+  ``tls-accept-insecure``, and ``port``.
+- Operator bearer-token auth is not a suitable fit for internal model calls.
+- ``cfg.resource`` therefore bootstraps datastore access from the minion's
+  registered RSA identity and then reuses a short-lived datastore bearer token
+  automatically.
 
 
 State Semantics
@@ -110,6 +180,9 @@ Pull resource to local file:
               src: /somehost/etc/ssh/authorized_keys
               file: /etc/ssh/authorized_keys
               mode: "0600"
+              tls: true
+              tls-accept-insecure: true
+              port: 4202
 
 Push local file to datastore:
 
@@ -125,6 +198,9 @@ Push local file to datastore:
             args:
               src: /somehost/etc/ssh/authorized_keys
               file: /etc/ssh/authorized_keys
+              tls: true
+              tls-accept-insecure: true
+              port: 4202
 
 Force pull even if checksum matches:
 
@@ -140,6 +216,28 @@ Force pull even if checksum matches:
             args:
               src: /somehost/etc/ssh/authorized_keys
               dst: /etc/ssh/authorized_keys
+              tls: true
+              tls-accept-insecure: true
+              port: 4202
+
+Sync all public keys from one logical prefix into a local directory:
+
+.. code-block:: yaml
+
+    actions:
+      sync-pubring:
+        module: cfg.resource
+        bind: [shared-keyring]
+        state:
+          $:
+            opts: [sync-dir]
+            args:
+              src: /keyringdemo/
+              dst: /tmp/keyringdemo/pubring
+              mode: "0644"
+              tls: true
+              tls-accept-insecure: true
+              port: 4202
 
 
 Returning Data
@@ -158,6 +256,7 @@ Typical extra fields in ``data``:
 - ``sha256`` resolved artifact checksum
 - ``size_bytes`` artifact size
 - ``mode`` resulting local mode (for pull)
+- ``synced`` number of materialised files (for ``sync-dir``)
 
 The examples below are **module runtime protocol payloads** and are exchanged
 between Sysinspect runtime and module process over STDIN/STDOUT, therefore
