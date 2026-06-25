@@ -8598,6 +8598,7 @@ dependencies = [
  "libeventreg",
  "libmodcore",
  "libmodpak",
+ "libsensors",
  "libsetup",
  "libsysinspect",
  "libsysproto",

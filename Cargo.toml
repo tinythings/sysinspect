@@ -16,6 +16,7 @@ libmodcore = { path = "./libmodcore" }
 libcommon = { path = "./libcommon" }
 libsysproto = { path = "./libsysproto" }
 libsetup = { path = "./libsetup" }
+libsensors = { path = "./libsensors" }
 log = "0.4.29"
 sysinfo = { version = "0.33.1", features = ["linux-tmpfs"] }
 tokio = { version = "1.52.3", features = ["full"] }

@@ -13,6 +13,7 @@ use libeventreg::{
 };
 use libmodcore::modinit::ModInterface;
 use libmodpak::{SysInspectModPak, mpk::ModPakMetadata};
+use libsensors::sspec::SensorConf;
 use libsysinspect::{
     cfg::mmconf::{ConsoleConfig, MasterConfig, MinionConfig},
     console::{ConsoleMinionInfoRow, ConsoleModelRow, ConsoleModuleRow, ConsoleOnlineMinionRow, ConsolePayload},
@@ -40,7 +41,7 @@ use ratatui_glamour::widgets::spinner;
 use std::{
     cell::{Cell, RefCell},
     io::{self},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -993,7 +994,8 @@ impl SysInspectUX {
                 0 => self.process_module_add(&path),
                 1 => self.process_library_add(&path),
                 2 => self.process_model_add(&path),
-                4 => self.process_platform_add(&path),
+                3 => self.process_sensor_add(&path),
+                5 => self.process_platform_add(&path),
                 _ => {}
             }
         }
@@ -1006,8 +1008,9 @@ impl SysInspectUX {
                     self.repo_manager.needs_reload = false;
                     let _ = self.load_module_index();
                     let _ = self.load_model_list();
+                    let _ = self.load_sensor_list();
                     let _ = self.load_library_index();
-                    if self.repo_manager.active_tab == 4 {
+                    if self.repo_manager.active_tab == 5 {
                         let _ = self.load_platforms();
                     }
                     self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
@@ -2711,7 +2714,7 @@ impl SysInspectUX {
             return self.repo_manager.handle_info_key(e);
         }
         if self.repo_manager.model_delete_visible {
-            let handled = self.repo_manager.handle_model_delete_key(e);
+            let handled = self.repo_manager.handle_model_delete_key(e.code);
             if !handled && e.code == KeyCode::Enter {
                 if self.repo_manager.model_delete_focus == repomanager::ModelDeleteFocus::YesBtn {
                     let model_id = self.repo_manager.model_delete_id.clone();
@@ -2768,8 +2771,8 @@ impl SysInspectUX {
             }
             return true;
         }
-        // Profile-specific overlays (tab 3)
-        if self.repo_manager.active_tab == 3 {
+        // Profile-specific overlays (tab 4)
+        if self.repo_manager.active_tab == 4 {
             if self.repo_manager.profiles.delete_visible {
                 let handled = self.repo_manager.profiles.handle_delete_key(e.code);
                 if !handled && e.code == KeyCode::Enter {
@@ -2893,8 +2896,25 @@ impl SysInspectUX {
                 return true;
             }
         }
-        // Platform delete overlay (tab 4)
-        if self.repo_manager.active_tab == 4 && self.repo_manager.platforms.delete_visible {
+        if self.repo_manager.active_tab == 3 && self.repo_manager.sensor_delete_visible {
+            let handled = self.repo_manager.handle_sensor_delete_key(e.code);
+            if !handled && e.code == KeyCode::Enter {
+                if self.repo_manager.sensor_delete_focus == repomanager::SensorDeleteFocus::YesBtn {
+                    let sensor_id = self.repo_manager.sensor_delete_id.clone();
+                    match self.delete_sensor(&sensor_id) {
+                        Ok(()) => self.start_cluster_sync(),
+                        Err(err) => {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = err;
+                        }
+                    }
+                }
+                self.repo_manager.sensor_delete_visible = false;
+            }
+            return true;
+        }
+        // Platform delete overlay (tab 5)
+        if self.repo_manager.active_tab == 5 && self.repo_manager.platforms.delete_visible {
             let handled = self.repo_manager.platforms.handle_delete_key(e.code);
             if !handled && e.code == KeyCode::Enter {
                 if self.repo_manager.platforms.delete_focus == platforms::DeleteFocus::YesBtn {
@@ -2905,10 +2925,12 @@ impl SysInspectUX {
             }
             return true;
         }
-        let total_count = if self.repo_manager.active_tab == 4 {
+        let total_count = if self.repo_manager.active_tab == 5 {
             self.repo_manager.platforms.filtered_count(self.repo_manager.filter.value())
-        } else if self.repo_manager.active_tab == 3 {
+        } else if self.repo_manager.active_tab == 4 {
             self.repo_manager.profiles.filtered_count(self.repo_manager.filter.value())
+        } else if self.repo_manager.active_tab == 3 {
+            self.repo_filtered_sensor_count()
         } else if self.repo_manager.active_tab == 2 {
             self.repo_filtered_model_count()
         } else if self.repo_manager.active_tab == 1 {
@@ -2924,10 +2946,12 @@ impl SysInspectUX {
             self.repo_filtered_count()
         };
         let max_cursor = total_count.saturating_sub(1);
-        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 4 {
+        let cursor_ref: &mut usize = if self.repo_manager.active_tab == 5 {
             &mut self.repo_manager.platforms.cursor
-        } else if self.repo_manager.active_tab == 3 {
+        } else if self.repo_manager.active_tab == 4 {
             &mut self.repo_manager.profiles.cursor
+        } else if self.repo_manager.active_tab == 3 {
+            &mut self.repo_manager.sensor_cursor
         } else if self.repo_manager.active_tab == 2 {
             &mut self.repo_manager.model_cursor
         } else if self.repo_manager.active_tab == 1 {
@@ -2961,6 +2985,7 @@ impl SysInspectUX {
                 self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
                 self.repo_manager.model_cursor = 0;
+                self.repo_manager.sensor_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
@@ -2970,18 +2995,22 @@ impl SysInspectUX {
                     let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
-                    let _ = self.load_profile_list();
+                    let _ = self.load_sensor_list();
                 }
                 if self.repo_manager.active_tab == 4 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 5 {
                     let _ = self.load_platforms();
                 }
             }
             KeyCode::Right => {
-                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(4);
+                self.repo_manager.active_tab = (self.repo_manager.active_tab + 1).min(5);
                 self.repo_manager.group_cursor = 0;
                 self.repo_manager.group_cursor_row = 0;
                 self.repo_manager.lib_cursor = 0;
                 self.repo_manager.model_cursor = 0;
+                self.repo_manager.sensor_cursor = 0;
                 self.repo_manager.profiles.cursor = 0;
                 self.repo_manager.platforms.cursor = 0;
                 if self.repo_manager.active_tab == 1 {
@@ -2991,19 +3020,22 @@ impl SysInspectUX {
                     let _ = self.load_model_list();
                 }
                 if self.repo_manager.active_tab == 3 {
-                    let _ = self.load_profile_list();
+                    let _ = self.load_sensor_list();
                 }
                 if self.repo_manager.active_tab == 4 {
+                    let _ = self.load_profile_list();
+                }
+                if self.repo_manager.active_tab == 5 {
                     let _ = self.load_platforms();
                 }
             }
             KeyCode::Up => {
                 if self.repo_manager.active_tab == 0 {
                     self.move_module_up();
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 4 {
+                } else if self.repo_manager.active_tab == 5 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = cursor_ref.saturating_sub(1);
@@ -3012,10 +3044,10 @@ impl SysInspectUX {
             KeyCode::Down => {
                 if self.repo_manager.active_tab == 0 {
                     self.move_module_down();
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 4 {
+                } else if self.repo_manager.active_tab == 5 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = (*cursor_ref + 1).min(max_cursor);
@@ -3033,6 +3065,19 @@ impl SysInspectUX {
                     }
                 }
             }
+            KeyCode::Char(' ') if self.repo_manager.active_tab == 3 && !self.repo_manager.sensor_rows.is_empty() => {
+                if let Some(sensor) = self.repo_manager.sensor_rows.get(self.repo_manager.sensor_cursor) {
+                    let sensor_id = sensor.id.clone();
+                    let enabled = !sensor.enabled;
+                    if let Err(err) = self.set_sensor_enabled(&sensor_id, enabled) {
+                        self.error_alert_visible = true;
+                        self.error_alert_message = err;
+                    } else {
+                        let _ = self.load_sensor_list();
+                        self.start_cluster_sync();
+                    }
+                }
+            }
             KeyCode::PageUp => {
                 if self.repo_manager.active_tab == 0 {
                     let n = self.repo_manager.group_order.len();
@@ -3040,10 +3085,10 @@ impl SysInspectUX {
                         self.repo_manager.group_cursor = (self.repo_manager.group_cursor + n - 1) % n;
                         self.repo_manager.group_cursor_row = 0;
                     }
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 4 {
+                } else if self.repo_manager.active_tab == 5 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = cursor_ref.saturating_sub(page);
@@ -3056,19 +3101,19 @@ impl SysInspectUX {
                         self.repo_manager.group_cursor = (self.repo_manager.group_cursor + 1) % n;
                         self.repo_manager.group_cursor_row = 0;
                     }
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     let fv = self.repo_manager.filter.value().to_string();
                     self.repo_manager.profiles.handle_list_key(e.code, &mut self.repo_manager.filter_focus, &fv);
-                } else if self.repo_manager.active_tab == 4 {
+                } else if self.repo_manager.active_tab == 5 {
                     self.repo_manager.platforms.handle_list_key(e.code);
                 } else {
                     *cursor_ref = (*cursor_ref + page).min(max_cursor);
                 }
             }
             KeyCode::Enter => {
-                if self.repo_manager.active_tab == 4 {
+                if self.repo_manager.active_tab == 5 {
                     // Platforms have no detail view
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     let name = match self.repo_manager.profiles.selected_profile_name() {
                         Some(n) => n.to_string(),
                         None => return true,
@@ -3115,14 +3160,18 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Delete => {
-                if self.repo_manager.active_tab == 4 {
+                if self.repo_manager.active_tab == 5 {
                     if let Some(name) = self.repo_manager.platforms.selected_name() {
                         self.repo_manager.platforms.open_delete(name);
                     }
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     if let Some(name) = self.repo_manager.profiles.selected_profile_name() {
                         self.repo_manager.profiles.open_delete(name.to_string());
                         self.status_at_profiles();
+                    }
+                } else if self.repo_manager.active_tab == 3 {
+                    if let Some(sensor) = self.repo_manager.sensor_rows.get(self.repo_manager.sensor_cursor) {
+                        self.repo_manager.open_sensor_delete(sensor.id.clone());
                     }
                 } else if self.repo_manager.active_tab == 2 {
                     if let Some(model) = self.repo_manager.model_rows.get(self.repo_manager.model_cursor) {
@@ -3180,11 +3229,14 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Insert | KeyCode::Char('i') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.repo_manager.active_tab == 4 {
+                if self.repo_manager.active_tab == 5 {
                     self.file_picker.open(&std::env::current_dir().unwrap_or_default(), filepicker::PickerMode::MinionBuild);
-                } else if self.repo_manager.active_tab == 3 {
+                } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
+                } else if self.repo_manager.active_tab == 3 {
+                    let start_dir = std::env::current_dir().unwrap_or_default();
+                    self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
                 } else if self.repo_manager.active_tab == 2 {
                     let start_dir = std::env::current_dir().unwrap_or_default();
                     self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
@@ -3194,7 +3246,7 @@ impl SysInspectUX {
                 }
             }
             KeyCode::Char('l') if !e.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.repo_manager.active_tab == 3 {
+                if self.repo_manager.active_tab == 4 {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
                 } else {
@@ -3272,6 +3324,15 @@ impl SysInspectUX {
     fn repo_filtered_model_count(&self) -> usize {
         let f = self.repo_manager.filter.value().to_lowercase();
         self.repo_manager.model_rows.iter().filter(|r| f.is_empty() || r.name.to_lowercase().contains(&f) || r.id.to_lowercase().contains(&f)).count()
+    }
+
+    fn repo_filtered_sensor_count(&self) -> usize {
+        let f = self.repo_manager.filter.value().to_lowercase();
+        self.repo_manager
+            .sensor_rows
+            .iter()
+            .filter(|r| f.is_empty() || r.id.to_lowercase().contains(&f) || r.description.to_lowercase().contains(&f))
+            .count()
     }
 
     fn call_profile_rpc(&self, context: &str) -> Result<ConsolePayload, String> {
@@ -3519,10 +3580,21 @@ impl SysInspectUX {
         }
     }
 
+    fn load_sensor_list(&mut self) -> Result<(), String> {
+        let enabled = if self.repo_manager.sensor_rows.is_empty() { self.cfg.fileserver_sensors() } else { self.enabled_sensor_ids() };
+        self.refresh_local_sensor_rows(&enabled)
+    }
+
     fn model_dropin_path(&self) -> PathBuf {
         let cfg_path = self.cfg.config_path();
         let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
         cfg_path.with_file_name(format!("{stem}.d")).join("99-models.conf")
+    }
+
+    fn sensor_dropin_path(&self) -> PathBuf {
+        let cfg_path = self.cfg.config_path();
+        let stem = cfg_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        cfg_path.with_file_name(format!("{stem}.d")).join("99-sensors.conf")
     }
 
     fn system_top_dropin_path(&self) -> PathBuf {
@@ -3580,6 +3652,108 @@ impl SysInspectUX {
             }
         }
         std::fs::write(&dropin, body).map_err(|e| format!("Unable to write models drop-in: {e}"))
+    }
+
+    fn enabled_sensor_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.repo_manager.sensor_rows.iter().filter(|row| row.enabled).map(|row| row.id.clone()).collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    fn enabled_sensor_ids_with(&self, sensor_id: &str, enabled: bool) -> Vec<String> {
+        let mut ids = self.enabled_sensor_ids();
+        if enabled {
+            if !ids.iter().any(|id| id == sensor_id) {
+                ids.push(sensor_id.to_string());
+            }
+        } else {
+            ids.retain(|id| id != sensor_id);
+        }
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    fn write_enabled_sensors_dropin(&self, mut ids: Vec<String>) -> Result<(), String> {
+        ids.sort();
+        ids.dedup();
+        let dropin = self.sensor_dropin_path();
+        if let Some(parent) = dropin.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Unable to create drop-in directory: {e}"))?;
+        }
+        let mut body = String::from("config:\n  master:\n    fileserver.sensors:");
+        if ids.is_empty() {
+            body.push_str(" []\n");
+        } else {
+            body.push('\n');
+            for id in ids {
+                body.push_str(&format!("      - {id}\n"));
+            }
+        }
+        std::fs::write(&dropin, body).map_err(|e| format!("Unable to write sensors drop-in: {e}"))
+    }
+
+    fn discover_sensor_scope_dirs(root: &Path) -> Result<Vec<PathBuf>, String> {
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+            if dir.join("sensors.cfg").exists() {
+                out.push(dir.to_path_buf());
+                return Ok(());
+            }
+            let entries = std::fs::read_dir(dir).map_err(|e| format!("Unable to read {}: {e}", dir.display()))?;
+            for entry in entries {
+                let entry = entry.map_err(|e| format!("Unable to read directory entry in {}: {e}", dir.display()))?;
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out)?;
+                }
+            }
+            Ok(())
+        }
+
+        let mut out = Vec::new();
+        if root.exists() {
+            walk(root, &mut out)?;
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    fn describe_sensor_scope(path: &Path) -> Result<(String, usize), String> {
+        let spec = libsensors::load(path).map_err(|e| format!("Failed to load sensor scope {}: {e}", path.display()))?;
+        let items: Vec<(&String, &SensorConf)> = spec.items_raw().iter().collect();
+        let sensor_count = items.len();
+        let description = items
+            .iter()
+            .find_map(|(_, cfg)| cfg.description().map(str::trim).filter(|s| !s.is_empty()).map(ToOwned::to_owned))
+            .unwrap_or_else(|| {
+                if sensor_count == 0 {
+                    "No sensors defined".to_string()
+                } else if sensor_count == 1 {
+                    items[0].1.listener().to_string()
+                } else {
+                    format!("{} sensors", sensor_count)
+                }
+            });
+        Ok((description, sensor_count))
+    }
+
+    fn refresh_local_sensor_rows(&mut self, enabled_ids: &[String]) -> Result<(), String> {
+        let enabled: std::collections::BTreeSet<String> = enabled_ids.iter().cloned().collect();
+        let mut rows = Vec::new();
+        for scope in Self::discover_sensor_scope_dirs(&self.cfg.fileserver_sensors_root())? {
+            let id = match scope.file_name().and_then(|s| s.to_str()) {
+                Some(id) if !id.is_empty() => id.to_string(),
+                _ => continue,
+            };
+            let (description, sensor_count) = Self::describe_sensor_scope(&scope)?;
+            rows.push(repomanager::SensorScopeRow { id: id.clone(), enabled: enabled.contains(&id), description, sensor_count });
+        }
+        rows.sort_by(|a, b| a.id.cmp(&b.id));
+        let cursor = self.repo_manager.sensor_cursor.min(rows.len().saturating_sub(1));
+        self.repo_manager.sensor_rows = rows;
+        self.repo_manager.sensor_cursor = cursor;
+        Ok(())
     }
 
     fn refresh_local_model_rows(&mut self, enabled_ids: &[String]) -> Result<(), String> {
@@ -3697,6 +3871,14 @@ impl SysInspectUX {
         Ok(())
     }
 
+    fn set_sensor_enabled(&mut self, sensor_id: &str, enabled: bool) -> Result<(), String> {
+        let ids = self.enabled_sensor_ids_with(sensor_id, enabled);
+        self.write_enabled_sensors_dropin(ids)?;
+        self.reload_master_config()?;
+        self.refresh_local_sensor_rows(&self.enabled_sensor_ids_with(sensor_id, enabled))?;
+        Ok(())
+    }
+
     fn enabled_model_ids_with(&self, model_id: &str, enabled: bool) -> Vec<String> {
         let mut ids = self.enabled_model_ids();
         if enabled {
@@ -3756,6 +3938,47 @@ impl SysInspectUX {
         }
     }
 
+    fn process_sensor_add(&mut self, path: &std::path::Path) {
+        if !path.is_dir() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Select a sensor scope directory".to_string();
+            return;
+        }
+        if !path.join("sensors.cfg").exists() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Selected directory does not contain sensors.cfg".to_string();
+            return;
+        }
+        let sensor_id = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        if sensor_id.is_empty() {
+            self.error_alert_visible = true;
+            self.error_alert_message = "Unable to determine sensor scope id from directory name".to_string();
+            return;
+        }
+        let dst_root = self.cfg.fileserver_sensors_root();
+        let dst = dst_root.join(&sensor_id);
+        if dst.exists() {
+            self.error_alert_visible = true;
+            self.error_alert_message = format!("Sensor scope already exists: {sensor_id}");
+            return;
+        }
+        let enabled_ids = self.enabled_sensor_ids_with(&sensor_id, true);
+        match Self::copy_dir_recursive(path, &dst)
+            .and_then(|_| self.write_enabled_sensors_dropin(enabled_ids.clone()))
+            .and_then(|_| self.reload_master_config())
+            .and_then(|_| self.refresh_local_sensor_rows(&enabled_ids))
+        {
+            Ok(()) => {
+                self.start_cluster_sync();
+            }
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&dst);
+                self.error_alert_visible = true;
+                self.error_alert_message = err;
+            }
+        }
+    }
+
     fn delete_model(&mut self, model_id: &str) -> Result<(), String> {
         let path = self.cfg.fileserver_models_root(false).join(model_id);
         if !path.exists() {
@@ -3766,6 +3989,19 @@ impl SysInspectUX {
         self.write_enabled_models_dropin(enabled_ids.clone())?;
         self.refresh_local_model_rows(&enabled_ids)?;
         self.repo_manager.models_dirty = true;
+        Ok(())
+    }
+
+    fn delete_sensor(&mut self, sensor_id: &str) -> Result<(), String> {
+        let path = self.cfg.fileserver_sensors_root().join(sensor_id);
+        if !path.exists() {
+            return Err(format!("Sensor scope does not exist: {sensor_id}"));
+        }
+        std::fs::remove_dir_all(&path).map_err(|e| format!("Unable to remove sensor scope {sensor_id}: {e}"))?;
+        let enabled_ids = self.enabled_sensor_ids_with(sensor_id, false);
+        self.write_enabled_sensors_dropin(enabled_ids.clone())?;
+        self.reload_master_config()?;
+        self.refresh_local_sensor_rows(&enabled_ids)?;
         Ok(())
     }
 
@@ -4277,6 +4513,9 @@ impl SysInspectUX {
                 if let Err(err) = self.load_module_index() {
                     self.error_alert_visible = true;
                     self.error_alert_message = err;
+                } else if let Err(err) = self.load_sensor_list() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
                 } else {
                     self.repo_manager.visible = true;
                     self.status_at_repo_manager();
@@ -4344,6 +4583,9 @@ impl SysInspectUX {
                     }
                     3 => {
                         if let Err(err) = self.load_module_index() {
+                            self.error_alert_visible = true;
+                            self.error_alert_message = err;
+                        } else if let Err(err) = self.load_sensor_list() {
                             self.error_alert_visible = true;
                             self.error_alert_message = err;
                         } else {
@@ -5251,6 +5493,9 @@ impl SysInspectUX {
             }
             KeyCode::Char('a') if e.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Err(err) = self.load_module_index() {
+                    self.error_alert_visible = true;
+                    self.error_alert_message = err;
+                } else if let Err(err) = self.load_sensor_list() {
                     self.error_alert_visible = true;
                     self.error_alert_message = err;
                 } else {

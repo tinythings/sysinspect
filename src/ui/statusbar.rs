@@ -207,14 +207,14 @@ impl SysInspectUX {
         self.status_text = Line::from(vec![
             key("\u{2191}\u{2193} "),
             desc("navigate  "),
-            key("Enter "),
-            desc("info  "),
+            key("Space "),
+            desc("toggle  "),
             key("Del "),
             desc("remove  "),
             key("Ins/i "),
             desc("add  "),
-            key("L "),
-            desc("libraries  "),
+            key("\u{2190}/\u{2192} "),
+            desc("tabs  "),
             key("Esc "),
             desc("close"),
         ]);
