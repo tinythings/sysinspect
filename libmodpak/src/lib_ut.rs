@@ -356,18 +356,23 @@ mod tests {
         let repo = SysInspectModPak::new(root.path().join("repo")).expect("repo should be created");
 
         repo.new_profile("toto").expect("profile should be created");
-        repo.add_profile_matches("toto", vec!["runtime.lua".to_string(), "net.*".to_string()], false).expect("module selectors should be added");
-        repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true).expect("library selectors should be added");
+        repo.add_profile_matches("toto", vec!["runtime.lua".to_string(), "net.*".to_string()], false, false)
+            .expect("module selectors should be added");
+        repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true, false).expect("library selectors should be added");
 
         assert_eq!(repo.list_profiles(None).expect("profiles should list"), vec!["toto".to_string()]);
-        assert!(repo.list_profile_matches(Some("toto"), false).expect("profile modules should list").contains(&"toto: runtime.lua".to_string()));
-        assert!(repo.list_profile_matches(Some("toto"), false).expect("profile modules should list").contains(&"toto: net.*".to_string()));
         assert!(
-            repo.list_profile_matches(Some("toto"), true).expect("profile libraries should list").contains(&"toto: runtime/lua/*.lua".to_string())
+            repo.list_profile_matches(Some("toto"), false, false).expect("profile modules should list").contains(&"toto: runtime.lua".to_string())
+        );
+        assert!(repo.list_profile_matches(Some("toto"), false, false).expect("profile modules should list").contains(&"toto: net.*".to_string()));
+        assert!(
+            repo.list_profile_matches(Some("toto"), true, false)
+                .expect("profile libraries should list")
+                .contains(&"toto: runtime/lua/*.lua".to_string())
         );
 
-        repo.remove_profile_matches("toto", vec!["net.*".to_string()], false).expect("module selector should be removed");
-        assert!(!repo.list_profile_matches(Some("toto"), false).expect("profile modules should list").contains(&"toto: net.*".to_string()));
+        repo.remove_profile_matches("toto", vec!["net.*".to_string()], false, false).expect("module selector should be removed");
+        assert!(!repo.list_profile_matches(Some("toto"), false, false).expect("profile modules should list").contains(&"toto: net.*".to_string()));
 
         repo.delete_profile("toto").expect("profile should be deleted");
         assert!(repo.list_profiles(None).expect("profiles should list").is_empty());
@@ -405,7 +410,7 @@ mod tests {
         fs::write(root.path().join("profiles.index"), "profiles:\n  Toto:\n    file: totobullshit.profile\n    checksum: deadbeef\n")
             .expect("profiles index should be written");
 
-        repo.add_profile_matches("Toto", vec!["net.*".to_string()], false).expect("profile should be updated");
+        repo.add_profile_matches("Toto", vec!["net.*".to_string()], false, false).expect("profile should be updated");
 
         let idx = repo.get_profiles_index().expect("profiles index should load");
         let profile = repo.get_profile("Toto").expect("profile should load");
@@ -446,8 +451,8 @@ mod tests {
         write_module(&mut repo, "linux", "x86_64", "runtime.lua", "runtime/lua");
         write_module(&mut repo, "netbsd", "noarch", "runtime.lua", "runtime/lua");
         repo.new_profile("toto").expect("profile should be created");
-        repo.add_profile_matches("toto", vec!["runtime.lua".to_string()], false).expect("module selector should be added");
-        repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true).expect("library selector should be added");
+        repo.add_profile_matches("toto", vec!["runtime.lua".to_string()], false, false).expect("module selector should be added");
+        repo.add_profile_matches("toto", vec!["runtime/lua/*.lua".to_string()], true, false).expect("library selector should be added");
 
         let rendered = repo.show_profile("toto").expect("profile should render");
         let module_pos = rendered.find("runtime.lua").expect("module row should exist");
