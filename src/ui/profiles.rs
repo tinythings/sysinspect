@@ -1207,6 +1207,8 @@ impl ProfilesManager {
         let y = parent.y + (parent.height.saturating_sub(h)) / 2;
         let canvas = Rect::new(x, y, w, h);
 
+        Clear.render(canvas, buf);
+
         let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_2, palette::BG_1] as &[Color]);
         for row in 0..canvas.height {
             for col in 0..canvas.width {
