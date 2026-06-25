@@ -2645,7 +2645,14 @@ impl SysInspectUX {
                             let _ = self.do_profile_add_matches(&profile_name, model_ids, false, true);
                             match self.load_profile_detail(&profile_name) {
                                 Ok((models, modules, model_groups, ungrouped_modules, libraries)) => {
-                                    self.repo_manager.profiles.enter_detail(profile_name, models, modules, model_groups, ungrouped_modules, libraries);
+                                    self.repo_manager.profiles.enter_detail(
+                                        profile_name,
+                                        models,
+                                        modules,
+                                        model_groups,
+                                        ungrouped_modules,
+                                        libraries,
+                                    );
                                 }
                                 Err(e) => {
                                     self.error_alert_visible = true;
