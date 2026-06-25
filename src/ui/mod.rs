@@ -2629,6 +2629,29 @@ impl SysInspectUX {
         }
     }
 
+    fn flush_repo_manager_reload(&mut self) {
+        if !self.repo_manager.needs_reload {
+            return;
+        }
+        self.repo_manager.needs_reload = false;
+        let _ = self.load_module_index();
+        let _ = self.load_model_list();
+        let _ = self.load_sensor_list();
+        let _ = self.load_library_index();
+        if self.repo_manager.active_tab == 5 {
+            let _ = self.load_platforms();
+        }
+        self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
+        self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
+        if self.minions_rows.is_empty()
+            && let Ok(rows) = self.fetch_minions()
+        {
+            self.minions_rows = rows;
+        }
+        self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
+        self.mark_repo_sync_pending();
+    }
+
     fn on_repo_manager(&mut self, e: event::KeyEvent) -> bool {
         if !self.repo_manager.visible {
             return false;
@@ -2970,6 +2993,7 @@ impl SysInspectUX {
                     }
                     self.repo_manager.models_dirty = false;
                 }
+                self.flush_repo_manager_reload();
                 let start_repo_sync = self.repo_manager.pending_cluster_upgrade;
                 self.repo_manager.pending_cluster_upgrade = false;
                 self.repo_manager.exit_staging();
@@ -3234,10 +3258,7 @@ impl SysInspectUX {
                 } else if self.repo_manager.active_tab == 4 {
                     self.repo_manager.profiles.open_create();
                     self.status_at_profiles();
-                } else if self.repo_manager.active_tab == 3 {
-                    let start_dir = std::env::current_dir().unwrap_or_default();
-                    self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
-                } else if self.repo_manager.active_tab == 2 {
+                } else if self.repo_manager.active_tab == 3 || self.repo_manager.active_tab == 2 {
                     let start_dir = std::env::current_dir().unwrap_or_default();
                     self.file_picker.open(&start_dir, filepicker::PickerMode::DirectoryPicker);
                 } else {
