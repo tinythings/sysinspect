@@ -31,7 +31,7 @@ pub enum ProfDetailFocus {
 }
 
 impl ProfDetailFocus {
-    pub fn next(self, has_modules: bool, has_libraries: bool) -> Self {
+    pub fn next(self, has_modules: bool, has_libraries: bool, has_global_mods: bool, has_global_mdls: bool, has_connected_m: bool) -> Self {
         use ProfDetailFocus::*;
         let mut cur = self;
         loop {
@@ -47,13 +47,16 @@ impl ProfDetailFocus {
             match cur {
                 Modules if !has_modules => continue,
                 Libraries if !has_libraries => continue,
+                AddModuleBtn if !has_global_mods => continue,
+                AddFromModelBtn if !has_global_mdls => continue,
                 AddLibraryBtn if !has_libraries => continue,
+                AssignBtn if !has_connected_m => continue,
                 _ => return cur,
             }
         }
     }
 
-    pub fn prev(self, has_modules: bool, has_libraries: bool) -> Self {
+    pub fn prev(self, has_modules: bool, has_libraries: bool, has_global_mods: bool, has_global_mdls: bool, has_connected_m: bool) -> Self {
         use ProfDetailFocus::*;
         let mut cur = self;
         loop {
@@ -69,7 +72,10 @@ impl ProfDetailFocus {
             match cur {
                 Modules if !has_modules => continue,
                 Libraries if !has_libraries => continue,
+                AddModuleBtn if !has_global_mods => continue,
+                AddFromModelBtn if !has_global_mdls => continue,
                 AddLibraryBtn if !has_libraries => continue,
+                AssignBtn if !has_connected_m => continue,
                 _ => return cur,
             }
         }
@@ -168,6 +174,10 @@ pub struct ProfilesManager {
     pub detail_all_scroll: Cell<usize>,
     pub detail_loffset: Cell<usize>,
 
+    pub has_global_modules: Cell<bool>,
+    pub has_global_models: Cell<bool>,
+    pub has_connected_minions: Cell<bool>,
+
     // Create overlay
     pub create_visible: bool,
     pub create_input: InputState,
@@ -200,6 +210,9 @@ impl Default for ProfilesManager {
             detail_module_view: Cell::new(ProfileModuleView::PerModel),
             detail_all_scroll: Cell::new(0),
             detail_loffset: Cell::new(0),
+            has_global_modules: Cell::new(false),
+            has_global_models: Cell::new(false),
+            has_connected_minions: Cell::new(false),
             create_visible: false,
             create_input: InputState::new(),
             create_focus: ProfCreateFocus::Input,
@@ -265,12 +278,18 @@ impl ProfilesManager {
             KeyCode::Tab => {
                 let hm = self.has_modules();
                 let hl = !self.detail_libraries.is_empty();
-                self.detail_focus = self.detail_focus.next(hm, hl);
+                let gm = self.has_global_modules.get();
+                let gmd = self.has_global_models.get();
+                let cm = self.has_connected_minions.get();
+                self.detail_focus = self.detail_focus.next(hm, hl, gm, gmd, cm);
             }
             KeyCode::BackTab => {
                 let hm = self.has_modules();
                 let hl = !self.detail_libraries.is_empty();
-                self.detail_focus = self.detail_focus.prev(hm, hl);
+                let gm = self.has_global_modules.get();
+                let gmd = self.has_global_models.get();
+                let cm = self.has_connected_minions.get();
+                self.detail_focus = self.detail_focus.prev(hm, hl, gm, gmd, cm);
             }
             KeyCode::Up => match self.detail_focus {
                 Modules => {
@@ -376,7 +395,7 @@ impl ProfilesManager {
                 }
             }
             KeyCode::Left if self.detail_focus == ProfDetailFocus::Modules => {
-                self.detail_module_view.set(ProfileModuleView::PerModel);
+                self.detail_module_view.set(ProfileModuleView::All);
             }
             KeyCode::Right if self.detail_focus == ProfDetailFocus::Modules => {
                 self.detail_module_view.set(ProfileModuleView::All);
@@ -528,13 +547,16 @@ impl ProfilesManager {
         self.detail_model_groups = model_groups;
         self.detail_ungrouped_modules = ungrouped_modules;
         self.detail_libraries = libraries;
-        self.detail_focus = if self.has_modules() {
-            ProfDetailFocus::Modules
-        } else if !self.detail_libraries.is_empty() {
-            ProfDetailFocus::Libraries
-        } else {
-            ProfDetailFocus::AddModuleBtn
-        };
+        self.detail_focus = ProfDetailFocus::Modules;
+        if !self.has_modules() {
+            self.detail_focus = self.detail_focus.next(
+                self.has_modules(),
+                !self.detail_libraries.is_empty(),
+                self.has_global_modules.get(),
+                self.has_global_models.get(),
+                self.has_connected_minions.get(),
+            );
+        }
         *self.detail_tree_state.borrow_mut() = None;
         self.detail_module_view.set(ProfileModuleView::PerModel);
         self.detail_all_scroll.set(0);
@@ -831,7 +853,11 @@ impl ProfilesManager {
         for (i, label) in btn_labels.iter().enumerate() {
             let style = if i == focus_idx {
                 sel_btn
-            } else if *label == "[ Add Library ]" && self.detail_libraries.is_empty() {
+            } else if *label == "[ Add Module ]" && !self.has_global_modules.get()
+                || *label == "[ Add From Model ]" && !self.has_global_models.get()
+                || *label == "[ Add Library ]" && self.detail_libraries.is_empty()
+                || *label == "[ Assign ]" && !self.has_connected_minions.get()
+            {
                 Style::default().fg(palette::MUTED).bg(palette::BG_2)
             } else {
                 unsel_btn

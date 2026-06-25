@@ -1005,9 +1005,13 @@ impl SysInspectUX {
                 if self.repo_manager.needs_reload {
                     self.repo_manager.needs_reload = false;
                     let _ = self.load_module_index();
+                    let _ = self.load_model_list();
+                    let _ = self.load_library_index();
                     if self.repo_manager.active_tab == 4 {
                         let _ = self.load_platforms();
                     }
+                    self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
+                    self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
                     self.mark_repo_sync_pending();
                 }
             } else {
@@ -2639,9 +2643,14 @@ impl SysInspectUX {
                             let model_ids: Vec<String> = checked.iter().map(|m| m.name.clone()).collect();
                             let profile_name = self.repo_manager.profiles.detail_name.clone();
                             let _ = self.do_profile_add_matches(&profile_name, model_ids, false, true);
-                            if let Err(e) = self.load_profile_detail(&profile_name) {
-                                self.error_alert_visible = true;
-                                self.error_alert_message = e;
+                            match self.load_profile_detail(&profile_name) {
+                                Ok((models, modules, model_groups, ungrouped_modules, libraries)) => {
+                                    self.repo_manager.profiles.enter_detail(profile_name, models, modules, model_groups, ungrouped_modules, libraries);
+                                }
+                                Err(e) => {
+                                    self.error_alert_visible = true;
+                                    self.error_alert_message = e;
+                                }
                             }
                         }
                         repomanager::StagingMode::ProfileLibraryAdd => {
@@ -2684,6 +2693,7 @@ impl SysInspectUX {
                 }
             }
             if !self.repo_manager.staging
+                && self.repo_manager.active_tab == 3
                 && matches!(
                     self.repo_manager.staging_mode,
                     repomanager::StagingMode::ProfileModuleAdd
@@ -2841,9 +2851,11 @@ impl SysInspectUX {
                         }
                         profiles::ProfDetailFocus::CloseBtn => {
                             self.repo_manager.profiles.detail_visible = false;
+                            self.repo_manager.staging_mode = repomanager::StagingMode::ModuleAdd;
                             self.status_at_profiles();
                         }
                         profiles::ProfDetailFocus::AssignBtn => {
+                            self.repo_manager.profiles.has_connected_minions.set(!self.minions_rows.is_empty());
                             if let Some(name) = self.repo_manager.profiles.selected_profile_name().map(|s| s.to_string()) {
                                 self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| (m.hostname.clone(), false)).collect();
                                 self.repo_manager.profiles.assign.profile_name = name;
@@ -3261,9 +3273,9 @@ impl SysInspectUX {
     }
 
     fn load_profile_detail(&mut self, name: &str) -> Result<profiles::LoadedProfileDetail, String> {
-        if self.repo_manager.model_rows.is_empty() {
-            self.load_model_list()?;
-        }
+        self.load_model_list()?;
+        self.repo_manager.profiles.has_global_modules.set(self.repo_manager.module_groups.values().any(|v| !v.is_empty()));
+        self.repo_manager.profiles.has_global_models.set(!self.repo_manager.model_rows.is_empty());
         let ctx_mods = serde_json::json!({"op": "list", "name": name, "library": false}).to_string();
         let payload_mods = self.call_profile_rpc(&ctx_mods)?;
         let module_selectors: Vec<String> = match payload_mods {
@@ -3649,6 +3661,7 @@ impl SysInspectUX {
             ids.retain(|id| id != model_id);
         }
         self.write_enabled_models_dropin(ids)?;
+        self.reload_master_config()?;
         self.refresh_local_model_rows(&self.enabled_model_ids_with(model_id, enabled))?;
         self.repo_manager.models_dirty = true;
         Ok(())
@@ -3695,6 +3708,7 @@ impl SysInspectUX {
         let enabled_ids = self.enabled_model_ids_with(&model_id, true);
         match Self::copy_dir_recursive(path, &dst)
             .and_then(|_| self.write_enabled_models_dropin(enabled_ids.clone()))
+            .and_then(|_| self.reload_master_config())
             .and_then(|_| self.refresh_local_model_rows(&enabled_ids))
         {
             Ok(()) => {
