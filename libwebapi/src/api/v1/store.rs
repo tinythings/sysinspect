@@ -1,15 +1,20 @@
 use std::path::{Path, PathBuf};
 
-use crate::{MasterInterfaceType, api::v1::minions::authorise_request};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use crate::{MasterInterfaceType, api::v1::minions::authorise_request, sessions::get_session_store};
 use actix_files::NamedFile;
 use actix_web::Result as ActixResult;
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use futures_util::StreamExt;
 use libdatastore::resources::DataItemMeta;
+use libsysinspect::rsa::keys::{RsaKey, key_from_file, verify_sign};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use tokio::task;
 use utoipa::ToSchema;
+
+const MINION_AUTH_SKEW_SECS: u64 = 300;
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct StoreMetaResponse {
     pub sha256: String,
@@ -35,9 +40,118 @@ pub struct StoreErrorResponse {
     pub error: String,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StoreMinionAuthResponse {
+    pub status: String,
+    pub access_token: String,
+    pub token_type: String,
+    pub error: String,
+}
+
 fn unauthorised_store_error(err: libcommon::SysinspectError) -> actix_web::Error {
     let msg = err.to_string();
     actix_web::error::InternalError::from_response(err, HttpResponse::Unauthorized().json(StoreErrorResponse { error: msg })).into()
+}
+
+fn minion_auth_material(method: &str, path: &str, query: &str, timestamp: &str, body_sha256: &str) -> String {
+    format!("{}\n{}\n{}\n{}\n{}", method, path, query, timestamp, body_sha256)
+}
+
+async fn verify_minion_bootstrap(req: &HttpRequest, master: &web::Data<MasterInterfaceType>) -> Result<String, libcommon::SysinspectError> {
+    let reject = |msg: String| {
+        log::warn!(
+            "Datastore minion-auth bootstrap rejected for {} {} from {:?}: {}",
+            req.method(),
+            req.uri(),
+            req.peer_addr(),
+            msg
+        );
+        libcommon::SysinspectError::WebAPIError(msg)
+    };
+
+    let minion_id = req
+        .headers()
+        .get("X-Sysinspect-Minion-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| reject("Missing X-Sysinspect-Minion-Id header".to_string()))?;
+    let timestamp = req
+        .headers()
+        .get("X-Sysinspect-Timestamp")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| reject("Missing X-Sysinspect-Timestamp header".to_string()))?;
+    let signature_b64 = req
+        .headers()
+        .get("X-Sysinspect-Signature")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| reject("Missing X-Sysinspect-Signature header".to_string()))?;
+    let body_sha256 = req.headers().get("X-Sysinspect-Body-Sha256").and_then(|v| v.to_str().ok()).map(str::trim).unwrap_or("");
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map_err(|e| reject(format!("Unable to read system time: {e}")))?
+        .as_secs();
+    let ts = timestamp
+        .parse::<u64>()
+        .map_err(|_| reject("Invalid X-Sysinspect-Timestamp header".to_string()))?;
+    if now.abs_diff(ts) > MINION_AUTH_SKEW_SECS {
+        return Err(reject("Expired minion-auth timestamp".to_string()));
+    }
+
+    let cfg = {
+        let master = master.lock().await;
+        master.cfg().await.clone()
+    };
+    let key_path = cfg.minion_keys_root().join(format!("{minion_id}.rsa.pub"));
+    let public_key = match key_from_file(key_path.to_str().unwrap_or_default())
+        .map_err(|e| reject(format!("Unable to load minion public key: {e}")))?
+    {
+        Some(RsaKey::Public(pbk)) => pbk,
+        _ => {
+            return Err(reject(format!("Unknown minion or invalid public key for {}", minion_id)))
+        }
+    };
+    let signature = STANDARD
+        .decode(signature_b64)
+        .map_err(|e| reject(format!("Invalid minion-auth signature encoding: {e}")))?;
+    let material = minion_auth_material(req.method().as_str(), req.path(), req.query_string(), timestamp, body_sha256);
+    let verified = verify_sign(&public_key, material.as_bytes(), signature)
+        .map_err(|e| reject(format!("Minion-auth verification failed: {e}")))?;
+    if !verified {
+        return Err(reject("Invalid minion-auth signature".to_string()));
+    }
+
+    Ok(minion_id.to_string())
+}
+
+#[utoipa::path(
+    post,
+    path = "/store/auth/minion",
+    tag = "Datastore",
+    responses(
+        (status = 200, description = "Datastore minion authentication successful", body = StoreMinionAuthResponse),
+        (status = 401, description = "Unauthorized", body = StoreErrorResponse)
+    )
+)]
+#[post("/store/auth/minion")]
+pub async fn store_minion_auth_handler(req: HttpRequest, master: web::Data<MasterInterfaceType>) -> impl Responder {
+    match verify_minion_bootstrap(&req, &master).await {
+        Ok(minion_id) => match get_session_store().lock().await.open(format!("minion:{minion_id}")) {
+            Ok(token) => HttpResponse::Ok().json(StoreMinionAuthResponse {
+                status: "authenticated".to_string(),
+                access_token: token,
+                token_type: "Bearer".to_string(),
+                error: String::new(),
+            }),
+            Err(err) => HttpResponse::InternalServerError().json(StoreErrorResponse { error: err.to_string() }),
+        },
+        Err(err) => HttpResponse::Unauthorized().json(StoreErrorResponse { error: err.to_string() }),
+    }
 }
 
 /// Get a list of all meta files within the datastore.
