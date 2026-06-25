@@ -45,11 +45,7 @@ fn resolve_user_path(raw: &str) -> PathBuf {
     }
 
     let path = PathBuf::from(trimmed);
-    if path.is_absolute() {
-        path
-    } else {
-        std::env::current_dir().unwrap_or_default().join(path)
-    }
+    if path.is_absolute() { path } else { std::env::current_dir().unwrap_or_default().join(path) }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -329,10 +325,8 @@ impl MasterSetupWizard {
                 SetupFocus::ApiCheck => {
                     self.api_enabled = !self.api_enabled;
                 }
-                SetupFocus::ApiSelfSignedCheck => {
-                    if self.api_enabled {
-                        self.api_self_signed_tls = !self.api_self_signed_tls;
-                    }
+                SetupFocus::ApiSelfSignedCheck if self.api_enabled => {
+                    self.api_self_signed_tls = !self.api_self_signed_tls;
                 }
                 _ => {} // input fields — Enter does nothing (text is handled by char keys)
             },
@@ -552,11 +546,8 @@ impl MasterSetupWizard {
         buf.set_string(inner.x + 1, row_y, api_chk, api_style);
         row_y += 1;
 
-        let self_signed_chk = if self.api_self_signed_tls {
-            " ▣  Setup with self-signed TLS certificate"
-        } else {
-            " □  Setup with self-signed TLS certificate"
-        };
+        let self_signed_chk =
+            if self.api_self_signed_tls { " ▣  Setup with self-signed TLS certificate" } else { " □  Setup with self-signed TLS certificate" };
         let self_signed_style = if !self.api_enabled {
             Style::default().fg(palette::MUTED)
         } else if self.is_focused(SetupFocus::ApiSelfSignedCheck) {
@@ -732,11 +723,7 @@ pub fn render_progress(progress: &SetupProgress, parent: Rect, buf: &mut Buffer)
 impl SetupRequest {
     fn config_path(&self) -> PathBuf {
         let root = self.root_dir();
-        if matches!(self.installation_mode, InstallationMode::SystemWide) {
-            root.join("sysinspect.conf")
-        } else {
-            root.join("etc/sysinspect.conf")
-        }
+        if matches!(self.installation_mode, InstallationMode::SystemWide) { root.join("sysinspect.conf") } else { root.join("etc/sysinspect.conf") }
     }
 
     fn config_dropin_dir(&self) -> PathBuf {
@@ -772,8 +759,7 @@ impl SetupRequest {
         let pkey = PKey::from_rsa(rsa).map_err(|e| format!("Cannot convert RSA key: {e}"))?;
 
         let mut name = X509NameBuilder::new().map_err(|e| format!("Cannot create certificate subject: {e}"))?;
-        name.append_entry_by_nid(Nid::COMMONNAME, "sysinspect-webapi")
-            .map_err(|e| format!("Cannot set certificate subject: {e}"))?;
+        name.append_entry_by_nid(Nid::COMMONNAME, "sysinspect-webapi").map_err(|e| format!("Cannot set certificate subject: {e}"))?;
         let name = name.build();
 
         let mut builder = X509::builder().map_err(|e| format!("Cannot build certificate: {e}"))?;
@@ -795,11 +781,8 @@ impl SetupRequest {
 
         std::fs::write(&cert_path, builder.build().to_pem().map_err(|e| format!("Cannot export certificate: {e}"))?)
             .map_err(|e| format!("Cannot write {}: {e}", cert_path.display()))?;
-        std::fs::write(
-            &key_path,
-            pkey.private_key_to_pem_pkcs8().map_err(|e| format!("Cannot export private key: {e}"))?,
-        )
-        .map_err(|e| format!("Cannot write {}: {e}", key_path.display()))?;
+        std::fs::write(&key_path, pkey.private_key_to_pem_pkcs8().map_err(|e| format!("Cannot export private key: {e}"))?)
+            .map_err(|e| format!("Cannot write {}: {e}", key_path.display()))?;
 
         self.write_webapi_tls_dropin(&cert_path, &key_path)
     }
