@@ -262,7 +262,9 @@ impl ProfilesManager {
             KeyCode::Up => match self.detail_focus {
                 Modules => {
                     let groups = self.build_profile_tree();
-                    if groups.is_empty() { return true; }
+                    if groups.is_empty() {
+                        return true;
+                    }
                     let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
                     ts.select_prev(&groups);
                     *self.detail_tree_state.borrow_mut() = Some(ts);
@@ -276,7 +278,9 @@ impl ProfilesManager {
             KeyCode::Down => match self.detail_focus {
                 Modules => {
                     let groups = self.build_profile_tree();
-                    if groups.is_empty() { return true; }
+                    if groups.is_empty() {
+                        return true;
+                    }
                     let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
                     ts.select_next(&groups);
                     *self.detail_tree_state.borrow_mut() = Some(ts);
@@ -292,9 +296,13 @@ impl ProfilesManager {
             KeyCode::PageUp => match self.detail_focus {
                 Modules => {
                     let groups = self.build_profile_tree();
-                    if groups.is_empty() { return true; }
+                    if groups.is_empty() {
+                        return true;
+                    }
                     let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
-                    for _ in 0..10 { ts.select_prev(&groups); }
+                    for _ in 0..10 {
+                        ts.select_prev(&groups);
+                    }
                     *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
@@ -306,9 +314,13 @@ impl ProfilesManager {
             KeyCode::PageDown => match self.detail_focus {
                 Modules => {
                     let groups = self.build_profile_tree();
-                    if groups.is_empty() { return true; }
+                    if groups.is_empty() {
+                        return true;
+                    }
                     let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
-                    for _ in 0..10 { ts.select_next(&groups); }
+                    for _ in 0..10 {
+                        ts.select_next(&groups);
+                    }
                     *self.detail_tree_state.borrow_mut() = Some(ts);
                 }
                 Libraries => {
@@ -331,7 +343,9 @@ impl ProfilesManager {
             KeyCode::Enter => {
                 if self.detail_focus == ProfDetailFocus::Modules {
                     let groups = self.build_profile_tree();
-                    if groups.is_empty() { return true; }
+                    if groups.is_empty() {
+                        return true;
+                    }
                     let mut ts = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(groups.len()));
                     ts.toggle_selected();
                     *self.detail_tree_state.borrow_mut() = Some(ts);
@@ -665,40 +679,40 @@ impl ProfilesManager {
                 buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
                 row_y = mod_area.bottom() + 1;
             } else {
-            let total_items: usize = n_groups + groups.iter().map(|g| g.children_slice().len()).sum::<usize>();
-            let treesel = if focused {
-                Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
-            } else {
-                Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
-            };
-            let tree_styles = TreeStyles {
-                parent: Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD),
-                child: Style::default().fg(palette::FG),
-                selected: treesel,
-                chevron: Style::default().fg(palette::MUTED),
-                chevron_active: Style::default().fg(palette::MUTED),
-                chevron_dim: Style::default().fg(palette::MUTED),
-                count: Style::default().fg(palette::GRAY_1),
-                icon: Style::default().fg(palette::ERROR),
-            };
-            let tree = Tree::default().groups(groups).styles(tree_styles).chevron_collapsed("▸ ").chevron_expanded("▾ ");
-            let tree_inner = Rect::new(mod_area.x, mod_area.y, mod_area.width.saturating_sub(1), mod_area.height);
-            let mut state = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(n_groups));
-            StatefulWidget::render(&tree, tree_inner, buf, &mut state);
-            *self.detail_tree_state.borrow_mut() = Some(state.clone());
+                let total_items: usize = n_groups + groups.iter().map(|g| g.children_slice().len()).sum::<usize>();
+                let treesel = if focused {
+                    Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT)
+                } else {
+                    Style::default().fg(palette::FG).bg(palette::POPUP_BG_BASE)
+                };
+                let tree_styles = TreeStyles {
+                    parent: Style::default().fg(palette::PROCESSING).add_modifier(Modifier::BOLD),
+                    child: Style::default().fg(palette::FG),
+                    selected: treesel,
+                    chevron: Style::default().fg(palette::MUTED),
+                    chevron_active: Style::default().fg(palette::MUTED),
+                    chevron_dim: Style::default().fg(palette::MUTED),
+                    count: Style::default().fg(palette::GRAY_1),
+                    icon: Style::default().fg(palette::ERROR),
+                };
+                let tree = Tree::default().groups(groups).styles(tree_styles).chevron_collapsed("▸ ").chevron_expanded("▾ ");
+                let tree_inner = Rect::new(mod_area.x, mod_area.y, mod_area.width.saturating_sub(1), mod_area.height);
+                let mut state = self.detail_tree_state.borrow_mut().take().unwrap_or_else(|| TreeState::all_expanded(n_groups));
+                StatefulWidget::render(&tree, tree_inner, buf, &mut state);
+                *self.detail_tree_state.borrow_mut() = Some(state.clone());
 
-            let scroller_area = Rect::new(tree_inner.right().saturating_sub(1), tree_inner.y, 1, tree_inner.height);
-            let mut scroller = ScrollbarState::default()
-                .content_length(total_items)
-                .position(state.selected().0);
-            Scrollbar::default()
-                .begin_symbol(None).end_symbol(None)
-                .track_symbol(Some("\u{28FF}")).thumb_symbol("█")
-                .track_style(Style::default().bg(palette::BG_3))
-                .thumb_style(Style::default().fg(palette::GRAY_1))
-                .render(scroller_area, buf, &mut scroller);
+                let scroller_area = Rect::new(tree_inner.right().saturating_sub(1), tree_inner.y, 1, tree_inner.height);
+                let mut scroller = ScrollbarState::default().content_length(total_items).position(state.selected().0);
+                Scrollbar::default()
+                    .begin_symbol(None)
+                    .end_symbol(None)
+                    .track_symbol(Some("\u{28FF}"))
+                    .thumb_symbol("█")
+                    .track_style(Style::default().bg(palette::BG_3))
+                    .thumb_style(Style::default().fg(palette::GRAY_1))
+                    .render(scroller_area, buf, &mut scroller);
 
-            row_y = mod_area.bottom() + 1;
+                row_y = mod_area.bottom() + 1;
             }
         }
 
@@ -762,15 +776,19 @@ impl ProfilesManager {
         }
         ver_w = ver_w.max(4);
         for group in &self.detail_model_groups {
-            let children: Vec<TreeItem> = group.modules.iter().map(|m| {
-                let (icon, ver, descr) = if m.covered {
-                    ("  ", format!("{: <ver_w$}", m.version, ver_w = ver_w), format!("  {}", m.descr))
-                } else {
-                    ("✖ ", "N/A".to_string(), "  (missing)".to_string())
-                };
-                let padded_name = Self::pad_to_width(&m.name, name_w);
-                TreeItem::new(format!("{padded_name}  {ver}{descr}")).icon(icon)
-            }).collect();
+            let children: Vec<TreeItem> = group
+                .modules
+                .iter()
+                .map(|m| {
+                    let (icon, ver, descr) = if m.covered {
+                        ("  ", format!("{: <ver_w$}", m.version, ver_w = ver_w), format!("  {}", m.descr))
+                    } else {
+                        ("✖ ", "N/A".to_string(), "  (missing)".to_string())
+                    };
+                    let padded_name = Self::pad_to_width(&m.name, name_w);
+                    TreeItem::new(format!("{padded_name}  {ver}{descr}")).icon(icon)
+                })
+                .collect();
             groups.push(TreeGroup::new(TreeItem::new(group.name.clone())).children(children));
         }
         groups
@@ -1036,10 +1054,7 @@ impl ProfilesManager {
                 }
             }
         }
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(palette::SUCCESS));
+        let block = Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(palette::SUCCESS));
         buf.set_string(canvas.x + 2, canvas.y, format!(" Assign: {} ", self.assign.profile_name), Style::default().fg(palette::SUCCESS_PEAK));
         let inner = block.inner(canvas);
         block.render(canvas, buf);
@@ -1131,7 +1146,9 @@ fn truncate_str(s: &str, max_w: usize) -> String {
     if s.len() <= max_w { s.to_string() } else { format!("{}…", &s[..max_w.saturating_sub(1)]) }
 }
 
-pub fn group_modules_by_models(profile_model_ids: &[String], model_rows: &[ConsoleModelRow], modules: &[ResolvedModule]) -> (Vec<ResolvedModelGroup>, Vec<ResolvedModule>) {
+pub fn group_modules_by_models(
+    profile_model_ids: &[String], model_rows: &[ConsoleModelRow], modules: &[ResolvedModule],
+) -> (Vec<ResolvedModelGroup>, Vec<ResolvedModule>) {
     let mut groups = Vec::new();
     let mut covered_set = std::collections::BTreeSet::new();
 

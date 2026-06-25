@@ -2778,10 +2778,8 @@ impl SysInspectUX {
                 let handled = self.repo_manager.profiles.handle_assign_key(e.code);
                 if !handled && e.code == KeyCode::Enter {
                     let profile_name = self.repo_manager.profiles.assign.profile_name.clone();
-                    let selected: Vec<String> = self.repo_manager.profiles.assign.minions.iter()
-                        .filter(|(_, checked)| *checked)
-                        .map(|(host, _)| host.clone())
-                        .collect();
+                    let selected: Vec<String> =
+                        self.repo_manager.profiles.assign.minions.iter().filter(|(_, checked)| *checked).map(|(host, _)| host.clone()).collect();
                     match self.repo_manager.profiles.assign.focus {
                         profiles::ProfAssignFocus::TagBtn if !selected.is_empty() => {
                             let _ = self.do_profile_tag(&profile_name, &selected);
@@ -2847,9 +2845,7 @@ impl SysInspectUX {
                         }
                         profiles::ProfDetailFocus::AssignBtn => {
                             if let Some(name) = self.repo_manager.profiles.selected_profile_name().map(|s| s.to_string()) {
-                                self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| {
-                                    (m.hostname.clone(), false)
-                                }).collect();
+                                self.repo_manager.profiles.assign.minions = self.minions_rows.iter().map(|m| (m.hostname.clone(), false)).collect();
                                 self.repo_manager.profiles.assign.profile_name = name;
                                 self.repo_manager.profiles.assign.visible = true;
                                 self.status_at_profiles();
@@ -3369,16 +3365,10 @@ impl SysInspectUX {
             let mid = mid.clone();
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    call_master_console(
-                        &self.cfg,
-                        &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"),
-                        "*",
-                        None,
-                        Some(&mid),
-                        Some(&ctx),
-                    ).await
+                    call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), "*", None, Some(&mid), Some(&ctx)).await
                 })
-            }).map_err(|e| e.to_string())?;
+            })
+            .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -3390,16 +3380,10 @@ impl SysInspectUX {
             let mid = mid.clone();
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    call_master_console(
-                        &self.cfg,
-                        &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"),
-                        "*",
-                        None,
-                        Some(&mid),
-                        Some(&ctx),
-                    ).await
+                    call_master_console(&self.cfg, &format!("{SCHEME_COMMAND}{CLUSTER_PROFILE}"), "*", None, Some(&mid), Some(&ctx)).await
                 })
-            }).map_err(|e| e.to_string())?;
+            })
+            .map_err(|e| e.to_string())?;
         }
         Ok(())
     }

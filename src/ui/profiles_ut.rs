@@ -36,9 +36,27 @@ fn groups_modules_under_profile_models_with_coverage_flags() {
         },
     ];
     let resolved_modules = vec![
-        ResolvedModule { name: "module.one".to_string(), version: "1".to_string(), descr: String::new(), selector: "module.one".to_string(), covered: true },
-        ResolvedModule { name: "foo.bar".to_string(), version: "1".to_string(), descr: String::new(), selector: "foo.bar".to_string(), covered: true },
-        ResolvedModule { name: "orphan.mod".to_string(), version: "1".to_string(), descr: String::new(), selector: "orphan.mod".to_string(), covered: true },
+        ResolvedModule {
+            name: "module.one".to_string(),
+            version: "1".to_string(),
+            descr: String::new(),
+            selector: "module.one".to_string(),
+            covered: true,
+        },
+        ResolvedModule {
+            name: "foo.bar".to_string(),
+            version: "1".to_string(),
+            descr: String::new(),
+            selector: "foo.bar".to_string(),
+            covered: true,
+        },
+        ResolvedModule {
+            name: "orphan.mod".to_string(),
+            version: "1".to_string(),
+            descr: String::new(),
+            selector: "orphan.mod".to_string(),
+            covered: true,
+        },
     ];
     let profile_model_ids = vec!["model-a".to_string(), "model-b".to_string()];
 
