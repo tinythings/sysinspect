@@ -197,6 +197,11 @@ impl SysInspectUX {
     }
 
     pub(crate) fn status_at_repo_manager(&mut self) {
+        let p = &self.repo_manager.profiles;
+        if p.detail_visible || p.create_visible || p.delete_visible || p.assign.visible {
+            self.status_at_profiles();
+            return;
+        }
         let key = |s| Span::styled(s, Style::default().fg(palette::FG));
         let desc = |s| Span::styled(s, Style::default().fg(palette::FAINT));
         self.status_text = Line::from(vec![
@@ -229,7 +234,7 @@ impl SysInspectUX {
                 key("Tab "),
                 desc("switch section  "),
                 key("\u{2190}/\u{2192} "),
-                desc("view  "),
+                desc("all modules/per model  "),
                 key("+/- "),
                 desc("expand/collapse  "),
                 key("Enter "),
