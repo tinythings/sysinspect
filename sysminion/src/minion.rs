@@ -1365,6 +1365,8 @@ impl SysMinion {
                         }
                     }
 
+                    RequestType::ModelUpdated | RequestType::ModelRemoved => {}
+
                     _ => log::error!("Unknown request type"),
                 }
             }

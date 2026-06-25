@@ -153,6 +153,7 @@ pub struct SysMaster {
     pending_console_replies: HashMap<String, oneshot::Sender<MinionCommandReply>>,
     peer_transport: PeerTransport,
     datastore: Arc<Mutex<DataStorage>>,
+    model_watcher_token: Option<CancellationToken>,
 }
 
 fn model_id_from_path(path: &Path) -> Option<&str> {
@@ -188,6 +189,7 @@ impl Callback<FileScreamEvent> for ModelChangeCallback {
         let broadcast = self.broadcast.clone();
         let path = path.clone();
         tokio::spawn(async move {
+            MODEL_CACHE.lock().await.remove(&path);
             if let Ok(reducer) = FunctionReducer::new(path, model_id.clone()).load_model(&MODEL_CACHE).await {
                 drop(reducer);
                 let mut msg = MasterMessage::new(RequestType::ModelUpdated, json!({"id": model_id}));
@@ -260,6 +262,7 @@ impl SysMaster {
             pending_console_replies: HashMap::new(),
             peer_transport: PeerTransport::new(),
             datastore: Arc::new(Mutex::new(DataStorage::new(ds_cfg, ds_path)?)),
+            model_watcher_token: None,
         })
     }
 
@@ -371,10 +374,15 @@ impl SysMaster {
         Ok(())
     }
 
-    fn watch_models(&self) {
+    fn watch_models(&mut self) {
+        if let Some(token) = self.model_watcher_token.take() {
+            token.cancel();
+        }
+        let cancel = CancellationToken::new();
+        self.model_watcher_token = Some(cancel.clone());
         let mut hub = CallbackHub::<FileScreamEvent>::new();
         hub.add(ModelChangeCallback { broadcast: self.broadcast.clone() });
-        let ctx = SensorCtx { cancel: CancellationToken::new(), hub: Arc::new(hub) };
+        let ctx = SensorCtx { cancel, hub: Arc::new(hub) };
         let mut fs = FileScream::new(None);
         fs.watch(self.cfg.fileserver_root().join(CFG_MODELS_ROOT));
         tokio::spawn(async move { fs.run(ctx).await });
