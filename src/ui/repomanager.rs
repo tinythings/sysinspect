@@ -21,6 +21,14 @@ use std::{
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone)]
+pub struct SensorScopeRow {
+    pub id: String,
+    pub enabled: bool,
+    pub description: String,
+    pub sensor_count: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct StagedModule {
     pub name: String,
     pub version: Option<String>,
@@ -52,6 +60,12 @@ pub enum StagingMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelDeleteFocus {
+    YesBtn,
+    NoBtn,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SensorDeleteFocus {
     YesBtn,
     NoBtn,
 }
@@ -111,6 +125,14 @@ pub struct RepoManager {
     pub model_delete_id: String,
     pub model_delete_focus: ModelDeleteFocus,
 
+    // Sensors
+    pub sensor_rows: Vec<SensorScopeRow>,
+    pub sensor_cursor: usize,
+    pub sensor_scroll: Cell<usize>,
+    pub sensor_delete_visible: bool,
+    pub sensor_delete_id: String,
+    pub sensor_delete_focus: SensorDeleteFocus,
+
     // Profiles
     pub profiles: profiles::ProfilesManager,
 
@@ -159,6 +181,12 @@ impl Default for RepoManager {
             model_delete_visible: false,
             model_delete_id: String::new(),
             model_delete_focus: ModelDeleteFocus::NoBtn,
+            sensor_rows: Vec::new(),
+            sensor_cursor: 0,
+            sensor_scroll: Cell::new(0),
+            sensor_delete_visible: false,
+            sensor_delete_id: String::new(),
+            sensor_delete_focus: SensorDeleteFocus::NoBtn,
             profiles: profiles::ProfilesManager::default(),
             platforms: platforms::PlatformsManager::default(),
         }
@@ -374,6 +402,9 @@ impl RepoManager {
         if self.model_delete_visible {
             self.render_model_delete(parent, buf);
         }
+        if self.sensor_delete_visible {
+            self.render_sensor_delete(parent, buf);
+        }
         if self.staging {
             self.render_staging(parent, buf);
         }
@@ -421,7 +452,7 @@ impl RepoManager {
         let inner = block.inner(canvas);
         block.render(canvas, buf);
 
-        let tab_names = ["Modules", "Libraries", "Models", "Profiles", "Platforms"];
+        let tab_names = ["Modules", "Libraries", "Models", "Sensors", "Profiles", "Platforms"];
         let section_name = tab_names[self.active_tab as usize];
         let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
 
@@ -465,8 +496,9 @@ impl RepoManager {
             0 => self.render_modules(body, buf),
             1 => self.render_libraries(body, buf),
             2 => self.render_models(body, buf),
-            3 => self.profiles.render_list(body, buf, self.filter_focus, &self.filter),
-            4 => self.platforms.render_list(body, buf, self.filter_focus, &self.filter),
+            3 => self.render_sensors(body, buf),
+            4 => self.profiles.render_list(body, buf, self.filter_focus, &self.filter),
+            5 => self.platforms.render_list(body, buf, self.filter_focus, &self.filter),
             _ => {}
         }
         Self::draw_shadow(buf, canvas, dlg_w, dlg_h);
@@ -1065,6 +1097,118 @@ impl RepoManager {
         }
     }
 
+    fn render_sensors(&self, inner: Rect, buf: &mut Buffer) {
+        if inner.height < 2 {
+            return;
+        }
+        let [filter_area, list_area] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(inner)
+            .as_ref()
+            .try_into()
+            .unwrap();
+        Self::render_filter_row(filter_area, buf, self.filter_focus, &self.filter);
+        if self.sensor_rows.is_empty() {
+            let msg = "(no sensor scopes found)";
+            let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
+            let y = list_area.y + list_area.height / 2;
+            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            return;
+        }
+        let flt = self.filter.value().to_lowercase();
+        let filtered: Vec<(usize, &SensorScopeRow)> = self
+            .sensor_rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| flt.is_empty() || r.id.to_lowercase().contains(&flt) || r.description.to_lowercase().contains(&flt))
+            .collect();
+        let view_h = list_area.height as usize;
+        let total = filtered.len();
+        let max_scroll = total.saturating_sub(view_h);
+        let mut s = self.sensor_scroll.get();
+        let cursor = self.sensor_cursor.min(total.saturating_sub(1));
+        if cursor < s {
+            s = cursor;
+        }
+        if cursor >= s + view_h {
+            s = cursor.saturating_sub(view_h.saturating_sub(1));
+        }
+        s = s.min(max_scroll);
+        self.sensor_scroll.set(s);
+        if total == 0 {
+            let msg = "(no matches)";
+            let x = list_area.x + (list_area.width.saturating_sub(msg.len() as u16)) / 2;
+            let y = list_area.y + list_area.height / 2;
+            buf.set_string(x, y, msg, Style::default().fg(palette::MUTED));
+            return;
+        }
+        let hl = Style::default().fg(palette::BLACK).bg(palette::HIGHLIGHT);
+        let state_w: u16 = 4;
+        let name_w: u16 = 18u16.min(list_area.width.saturating_sub(24));
+        for i in 0..view_h.min(total.saturating_sub(s)) {
+            let fi = s + i;
+            let (_oi, row) = filtered[fi];
+            let ry = list_area.y + i as u16;
+            let sel = !self.filter_focus && fi == cursor;
+            let row_style = if sel {
+                hl
+            } else if row.enabled {
+                Style::default().fg(palette::FG)
+            } else {
+                Style::default().fg(palette::MUTED)
+            };
+            if sel {
+                for cx in 0..list_area.width {
+                    if let Some(cell) = buf.cell_mut(Position::new(list_area.x + cx, ry)) {
+                        cell.set_bg(palette::HIGHLIGHT);
+                    }
+                }
+            }
+            let check_style = if sel {
+                row_style
+            } else if row.enabled {
+                Style::default().fg(palette::SUCCESS_PEAK)
+            } else {
+                Style::default().fg(palette::MUTED)
+            };
+            buf.set_string(list_area.x + 1, ry, if row.enabled { "▣" } else { "□" }, check_style);
+            let name_style = if sel {
+                row_style
+            } else if row.enabled {
+                Style::default().fg(palette::PROCESSING)
+            } else {
+                Style::default().fg(palette::MUTED)
+            };
+            buf.set_string(list_area.x + 1 + state_w + 1, ry, truncate_str(&row.id, name_w as usize), name_style);
+            let descr_style = if sel {
+                row_style
+            } else if row.enabled {
+                Style::default().fg(palette::GRAY_1)
+            } else {
+                Style::default().fg(palette::MUTED)
+            };
+            let descr_x = list_area.x + 1 + state_w + 1 + name_w + 1;
+            let descr_w = list_area.width.saturating_sub(1 + state_w + 1 + name_w + 2);
+            let suffix = if row.sensor_count > 1 { format!(" ({})", row.sensor_count) } else { String::new() };
+            let descr = format!("{}{}", row.description, suffix);
+            buf.set_string(descr_x, ry, truncate_str(&descr, descr_w as usize), descr_style);
+        }
+        if total > view_h {
+            let bh = ((view_h as f64 / total as f64) * view_h as f64).max(1.0) as usize;
+            let by = ((s as f64 / total as f64) * (view_h - bh) as f64) as usize;
+            for i in 0..view_h {
+                let sx = list_area.right().saturating_sub(1);
+                let sy = list_area.y + i as u16;
+                if i >= by && i < by + bh {
+                    buf.set_string(sx, sy, "█", Style::default().fg(palette::PROCESSING_HEAT));
+                } else {
+                    buf.set_string(sx, sy, "│", Style::default().fg(palette::MUTED));
+                }
+            }
+        }
+    }
+
     fn render_filter_row(area: Rect, buf: &mut Buffer, focused: bool, filter_state: &InputState) {
         let label_style =
             if focused { Style::default().fg(palette::FORM_LABEL).add_modifier(Modifier::BOLD) } else { Style::default().fg(palette::FORM_LABEL) };
@@ -1141,8 +1285,14 @@ impl RepoManager {
         self.model_delete_visible = true;
     }
 
-    pub fn handle_model_delete_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
-        match key.code {
+    pub fn open_sensor_delete(&mut self, sensor_id: String) {
+        self.sensor_delete_id = sensor_id;
+        self.sensor_delete_focus = SensorDeleteFocus::NoBtn;
+        self.sensor_delete_visible = true;
+    }
+
+    pub fn handle_model_delete_key(&mut self, code: crossterm::event::KeyCode) -> bool {
+        match code {
             crossterm::event::KeyCode::Esc => {
                 self.model_delete_visible = false;
             }
@@ -1153,6 +1303,26 @@ impl RepoManager {
                 self.model_delete_focus = match self.model_delete_focus {
                     ModelDeleteFocus::YesBtn => ModelDeleteFocus::NoBtn,
                     ModelDeleteFocus::NoBtn => ModelDeleteFocus::YesBtn,
+                };
+            }
+            crossterm::event::KeyCode::Enter => return false,
+            _ => {}
+        }
+        true
+    }
+
+    pub fn handle_sensor_delete_key(&mut self, code: crossterm::event::KeyCode) -> bool {
+        match code {
+            crossterm::event::KeyCode::Esc => {
+                self.sensor_delete_visible = false;
+            }
+            crossterm::event::KeyCode::Tab
+            | crossterm::event::KeyCode::BackTab
+            | crossterm::event::KeyCode::Left
+            | crossterm::event::KeyCode::Right => {
+                self.sensor_delete_focus = match self.sensor_delete_focus {
+                    SensorDeleteFocus::YesBtn => SensorDeleteFocus::NoBtn,
+                    SensorDeleteFocus::NoBtn => SensorDeleteFocus::YesBtn,
                 };
             }
             crossterm::event::KeyCode::Enter => return false,
@@ -1500,6 +1670,70 @@ impl RepoManager {
 
         let yes_style = if self.model_delete_focus == ModelDeleteFocus::YesBtn { sel_btn } else { unsel_btn };
         let no_style = if self.model_delete_focus == ModelDeleteFocus::NoBtn { sel_btn } else { unsel_btn };
+        buf.set_string(btn_x, btn_y, yes_lbl, yes_style);
+        buf.set_string(btn_x + yes_w + gap, btn_y, no_lbl, no_style);
+
+        Self::draw_shadow(buf, canvas, w, h);
+    }
+
+    fn render_sensor_delete(&self, parent: Rect, buf: &mut Buffer) {
+        let w = (parent.width / 2).clamp(42, 64);
+        let h: u16 = 6;
+        let x = parent.x + (parent.width.saturating_sub(w)) / 2;
+        let y = parent.y + (parent.height.saturating_sub(h)) / 2;
+        let canvas = Rect { x, y, width: w, height: h };
+
+        Clear.render(canvas, buf);
+
+        let grad = blend_2d(canvas.width as usize, canvas.height as usize, 10.0, &[palette::BG_1, palette::BG_0] as &[Color]);
+        for ry in 0..canvas.height {
+            for cx in 0..canvas.width {
+                let idx = ry as usize * canvas.width as usize + cx as usize;
+                if let Some(cell) = buf.cell_mut(Position::new(canvas.x + cx, canvas.y + ry)) {
+                    cell.set_bg(grad[idx]);
+                }
+            }
+        }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(palette::PROCESSING_GLOW))
+            .style(Style::default());
+        let inner = block.inner(canvas);
+        block.render(canvas, buf);
+
+        let title_style = TitleStyle::cyberpunk(palette::PROCESSING_GLOW);
+        title::overlay_gradient_title(
+            buf,
+            canvas,
+            &title_style,
+            &[TitleSegment {
+                text: format!(" Delete {} ", self.sensor_delete_id),
+                bg: palette::ERROR_BASE,
+                fg: palette::FG,
+                modifier: Modifier::empty(),
+            }],
+        );
+
+        let msg = format!("Delete sensor scope \"{}\"?", self.sensor_delete_id);
+        let msg_x = inner.x + (inner.width.saturating_sub(msg.len() as u16)) / 2;
+        buf.set_string(msg_x, inner.y + 1, &msg, Style::default().fg(palette::FG));
+
+        let btn_y = inner.y + 3;
+        let yes_lbl = "[   Yes   ]";
+        let no_lbl = "[   No    ]";
+        let yes_w: u16 = 10;
+        let no_w: u16 = 10;
+        let gap: u16 = 3;
+        let total_btn_w = yes_w + gap + no_w;
+        let btn_x = inner.x + (inner.width.saturating_sub(total_btn_w)) / 2;
+
+        let sel_btn = Style::default().fg(palette::WHITE).bg(palette::PROCESSING_HEAT).add_modifier(Modifier::BOLD);
+        let unsel_btn = Style::default().fg(palette::FG).bg(palette::BG_2).add_modifier(Modifier::BOLD);
+
+        let yes_style = if self.sensor_delete_focus == SensorDeleteFocus::YesBtn { sel_btn } else { unsel_btn };
+        let no_style = if self.sensor_delete_focus == SensorDeleteFocus::NoBtn { sel_btn } else { unsel_btn };
         buf.set_string(btn_x, btn_y, yes_lbl, yes_style);
         buf.set_string(btn_x + yes_w + gap, btn_y, no_lbl, no_style);
 

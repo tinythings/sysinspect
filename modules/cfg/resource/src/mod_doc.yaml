@@ -1,5 +1,5 @@
 name: "cfg.resource"
-version: "0.1.0"
+version: "0.2.1"
 author: "Bo Maryniuk"
 description: |
   Plugin for resource management and availability.
@@ -21,6 +21,11 @@ options:
     required: false
     description: "Overwrite the resource if it is already installed (default: false)"
 
+  - name: sync-dir
+    type: bool
+    required: false
+    description: "Synchronize all datastore items matching the logical prefix in [Y::]src[N] into a local directory."
+
 # Keyword arguments
 arguments:
   - name: src
@@ -37,6 +42,21 @@ arguments:
     type: string
     required: false
     description: "Alias for [Y::]file[N]. If neither [Y::]file[N] nor [Y::]dst[N] is set, [Y::]src[N] is used as local path."
+
+  - name: tls
+    type: bool
+    required: false
+    description: "Use HTTPS when talking to the Master Web API (default: true)."
+
+  - name: tls-accept-insecure
+    type: bool
+    required: false
+    description: "Allow self-signed or otherwise invalid TLS certificates (default: false)."
+
+  - name: port
+    type: int
+    required: false
+    description: "Master Web API port (default: 4202)."
 
   - name: mode
     type: string

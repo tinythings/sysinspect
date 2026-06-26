@@ -31,7 +31,7 @@ Authentication And Requests
 The Web API uses:
 
 - HTTPS/TLS for transport protection
-- bearer tokens for authentication
+- bearer tokens for operator and external client authentication
 - plain JSON request and response bodies
 
 Typical flow:
@@ -39,6 +39,17 @@ Typical flow:
 1. ``POST /api/v1/authenticate`` with JSON credentials
 2. receive ``access_token``
 3. call later endpoints with ``Authorization: Bearer <token>``
+
+Datastore endpoints used by internal minion-side resource workflows are a small
+exception to the operator flow above:
+
+- a minion can bootstrap datastore access through ``POST /store/auth/minion``
+- the bootstrap request is signed with the minion's registered RSA identity
+- the API returns a short-lived datastore bearer token
+- later datastore calls use that token as normal bearer auth
+
+This keeps external API access operator-authenticated while letting internal
+``cfg.resource`` model actions access the datastore transparently.
 
 Swagger UI itself is served over the same HTTPS listener. Operators typically:
 

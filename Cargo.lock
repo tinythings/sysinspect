@@ -4470,6 +4470,7 @@ dependencies = [
  "actix-files",
  "actix-web",
  "async-trait",
+ "base64",
  "colored",
  "futures-util",
  "hostname",
@@ -7023,14 +7024,16 @@ dependencies = [
 
 [[package]]
 name = "resource"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
+ "base64",
  "clap",
  "libdatastore",
  "libmodcore",
  "libsysinspect",
  "log",
  "reqwest 0.12.28",
+ "rsa",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -8598,6 +8601,7 @@ dependencies = [
  "libeventreg",
  "libmodcore",
  "libmodpak",
+ "libsensors",
  "libsetup",
  "libsysinspect",
  "libsysproto",

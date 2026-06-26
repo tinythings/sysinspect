@@ -1,6 +1,6 @@
 [package]
 name = "resource"
-version = "0.1.0"
+version = "0.2.1"
 edition = "2024"
 
 [dependencies]
@@ -14,3 +14,5 @@ clap = { version = "4.6.1", features = ["derive"] }
 log = "0.4.29"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 sha2 = "0.10.9"
+base64 = "0.22.1"
+rsa = "0.9.10"

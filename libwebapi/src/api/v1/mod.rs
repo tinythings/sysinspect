@@ -3,8 +3,8 @@ use crate::api::v1::{
     minions::{QueryError, QueryRequest, QueryResponse, query_handler},
     model::{ModelNameResponse, model_descr_handler, model_names_handler},
     store::{
-        StoreListQuery, StoreMetaResponse, StoreResolveQuery, store_blob_handler, store_list_handler, store_meta_handler, store_resolve_handler,
-        store_upload_handler,
+        StoreListQuery, StoreMetaResponse, StoreMinionAuthResponse, StoreResolveQuery, store_blob_handler, store_list_handler, store_meta_handler,
+        store_minion_auth_handler, store_resolve_handler, store_upload_handler,
     },
     system::{AuthRequest, AuthResponse, HealthInfo, HealthResponse, authenticate_handler},
 };
@@ -63,6 +63,7 @@ impl V1 {
             .service(authenticate_handler)
             .service(model_names_handler)
             .service(model_descr_handler)
+            .service(store_minion_auth_handler)
             .service(store_resolve_handler)
             .service(store_list_handler)
             .service(store_meta_handler)
@@ -108,12 +109,13 @@ impl super::ApiVersion for V1 {
     crate::api::v1::store::store_meta_handler,
     crate::api::v1::store::store_blob_handler,
     crate::api::v1::store::store_upload_handler,
+    crate::api::v1::store::store_minion_auth_handler,
     crate::api::v1::store::store_resolve_handler,
     crate::api::v1::store::store_list_handler,
 ),
           components(schemas(QueryRequest, QueryResponse, QueryError,
-                             HealthInfo, HealthResponse, AuthRequest, AuthResponse,
-                             ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
+                              HealthInfo, HealthResponse, AuthRequest, AuthResponse,
+                             ModelNameResponse, StoreMetaResponse, StoreMinionAuthResponse, StoreResolveQuery, StoreListQuery)),
 modifiers(&SecurityAddon),
 info(title = "SysInspect API", version = API_VERSION, description = API_DOC_DESCRIPTION))]
 pub struct ApiDoc;
@@ -128,12 +130,13 @@ pub struct ApiDoc;
     crate::api::v1::store::store_meta_handler,
     crate::api::v1::store::store_blob_handler,
     crate::api::v1::store::store_upload_handler,
+    crate::api::v1::store::store_minion_auth_handler,
     crate::api::v1::store::store_resolve_handler,
     crate::api::v1::store::store_list_handler,
 ),
           components(schemas(QueryRequest, QueryResponse, QueryError,
-                             HealthInfo, HealthResponse, AuthRequest, AuthResponse,
-                             ModelNameResponse, StoreMetaResponse, StoreResolveQuery, StoreListQuery)),
+                              HealthInfo, HealthResponse, AuthRequest, AuthResponse,
+                             ModelNameResponse, StoreMetaResponse, StoreMinionAuthResponse, StoreResolveQuery, StoreListQuery)),
 modifiers(&SecurityAddon),
 info(title = "SysInspect API", version = API_VERSION, description = API_DOC_DEV_DESCRIPTION))]
 pub struct ApiDocDev;

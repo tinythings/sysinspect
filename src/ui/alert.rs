@@ -201,7 +201,7 @@ impl SysInspectUX {
             Self::help_line("Ctrl+R", "Open the registration form to add a new machine."),
             Line::from(""),
             Self::help_line("Ctrl+A", "Open the Artefacts Manager: modules, libraries,"),
-            Self::help_line("", "models, profiles, platform builds."),
+            Self::help_line("", "models, sensors, profiles, platform builds."),
             Line::from(""),
             Self::help_line("Ctrl+U", "Run a cluster upgrade across your machines."),
             Line::from(""),

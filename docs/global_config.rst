@@ -497,10 +497,17 @@ Below are directives for the configuration of the File Server service:
 
     Type: **string**
 
-    Authentication method to be used for the embedded Web API. This is a string and can be one of the following:
+    Authentication method to be used for the embedded Web API. This applies to
+    normal operator or external API clients authenticating through
+    ``POST /api/v1/authenticate``. This is a string and can be one of the
+    following:
 
         - ``pam``
         - ``ldap`` `(planned, not implemented yet)`
+
+    Datastore endpoints used by internal minion-originated ``cfg.resource``
+    calls also support transparent minion-auth bootstrap and are not intended
+    to require operator PAM credentials inside model execution.
 
 ``api.devmode``
 ################
